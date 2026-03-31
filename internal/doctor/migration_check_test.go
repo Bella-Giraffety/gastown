@@ -2,8 +2,12 @@ package doctor
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -209,6 +213,117 @@ func TestGetServerAddr_UsesConfigYAMLPort(t *testing.T) {
 	}
 }
 
+func TestDoltServerReachableCheck_FailsWhenExpectedRigDatabaseMissing(t *testing.T) {
+	check := NewDoltServerReachableCheck()
+	townRoot := t.TempDir()
+
+	setupRigsJSON(t, townRoot, []string{"gastown"})
+	setupRigMetadata(t, townRoot, "hq", "hq")
+	setupRigMetadata(t, townRoot, "gastown", "gastown")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	host, portStr, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beadsDir := filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads")
+	setupServerMetadata(t, beadsDir, host, mustAtoi(t, portStr))
+	writeServerMetadata(t, beadsDir, "gastown", host, mustAtoi(t, portStr))
+	hqBeadsDir := filepath.Join(townRoot, ".beads")
+	setupServerMetadata(t, hqBeadsDir, host, mustAtoi(t, portStr))
+	writeServerMetadata(t, hqBeadsDir, "hq", host, mustAtoi(t, portStr))
+
+	origVerify := verifyDoltDatabases
+	verifyDoltDatabases = func(string) ([]string, []string, error) {
+		return []string{"hq"}, []string{"gastown"}, nil
+	}
+	defer func() { verifyDoltDatabases = origVerify }()
+
+	result := check.Run(&CheckContext{TownRoot: townRoot})
+	if result.Status != StatusError {
+		t.Fatalf("expected StatusError, got %v: %s", result.Status, result.Message)
+	}
+	if !strings.Contains(result.Message, "expected rig database") {
+		t.Fatalf("expected missing database message, got %q", result.Message)
+	}
+	if len(result.Details) != 1 || result.Details[0] != "gastown (gastown)" {
+		t.Fatalf("expected gastown missing detail, got %#v", result.Details)
+	}
+}
+
+func TestDoltServerReachableCheck_FailsWhenDatabaseVerificationErrors(t *testing.T) {
+	check := NewDoltServerReachableCheck()
+	townRoot := t.TempDir()
+
+	setupRigsJSON(t, townRoot, []string{"gastown"})
+	setupRigMetadata(t, townRoot, "hq", "hq")
+	setupRigMetadata(t, townRoot, "gastown", "gastown")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	host, portStr, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beadsDir := filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads")
+	setupServerMetadata(t, beadsDir, host, mustAtoi(t, portStr))
+	writeServerMetadata(t, beadsDir, "gastown", host, mustAtoi(t, portStr))
+	hqBeadsDir := filepath.Join(townRoot, ".beads")
+	setupServerMetadata(t, hqBeadsDir, host, mustAtoi(t, portStr))
+	writeServerMetadata(t, hqBeadsDir, "hq", host, mustAtoi(t, portStr))
+
+	origVerify := verifyDoltDatabases
+	verifyDoltDatabases = func(string) ([]string, []string, error) {
+		return nil, nil, fmt.Errorf("panic from sibling db")
+	}
+	defer func() { verifyDoltDatabases = origVerify }()
+
+	result := check.Run(&CheckContext{TownRoot: townRoot})
+	if result.Status != StatusError {
+		t.Fatalf("expected StatusError, got %v: %s", result.Status, result.Message)
+	}
+	if !strings.Contains(result.Message, "database verification failed") {
+		t.Fatalf("expected verification failure message, got %q", result.Message)
+	}
+	if len(result.Details) != 1 || !strings.Contains(result.Details[0], "panic from sibling db") {
+		t.Fatalf("expected verification error detail, got %#v", result.Details)
+	}
+}
+
+func mustAtoi(t *testing.T, value string) int {
+	t.Helper()
+	port, err := strconv.Atoi(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func writeServerMetadata(t *testing.T, beadsDir, database, host string, port int) {
+	t.Helper()
+	meta := map[string]interface{}{
+		"backend":          "dolt",
+		"dolt_mode":        "server",
+		"dolt_database":    database,
+		"dolt_server_host": host,
+		"dolt_server_port": port,
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDoltOrphanedDatabaseCheck_NoOrphans(t *testing.T) {
 	townRoot := t.TempDir()
 
@@ -324,4 +439,3 @@ func TestDoltOrphanedDatabaseCheck_Name(t *testing.T) {
 		t.Errorf("expected name 'dolt-orphaned-databases', got %q", check.Name())
 	}
 }
-
