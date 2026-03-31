@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/steveyegge/gastown/internal/doltserver"
 )
 
 // setupDoltDB creates a fake Dolt database directory under .dolt-data/.
@@ -237,11 +239,14 @@ func TestDoltServerReachableCheck_FailsWhenExpectedRigDatabaseMissing(t *testing
 	setupServerMetadata(t, hqBeadsDir, host, mustAtoi(t, portStr))
 	writeServerMetadata(t, hqBeadsDir, "hq", host, mustAtoi(t, portStr))
 
-	origVerify := verifyDoltDatabases
-	verifyDoltDatabases = func(string) ([]string, []string, error) {
+	origVerify := verifyExpectedDatabasesAtConfig
+	verifyExpectedDatabasesAtConfig = func(_ *doltserver.Config, expected []string) ([]string, []string, error) {
+		if len(expected) != 2 || expected[0] != "hq" || expected[1] != "gastown" {
+			t.Fatalf("unexpected expected database list: %#v", expected)
+		}
 		return []string{"hq"}, []string{"gastown"}, nil
 	}
-	defer func() { verifyDoltDatabases = origVerify }()
+	defer func() { verifyExpectedDatabasesAtConfig = origVerify }()
 
 	result := check.Run(&CheckContext{TownRoot: townRoot})
 	if result.Status != StatusError {
@@ -279,11 +284,14 @@ func TestDoltServerReachableCheck_FailsWhenDatabaseVerificationErrors(t *testing
 	setupServerMetadata(t, hqBeadsDir, host, mustAtoi(t, portStr))
 	writeServerMetadata(t, hqBeadsDir, "hq", host, mustAtoi(t, portStr))
 
-	origVerify := verifyDoltDatabases
-	verifyDoltDatabases = func(string) ([]string, []string, error) {
+	origVerify := verifyExpectedDatabasesAtConfig
+	verifyExpectedDatabasesAtConfig = func(_ *doltserver.Config, expected []string) ([]string, []string, error) {
+		if len(expected) != 2 || expected[0] != "hq" || expected[1] != "gastown" {
+			t.Fatalf("unexpected expected database list: %#v", expected)
+		}
 		return nil, nil, fmt.Errorf("panic from sibling db")
 	}
-	defer func() { verifyDoltDatabases = origVerify }()
+	defer func() { verifyExpectedDatabasesAtConfig = origVerify }()
 
 	result := check.Run(&CheckContext{TownRoot: townRoot})
 	if result.Status != StatusError {
@@ -294,6 +302,43 @@ func TestDoltServerReachableCheck_FailsWhenDatabaseVerificationErrors(t *testing
 	}
 	if len(result.Details) != 1 || !strings.Contains(result.Details[0], "panic from sibling db") {
 		t.Fatalf("expected verification error detail, got %#v", result.Details)
+	}
+}
+
+func TestDoltServerReachableCheck_UsesConfiguredDatabaseNameNotRigName(t *testing.T) {
+	check := NewDoltServerReachableCheck()
+	townRoot := t.TempDir()
+
+	setupRigsJSON(t, townRoot, []string{"laneassist"})
+	setupRigMetadata(t, townRoot, "hq", "hq")
+	setupRigMetadata(t, townRoot, "laneassist", "lc")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	host, portStr, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beadsDir := filepath.Join(townRoot, "laneassist", "mayor", "rig", ".beads")
+	writeServerMetadata(t, beadsDir, "lc", host, mustAtoi(t, portStr))
+	hqBeadsDir := filepath.Join(townRoot, ".beads")
+	writeServerMetadata(t, hqBeadsDir, "hq", host, mustAtoi(t, portStr))
+
+	origVerify := verifyExpectedDatabasesAtConfig
+	verifyExpectedDatabasesAtConfig = func(_ *doltserver.Config, expected []string) ([]string, []string, error) {
+		if len(expected) != 2 || expected[0] != "hq" || expected[1] != "lc" {
+			t.Fatalf("unexpected expected database list: %#v", expected)
+		}
+		return []string{"hq", "lc"}, nil, nil
+	}
+	defer func() { verifyExpectedDatabasesAtConfig = origVerify }()
+
+	result := check.Run(&CheckContext{TownRoot: townRoot})
+	if result.Status != StatusOK {
+		t.Fatalf("expected StatusOK, got %v: %s", result.Status, result.Message)
 	}
 }
 

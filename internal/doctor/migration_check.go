@@ -15,7 +15,7 @@ import (
 	"github.com/steveyegge/gastown/internal/util"
 )
 
-var verifyDoltDatabases = doltserver.VerifyDatabases
+var verifyExpectedDatabasesAtConfig = doltserver.VerifyExpectedDatabasesAtConfig
 
 type serverModeRig struct {
 	name     string
@@ -303,7 +303,14 @@ func (c *DoltServerReachableCheck) Run(ctx *CheckContext) *CheckResult {
 		} else {
 			_ = conn.Close()
 			if isLocalDoltAddr(addr) {
-				_, missing, verifyErr := verifyDoltDatabases(ctx.TownRoot)
+				cfg := doltserver.DefaultConfig(ctx.TownRoot)
+				cfg.Host = hostForAddr(addr)
+				cfg.Port = portForAddr(addr)
+				var expected []string
+				for _, rig := range rigs {
+					expected = append(expected, rig.database)
+				}
+				_, missing, verifyErr := verifyExpectedDatabasesAtConfig(cfg, expected)
 				if verifyErr != nil {
 					return &CheckResult{
 						Name:     c.Name(),
@@ -402,6 +409,26 @@ func isLocalDoltAddr(addr string) bool {
 	default:
 		return false
 	}
+}
+
+func hostForAddr(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "127.0.0.1"
+	}
+	return host
+}
+
+func portForAddr(addr string) int {
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return doltserver.DefaultPort
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return doltserver.DefaultPort
+	}
+	return port
 }
 
 func (c *DoltServerReachableCheck) getDoltDatabase(beadsDir, fallback string) string {

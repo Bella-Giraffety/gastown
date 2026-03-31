@@ -2031,6 +2031,41 @@ func VerifyDatabases(townRoot string) (served, missing []string, err error) {
 	return verifyDatabasesWithRetry(townRoot, 1)
 }
 
+// VerifyExpectedDatabasesAtConfig queries SHOW DATABASES on the exact server
+// described by config and reports which expected database names are missing.
+// Unlike VerifyDatabases, this helper does not inspect the filesystem; it is
+// intended for health checks that must validate a specific server address from
+// metadata rather than the town's default local Dolt config.
+func VerifyExpectedDatabasesAtConfig(config *Config, expected []string) (served, missing []string, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := buildDoltSQLCmd(ctx, config,
+		"-r", "json",
+		"-q", "SHOW DATABASES",
+	)
+
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+	output, queryErr := cmd.Output()
+	if queryErr != nil {
+		stderrMsg := strings.TrimSpace(stderrBuf.String())
+		errDetail := strings.TrimSpace(string(output))
+		if stderrMsg != "" {
+			errDetail = errDetail + " (stderr: " + stderrMsg + ")"
+		}
+		return nil, nil, fmt.Errorf("querying SHOW DATABASES: %w (output: %s)", queryErr, errDetail)
+	}
+
+	served, err = parseShowDatabases(output)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing SHOW DATABASES output: %w", err)
+	}
+
+	missing = findMissingDatabases(served, expected)
+	return served, missing, nil
+}
+
 // VerifyDatabasesWithRetry is like VerifyDatabases but retries the SHOW DATABASES
 // query with exponential backoff to handle the case where the server has just started
 // and is still loading databases.
