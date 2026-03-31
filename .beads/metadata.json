@@ -1,7 +1,9 @@
 {
-  "backend": "dolt",
   "database": "dolt",
-  "dolt_database": "gastown",
+  "backend": "dolt",
   "dolt_mode": "server",
-  "dolt_server_port": 3307
+  "dolt_server_host": "127.0.0.1",
+  "dolt_server_port": 3307,
+  "dolt_database": "gastown",
+  "project_id": "744a4081-63a9-45df-b81e-5f498859238f"
 }
