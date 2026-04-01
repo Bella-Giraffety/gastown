@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -115,6 +116,81 @@ func TestGetAgentBead_FallsBackToDescriptionAgentState(t *testing.T) {
 	}
 	if fields.AgentState != "spawning" {
 		t.Fatalf("fields.AgentState = %q, want %q", fields.AgentState, "spawning")
+	}
+}
+
+func TestUpdateAgentState_UsesSetStateCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "bd.log")
+	showOutput := `[{"id":"gs-gastown-polecat-chrome","title":"gs-gastown-polecat-chrome","issue_type":"agent","labels":["gt:agent"],"description":"gs-gastown-polecat-chrome\n\nrole_type: polecat\nrig: gastown\nagent_state: spawning\nhook_bead: null\ncleanup_status: null\nactive_mr: null\nnotification_level: null"}]`
+
+	if runtime.GOOS == "windows" {
+		scriptPath := filepath.Join(binDir, "bd.cmd")
+		script := "@echo off\r\n" +
+			"setlocal EnableDelayedExpansion\r\n" +
+			"echo %*>>\"%MOCK_BD_LOG%\"\r\n" +
+			"if /I \"%1\"==\"set-state\" exit /b 0\r\n" +
+			"if /I \"%1\"==\"show\" (\r\n" +
+			"  echo(%MOCK_BD_SHOW_OUTPUT%\r\n" +
+			"  exit /b 0\r\n" +
+			")\r\n" +
+			"if /I \"%1\"==\"update\" exit /b 0\r\n" +
+			"exit /b 0\r\n"
+		if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+			t.Fatalf("write mock bd: %v", err)
+		}
+	} else {
+		scriptPath := filepath.Join(binDir, "bd")
+		script := `#!/bin/sh
+printf '%s\n' "$*" >> "$MOCK_BD_LOG"
+case "$1" in
+  set-state)
+    exit 0
+    ;;
+  show)
+    printf '%s\n' "$MOCK_BD_SHOW_OUTPUT"
+    exit 0
+    ;;
+  update)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			t.Fatalf("write mock bd: %v", err)
+		}
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MOCK_BD_LOG", logPath)
+	t.Setenv("MOCK_BD_SHOW_OUTPUT", showOutput)
+
+	bd := NewIsolated(tmpDir)
+	if err := bd.UpdateAgentState("gs-gastown-polecat-chrome", "working"); err != nil {
+		t.Fatalf("UpdateAgentState: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	log := string(data)
+	if !strings.Contains(log, "set-state gs-gastown-polecat-chrome agent_state=working") {
+		t.Fatalf("expected set-state command in log, got:\n%s", log)
+	}
+	if !strings.Contains(log, "update gs-gastown-polecat-chrome") {
+		t.Fatalf("expected description sync update in log, got:\n%s", log)
+	}
+	if strings.Contains(log, "agent state") {
+		t.Fatalf("unexpected legacy bd agent CLI call in log:\n%s", log)
 	}
 }
 

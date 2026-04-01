@@ -416,14 +416,14 @@ func (b *Beads) ResetAgentBeadForReuse(id, reason string) error {
 }
 
 // UpdateAgentState updates the agent_state field in an agent bead.
-// Uses `bd agent state` command for the database column directly,
+// Uses `bd set-state` for compatibility with current bd builds,
 // then syncs the description's agent_state field to match (gt-ulom).
 func (b *Beads) UpdateAgentState(id string, state string) (retErr error) {
 	defer func() { telemetry.RecordAgentStateChange(context.Background(), id, state, nil, retErr) }()
-	// Update agent state using bd agent state command
+	// Update agent state using bd set-state for the agent_state dimension.
 	// Use runWithRouting so bd can resolve cross-prefix agent beads (e.g., wa-*
 	// agent beads from hq context) via routes.jsonl instead of BEADS_DIR.
-	_, err := b.runWithRouting("agent", "state", id, state)
+	_, err := b.runWithRouting("set-state", id, "agent_state="+state)
 	if err != nil {
 		return fmt.Errorf("updating agent state: %w", err)
 	}
@@ -618,8 +618,8 @@ func (b *Beads) GetAgentBead(id string) (*Issue, *AgentFields, error) {
 
 	fields := ParseAgentFields(issue.Description)
 	// Prefer the structured agent_state column when present.
-	// Some writers (for example, `bd agent state`) update the DB column directly
-	// without rewriting the description text, so description-derived state can be stale.
+	// Some writers (for example, `bd set-state`) update state outside the
+	// description text, so description-derived state can be stale.
 	if issue.AgentState != "" {
 		fields.AgentState = issue.AgentState
 	}
