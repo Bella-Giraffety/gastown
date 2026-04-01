@@ -415,15 +415,72 @@ func (b *Beads) ResetAgentBeadForReuse(id, reason string) error {
 // that contract with fallback to the legacy structured column via ResolveAgentState.
 //
 // Resolves the concrete target DB first so the update hits the correct database
-// when the agent bead routes to a different beads dir via routes.jsonl.
+// UpdateAgentState updates the agent_state field in an agent bead.
+// Agent beads live in wisps, so bd set-state is unsafe here: it creates a child
+// event bead and can fail its child_counters foreign key because the parent is
+// not stored in issues. Update the wisps column directly, then sync the
+// description's agent_state field to match.
 func (b *Beads) UpdateAgentState(id string, state string) (retErr error) {
 	defer func() { telemetry.RecordAgentStateChange(context.Background(), id, state, nil, retErr) }()
+
+	// Resolve where this bead lives. SQL updates must target the owning beads DB;
+	// they cannot rely on prefix routing the way show/update commands can.
 	targetDir := ResolveRoutingTarget(b.getTownRoot(), id, b.getResolvedBeadsDir())
 	target := b
 	if targetDir != b.getResolvedBeadsDir() {
 		target = NewWithBeadsDir(filepath.Dir(targetDir), targetDir)
 	}
-	return target.UpdateAgentDescriptionFields(id, AgentFieldUpdates{AgentState: &state})
+
+	// Lock the agent bead for the entire state transition so the structured
+	// column write and description sync cannot interleave with another writer.
+	fl, lockErr := b.lockAgentBead(id)
+	if lockErr != nil {
+		return fmt.Errorf("locking agent bead %s: %w", id, lockErr)
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	query := fmt.Sprintf(
+		"UPDATE wisps SET agent_state = '%s' WHERE id = '%s'",
+		escapeSQLString(state),
+		escapeSQLString(id),
+	)
+	output, err := target.run("sql", query)
+	if err != nil {
+		return fmt.Errorf("updating agent state column: %w", err)
+	}
+	rowsUpdated := strings.Contains(strings.ToLower(string(output)), "1 rows affected") ||
+		strings.Contains(strings.ToLower(string(output)), "1 row affected")
+	if !rowsUpdated {
+		issue, fields, getErr := target.GetAgentBead(id)
+		if getErr != nil {
+			return fmt.Errorf("updating agent state column: no wisps row updated for %s", id)
+		}
+		if issue == nil || fields == nil {
+			return fmt.Errorf("updating agent state column: no wisps row updated for %s", id)
+		}
+		if fields.AgentState != state {
+			return fmt.Errorf("updating agent state column: no wisps row updated for %s", id)
+		}
+	}
+
+	// Sync the description's agent_state field with the column while still
+	// holding the bead lock so concurrent writers cannot reintroduce divergence.
+	issue, err := target.Show(id)
+	if err != nil {
+		return fmt.Errorf("syncing agent description state: %w", err)
+	}
+	fields := ParseAgentFields(issue.Description)
+	fields.AgentState = state
+	description := FormatAgentDescription(issue.Title, fields)
+	if err := target.Update(id, UpdateOptions{Description: &description}); err != nil {
+		return fmt.Errorf("syncing agent description state: %w", err)
+	}
+
+	return nil
+}
+
+func escapeSQLString(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 // SetHookBead and ClearHookBead removed (hq-l6mm5).
