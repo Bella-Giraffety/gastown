@@ -212,15 +212,23 @@ func TestReapExcludesAgentBeads(t *testing.T) {
 	// by checking the source code pattern.
 	// This is a compile-time guard — if the exclusion is removed, this test
 	// will fail when the query pattern doesn't match.
-	
+
 	// The whereClause in Reap() should contain:
 	// "w.issue_type != 'agent'"
 	// This test documents the expected behavior; actual exclusion is tested
 	// in integration tests with a real database.
-	
+
 	// Integration test would require spinning up a Dolt server, which is
 	// beyond the scope of this unit test. The exclusion is verified manually
 	// by checking that agent beads are not closed by the wisp_reaper patrol.
 	t.Log("Agent beads (issue_type='agent') are excluded from wisp reaping")
 	t.Log("This prevents hq-mayor, hq-deacon, witness, refinery, etc. from being closed")
+}
+
+// TestScanExcludesAgentBeads documents that Scan() must use the same eligibility
+// predicate as Reap() for stale open wisps. If Scan counts agent beads but Reap
+// excludes them, the operator sees scan>0 and reap=0 for the same cutoff.
+func TestScanExcludesAgentBeads(t *testing.T) {
+	t.Log("Agent beads (issue_type='agent') are excluded from stale-wisp scan counts")
+	t.Log("This keeps Scan() and Reap() aligned so scan-reported candidates are actually reapable")
 }
