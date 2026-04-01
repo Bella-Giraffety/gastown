@@ -74,6 +74,65 @@ func TestAdvanceBackoff(t *testing.T) {
 	}
 }
 
+func TestBuildDoltSQLCmd_LocalUsesTCPClientMode(t *testing.T) {
+	m := &DoltServerManager{
+		config: &DoltServerConfig{
+			Port:    3307,
+			User:    "root",
+			DataDir: "/tmp/dolt-data",
+		},
+		logger: func(format string, v ...interface{}) {},
+	}
+
+	cmd := m.buildDoltSQLCmd(t.Context(), "-q", "SELECT 1")
+
+	if cmd.Dir != "/tmp/dolt-data" {
+		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, "/tmp/dolt-data")
+	}
+
+	argStr := strings.Join(cmd.Args, " ")
+	for _, want := range []string{"--host", "127.0.0.1", "--port", "3307", "--user", "root", "--no-tls", "sql", "-q", "SELECT 1"} {
+		if !strings.Contains(argStr, want) {
+			t.Errorf("args %q missing expected %q", argStr, want)
+		}
+	}
+
+	for _, env := range cmd.Env {
+		if env == "DOLT_CLI_PASSWORD=" {
+			return
+		}
+	}
+	t.Error("local cmd should set empty DOLT_CLI_PASSWORD to suppress prompts")
+}
+
+func TestBuildDoltSQLCmd_RemoteNoPasswordSuppressesPrompt(t *testing.T) {
+	m := &DoltServerManager{
+		config: &DoltServerConfig{
+			Host:    "10.0.0.5",
+			Port:    3307,
+			User:    "root",
+			DataDir: "/tmp/dolt-data",
+		},
+		logger: func(format string, v ...interface{}) {},
+	}
+
+	cmd := m.buildDoltSQLCmd(t.Context(), "-q", "SELECT 1")
+
+	argStr := strings.Join(cmd.Args, " ")
+	for _, want := range []string{"--host", "10.0.0.5", "--port", "3307", "--user", "root", "--no-tls", "sql", "-q", "SELECT 1"} {
+		if !strings.Contains(argStr, want) {
+			t.Errorf("args %q missing expected %q", argStr, want)
+		}
+	}
+
+	for _, env := range cmd.Env {
+		if env == "DOLT_CLI_PASSWORD=" {
+			return
+		}
+	}
+	t.Error("remote cmd without password should set empty DOLT_CLI_PASSWORD env var")
+}
+
 func TestGetBackoffDelay_InitialValue(t *testing.T) {
 	m := &DoltServerManager{
 		config: &DoltServerConfig{
@@ -328,11 +387,11 @@ func TestStartLocked_SkipsIfAlreadyRunning(t *testing.T) {
 	var logMessages []string
 	m := &DoltServerManager{
 		config: &DoltServerConfig{
-			Enabled:  true,
-			Port:     13307,
-			Host:     "127.0.0.1",
-			DataDir:  filepath.Join(tmpDir, "dolt"),
-			LogFile:  filepath.Join(daemonDir, "dolt-server.log"),
+			Enabled: true,
+			Port:    13307,
+			Host:    "127.0.0.1",
+			DataDir: filepath.Join(tmpDir, "dolt"),
+			LogFile: filepath.Join(daemonDir, "dolt-server.log"),
 		},
 		townRoot: tmpDir,
 		logger: func(format string, v ...interface{}) {
@@ -552,7 +611,7 @@ func newTestManager(t *testing.T) *DoltServerManager {
 			RestartWindow:        10 * time.Minute,
 			HealthyResetInterval: 50 * time.Millisecond,
 		},
-		townRoot:      tmpDir,
+		townRoot:         tmpDir,
 		logger:           func(format string, v ...interface{}) { t.Logf(format, v...) },
 		runningFn:        func() (int, bool) { return 0, false },
 		healthCheckFn:    func() error { return nil },

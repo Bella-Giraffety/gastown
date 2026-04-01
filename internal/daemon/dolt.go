@@ -143,19 +143,19 @@ type DoltServerManager struct {
 	onRecoveryFn func()
 
 	// Test hooks (nil = use real implementations; set only in tests)
-	healthCheckFn      func() error
-	writeProbeCheckFn  func() error
-	identityCheckFn    func() error // nil = use real VerifyServerDataDir
-	startFn            func() error
-	runningFn          func() (int, bool)
-	stopFn             func()
-	sleepFn            func(time.Duration)
-	nowFn              func() time.Time
-	escalateFn         func(int)
-	unhealthyAlertFn   func(error)
-	readOnlyAlertFn    func(error)
-	crashAlertFn       func(int)
-	listDatabasesFn    func() ([]string, error)
+	healthCheckFn     func() error
+	writeProbeCheckFn func() error
+	identityCheckFn   func() error // nil = use real VerifyServerDataDir
+	startFn           func() error
+	runningFn         func() (int, bool)
+	stopFn            func()
+	sleepFn           func(time.Duration)
+	nowFn             func() time.Time
+	escalateFn        func(int)
+	unhealthyAlertFn  func(error)
+	readOnlyAlertFn   func(error)
+	crashAlertFn      func(int)
+	listDatabasesFn   func() ([]string, error)
 }
 
 // NewDoltServerManager creates a new Dolt server manager.
@@ -226,29 +226,28 @@ func (m *DoltServerManager) isRemote() bool {
 	return true
 }
 
-// buildDoltSQLCmd constructs a dolt sql command using daemon config, mirroring
-// the doltserver.buildDoltSQLCmd pattern for local-vs-remote command construction.
+// buildDoltSQLCmd constructs a non-interactive dolt sql command that always
+// talks to the running SQL server over TCP.
+//
+// For local servers, this avoids embedded-mode auto-discovery, which can load
+// databases relative to cmd.Dir instead of querying the live shared server.
 func (m *DoltServerManager) buildDoltSQLCmd(ctx context.Context, args ...string) *exec.Cmd {
-	var fullArgs []string
-	fullArgs = append(fullArgs, "sql")
-
-	if m.isRemote() {
-		host := m.config.Host
-		if host == "" {
-			host = "127.0.0.1"
-		}
-		user := m.config.User
-		if user == "" {
-			user = "root"
-		}
-		fullArgs = append(fullArgs,
-			"--host", host,
-			"--port", strconv.Itoa(m.config.Port),
-			"--user", user,
-			"--no-tls",
-		)
+	host := m.config.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	user := m.config.User
+	if user == "" {
+		user = "root"
 	}
 
+	fullArgs := []string{
+		"--host", host,
+		"--port", strconv.Itoa(m.config.Port),
+		"--user", user,
+		"--no-tls",
+		"sql",
+	}
 	fullArgs = append(fullArgs, args...)
 	cmd := exec.CommandContext(ctx, "dolt", fullArgs...)
 
@@ -258,9 +257,9 @@ func (m *DoltServerManager) buildDoltSQLCmd(ctx context.Context, args ...string)
 	// .doltcfg directories detected" or "Access denied" errors.
 	cmd.Dir = m.config.DataDir
 
-	if m.isRemote() && m.config.Password != "" {
-		cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD="+m.config.Password)
-	}
+	// Always set DOLT_CLI_PASSWORD to suppress interactive prompts.
+	// When empty, dolt connects without a password, which is the local default.
+	cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD="+m.config.Password)
 
 	return cmd
 }
