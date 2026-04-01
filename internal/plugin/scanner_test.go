@@ -400,6 +400,33 @@ func TestParsePluginMD_GitHubSheriff(t *testing.T) {
 	}
 }
 
+func TestParsePluginMD_StuckAgentDogUsesCurrentTownPaths(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "plugins", "stuck-agent-dog", "plugin.md"))
+	if err != nil {
+		t.Skipf("stuck-agent-dog plugin not found (expected in plugins/): %v", err)
+	}
+
+	plugin, err := parsePluginMD(content, "/test/stuck-agent-dog", LocationRig, "gastown")
+	if err != nil {
+		t.Fatalf("parsePluginMD failed: %v", err)
+	}
+
+	for _, want := range []string{
+		"GT_TOWN_ROOT",
+		"${TOWN_ROOT}/mayor/rigs.json",
+		"${TOWN_ROOT}/rigs.json",
+		"deacon/heartbeat.json",
+	} {
+		if !strings.Contains(plugin.Instructions, want) {
+			t.Errorf("expected instructions to contain %q", want)
+		}
+	}
+
+	if strings.Contains(plugin.Instructions, ".deacon-heartbeat") {
+		t.Error("expected instructions to stop referencing legacy .deacon-heartbeat path")
+	}
+}
+
 func TestParsePluginMD_WithRunScript(t *testing.T) {
 	// Use a temp dir with a fixture plugin.md and run.sh so the test
 	// doesn't depend on the local filesystem layout (fails in CI).

@@ -58,15 +58,21 @@ Gather all polecats and the deacon session. We check both crashed sessions
 ```bash
 echo "=== Stuck Agent Dog: Checking agent health ==="
 
-TOWN_ROOT="$HOME/gt"
+TOWN_ROOT="${GT_TOWN_ROOT:-${GT_ROOT:-$HOME/gt}}"
 RIGS_JSON_PATH="${TOWN_ROOT}/mayor/rigs.json"
+
+# mayor/rigs.json is canonical, but some recovery paths only have the fallback
+# copy at the town root. Support both so we don't report false "no rigs" alerts.
+if [ ! -f "$RIGS_JSON_PATH" ]; then
+  RIGS_JSON_PATH="${TOWN_ROOT}/rigs.json"
+fi
 
 # Read rigs.json for rig names and beads prefixes
 # CRITICAL: We need both the rig name (for filesystem paths like $TOWN_ROOT/$RIG/polecats/)
 # and the beads prefix (for tmux session names like $PREFIX-polecat-$NAME).
 # These can differ — e.g. rig "cfutons" may have prefix "CF".
 if [ ! -f "$RIGS_JSON_PATH" ]; then
-  echo "SKIP: rigs.json not found at $RIGS_JSON_PATH"
+  echo "SKIP: rigs.json not found at ${TOWN_ROOT}/mayor/rigs.json or ${TOWN_ROOT}/rigs.json"
   exit 0
 fi
 
@@ -177,8 +183,8 @@ if ! tmux has-session -t "$DEACON_SESSION" 2>/dev/null; then
   echo "  CRASHED: Deacon session is dead"
   DEACON_ISSUE="crashed"
 else
-  # Check deacon heartbeat file
-  HEARTBEAT_FILE="$TOWN_ROOT/deacon/.deacon-heartbeat"
+  # Check deacon heartbeat file. The deacon writes heartbeat.json in the town root.
+  HEARTBEAT_FILE="$TOWN_ROOT/deacon/heartbeat.json"
   if [ -f "$HEARTBEAT_FILE" ]; then
     HEARTBEAT_TIME=$(stat -f %m "$HEARTBEAT_FILE" 2>/dev/null || stat -c %Y "$HEARTBEAT_FILE" 2>/dev/null)
     NOW=$(date +%s)
