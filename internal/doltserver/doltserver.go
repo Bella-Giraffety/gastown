@@ -425,8 +425,46 @@ func buildDoltSQLCmd(ctx context.Context, config *Config, args ...string) *exec.
 	cmd.Dir = config.DataDir
 	setProcessGroup(cmd)
 
-	if config.IsRemote() && config.Password != "" {
+	if config.Password != "" {
 		cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD="+config.Password)
+	} else if config.IsRemote() {
+		if inherited, ok := os.LookupEnv("DOLT_CLI_PASSWORD"); ok {
+			cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD="+inherited)
+		} else {
+			cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD=")
+		}
+	} else {
+		cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD=")
+	}
+
+	return cmd
+}
+
+// buildDoltSQLTCPClientCmd constructs a dolt sql command that always connects
+// to the running server over TCP, even when the configured host is local. This
+// is used by verification paths that must avoid embedded-mode fallback.
+func buildDoltSQLTCPClientCmd(ctx context.Context, config *Config, args ...string) *exec.Cmd {
+	fullArgs := []string{
+		"--host", config.EffectiveHost(),
+		"--port", strconv.Itoa(config.Port),
+		"--user", config.User,
+		"--no-tls",
+		"sql",
+	}
+	fullArgs = append(fullArgs, args...)
+
+	cmd := exec.CommandContext(ctx, "dolt", fullArgs...)
+	cmd.Dir = config.DataDir
+	if config.Password != "" {
+		cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD="+config.Password)
+	} else if config.IsRemote() {
+		if inherited, ok := os.LookupEnv("DOLT_CLI_PASSWORD"); ok {
+			cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD="+inherited)
+		} else {
+			cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD=")
+		}
+	} else {
+		cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD=")
 	}
 
 	return cmd
@@ -1018,7 +1056,7 @@ func VerifyServerDataDir(townRoot string) (bool, error) {
 		return true, nil
 	}
 
-	served, _, verifyErr := VerifyDatabases(townRoot)
+	served, verifyErr := queryServedDatabasesTCPClient(townRoot)
 	if verifyErr != nil {
 		return false, fmt.Errorf("could not query server databases: %w", verifyErr)
 	}
@@ -1039,6 +1077,39 @@ func VerifyServerDataDir(townRoot string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func queryServedDatabasesTCPClient(townRoot string) ([]string, error) {
+	config := DefaultConfig(townRoot)
+	if err := CheckServerReachable(townRoot); err != nil {
+		return nil, fmt.Errorf("server not reachable: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	cmd := buildDoltSQLTCPClientCmd(ctx, config,
+		"-r", "json",
+		"-q", "SHOW DATABASES",
+	)
+
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+	output, queryErr := cmd.Output()
+	cancel()
+	if queryErr != nil {
+		stderrMsg := strings.TrimSpace(stderrBuf.String())
+		errDetail := strings.TrimSpace(string(output))
+		if stderrMsg != "" {
+			errDetail = errDetail + " (stderr: " + stderrMsg + ")"
+		}
+		return nil, fmt.Errorf("querying SHOW DATABASES: %w (output: %s)", queryErr, errDetail)
+	}
+
+	served, parseErr := parseShowDatabases(output)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing SHOW DATABASES output: %w", parseErr)
+	}
+
+	return served, nil
 }
 
 // KillImposters finds and kills any dolt sql-server process on the configured

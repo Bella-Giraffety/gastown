@@ -3606,11 +3606,115 @@ func TestBuildDoltSQLCmd_RemoteNoPassword(t *testing.T) {
 	ctx := t.Context()
 	cmd := buildDoltSQLCmd(ctx, config, "-q", "SELECT 1")
 
-	// Should NOT have DOLT_CLI_PASSWORD in env
+	// Should set empty DOLT_CLI_PASSWORD to suppress interactive prompts.
 	for _, env := range cmd.Env {
-		if strings.HasPrefix(env, "DOLT_CLI_PASSWORD=") {
-			t.Error("remote cmd without password should not have DOLT_CLI_PASSWORD env var")
+		if env == "DOLT_CLI_PASSWORD=" {
+			return
 		}
+	}
+	t.Error("remote cmd without password should set empty DOLT_CLI_PASSWORD env var")
+}
+
+func TestBuildDoltSQLTCPClientCmd_Local(t *testing.T) {
+	config := &Config{
+		Host:    "",
+		Port:    3307,
+		User:    "root",
+		DataDir: "/tmp/dolt-data",
+	}
+
+	cmd := buildDoltSQLTCPClientCmd(t.Context(), config, "-q", "SELECT 1")
+
+	if cmd.Dir != config.DataDir {
+		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, config.DataDir)
+	}
+
+	wantArgs := []string{"dolt", "--host", "127.0.0.1", "--port", "3307", "--user", "root", "--no-tls", "sql", "-q", "SELECT 1"}
+	if len(cmd.Args) != len(wantArgs) {
+		t.Fatalf("len(cmd.Args) = %d, want %d; args=%v", len(cmd.Args), len(wantArgs), cmd.Args)
+	}
+	for i, want := range wantArgs {
+		if cmd.Args[i] != want {
+			t.Errorf("cmd.Args[%d] = %q, want %q", i, cmd.Args[i], want)
+		}
+	}
+
+	found := false
+	for _, env := range cmd.Env {
+		if env == "DOLT_CLI_PASSWORD=" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("local explicit TCP cmd should set empty DOLT_CLI_PASSWORD env var")
+	}
+}
+
+func TestBuildDoltSQLTCPClientCmd_Remote(t *testing.T) {
+	config := &Config{
+		Host:     "10.0.0.5",
+		Port:     3307,
+		User:     "root",
+		Password: "secret",
+		DataDir:  "/tmp/dolt-data",
+	}
+
+	cmd := buildDoltSQLTCPClientCmd(t.Context(), config, "-q", "SELECT 1")
+
+	if cmd.Dir != config.DataDir {
+		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, config.DataDir)
+	}
+
+	wantArgs := []string{"dolt", "--host", "10.0.0.5", "--port", "3307", "--user", "root", "--no-tls", "sql", "-q", "SELECT 1"}
+	if len(cmd.Args) != len(wantArgs) {
+		t.Fatalf("len(cmd.Args) = %d, want %d; args=%v", len(cmd.Args), len(wantArgs), cmd.Args)
+	}
+	for i, want := range wantArgs {
+		if cmd.Args[i] != want {
+			t.Errorf("cmd.Args[%d] = %q, want %q", i, cmd.Args[i], want)
+		}
+	}
+
+	found := false
+	for _, env := range cmd.Env {
+		if env == "DOLT_CLI_PASSWORD=secret" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("remote explicit TCP cmd should set DOLT_CLI_PASSWORD env var")
+	}
+}
+
+func TestBuildDoltSQLTCPClientCmd_RemoteNoPasswordPreservesInheritedCredentials(t *testing.T) {
+	t.Setenv("DOLT_CLI_PASSWORD", "secret-from-env")
+
+	config := &Config{
+		Host:    "10.0.0.5",
+		Port:    3307,
+		User:    "root",
+		DataDir: "/tmp/dolt-data",
+	}
+
+	cmd := buildDoltSQLTCPClientCmd(t.Context(), config, "-q", "SELECT 1")
+
+	foundInherited := false
+	foundEmpty := false
+	for _, env := range cmd.Env {
+		if env == "DOLT_CLI_PASSWORD=secret-from-env" {
+			foundInherited = true
+		}
+		if env == "DOLT_CLI_PASSWORD=" {
+			foundEmpty = true
+		}
+	}
+	if !foundInherited {
+		t.Fatal("expected remote explicit TCP helper to preserve inherited DOLT_CLI_PASSWORD")
+	}
+	if foundEmpty {
+		t.Fatal("did not expect remote explicit TCP helper to overwrite inherited credentials with empty password")
 	}
 }
 
