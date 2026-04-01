@@ -2473,39 +2473,46 @@ func getIssueDetailsBatch(issueIDs []string) map[string]*issueDetails {
 		return result
 	}
 
-	// Build args: bd show id1 id2 id3 ... --json
-	args := append([]string{"show"}, issueIDs...)
-	args = append(args, "--json")
-
-	// Run from the bead's resolved directory so non-HQ routed prefixes use the
-	// owning rig context instead of always forcing town-root lookup. (GH#2960, gs-60j)
-	resolvedDir := resolveBeadDir(issueIDs[0])
-	showCmd := exec.Command("bd", args...)
-	if resolvedDir != "" {
-		showCmd.Dir = resolvedDir
-		showCmd.Env = stripEnvKey(os.Environ(), "BEADS_DIR")
-	}
-	var stdout bytes.Buffer
-	showCmd.Stdout = &stdout
-
-	if err := showCmd.Run(); err != nil {
-		// Batch failed - fall back to individual lookups for robustness
-		// This handles cases where some IDs are invalid/missing
-		for _, id := range issueIDs {
-			if details := getIssueDetails(id); details != nil {
-				result[id] = details
-			}
+	// Group issue IDs by their resolved execution directory. This preserves the
+	// non-HQ rig routing fix without regressing mixed-prefix batches where town
+	// beads and rig beads share a single convoy view. (gs-60j)
+	grouped := make(map[string][]string)
+	for _, id := range issueIDs {
+		dir := resolveBeadDir(id)
+		if dir == "" {
+			dir = "."
 		}
-		return result
+		grouped[dir] = append(grouped[dir], id)
 	}
 
-	var issues []issueDetailsJSON
-	if err := json.Unmarshal(stdout.Bytes(), &issues); err != nil {
-		return result
-	}
+	for dir, ids := range grouped {
+		args := append([]string{"show"}, ids...)
+		args = append(args, "--json")
 
-	for _, issue := range issues {
-		result[issue.ID] = issue.toIssueDetails()
+		showCmd := exec.Command("bd", args...)
+		showCmd.Dir = dir
+		showCmd.Env = stripEnvKey(os.Environ(), "BEADS_DIR")
+
+		var stdout bytes.Buffer
+		showCmd.Stdout = &stdout
+
+		if err := showCmd.Run(); err != nil {
+			for _, id := range ids {
+				if details := getIssueDetails(id); details != nil {
+					result[id] = details
+				}
+			}
+			continue
+		}
+
+		var issues []issueDetailsJSON
+		if err := json.Unmarshal(stdout.Bytes(), &issues); err != nil {
+			continue
+		}
+
+		for _, issue := range issues {
+			result[issue.ID] = issue.toIssueDetails()
+		}
 	}
 
 	return result
