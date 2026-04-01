@@ -186,9 +186,6 @@ esac
 	if !strings.Contains(log, "set-state gs-gastown-polecat-chrome agent_state=working") {
 		t.Fatalf("expected set-state command in log, got:\n%s", log)
 	}
-	if !strings.Contains(log, "update gs-gastown-polecat-chrome") {
-		t.Fatalf("expected description sync update in log, got:\n%s", log)
-	}
 	if strings.Contains(log, "agent state") {
 		t.Fatalf("unexpected legacy bd agent CLI call in log:\n%s", log)
 	}

@@ -48,7 +48,7 @@ func createValidSettings(t *testing.T, path string) {
 					"hooks": []any{
 						map[string]any{
 							"type":    "command",
-							"command": "export PATH=/usr/local/bin:$PATH",
+							"command": "/usr/local/bin/gt prime --hook",
 						},
 					},
 				},
@@ -94,7 +94,7 @@ func createStaleSettings(t *testing.T, path string, missingElements ...string) {
 					"hooks": []any{
 						map[string]any{
 							"type":    "command",
-							"command": "export PATH=/usr/local/bin:$PATH",
+							"command": "/usr/local/bin/gt prime --hook",
 						},
 					},
 				},
@@ -120,16 +120,16 @@ func createStaleSettings(t *testing.T, path string, missingElements ...string) {
 		case "hooks":
 			delete(settings, "hooks")
 		case "PATH":
-			// Remove PATH from SessionStart hooks
+			// Remove the prime hook from SessionStart hooks.
 			hooks := settings["hooks"].(map[string]any)
 			sessionStart := hooks["SessionStart"].([]any)
 			hookObj := sessionStart[0].(map[string]any)
 			innerHooks := hookObj["hooks"].([]any)
-			// Filter out PATH command
+			// Filter out the prime command.
 			var filtered []any
 			for _, h := range innerHooks {
 				hMap := h.(map[string]any)
-				if cmd, ok := hMap["command"].(string); ok && !strings.Contains(cmd, "PATH=") {
+				if cmd, ok := hMap["command"].(string); ok && !strings.Contains(cmd, "prime --hook") {
 					filtered = append(filtered, h)
 				}
 			}
@@ -305,7 +305,7 @@ func TestClaudeSettingsCheck_MissingHooks(t *testing.T) {
 func TestClaudeSettingsCheck_MissingPATH(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create mayor settings.json missing PATH export (content validation)
+	// Create mayor settings.json missing the SessionStart prime hook.
 	mayorSettings := filepath.Join(tmpDir, "mayor", ".claude", "settings.json")
 	createStaleSettings(t, mayorSettings, "PATH")
 
@@ -315,17 +315,17 @@ func TestClaudeSettingsCheck_MissingPATH(t *testing.T) {
 	result := check.Run(ctx)
 
 	if result.Status != StatusError {
-		t.Errorf("expected StatusError for missing PATH, got %v", result.Status)
+		t.Errorf("expected StatusError for missing prime hook, got %v", result.Status)
 	}
 	found := false
 	for _, d := range result.Details {
-		if strings.Contains(d, "PATH export") {
+		if strings.Contains(d, "prime hook") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected details to mention PATH export, got %v", result.Details)
+		t.Errorf("expected details to mention prime hook, got %v", result.Details)
 	}
 }
 
@@ -548,7 +548,7 @@ func TestClaudeSettingsCheck_MixedValidAndStale(t *testing.T) {
 	mayorSettings := filepath.Join(tmpDir, "mayor", ".claude", "settings.json")
 	createValidSettings(t, mayorSettings)
 
-	// Create stale witness settings (settings.json missing PATH, in correct location)
+	// Create stale witness settings (settings.json missing prime hook, in correct location)
 	witnessSettings := filepath.Join(tmpDir, rigName, "witness", ".claude", "settings.json")
 	createStaleSettings(t, witnessSettings, "PATH")
 

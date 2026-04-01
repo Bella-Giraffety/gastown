@@ -204,7 +204,7 @@ func Merge(base, override *HooksConfig) *HooksConfig {
 // context (which degrades quality), the session is replaced with a fresh one.
 // The successor picks up hooked work via SessionStart hook (gt prime --hook).
 func DefaultOverrides() map[string]*HooksConfig {
-	pathSetup := `export PATH="$HOME/go/bin:$HOME/.local/bin:$PATH"`
+	gtBin := resolveGTBinary()
 
 	return map[string]*HooksConfig{
 		// Polecats: auto-run gt done on session Stop (gas-lob).
@@ -219,7 +219,7 @@ func DefaultOverrides() map[string]*HooksConfig {
 					Hooks: []Hook{
 						{
 							Type:    "command",
-							Command: fmt.Sprintf("%s && gt tap polecat-stop-check", pathSetup),
+							Command: fmt.Sprintf("%s tap polecat-stop-check", gtBin),
 						},
 					},
 				},
@@ -236,7 +236,7 @@ func DefaultOverrides() map[string]*HooksConfig {
 					Hooks: []Hook{
 						{
 							Type:    "command",
-							Command: fmt.Sprintf("%s && gt handoff --cycle --reason compaction", pathSetup),
+							Command: fmt.Sprintf("%s handoff --cycle --reason compaction", gtBin),
 						},
 					},
 				},
@@ -487,7 +487,6 @@ func DiscoverTargets(townRoot string) ([]Target, error) {
 
 	return targets, nil
 }
-
 
 // RoleLocation represents a discovered role directory in the workspace,
 // independent of any specific agent. Used by callers that need to resolve
@@ -808,9 +807,9 @@ func ValidTarget(target string) bool {
 }
 
 // DefaultBase returns a sensible default base configuration.
-// This includes PATH setup and gt prime hooks that all agents need.
+// This includes the shared gt hooks that all agents need.
 func DefaultBase() *HooksConfig {
-	pathSetup := `export PATH="$HOME/go/bin:$HOME/.local/bin:$PATH"`
+	gtBin := resolveGTBinary()
 
 	return &HooksConfig{
 		PreToolUse: []HookEntry{
@@ -818,42 +817,42 @@ func DefaultBase() *HooksConfig {
 				Matcher: "Bash(gh pr create*)",
 				Hooks: []Hook{{
 					Type:    "command",
-					Command: fmt.Sprintf("%s && gt tap guard pr-workflow", pathSetup),
+					Command: fmt.Sprintf("%s tap guard pr-workflow", gtBin),
 				}},
 			},
 			{
 				Matcher: "Bash(git checkout -b*)",
 				Hooks: []Hook{{
 					Type:    "command",
-					Command: fmt.Sprintf("%s && gt tap guard pr-workflow", pathSetup),
+					Command: fmt.Sprintf("%s tap guard pr-workflow", gtBin),
 				}},
 			},
 			{
 				Matcher: "Bash(git switch -c*)",
 				Hooks: []Hook{{
 					Type:    "command",
-					Command: fmt.Sprintf("%s && gt tap guard pr-workflow", pathSetup),
+					Command: fmt.Sprintf("%s tap guard pr-workflow", gtBin),
 				}},
 			},
 			{
 				Matcher: "Bash(rm -rf /*)",
 				Hooks: []Hook{{
 					Type:    "command",
-					Command: fmt.Sprintf("%s && gt tap guard dangerous-command", pathSetup),
+					Command: fmt.Sprintf("%s tap guard dangerous-command", gtBin),
 				}},
 			},
 			{
 				Matcher: "Bash(git push --force*)",
 				Hooks: []Hook{{
 					Type:    "command",
-					Command: fmt.Sprintf("%s && gt tap guard dangerous-command", pathSetup),
+					Command: fmt.Sprintf("%s tap guard dangerous-command", gtBin),
 				}},
 			},
 			{
 				Matcher: "Bash(git push -f*)",
 				Hooks: []Hook{{
 					Type:    "command",
-					Command: fmt.Sprintf("%s && gt tap guard dangerous-command", pathSetup),
+					Command: fmt.Sprintf("%s tap guard dangerous-command", gtBin),
 				}},
 			},
 		},
@@ -863,7 +862,7 @@ func DefaultBase() *HooksConfig {
 				Hooks: []Hook{
 					{
 						Type:    "command",
-						Command: fmt.Sprintf("%s && gt prime --hook", pathSetup),
+						Command: fmt.Sprintf("%s prime --hook", gtBin),
 					},
 				},
 			},
@@ -874,7 +873,7 @@ func DefaultBase() *HooksConfig {
 				Hooks: []Hook{
 					{
 						Type:    "command",
-						Command: fmt.Sprintf("%s && gt prime --hook", pathSetup),
+						Command: fmt.Sprintf("%s prime --hook", gtBin),
 					},
 				},
 			},
@@ -885,7 +884,7 @@ func DefaultBase() *HooksConfig {
 				Hooks: []Hook{
 					{
 						Type:    "command",
-						Command: fmt.Sprintf("%s && gt mail check --inject", pathSetup),
+						Command: fmt.Sprintf("%s mail check --inject", gtBin),
 					},
 				},
 			},
@@ -896,7 +895,7 @@ func DefaultBase() *HooksConfig {
 				Hooks: []Hook{
 					{
 						Type:    "command",
-						Command: fmt.Sprintf("%s && gt costs record &", pathSetup),
+						Command: fmt.Sprintf("%s costs record &", gtBin),
 					},
 				},
 			},

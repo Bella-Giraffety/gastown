@@ -495,17 +495,17 @@ func TestComputeExpectedBackfillsSessionStart(t *testing.T) {
 		if len(expected.SessionStart) == 0 {
 			t.Errorf("%s: expected SessionStart to be backfilled from DefaultBase, got none", target)
 		}
-		// Verify PATH= is present (the actual doctor check)
-		hasPath := false
+		// Verify SessionStart still includes the prime hook after backfill.
+		hasPrimeHook := false
 		for _, entry := range expected.SessionStart {
 			for _, hook := range entry.Hooks {
-				if strings.Contains(hook.Command, "PATH=") {
-					hasPath = true
+				if strings.Contains(hook.Command, "prime --hook") {
+					hasPrimeHook = true
 				}
 			}
 		}
-		if !hasPath {
-			t.Errorf("%s: expected PATH= in SessionStart hooks", target)
+		if !hasPrimeHook {
+			t.Errorf("%s: expected prime --hook in SessionStart hooks", target)
 		}
 		// On-disk Stop should be preserved (not overwritten by DefaultBase)
 		if len(expected.Stop) == 0 {

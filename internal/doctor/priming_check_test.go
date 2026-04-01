@@ -878,13 +878,13 @@ func TestPrimingCheck_FixNoPrimeHook(t *testing.T) {
 		t.Fatalf("Fix() failed: %v", err)
 	}
 
-	// Verify settings.json was recreated and now has gt prime
+	// Verify settings.json was recreated and now has the SessionStart prime hook.
 	newData, err := os.ReadFile(settingsPath)
 	if err != nil {
 		t.Fatalf("settings.json should exist after fix: %v", err)
 	}
 
-	if !strings.Contains(string(newData), "gt prime") {
-		t.Errorf("recreated settings.json should contain 'gt prime', got: %s", string(newData))
+	if !strings.Contains(string(newData), "prime --hook") {
+		t.Errorf("recreated settings.json should contain 'prime --hook', got: %s", string(newData))
 	}
 }
