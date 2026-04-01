@@ -2,6 +2,7 @@ package reaper
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -229,6 +230,13 @@ func TestReapExcludesAgentBeads(t *testing.T) {
 // predicate as Reap() for stale open wisps. If Scan counts agent beads but Reap
 // excludes them, the operator sees scan>0 and reap=0 for the same cutoff.
 func TestScanExcludesAgentBeads(t *testing.T) {
-	t.Log("Agent beads (issue_type='agent') are excluded from stale-wisp scan counts")
-	t.Log("This keeps Scan() and Reap() aligned so scan-reported candidates are actually reapable")
+	sourcePath := "reaper.go"
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read %s: %v", sourcePath, err)
+	}
+	source := string(data)
+	if !strings.Contains(source, "w.issue_type != 'agent'") {
+		t.Fatalf("expected Scan/Reap eligibility to exclude agent beads, source missing predicate:\n%s", source)
+	}
 }
