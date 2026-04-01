@@ -416,25 +416,42 @@ func (b *Beads) ResetAgentBeadForReuse(id, reason string) error {
 }
 
 // UpdateAgentState updates the agent_state field in an agent bead.
-// Uses `bd agent state` command for the database column directly,
-// then syncs the description's agent_state field to match (gt-ulom).
+// Agent beads live in wisps, so bd set-state is unsafe here: it creates a child
+// event bead and can fail its child_counters foreign key because the parent is
+// not stored in issues. Update the wisps column directly, then sync the
+// description's agent_state field to match.
 func (b *Beads) UpdateAgentState(id string, state string) (retErr error) {
 	defer func() { telemetry.RecordAgentStateChange(context.Background(), id, state, nil, retErr) }()
-	// Update agent state using bd agent state command
-	// Use runWithRouting so bd can resolve cross-prefix agent beads (e.g., wa-*
-	// agent beads from hq context) via routes.jsonl instead of BEADS_DIR.
-	_, err := b.runWithRouting("agent", "state", id, state)
+
+	// Resolve where this bead lives. SQL updates must target the owning beads DB;
+	// they cannot rely on prefix routing the way show/update commands can.
+	targetDir := ResolveRoutingTarget(b.getTownRoot(), id, b.getResolvedBeadsDir())
+	target := b
+	if targetDir != b.getResolvedBeadsDir() {
+		target = NewWithBeadsDir(filepath.Dir(targetDir), targetDir)
+	}
+
+	query := fmt.Sprintf(
+		"UPDATE wisps SET agent_state = '%s' WHERE id = '%s'",
+		escapeSQLString(state),
+		escapeSQLString(id),
+	)
+	_, err := target.run("sql", query)
 	if err != nil {
-		return fmt.Errorf("updating agent state: %w", err)
+		return fmt.Errorf("updating agent state column: %w", err)
 	}
 
 	// Sync the description's agent_state field with the column (gt-ulom).
 	// Without this, the description stays stale (e.g., "spawning" after the
 	// column transitions to "working"), causing bd show and dashboards to
 	// display incorrect state after idle polecat reuse via gt sling.
-	_ = b.UpdateAgentDescriptionFields(id, AgentFieldUpdates{AgentState: &state})
+	_ = target.UpdateAgentDescriptionFields(id, AgentFieldUpdates{AgentState: &state})
 
 	return nil
+}
+
+func escapeSQLString(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 // SetHookBead and ClearHookBead removed (hq-l6mm5).
@@ -618,7 +635,7 @@ func (b *Beads) GetAgentBead(id string) (*Issue, *AgentFields, error) {
 
 	fields := ParseAgentFields(issue.Description)
 	// Prefer the structured agent_state column when present.
-	// Some writers (for example, `bd agent state`) update the DB column directly
+	// Some writers update the DB column directly
 	// without rewriting the description text, so description-derived state can be stale.
 	if issue.AgentState != "" {
 		fields.AgentState = issue.AgentState
