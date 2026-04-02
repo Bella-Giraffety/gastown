@@ -400,6 +400,32 @@ func TestParsePluginMD_GitHubSheriff(t *testing.T) {
 	}
 }
 
+func TestParsePluginMD_StuckAgentDogHeartbeatSemantics(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "plugins", "stuck-agent-dog", "plugin.md"))
+	if err != nil {
+		t.Skipf("stuck-agent-dog plugin not found (expected in plugins/): %v", err)
+	}
+
+	plugin, err := parsePluginMD(content, "/test/stuck-agent-dog", LocationRig, "gastown")
+	if err != nil {
+		t.Fatalf("parsePluginMD failed: %v", err)
+	}
+
+	checks := []string{
+		"GT_TOWN_ROOT",
+		"GT_ROOT",
+		"mayor/rigs.json",
+		"${TOWN_ROOT}/rigs.json",
+		"deacon/heartbeat.json",
+		"heartbeat missing or unreadable",
+	}
+	for _, check := range checks {
+		if !strings.Contains(plugin.Instructions, check) {
+			t.Errorf("expected stuck-agent-dog instructions to contain %q", check)
+		}
+	}
+}
+
 func TestParsePluginMD_WithRunScript(t *testing.T) {
 	// Use a temp dir with a fixture plugin.md and run.sh so the test
 	// doesn't depend on the local filesystem layout (fails in CI).

@@ -58,21 +58,32 @@ Gather all polecats and the deacon session. We check both crashed sessions
 ```bash
 echo "=== Stuck Agent Dog: Checking agent health ==="
 
-TOWN_ROOT="$HOME/gt"
+TOWN_ROOT="${GT_TOWN_ROOT:-${GT_ROOT:-}}"
+if [ -z "$TOWN_ROOT" ]; then
+  echo "SKIP: GT_TOWN_ROOT/GT_ROOT not set"
+  exit 0
+fi
+
 RIGS_JSON_PATH="${TOWN_ROOT}/mayor/rigs.json"
+RIGS_JSON_FALLBACK_PATH="${TOWN_ROOT}/rigs.json"
+
+if [ -f "$RIGS_JSON_PATH" ]; then
+  RIGS_SOURCE="$RIGS_JSON_PATH"
+elif [ -f "$RIGS_JSON_FALLBACK_PATH" ]; then
+  echo "WARN: mayor/rigs.json missing, using fallback $RIGS_JSON_FALLBACK_PATH"
+  RIGS_SOURCE="$RIGS_JSON_FALLBACK_PATH"
+else
+  echo "SKIP: rigs.json not found at $RIGS_JSON_PATH or $RIGS_JSON_FALLBACK_PATH"
+  exit 0
+fi
 
 # Read rigs.json for rig names and beads prefixes
 # CRITICAL: We need both the rig name (for filesystem paths like $TOWN_ROOT/$RIG/polecats/)
 # and the beads prefix (for tmux session names like $PREFIX-polecat-$NAME).
 # These can differ — e.g. rig "cfutons" may have prefix "CF".
-if [ ! -f "$RIGS_JSON_PATH" ]; then
-  echo "SKIP: rigs.json not found at $RIGS_JSON_PATH"
-  exit 0
-fi
-
-RIGS_FILE=$(cat "$RIGS_JSON_PATH" 2>/dev/null)
+RIGS_FILE=$(cat "$RIGS_SOURCE" 2>/dev/null)
 if [ -z "$RIGS_FILE" ]; then
-  echo "SKIP: could not read rigs.json"
+  echo "SKIP: could not read rigs.json from $RIGS_SOURCE"
   exit 0
 fi
 
@@ -177,10 +188,10 @@ if ! tmux has-session -t "$DEACON_SESSION" 2>/dev/null; then
   echo "  CRASHED: Deacon session is dead"
   DEACON_ISSUE="crashed"
 else
-  # Check deacon heartbeat file
-  HEARTBEAT_FILE="$TOWN_ROOT/deacon/.deacon-heartbeat"
-  if [ -f "$HEARTBEAT_FILE" ]; then
-    HEARTBEAT_TIME=$(stat -f %m "$HEARTBEAT_FILE" 2>/dev/null || stat -c %Y "$HEARTBEAT_FILE" 2>/dev/null)
+  # Match deacon heartbeat semantics: missing or unreadable heartbeat is stale.
+  HEARTBEAT_FILE="$TOWN_ROOT/deacon/heartbeat.json"
+  HEARTBEAT_TIME=$(jq -r '.timestamp | fromdateiso8601? // empty' "$HEARTBEAT_FILE" 2>/dev/null)
+  if [ -n "$HEARTBEAT_TIME" ]; then
     NOW=$(date +%s)
     HEARTBEAT_AGE=$(( NOW - HEARTBEAT_TIME ))
 
@@ -191,7 +202,8 @@ else
       echo "  OK: Deacon heartbeat ${HEARTBEAT_AGE}s old"
     fi
   else
-    echo "  WARN: No heartbeat file found"
+    echo "  STUCK: Deacon heartbeat missing or unreadable"
+    DEACON_ISSUE="stuck_heartbeat_missing_or_unreadable"
   fi
 fi
 ```
