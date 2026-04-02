@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,29 +21,31 @@ import (
 )
 
 var (
-	healthJSON bool
+	healthJSON          bool
+	listHealthDatabases = doltserver.ListDatabases
+	findHealthOrphans   = doltserver.FindOrphanedDatabases
 )
 
 // HealthReport is the machine-readable output of gt health --json.
 type HealthReport struct {
-	Timestamp string              `json:"timestamp"`
-	Server    *ServerHealth       `json:"server"`
-	Databases []DatabaseHealth    `json:"databases"`
-	Pollution []PollutionRecord   `json:"pollution,omitempty"`
-	Backups   *BackupHealth       `json:"backups"`
-	Processes *ProcessHealth      `json:"processes"`
-	Orphans   []OrphanDB          `json:"orphans,omitempty"`
+	Timestamp string            `json:"timestamp"`
+	Server    *ServerHealth     `json:"server"`
+	Databases []DatabaseHealth  `json:"databases"`
+	Pollution []PollutionRecord `json:"pollution,omitempty"`
+	Backups   *BackupHealth     `json:"backups"`
+	Processes *ProcessHealth    `json:"processes"`
+	Orphans   []OrphanDB        `json:"orphans,omitempty"`
 }
 
 type ServerHealth struct {
-	Running        bool          `json:"running"`
-	PID            int           `json:"pid,omitempty"`
-	Port           int           `json:"port,omitempty"`
-	LatencyMs      int64         `json:"latency_ms,omitempty"`
-	Connections    int           `json:"connections,omitempty"`
-	MaxConnections int           `json:"max_connections,omitempty"`
-	DiskUsageBytes int64         `json:"disk_usage_bytes,omitempty"`
-	DiskUsageHuman string        `json:"disk_usage_human,omitempty"`
+	Running        bool   `json:"running"`
+	PID            int    `json:"pid,omitempty"`
+	Port           int    `json:"port,omitempty"`
+	LatencyMs      int64  `json:"latency_ms,omitempty"`
+	Connections    int    `json:"connections,omitempty"`
+	MaxConnections int    `json:"max_connections,omitempty"`
+	DiskUsageBytes int64  `json:"disk_usage_bytes,omitempty"`
+	DiskUsageHuman string `json:"disk_usage_human,omitempty"`
 }
 
 type DatabaseHealth struct {
@@ -62,12 +65,12 @@ type PollutionRecord struct {
 }
 
 type BackupHealth struct {
-	DoltFreshness  string `json:"dolt_freshness,omitempty"`
-	DoltAgeSeconds int    `json:"dolt_age_seconds,omitempty"`
-	DoltStale      bool   `json:"dolt_stale"`
-	JSONLFreshness string `json:"jsonl_freshness,omitempty"`
-	JSONLAgeSeconds int   `json:"jsonl_age_seconds,omitempty"`
-	JSONLStale     bool   `json:"jsonl_stale"`
+	DoltFreshness   string `json:"dolt_freshness,omitempty"`
+	DoltAgeSeconds  int    `json:"dolt_age_seconds,omitempty"`
+	DoltStale       bool   `json:"dolt_stale"`
+	JSONLFreshness  string `json:"jsonl_freshness,omitempty"`
+	JSONLAgeSeconds int    `json:"jsonl_age_seconds,omitempty"`
+	JSONLStale      bool   `json:"jsonl_stale"`
 }
 
 type ProcessHealth struct {
@@ -117,12 +120,12 @@ func runHealth(cmd *cobra.Command, args []string) error {
 
 	// 2. Databases (only if server is running)
 	if report.Server.Running {
-		report.Databases = checkDatabaseHealth(report.Server.Port)
+		report.Databases = checkDatabaseHealth(townRoot, report.Server.Port)
 	}
 
 	// 3. Pollution scan
 	if report.Server.Running {
-		report.Pollution = checkPollution(report.Server.Port)
+		report.Pollution = checkPollution(townRoot, report.Server.Port)
 	}
 
 	// 4. Backups
@@ -171,8 +174,8 @@ func checkServerHealth(townRoot string) *ServerHealth {
 	return sh
 }
 
-func checkDatabaseHealth(port int) []DatabaseHealth {
-	productionDBs := []string{"hq", "gt", "mo"}
+func checkDatabaseHealth(townRoot string, port int) []DatabaseHealth {
+	productionDBs := healthDatabases(townRoot)
 	var results []DatabaseHealth
 
 	for _, dbName := range productionDBs {
@@ -207,8 +210,8 @@ func checkDatabaseHealth(port int) []DatabaseHealth {
 	return results
 }
 
-func checkPollution(port int) []PollutionRecord {
-	productionDBs := []string{"hq", "gt", "mo"}
+func checkPollution(townRoot string, port int) []PollutionRecord {
+	productionDBs := healthDatabases(townRoot)
 	var records []PollutionRecord
 
 	// Known pollution patterns to check in the issues table.
@@ -261,6 +264,35 @@ func checkPollution(port int) []PollutionRecord {
 	}
 
 	return records
+}
+
+func healthDatabases(townRoot string) []string {
+	databases, err := listHealthDatabases(townRoot)
+	if err != nil || len(databases) == 0 {
+		return nil
+	}
+
+	orphans, err := findHealthOrphans(townRoot)
+	if err != nil {
+		sort.Strings(databases)
+		return databases
+	}
+
+	orphanSet := make(map[string]struct{}, len(orphans))
+	for _, orphan := range orphans {
+		orphanSet[orphan.Name] = struct{}{}
+	}
+
+	registered := databases[:0]
+	for _, dbName := range databases {
+		if _, isOrphan := orphanSet[dbName]; isOrphan {
+			continue
+		}
+		registered = append(registered, dbName)
+	}
+
+	sort.Strings(registered)
+	return registered
 }
 
 func checkBackupHealth(townRoot string) *BackupHealth {
