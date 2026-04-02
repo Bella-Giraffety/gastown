@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/workspace"
 )
 
 // Route represents a prefix-to-path routing rule.
@@ -287,26 +288,31 @@ func GetRigNameForPrefix(townRoot, prefix string) string {
 // based on prefix routing. currentBeadsDir is the caller's default beads directory
 // (typically the town-level .beads). If the bead ID's prefix maps to a different
 // rig via routes.jsonl, the resolved rig's beads directory is returned.
-// Returns currentBeadsDir if no routing is needed or prefix can't be resolved.
+// Returns currentBeadsDir if prefix can't be resolved.
 func ResolveBeadsDirForID(currentBeadsDir, beadID string) string {
 	prefix := ExtractPrefix(beadID)
 	if prefix == "" {
 		return currentBeadsDir
 	}
 
-	routes, err := LoadRoutes(currentBeadsDir)
+	routesBeadsDir := currentBeadsDir
+	if townRoot, err := workspace.Find(filepath.Dir(currentBeadsDir)); err == nil && townRoot != "" {
+		routesBeadsDir = filepath.Join(townRoot, ".beads")
+	}
+
+	routes, err := LoadRoutes(routesBeadsDir)
 	if err != nil || routes == nil {
 		return currentBeadsDir
 	}
 
+	townRoot := filepath.Dir(routesBeadsDir)
+
 	for _, r := range routes {
 		if r.Prefix == prefix {
 			if r.Path == "." {
-				return currentBeadsDir // Town-level — already correct
+				return routesBeadsDir
 			}
 			// Rig-level bead — resolve to rig's beads directory.
-			// Derive town root from currentBeadsDir (parent of .beads).
-			townRoot := filepath.Dir(currentBeadsDir)
 			rigDir := filepath.Join(townRoot, r.Path)
 			return ResolveBeadsDir(rigDir)
 		}

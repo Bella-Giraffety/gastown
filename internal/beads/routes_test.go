@@ -299,6 +299,47 @@ func TestResolveBeadsDirForID_NoRoutes(t *testing.T) {
 	}
 }
 
+func TestResolveBeadsDirForID_UsesTownRoutesFromRigBeads(t *testing.T) {
+	townRoot := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(townBeadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	currentBeadsDir := filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads")
+	if err := os.MkdirAll(currentBeadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	beadsRigBeadsDir := filepath.Join(townRoot, "beads", "mayor", "rig", ".beads")
+	if err := os.MkdirAll(beadsRigBeadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	routesContent := `{"prefix": "bd-", "path": "beads/mayor/rig"}
+{"prefix": "hq-", "path": "."}
+`
+	if err := os.WriteFile(filepath.Join(townBeadsDir, "routes.jsonl"), []byte(routesContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if result := ResolveBeadsDirForID(currentBeadsDir, "bd-abc123"); result != beadsRigBeadsDir {
+		t.Errorf("ResolveBeadsDirForID(%q, %q) = %q, want %q", currentBeadsDir, "bd-abc123", result, beadsRigBeadsDir)
+	}
+
+	if result := ResolveBeadsDirForID(currentBeadsDir, "hq-test123"); result != townBeadsDir {
+		t.Errorf("ResolveBeadsDirForID(%q, %q) = %q, want %q", currentBeadsDir, "hq-test123", result, townBeadsDir)
+	}
+}
+
 func TestGetRigNameForPrefix(t *testing.T) {
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
@@ -320,9 +361,9 @@ func TestGetRigNameForPrefix(t *testing.T) {
 	}{
 		{"gt-", "gastown"},
 		{"bd-", "beads"},
-		{"hq-", ""},       // Town-level, no specific rig
-		{"unknown-", ""},  // Not in routes
-		{"", ""},          // Empty prefix
+		{"hq-", ""},      // Town-level, no specific rig
+		{"unknown-", ""}, // Not in routes
+		{"", ""},         // Empty prefix
 	}
 
 	for _, tc := range tests {
