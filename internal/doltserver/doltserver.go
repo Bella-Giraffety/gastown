@@ -422,6 +422,47 @@ func buildDoltSQLCmd(ctx context.Context, config *Config, args ...string) *exec.
 	return cmd
 }
 
+// buildExactDoltSQLCmd constructs a dolt sql command that always talks to the
+// exact host:port from config over TCP, even for localhost addresses.
+//
+// This is narrower than buildDoltSQLCmd: it is only for verification paths that
+// must not fall back to Dolt's local auto-discovery behavior.
+func buildExactDoltSQLCmd(ctx context.Context, config *Config, args ...string) *exec.Cmd {
+	host := config.EffectiveHost()
+	user := config.User
+	if user == "" {
+		user = DefaultUser
+	}
+
+	fullArgs := []string{
+		"--host", host,
+		"--port", strconv.Itoa(config.Port),
+		"--user", user,
+		"--no-tls",
+		"sql",
+	}
+	fullArgs = append(fullArgs, args...)
+
+	cmd := exec.CommandContext(ctx, "dolt", fullArgs...)
+	cmd.Dir = config.DataDir
+	setProcessGroup(cmd)
+
+	switch {
+	case config.Password != "":
+		cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD="+config.Password)
+	case config.IsRemote():
+		if inherited, ok := os.LookupEnv("DOLT_CLI_PASSWORD"); ok {
+			cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD="+inherited)
+		} else {
+			cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD=")
+		}
+	default:
+		cmd.Env = append(os.Environ(), "DOLT_CLI_PASSWORD=")
+	}
+
+	return cmd
+}
+
 // RigDatabaseDir returns the database directory for a specific rig.
 func RigDatabaseDir(townRoot, rigName string) string {
 	config := DefaultConfig(townRoot)
@@ -1894,6 +1935,39 @@ func listDatabasesRemote(config *Config) ([]string, error) {
 // doesn't serve them.
 func VerifyDatabases(townRoot string) (served, missing []string, err error) {
 	return verifyDatabasesWithRetry(townRoot, 1)
+}
+
+// VerifyExpectedDatabasesAtConfig queries SHOW DATABASES on the exact server
+// described by config and reports which expected database names are missing.
+// Unlike VerifyDatabases, this helper does not inspect the filesystem.
+func VerifyExpectedDatabasesAtConfig(config *Config, expected []string) (served, missing []string, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := buildExactDoltSQLCmd(ctx, config,
+		"-r", "json",
+		"-q", "SHOW DATABASES",
+	)
+
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+	output, queryErr := cmd.Output()
+	if queryErr != nil {
+		stderrMsg := strings.TrimSpace(stderrBuf.String())
+		errDetail := strings.TrimSpace(string(output))
+		if stderrMsg != "" {
+			errDetail = errDetail + " (stderr: " + stderrMsg + ")"
+		}
+		return nil, nil, fmt.Errorf("querying SHOW DATABASES: %w (output: %s)", queryErr, errDetail)
+	}
+
+	served, err = parseShowDatabases(output)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing SHOW DATABASES output: %w", err)
+	}
+
+	missing = findMissingDatabases(served, expected)
+	return served, missing, nil
 }
 
 // VerifyDatabasesWithRetry is like VerifyDatabases but retries the SHOW DATABASES

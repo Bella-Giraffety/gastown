@@ -3614,6 +3614,40 @@ func TestBuildDoltSQLCmd_RemoteNoPassword(t *testing.T) {
 	}
 }
 
+func TestBuildExactDoltSQLCmd_LocalUsesTCPFlags(t *testing.T) {
+	config := &Config{
+		Host:    "localhost",
+		Port:    3307,
+		User:    "root",
+		DataDir: "/tmp/dolt-data",
+	}
+
+	ctx := t.Context()
+	cmd := buildExactDoltSQLCmd(ctx, config, "-q", "SELECT 1")
+
+	if cmd.Dir != config.DataDir {
+		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, config.DataDir)
+	}
+
+	args := strings.Join(cmd.Args, " ")
+	for _, want := range []string{"--host localhost", "--port 3307", "--user root", "--no-tls", " sql ", "-q", "SELECT 1"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("args %q missing expected fragment %q", args, want)
+		}
+	}
+
+	found := false
+	for _, env := range cmd.Env {
+		if env == "DOLT_CLI_PASSWORD=" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("exact local cmd should pin empty DOLT_CLI_PASSWORD")
+	}
+}
+
 // =============================================================================
 // WaitForReady tests (gt-zou1n)
 // =============================================================================
