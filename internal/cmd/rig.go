@@ -295,31 +295,31 @@ Examples:
 
 // Flags
 var (
-	rigAddPrefix       string
-	rigAddLocalRepo    string
-	rigAddBranch       string
-	rigAddPushURL      string
-	rigAddUpstreamURL  string
-	rigAddAdopt           bool
+	rigAddPrefix         string
+	rigAddLocalRepo      string
+	rigAddBranch         string
+	rigAddPushURL        string
+	rigAddUpstreamURL    string
+	rigAddAdopt          bool
 	rigAddAdoptURL       string
 	rigAddAdoptForce     bool
 	rigAddFilter         string
 	rigAddSparseCheckout []string
-	rigResetHandoff    bool
-	rigResetMail       bool
-	rigResetStale      bool
-	rigResetDryRun     bool
-	rigResetRole       string
-	rigShutdownForce   bool
-	rigShutdownNuclear bool
-	rigRebootForce     bool
-	rigRebootNuclear   bool
-	rigStopForce       bool
-	rigStopNuclear     bool
-	rigRestartForce    bool
-	rigRestartNuclear  bool
-	rigListJSON        bool
-	rigRemoveForce     bool
+	rigResetHandoff      bool
+	rigResetMail         bool
+	rigResetStale        bool
+	rigResetDryRun       bool
+	rigResetRole         string
+	rigShutdownForce     bool
+	rigShutdownNuclear   bool
+	rigRebootForce       bool
+	rigRebootNuclear     bool
+	rigStopForce         bool
+	rigStopNuclear       bool
+	rigRestartForce      bool
+	rigRestartNuclear    bool
+	rigListJSON          bool
+	rigRemoveForce       bool
 )
 
 var (
@@ -2157,35 +2157,15 @@ func getRigOperationalState(townRoot, rigName string) (state string, source stri
 	}
 
 	// Check rig bead labels (global/synced)
-	// Rig identity bead ID: <prefix>-rig-<name>
-	// Look for status:docked or status:parked labels
-	rigPath := filepath.Join(townRoot, rigName)
-	rigBeadsDir := beads.ResolveBeadsDir(rigPath)
-	bd := beads.NewWithBeadsDir(rigPath, rigBeadsDir)
-
-	// Try to find the rig identity bead
-	// Convention: <prefix>-rig-<rigName>
-	// Try to get prefix from rig config.json, fall back to rigs.json registry
-	var prefix string
-	if rigCfg, err := rig.LoadRigConfig(rigPath); err == nil && rigCfg.Beads != nil {
-		prefix = rigCfg.Beads.Prefix
-	} else {
-		// Fall back to registry (mayor/rigs.json) when config.json is missing
-		prefix = config.GetRigPrefix(townRoot, rigName)
-	}
-
-	if prefix != "" {
-		rigBeadID := fmt.Sprintf("%s-rig-%s", prefix, rigName)
-		if issue, err := bd.Show(rigBeadID); err == nil {
-			for _, label := range issue.Labels {
-				if strings.HasPrefix(label, "status:") {
-					statusValue := strings.TrimPrefix(label, "status:")
-					switch strings.ToLower(statusValue) {
-					case "docked":
-						return "DOCKED", "global - synced"
-					case "parked":
-						return "PARKED", "global - synced"
-					}
+	if issue, err := rig.ShowIdentityBead(townRoot, rigName); err == nil {
+		for _, label := range issue.Labels {
+			if strings.HasPrefix(label, "status:") {
+				statusValue := strings.TrimPrefix(label, "status:")
+				switch strings.ToLower(statusValue) {
+				case "docked":
+					return "DOCKED", "global - synced"
+				case "parked":
+					return "PARKED", "global - synced"
 				}
 			}
 		}
