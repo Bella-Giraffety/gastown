@@ -176,6 +176,73 @@ func TestBuildRestartCommand_UsesRoleAgentsWhenNoAgentOverride(t *testing.T) {
 	}
 }
 
+func TestBuildRestartCommand_PreservesAgentEnvAcrossHandoff(t *testing.T) {
+	setupHandoffTestRegistry(t)
+
+	origCwd, _ := os.Getwd()
+	origGTAgent := os.Getenv("GT_AGENT")
+	origTownRoot := os.Getenv("GT_TOWN_ROOT")
+	origRoot := os.Getenv("GT_ROOT")
+
+	townRoot := t.TempDir()
+
+	t.Cleanup(func() {
+		_ = os.Chdir(origCwd)
+		_ = os.Setenv("GT_AGENT", origGTAgent)
+		_ = os.Setenv("GT_TOWN_ROOT", origTownRoot)
+		_ = os.Setenv("GT_ROOT", origRoot)
+	})
+	rigPath := filepath.Join(townRoot, "gastown")
+	witnessDir := filepath.Join(rigPath, "witness")
+
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"gastown"}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.MkdirAll(witnessDir, 0755); err != nil {
+		t.Fatalf("mkdir witness dir: %v", err)
+	}
+
+	townSettings := config.NewTownSettings()
+	townSettings.DefaultAgent = "claude"
+	townSettings.RoleAgents = map[string]string{
+		"witness": "opencode",
+	}
+	if err := config.SaveTownSettings(config.TownSettingsPath(townRoot), townSettings); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+	if err := config.SaveRigSettings(config.RigSettingsPath(rigPath), config.NewRigSettings()); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	if err := os.Setenv("GT_AGENT", ""); err != nil {
+		t.Fatalf("Setenv GT_AGENT: %v", err)
+	}
+	if err := os.Setenv("GT_TOWN_ROOT", ""); err != nil {
+		t.Fatalf("Setenv GT_TOWN_ROOT: %v", err)
+	}
+	if err := os.Setenv("GT_ROOT", ""); err != nil {
+		t.Fatalf("Setenv GT_ROOT: %v", err)
+	}
+	if err := os.Chdir(witnessDir); err != nil {
+		t.Fatalf("chdir witness dir: %v", err)
+	}
+
+	cmd, err := buildRestartCommand("gt-witness")
+	if err != nil {
+		t.Fatalf("buildRestartCommand: %v", err)
+	}
+
+	if !strings.Contains(cmd, `OPENCODE_PERMISSION="{\"*\":\"allow\"}"`) {
+		t.Fatalf("expected OPENCODE_PERMISSION export in restart command, got: %q", cmd)
+	}
+	if !strings.Contains(cmd, "exec opencode") {
+		t.Fatalf("expected OpenCode runtime command in restart command, got: %q", cmd)
+	}
+}
+
 func TestBuildRestartCommandWithOpts_ContinuePrompt(t *testing.T) {
 	setupHandoffTestRegistry(t)
 
@@ -219,7 +286,7 @@ func TestBuildRestartCommandWithOpts_ContinuePrompt(t *testing.T) {
 	_ = os.Setenv("GT_ROOT", "")
 	_ = os.Chdir(crewDir)
 
-	t.Run("custom ContinuePrompt overrides default", func(t *testing.T) {
+	t.Run("continue-capable runtimes omit prompt and add continue flag", func(t *testing.T) {
 		cmd, err := buildRestartCommandWithOpts("gt-crew-bear", buildRestartCommandOpts{
 			ContinueSession: true,
 			ContinuePrompt:  "Context compacted. Continue your previous task.",
@@ -230,12 +297,12 @@ func TestBuildRestartCommandWithOpts_ContinuePrompt(t *testing.T) {
 		if !strings.Contains(cmd, "--continue") {
 			t.Errorf("expected --continue flag in restart command, got: %q", cmd)
 		}
-		if !strings.Contains(cmd, "Context compacted") {
-			t.Errorf("expected custom prompt in restart command, got: %q", cmd)
+		if strings.Contains(cmd, "Context compacted") {
+			t.Errorf("expected continue-capable runtime to omit continuation prompt, got: %q", cmd)
 		}
 	})
 
-	t.Run("empty ContinuePrompt falls back to default", func(t *testing.T) {
+	t.Run("empty ContinuePrompt also omits fallback prompt", func(t *testing.T) {
 		cmd, err := buildRestartCommandWithOpts("gt-crew-bear", buildRestartCommandOpts{
 			ContinueSession: true,
 		})
@@ -245,8 +312,8 @@ func TestBuildRestartCommandWithOpts_ContinuePrompt(t *testing.T) {
 		if !strings.Contains(cmd, "--continue") {
 			t.Errorf("expected --continue flag in restart command, got: %q", cmd)
 		}
-		if !strings.Contains(cmd, "Continue your previous task") {
-			t.Errorf("expected default continuation message when ContinuePrompt is empty, got: %q", cmd)
+		if strings.Contains(cmd, "Continue your previous task") {
+			t.Errorf("expected continue-capable runtime to omit fallback continuation prompt, got: %q", cmd)
 		}
 	})
 
@@ -259,6 +326,35 @@ func TestBuildRestartCommandWithOpts_ContinuePrompt(t *testing.T) {
 		}
 		if strings.Contains(cmd, "--continue") {
 			t.Errorf("expected no --continue flag when ContinueSession is false, got: %q", cmd)
+		}
+	})
+
+	t.Run("opencode wrapper uses continue flag without positional prompt", func(t *testing.T) {
+		townSettings.RoleAgents = map[string]string{"crew": "opencode"}
+		townSettings.Agents["opencode"] = &config.RuntimeConfig{
+			Provider:   "opencode",
+			Command:    "gt-opencode",
+			PromptMode: "arg",
+		}
+		if err := config.SaveTownSettings(config.TownSettingsPath(townRoot), townSettings); err != nil {
+			t.Fatalf("SaveTownSettings override: %v", err)
+		}
+
+		cmd, err := buildRestartCommandWithOpts("gt-crew-bear", buildRestartCommandOpts{
+			ContinueSession: true,
+			ContinuePrompt:  "Context compacted. Continue your previous task.",
+		})
+		if err != nil {
+			t.Fatalf("buildRestartCommandWithOpts: %v", err)
+		}
+		if !strings.Contains(cmd, "exec gt-opencode --continue") {
+			t.Fatalf("expected gt-opencode --continue restart command, got: %q", cmd)
+		}
+		if strings.Contains(cmd, `gt-opencode "Context compacted. Continue your previous task."`) {
+			t.Fatalf("expected no positional continuation prompt for gt-opencode, got: %q", cmd)
+		}
+		if strings.Contains(cmd, "--prompt") {
+			t.Fatalf("expected continue path to omit --prompt for gt-opencode, got: %q", cmd)
 		}
 	})
 }
@@ -628,7 +724,7 @@ func TestHandoffProcessNames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(cmd, "GT_PROCESS_NAMES") || !strings.Contains(cmd, "node,claude") {
+		if !strings.Contains(cmd, "GT_PROCESS_NAMES=node,claude") {
 			t.Errorf("expected GT_PROCESS_NAMES=node,claude preserved from env, got: %q", cmd)
 		}
 	})
@@ -655,7 +751,7 @@ func TestHandoffProcessNames(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		// Claude's default process names are "node,claude"
-		if !strings.Contains(cmd, "GT_PROCESS_NAMES") || !strings.Contains(cmd, "node,claude") {
+		if !strings.Contains(cmd, "GT_PROCESS_NAMES=node,claude") {
 			t.Errorf("expected GT_PROCESS_NAMES=node,claude computed from config, got: %q", cmd)
 		}
 	})
