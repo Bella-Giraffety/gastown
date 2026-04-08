@@ -199,14 +199,9 @@ func detectTownRoot(startDir string) string {
 		return townRoot
 	}
 
-	// Fallback: try GT_TOWN_ROOT or GT_ROOT env vars when workspace detection
-	// fails (e.g., running from outside any workspace directory).
-	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
-		if envRoot := os.Getenv(envName); envRoot != "" {
-			if ok, _ := workspace.IsWorkspace(envRoot); ok {
-				return envRoot
-			}
-		}
+	// Fallback to the shared runtime env resolution order.
+	if townRoot := workspace.FindFromEnv(); townRoot != "" {
+		return townRoot
 	}
 	return ""
 }

@@ -84,6 +84,19 @@ func FindFromCwd() (string, error) {
 	return Find(cwd)
 }
 
+// FindFromEnv resolves the town root from runtime environment variables.
+// GT_TOWN_ROOT takes precedence over GT_ROOT, and invalid paths are skipped.
+func FindFromEnv() string {
+	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
+		if townRoot := os.Getenv(envName); townRoot != "" {
+			if ok, _ := IsWorkspace(townRoot); ok {
+				return townRoot
+			}
+		}
+	}
+	return ""
+}
+
 // FindFromCwdOrError is like FindFromCwd but returns an error if not found.
 // It searches for a workspace starting from the CWD. If none is found, it
 // falls back to the GT_TOWN_ROOT or GT_ROOT environment variables.
@@ -96,14 +109,8 @@ func FindFromCwdOrError() (string, error) {
 		}
 	}
 
-	// Fallback: try GT_TOWN_ROOT or GT_ROOT env vars (set by shell integration or session manager)
-	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
-		if townRoot := os.Getenv(envName); townRoot != "" {
-			// Verify it's actually a workspace
-			if ok, _ := IsWorkspace(townRoot); ok {
-				return townRoot, nil
-			}
-		}
+	if townRoot := FindFromEnv(); townRoot != "" {
+		return townRoot, nil
 	}
 
 	if err != nil {
@@ -113,18 +120,14 @@ func FindFromCwdOrError() (string, error) {
 }
 
 // FindFromCwdWithFallback is like FindFromCwdOrError but returns (townRoot, cwd, error).
-// If getcwd fails, returns (townRoot, "", nil) using GT_TOWN_ROOT fallback.
+// If getcwd fails, returns (townRoot, "", nil) using runtime env fallback.
 // This is useful for commands like `gt done` that need to continue even if the
 // working directory is deleted (e.g., polecat worktree nuked by Witness).
 func FindFromCwdWithFallback() (townRoot string, cwd string, err error) {
 	cwd, err = os.Getwd()
 	if err != nil {
-		// Fallback: try GT_TOWN_ROOT env var
-		if townRoot = os.Getenv("GT_TOWN_ROOT"); townRoot != "" {
-			// Verify it's actually a workspace
-			if _, statErr := os.Stat(filepath.Join(townRoot, PrimaryMarker)); statErr == nil {
-				return townRoot, "", nil // cwd is gone but townRoot is valid
-			}
+		if townRoot = FindFromEnv(); townRoot != "" {
+			return townRoot, "", nil // cwd is gone but townRoot is valid
 		}
 		return "", "", fmt.Errorf("getting current directory: %w", err)
 	}

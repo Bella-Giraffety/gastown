@@ -1101,21 +1101,10 @@ func detectTownRootFromCwd() string {
 		return townRoot
 	}
 
-	// Fallback: try environment variables for town root
-	// GT_TOWN_ROOT is set by shell integration, GT_ROOT is set by session manager
-	// This enables handoff to work even when cwd detection fails due to
-	// detached HEAD, wrong branch, deleted worktree, etc.
-	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
-		if envRoot := os.Getenv(envName); envRoot != "" {
-			// Verify it's actually a workspace
-			if _, statErr := os.Stat(filepath.Join(envRoot, workspace.PrimaryMarker)); statErr == nil {
-				return envRoot
-			}
-			// Try secondary marker too
-			if info, statErr := os.Stat(filepath.Join(envRoot, workspace.SecondaryMarker)); statErr == nil && info.IsDir() {
-				return envRoot
-			}
-		}
+	// Fallback: try environment variables for town root using the shared runtime
+	// precedence (GT_TOWN_ROOT, then GT_ROOT).
+	if townRoot := workspace.FindFromEnv(); townRoot != "" {
+		return townRoot
 	}
 
 	// Final fallback: read GT_TOWN_ROOT from tmux global environment.

@@ -89,6 +89,50 @@ func TestFindOrErrorNotFound(t *testing.T) {
 	}
 }
 
+func TestFindFromEnv(t *testing.T) {
+	makeTown := func(t *testing.T, name string) string {
+		t.Helper()
+		root := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(filepath.Join(root, "mayor"), 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "mayor", "town.json"), []byte(`{"name":"`+name+`"}`), 0644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		return root
+	}
+
+	t.Run("prefers GT_TOWN_ROOT over GT_ROOT", func(t *testing.T) {
+		townRoot := makeTown(t, "town-root")
+		gtRoot := makeTown(t, "gt-root")
+		t.Setenv("GT_TOWN_ROOT", townRoot)
+		t.Setenv("GT_ROOT", gtRoot)
+
+		if got := FindFromEnv(); got != townRoot {
+			t.Errorf("FindFromEnv() = %q, want %q", got, townRoot)
+		}
+	})
+
+	t.Run("skips invalid GT_TOWN_ROOT and falls back to GT_ROOT", func(t *testing.T) {
+		gtRoot := makeTown(t, "gt-root")
+		t.Setenv("GT_TOWN_ROOT", filepath.Join(t.TempDir(), "missing"))
+		t.Setenv("GT_ROOT", gtRoot)
+
+		if got := FindFromEnv(); got != gtRoot {
+			t.Errorf("FindFromEnv() = %q, want %q", got, gtRoot)
+		}
+	})
+
+	t.Run("returns empty when neither env var is usable", func(t *testing.T) {
+		t.Setenv("GT_TOWN_ROOT", "")
+		t.Setenv("GT_ROOT", filepath.Join(t.TempDir(), "missing"))
+
+		if got := FindFromEnv(); got != "" {
+			t.Errorf("FindFromEnv() = %q, want empty string", got)
+		}
+	})
+}
+
 func TestFindAtRoot(t *testing.T) {
 	// Create workspace at temp root level
 	root := realPath(t, t.TempDir())
