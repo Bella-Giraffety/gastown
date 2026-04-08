@@ -3,6 +3,7 @@ package doctor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -159,6 +160,85 @@ func TestRigConfigSyncCheck_AllConfigsPresent(t *testing.T) {
 
 	if result.Status != StatusOK {
 		t.Errorf("expected StatusOK, got %v: %s", result.Status, result.Message)
+	}
+}
+
+func TestRigConfigSyncCheck_MissingDoltDatabaseIncludesRecoveryDetails(t *testing.T) {
+	tmpDir := t.TempDir()
+	mayorDir := filepath.Join(tmpDir, "mayor")
+	if err := os.MkdirAll(mayorDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	rigsJSON := `{
+		"version": 1,
+		"rigs": {
+			"testrig": {
+				"git_url": "https://github.com/test/test.git",
+				"added_at": "2026-03-01T00:00:00Z"
+			}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(mayorDir, "rigs.json"), []byte(rigsJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rigDir := filepath.Join(tmpDir, "testrig")
+	if err := os.MkdirAll(rigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	configJSON := `{
+		"type": "rig",
+		"version": 1,
+		"name": "testrig",
+		"git_url": "https://github.com/test/test.git",
+		"created_at": "2026-03-01T00:00:00Z"
+	}`
+	if err := os.WriteFile(filepath.Join(rigDir, "config.json"), []byte(configJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	beadsDir := filepath.Join(rigDir, "mayor", "rig", ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	metadataJSON := `{
+		"backend": "dolt",
+		"dolt_mode": "server",
+		"dolt_database": "testrig"
+	}`
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(metadataJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	localDataRoot := filepath.Join(beadsDir, "dolt", "beads_testrig")
+	if err := os.MkdirAll(filepath.Join(localDataRoot, ".dolt"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := &CheckContext{TownRoot: tmpDir}
+	check := NewRigConfigSyncCheck()
+	result := check.Run(ctx)
+
+	if result.Status != StatusWarning {
+		t.Fatalf("expected StatusWarning, got %v: %s", result.Status, result.Message)
+	}
+	if len(check.missingDoltDB) != 1 {
+		t.Fatalf("expected 1 missing Dolt DB, got %d", len(check.missingDoltDB))
+	}
+	if len(check.notServedDoltDB) != 0 {
+		t.Fatalf("expected 0 not-served Dolt DBs, got %d", len(check.notServedDoltDB))
+	}
+
+	joinedDetails := strings.Join(result.Details, "\n")
+	if !strings.Contains(joinedDetails, "missing from .dolt-data") {
+		t.Fatalf("expected missing DB detail, got: %s", joinedDetails)
+	}
+	if !strings.Contains(joinedDetails, localDataRoot) {
+		t.Fatalf("expected local recovery path in details, got: %s", joinedDetails)
+	}
+	if !strings.Contains(result.FixHint, "gt doctor --fix") {
+		t.Fatalf("expected doctor fix hint, got: %s", result.FixHint)
 	}
 }
 

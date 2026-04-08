@@ -20,12 +20,13 @@ import (
 // can't find the beads prefix to check docked/parked status.
 type RigConfigSyncCheck struct {
 	FixableCheck
-	missingConfig    []string          // Rig names missing config.json
-	prefixMismatches []prefixMismatch  // Prefix mismatches between config.json and registry
-	missingRigBeads  []rigBeadInfo     // Rigs missing identity beads
-	missingDoltDB    []string          // Rigs missing Dolt database
-	missingPrefixCfg []string          // Rigs missing issue-prefix in config.yaml
-	dbNameMismatches []dbMismatch      // Dolt database name doesn't match prefix
+	missingConfig    []string         // Rig names missing config.json
+	prefixMismatches []prefixMismatch // Prefix mismatches between config.json and registry
+	missingRigBeads  []rigBeadInfo    // Rigs missing identity beads
+	missingDoltDB    []string         // Rigs missing Dolt database
+	notServedDoltDB  []string         // Rigs whose Dolt database exists on disk but is not served
+	missingPrefixCfg []string         // Rigs missing issue-prefix in config.yaml
+	dbNameMismatches []dbMismatch     // Dolt database name doesn't match prefix
 }
 
 type prefixMismatch struct {
@@ -41,10 +42,10 @@ type rigBeadInfo struct {
 }
 
 type dbMismatch struct {
-	rigName     string
-	prefix      string
-	currentDB   string
-	expectedDB  string
+	rigName    string
+	prefix     string
+	currentDB  string
+	expectedDB string
 }
 
 // NewRigConfigSyncCheck creates a new rig config sync check.
@@ -77,9 +78,16 @@ func (c *RigConfigSyncCheck) Run(ctx *CheckContext) *CheckResult {
 	c.prefixMismatches = nil
 	c.missingRigBeads = nil
 	c.missingDoltDB = nil
+	c.notServedDoltDB = nil
 	c.missingPrefixCfg = nil
 	c.dbNameMismatches = nil
 	var details []string
+
+	brokenWorkspaces, _ := doltserver.FindBrokenWorkspaces(ctx.TownRoot)
+	brokenByRig := make(map[string]doltserver.BrokenWorkspace, len(brokenWorkspaces))
+	for _, ws := range brokenWorkspaces {
+		brokenByRig[ws.RigName] = ws
+	}
 
 	for rigName, entry := range rigsConfig.Rigs {
 		rigPath := filepath.Join(ctx.TownRoot, rigName)
@@ -190,9 +198,21 @@ func (c *RigConfigSyncCheck) Run(ctx *CheckContext) *CheckResult {
 						rigName, metadata.DoltDatabase, expectedDBName))
 				}
 
-				if !c.doltDatabaseExists(ctx, metadata.DoltDatabase) {
-					c.missingDoltDB = append(c.missingDoltDB, rigName)
-					details = append(details, fmt.Sprintf("Rig %s Dolt database '%s' not found on server", rigName, metadata.DoltDatabase))
+				if ws, ok := brokenByRig[rigName]; ok {
+					if ws.NotServed {
+						c.notServedDoltDB = append(c.notServedDoltDB, rigName)
+						details = append(details, fmt.Sprintf(
+							"Rig %s Dolt database '%s' exists on disk but is not served by the running server",
+							rigName, ws.ConfiguredDB))
+					} else {
+						c.missingDoltDB = append(c.missingDoltDB, rigName)
+						detail := fmt.Sprintf("Rig %s Dolt database '%s' missing from .dolt-data",
+							rigName, ws.ConfiguredDB)
+						if ws.HasLocalData && ws.LocalDataPath != "" {
+							detail += fmt.Sprintf(" (local data available at %s)", ws.LocalDataPath)
+						}
+						details = append(details, detail)
+					}
 				}
 			}
 		}
@@ -212,7 +232,7 @@ func (c *RigConfigSyncCheck) Run(ctx *CheckContext) *CheckResult {
 	}
 
 	// Check for summary
-	issueCount := len(c.missingConfig) + len(c.prefixMismatches) + len(c.missingRigBeads) + len(c.missingDoltDB) + len(c.missingPrefixCfg) + len(c.dbNameMismatches)
+	issueCount := len(c.missingConfig) + len(c.prefixMismatches) + len(c.missingRigBeads) + len(c.missingDoltDB) + len(c.notServedDoltDB) + len(c.missingPrefixCfg) + len(c.dbNameMismatches)
 	if issueCount == 0 {
 		return &CheckResult{
 			Name:    c.Name(),
@@ -234,6 +254,9 @@ func (c *RigConfigSyncCheck) Run(ctx *CheckContext) *CheckResult {
 	if len(c.missingDoltDB) > 0 {
 		parts = append(parts, fmt.Sprintf("%d missing Dolt DB(s)", len(c.missingDoltDB)))
 	}
+	if len(c.notServedDoltDB) > 0 {
+		parts = append(parts, fmt.Sprintf("%d Dolt DB(s) not served", len(c.notServedDoltDB)))
+	}
 	if len(c.missingPrefixCfg) > 0 {
 		parts = append(parts, fmt.Sprintf("%d missing issue-prefix", len(c.missingPrefixCfg)))
 	}
@@ -241,12 +264,20 @@ func (c *RigConfigSyncCheck) Run(ctx *CheckContext) *CheckResult {
 		parts = append(parts, fmt.Sprintf("%d DB name mismatch(es)", len(c.dbNameMismatches)))
 	}
 
+	fixHint := "Run 'gt doctor --fix' to create missing config files and databases"
+	if len(c.notServedDoltDB) > 0 {
+		fixHint = "Run 'gt dolt restart' to reload databases the server is not serving"
+		if len(c.missingConfig)+len(c.prefixMismatches)+len(c.missingRigBeads)+len(c.missingDoltDB)+len(c.missingPrefixCfg)+len(c.dbNameMismatches) > 0 {
+			fixHint += "; run 'gt doctor --fix' to repair the remaining rig configuration issues"
+		}
+	}
+
 	return &CheckResult{
 		Name:    c.Name(),
 		Status:  StatusWarning,
 		Message: strings.Join(parts, ", "),
 		Details: details,
-		FixHint: "Run 'gt doctor --fix' to create missing config files and databases",
+		FixHint: fixHint,
 	}
 }
 
@@ -444,22 +475,6 @@ func (c *RigConfigSyncCheck) Fix(ctx *CheckContext) error {
 	}
 
 	return nil
-}
-
-// doltDatabaseExists checks if a Dolt database exists on the server.
-func (c *RigConfigSyncCheck) doltDatabaseExists(ctx *CheckContext, dbName string) bool {
-	// Use the doltserver package to list databases
-	databases, err := doltserver.ListDatabases(ctx.TownRoot)
-	if err != nil {
-		return false
-	}
-
-	for _, db := range databases {
-		if db == dbName {
-			return true
-		}
-	}
-	return false
 }
 
 // rigBeadExists checks if a rig identity bead exists.
