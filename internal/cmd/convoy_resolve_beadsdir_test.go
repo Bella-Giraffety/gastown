@@ -32,6 +32,8 @@ func TestConvoyResolveBeadsDir_RegressionEmptyConvoy(t *testing.T) {
 		}
 
 		townRoot := t.TempDir()
+		t.Setenv("GT_TOWN_ROOT", "")
+		t.Setenv("GT_ROOT", "")
 		if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
 			t.Fatal(err)
 		}

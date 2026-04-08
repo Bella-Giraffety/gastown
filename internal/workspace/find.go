@@ -84,25 +84,30 @@ func FindFromCwd() (string, error) {
 	return Find(cwd)
 }
 
+func findFromEnv() string {
+	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
+		if townRoot := os.Getenv(envName); townRoot != "" {
+			if ok, _ := IsWorkspace(townRoot); ok {
+				return townRoot
+			}
+		}
+	}
+	return ""
+}
+
 // FindFromCwdOrError is like FindFromCwd but returns an error if not found.
-// It searches for a workspace starting from the CWD. If none is found, it
-// falls back to the GT_TOWN_ROOT or GT_ROOT environment variables.
+// It prefers explicit town-root environment variables when present, then falls
+// back to walking up from the current working directory.
 func FindFromCwdOrError() (string, error) {
+	if townRoot := findFromEnv(); townRoot != "" {
+		return townRoot, nil
+	}
+
 	cwd, err := os.Getwd()
 	if err == nil {
 		root, err := Find(cwd)
 		if err == nil && root != "" {
 			return root, nil
-		}
-	}
-
-	// Fallback: try GT_TOWN_ROOT or GT_ROOT env vars (set by shell integration or session manager)
-	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
-		if townRoot := os.Getenv(envName); townRoot != "" {
-			// Verify it's actually a workspace
-			if ok, _ := IsWorkspace(townRoot); ok {
-				return townRoot, nil
-			}
 		}
 	}
 

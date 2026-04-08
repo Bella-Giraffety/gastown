@@ -88,6 +88,8 @@ func TestRunConvoyList_UsesTownRootAndStripsBeadsDir(t *testing.T) {
 
 	townRoot, expectedWD := makeRoutingTownWorkspace(t)
 	chdirConvoyTest(t, townRoot)
+	t.Setenv("GT_TOWN_ROOT", "")
+	t.Setenv("GT_ROOT", "")
 	t.Setenv("BEADS_DIR", "/wrong/.beads")
 
 	scriptBody := fmt.Sprintf(`
@@ -161,6 +163,8 @@ func TestRunConvoyStatus_UsesTownRootAndStripsBeadsDir(t *testing.T) {
 
 	townRoot, expectedWD := makeRoutingTownWorkspace(t)
 	chdirConvoyTest(t, townRoot)
+	t.Setenv("GT_TOWN_ROOT", "")
+	t.Setenv("GT_ROOT", "")
 	t.Setenv("BEADS_DIR", "/wrong/.beads")
 
 	scriptBody := fmt.Sprintf(`
@@ -223,6 +227,8 @@ func TestConvoyCreate_DepAddUsesTownRoot(t *testing.T) {
 
 	townRoot, expectedWD := makeRoutingTownWorkspace(t)
 	chdirConvoyTest(t, townRoot)
+	t.Setenv("GT_TOWN_ROOT", "")
+	t.Setenv("GT_ROOT", "")
 
 	// Write sentinel files to skip EnsureCustomTypes/Statuses (they call bd
 	// config set/get which isn't relevant to routing).

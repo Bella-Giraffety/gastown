@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func chdirTemp(t *testing.T, dir string) {
+	t.Helper()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir(%q): %v", dir, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+}
+
 func realPath(t *testing.T, path string) string {
 	t.Helper()
 	real, err := filepath.EvalSymlinks(path)
@@ -276,5 +290,62 @@ func TestFindSkipsNestedWorkspaceInCrew(t *testing.T) {
 
 	if found != root {
 		t.Errorf("Find = %q, want %q (should skip nested workspace in crew/)", found, root)
+	}
+}
+
+func TestFindFromCwdOrError_PrefersExplicitTownEnv(t *testing.T) {
+	outerTown := realPath(t, t.TempDir())
+	if err := os.MkdirAll(filepath.Join(outerTown, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir outer mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outerTown, "mayor", "town.json"), []byte(`{"name":"outer"}`), 0644); err != nil {
+		t.Fatalf("write outer town.json: %v", err)
+	}
+
+	nestedRig := filepath.Join(outerTown, "gastown")
+	if err := os.MkdirAll(filepath.Join(nestedRig, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir nested mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedRig, "mayor", "town.json"), []byte(`{"name":"nested"}`), 0644); err != nil {
+		t.Fatalf("write nested town.json: %v", err)
+	}
+
+	t.Setenv("GT_TOWN_ROOT", outerTown)
+	t.Setenv("GT_ROOT", "")
+	chdirTemp(t, nestedRig)
+
+	found, err := FindFromCwdOrError()
+	if err != nil {
+		t.Fatalf("FindFromCwdOrError: %v", err)
+	}
+	if found != outerTown {
+		t.Errorf("FindFromCwdOrError = %q, want %q", found, outerTown)
+	}
+}
+
+func TestFindFromCwdOrError_FallsBackWhenEnvInvalid(t *testing.T) {
+	root := realPath(t, t.TempDir())
+	if err := os.MkdirAll(filepath.Join(root, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "mayor", "town.json"), []byte(`{"name":"outer"}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+
+	nested := filepath.Join(root, "rigs", "project")
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+
+	t.Setenv("GT_TOWN_ROOT", filepath.Join(root, "missing"))
+	t.Setenv("GT_ROOT", "")
+	chdirTemp(t, nested)
+
+	found, err := FindFromCwdOrError()
+	if err != nil {
+		t.Fatalf("FindFromCwdOrError: %v", err)
+	}
+	if found != root {
+		t.Errorf("FindFromCwdOrError = %q, want %q", found, root)
 	}
 }

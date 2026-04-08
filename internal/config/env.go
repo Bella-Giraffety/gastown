@@ -14,13 +14,15 @@ import (
 	"github.com/steveyegge/gastown/internal/constants"
 )
 
-// IdentityEnvVars are agent identity env vars that must not leak across
-// process or session boundaries. Used by daemon sanitization (clearing
-// inherited vars), tmux global cleanup, and prime session env repair.
-// See GH#3006.
+// IdentityEnvVars are agent identity and town-scoping env vars that must not
+// leak across process or session boundaries. Used by daemon sanitization,
+// tmux global cleanup, and prime session env repair. GT_ROOT and
+// GT_WORKTREE_* are included because stale inherited values can silently route
+// new sessions to the wrong town or worktree authority. See GH#3006.
 var IdentityEnvVars = []string{
 	"GT_ROLE", "GT_RIG", "GT_CREW", "GT_POLECAT", "GT_DOG_NAME",
 	"GT_SESSION", "GT_AGENT", "BD_ACTOR", "GIT_AUTHOR_NAME", "BEADS_AGENT_NAME",
+	"GT_ROOT", "GT_WORKTREE_ROOT", "GT_WORKTREE_BRANCH",
 }
 
 // AgentEnvConfig specifies the configuration for generating agent environment variables.
@@ -535,7 +537,7 @@ func ShellQuote(s string) string {
 }
 
 // psQuote quotes a value for use in PowerShell $env: assignments.
-// Uses single quotes with embedded single quotes doubled ('').
+// Uses single quotes with embedded single quotes doubled (”).
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

@@ -19,8 +19,8 @@ func TestAgentEnv_Mayor(t *testing.T) {
 	assertEnv(t, env, "GIT_AUTHOR_NAME", "mayor")
 	assertEnv(t, env, "GT_ROOT", "/town")
 	assertEnv(t, env, "GIT_CEILING_DIRECTORIES", "/town") // prevents git walking to umbrella
-	assertEnv(t, env, "NODE_OPTIONS", "")                  // cleared to prevent debugger inheritance
-	assertEnv(t, env, "CLAUDECODE", "")                    // cleared to prevent nested session detection
+	assertEnv(t, env, "NODE_OPTIONS", "")                 // cleared to prevent debugger inheritance
+	assertEnv(t, env, "CLAUDECODE", "")                   // cleared to prevent nested session detection
 	assertNotSet(t, env, "GT_RIG")
 }
 
@@ -55,8 +55,8 @@ func TestAgentEnv_Polecat(t *testing.T) {
 	assertEnv(t, env, "GIT_AUTHOR_NAME", "Toast")
 	assertEnv(t, env, "BEADS_AGENT_NAME", "myrig/Toast")
 	assertEnv(t, env, "BD_DOLT_AUTO_COMMIT", "off") // gt-5cc2p: prevent manifest contention
-	assertEnv(t, env, "NODE_OPTIONS", "")            // cleared to prevent debugger inheritance
-	assertEnv(t, env, "CLAUDECODE", "")              // cleared to prevent nested session detection
+	assertEnv(t, env, "NODE_OPTIONS", "")           // cleared to prevent debugger inheritance
+	assertEnv(t, env, "CLAUDECODE", "")             // cleared to prevent nested session detection
 }
 
 func TestAgentEnv_Crew(t *testing.T) {
@@ -158,6 +158,27 @@ func TestIdentityEnvVars_CoversAgentEnvOutput(t *testing.T) {
 	for k := range identityKeys {
 		if !have[k] {
 			t.Errorf("IdentityEnvVars is missing %q — add it to prevent identity leakage (GH#3006)", k)
+		}
+	}
+}
+
+func TestIdentityEnvVars_IncludesTownScopeLeakKeys(t *testing.T) {
+	t.Parallel()
+
+	required := map[string]bool{
+		"GT_ROOT":            true,
+		"GT_WORKTREE_ROOT":   true,
+		"GT_WORKTREE_BRANCH": true,
+	}
+
+	have := make(map[string]bool, len(IdentityEnvVars))
+	for _, k := range IdentityEnvVars {
+		have[k] = true
+	}
+
+	for k := range required {
+		if !have[k] {
+			t.Errorf("IdentityEnvVars is missing %q — stale town/worktree scope must be scrubbed from daemon and tmux env", k)
 		}
 	}
 }
@@ -1229,7 +1250,7 @@ func TestAgentEnv_InjectsDoltPort(t *testing.T) {
 }
 
 func TestAgentEnv_NoDoltPortWithoutTownRoot(t *testing.T) {
-	t.Setenv("GT_DOLT_PORT", "")   // isolate from live Dolt server
+	t.Setenv("GT_DOLT_PORT", "")    // isolate from live Dolt server
 	t.Setenv("BEADS_DOLT_PORT", "") // isolate from live Dolt server
 	env := AgentEnv(AgentEnvConfig{
 		Role: "mayor",
@@ -1239,7 +1260,7 @@ func TestAgentEnv_NoDoltPortWithoutTownRoot(t *testing.T) {
 }
 
 func TestAgentEnv_NoDoltPortWithoutConfig(t *testing.T) {
-	t.Setenv("GT_DOLT_PORT", "")   // isolate from live Dolt server
+	t.Setenv("GT_DOLT_PORT", "")    // isolate from live Dolt server
 	t.Setenv("BEADS_DOLT_PORT", "") // isolate from live Dolt server
 	tmpDir := t.TempDir()
 	env := AgentEnv(AgentEnvConfig{
