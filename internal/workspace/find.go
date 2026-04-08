@@ -85,25 +85,24 @@ func FindFromCwd() (string, error) {
 }
 
 // FindFromCwdOrError is like FindFromCwd but returns an error if not found.
-// It prefers the canonical town root from GT_TOWN_ROOT / GT_ROOT when set,
-// then falls back to detecting a workspace from the CWD.
+// It searches for a workspace starting from the CWD. If none is found, it
+// falls back to the GT_TOWN_ROOT or GT_ROOT environment variables.
 func FindFromCwdOrError() (string, error) {
-	// Prefer the canonical town root advertised by the shell/session manager.
-	// This keeps control-plane commands pinned to the active town even when the
-	// current directory is inside another nested workspace.
-	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
-		if townRoot := os.Getenv(envName); townRoot != "" {
-			if ok, _ := IsWorkspace(townRoot); ok {
-				return townRoot, nil
-			}
-		}
-	}
-
 	cwd, err := os.Getwd()
 	if err == nil {
 		root, err := Find(cwd)
 		if err == nil && root != "" {
 			return root, nil
+		}
+	}
+
+	// Fallback: try GT_TOWN_ROOT or GT_ROOT env vars (set by shell integration or session manager)
+	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
+		if townRoot := os.Getenv(envName); townRoot != "" {
+			// Verify it's actually a workspace
+			if ok, _ := IsWorkspace(townRoot); ok {
+				return townRoot, nil
+			}
 		}
 	}
 
@@ -114,30 +113,20 @@ func FindFromCwdOrError() (string, error) {
 }
 
 // FindFromCwdWithFallback is like FindFromCwdOrError but returns (townRoot, cwd, error).
-// It prefers the canonical town root from GT_TOWN_ROOT before using CWD-based
-// detection. If getcwd fails, returns (townRoot, "", nil) using GT_TOWN_ROOT fallback.
+// If getcwd fails, returns (townRoot, "", nil) using GT_TOWN_ROOT fallback.
 // This is useful for commands like `gt done` that need to continue even if the
 // working directory is deleted (e.g., polecat worktree nuked by Witness).
 func FindFromCwdWithFallback() (townRoot string, cwd string, err error) {
 	cwd, err = os.Getwd()
-	var envRoot string
-	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
-		if candidate := os.Getenv(envName); candidate != "" {
-			if ok, _ := IsWorkspace(candidate); ok {
-				envRoot = candidate
-				break
+	if err != nil {
+		// Fallback: try GT_TOWN_ROOT env var
+		if townRoot = os.Getenv("GT_TOWN_ROOT"); townRoot != "" {
+			// Verify it's actually a workspace
+			if _, statErr := os.Stat(filepath.Join(townRoot, PrimaryMarker)); statErr == nil {
+				return townRoot, "", nil // cwd is gone but townRoot is valid
 			}
 		}
-	}
-
-	if err != nil {
-		if envRoot != "" {
-			return envRoot, "", nil
-		}
 		return "", "", fmt.Errorf("getting current directory: %w", err)
-	}
-	if envRoot != "" {
-		return envRoot, cwd, nil
 	}
 
 	townRoot, err = FindOrError(cwd)
