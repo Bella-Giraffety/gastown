@@ -235,7 +235,7 @@ Examples:
   # Auto-discover issues from an epic's children:
   gt convoy create --from-epic gt-epic-abc
   gt convoy create --from-epic gt-epic-abc --owned --merge=direct`,
-	Args: cobra.ArbitraryArgs,
+	Args:         cobra.ArbitraryArgs,
 	SilenceUsage: true,
 	RunE:         runConvoyCreate,
 }
@@ -247,7 +247,7 @@ var convoyStatusCmd = &cobra.Command{
 
 Displays convoy metadata, tracked issues, and completion progress.
 Without an ID, shows status of all active convoys.`,
-	Args: cobra.MaximumNArgs(1),
+	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE:         runConvoyStatus,
 }
@@ -277,7 +277,7 @@ If the convoy is closed, it will be automatically reopened.
 Examples:
   gt convoy add hq-cv-abc gt-new-issue
   gt convoy add hq-cv-abc gt-issue1 gt-issue2 gt-issue3`,
-	Args: cobra.MinimumNArgs(2),
+	Args:         cobra.MinimumNArgs(2),
 	SilenceUsage: true,
 	RunE:         runConvoyAdd,
 }
@@ -298,7 +298,7 @@ Examples:
   gt convoy check              # Check all open convoys
   gt convoy check hq-cv-abc    # Check specific convoy
   gt convoy check --dry-run    # Preview what would close without acting`,
-	Args: cobra.MaximumNArgs(1),
+	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE:         runConvoyCheck,
 }
@@ -340,7 +340,7 @@ Examples:
   gt convoy close hq-cv-abc --force                   # Force close abandoned convoy
   gt convoy close hq-cv-abc --reason="no longer needed" --force
   gt convoy close hq-cv-xyz --notify mayor/`,
-	Args: cobra.ExactArgs(1),
+	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE:         runConvoyClose,
 }
@@ -427,14 +427,12 @@ func init() {
 }
 
 // getTownBeadsDir returns the town root directory for bd commands.
-// Convoy commands run bd from town root (not .beads/) so bd discovers
-// the correct database via its own workspace detection.
+// Town control-plane commands must prefer the authoritative town root from
+// GT_TOWN_ROOT/GT_ROOT. Falling back to raw workspace discovery from inside a
+// rig or polecat worktree can stop at that rig's mayor/town.json and route HQ
+// commands to the wrong database after restarts or in split-brain layouts.
 func getTownBeadsDir() (string, error) {
-	townRoot, err := workspace.FindFromCwdOrError()
-	if err != nil {
-		return "", fmt.Errorf("not in a Gas Town workspace: %w", err)
-	}
-	return townRoot, nil
+	return findMailWorkDir()
 }
 
 // runBdJSON runs a bd command, captures stdout as JSON output. If the command
@@ -2173,11 +2171,11 @@ func formatConvoyStatus(status string) string {
 
 // trackedIssueInfo holds info about an issue being tracked by a convoy.
 type trackedIssueInfo struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
-	Type      string `json:"dependency_type"`
-	IssueType string `json:"issue_type"`
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Status    string   `json:"status"`
+	Type      string   `json:"dependency_type"`
+	IssueType string   `json:"issue_type"`
 	Blocked   bool     `json:"blocked,omitempty"`    // True if issue currently has blockers
 	Assignee  string   `json:"assignee,omitempty"`   // Assigned agent (e.g., gastown/polecats/goose)
 	Labels    []string `json:"labels,omitempty"`     // Bead labels (propagated from trackedDependency)

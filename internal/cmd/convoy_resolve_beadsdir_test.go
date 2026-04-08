@@ -50,6 +50,8 @@ func TestConvoyResolveBeadsDir_RegressionEmptyConvoy(t *testing.T) {
 		if err := os.Chdir(townRoot); err != nil {
 			t.Fatal(err)
 		}
+		t.Setenv("GT_TOWN_ROOT", "")
+		t.Setenv("GT_ROOT", "")
 
 		result, err := getTownBeadsDir()
 		if err != nil {
@@ -300,5 +302,89 @@ func TestConvoyCreate_SentinelPlacement(t *testing.T) {
 			t.Errorf("sentinel %q found in workspace root — "+
 				"types/statuses registered in wrong location", sentinel)
 		}
+	}
+}
+
+func TestGetTownBeadsDir_PrefersGTTownRootFromSplitWorktree(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	rigRoot := filepath.Join(townRoot, "gastown")
+	if err := os.MkdirAll(filepath.Join(rigRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rigRoot, "mayor", "town.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	worktreeRoot := filepath.Join(rigRoot, "polecats", "chrome", "gastown")
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	if err := os.Chdir(worktreeRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GT_TOWN_ROOT", townRoot)
+	t.Setenv("GT_ROOT", "")
+
+	got, err := getTownBeadsDir()
+	if err != nil {
+		t.Fatalf("getTownBeadsDir() error: %v", err)
+	}
+	if got != townRoot {
+		t.Fatalf("getTownBeadsDir() = %q, want %q", got, townRoot)
+	}
+}
+
+func TestGetTownBeadsDir_FallsBackToGTRootOnRestart(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	rigRoot := filepath.Join(townRoot, "gastown")
+	if err := os.MkdirAll(filepath.Join(rigRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rigRoot, "mayor", "town.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	if err := os.Chdir(rigRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GT_TOWN_ROOT", "")
+	t.Setenv("GT_ROOT", townRoot)
+
+	got, err := getTownBeadsDir()
+	if err != nil {
+		t.Fatalf("getTownBeadsDir() error: %v", err)
+	}
+	if got != townRoot {
+		t.Fatalf("getTownBeadsDir() = %q, want %q", got, townRoot)
 	}
 }
