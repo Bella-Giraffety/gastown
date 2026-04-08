@@ -136,6 +136,29 @@ func FindFromCwdWithFallback() (townRoot string, cwd string, err error) {
 	return townRoot, cwd, nil
 }
 
+// FindFromEnv returns the runtime town root from environment variables.
+// GT_TOWN_ROOT takes precedence over GT_ROOT.
+func FindFromEnv() string {
+	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
+		if townRoot := os.Getenv(envName); townRoot != "" {
+			if ok, _ := IsWorkspace(townRoot); ok {
+				return townRoot
+			}
+		}
+	}
+	return ""
+}
+
+// FindForRuntime resolves the town root for commands running in a live session.
+// It prefers runtime env vars over filesystem detection to avoid nested worktree
+// markers overriding the session's bound town.
+func FindForRuntime(startDir string) (string, error) {
+	if townRoot := FindFromEnv(); townRoot != "" {
+		return townRoot, nil
+	}
+	return Find(startDir)
+}
+
 // IsWorkspace checks if the given directory is a Gas Town workspace root.
 // A directory is a workspace if it has a primary marker (mayor/town.json)
 // or a secondary marker (mayor/ directory).

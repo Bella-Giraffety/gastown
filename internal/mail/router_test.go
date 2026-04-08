@@ -83,8 +83,7 @@ func TestDetectTownRoot(t *testing.T) {
 }
 
 // TestDetectTownRoot_PrefersEnvVar verifies that GT_TOWN_ROOT takes priority
-// over workspace detection, preventing rig-level mayor/town.json from being
-// mistaken for the town root.
+// over GT_ROOT and filesystem detection during runtime resolution.
 func TestDetectTownRoot_PrefersEnvVar(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Outer town root (the actual town)
@@ -105,10 +104,8 @@ func TestDetectTownRoot_PrefersEnvVar(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("env var overrides nested workspace detection", func(t *testing.T) {
+	t.Run("env var overrides filesystem detection", func(t *testing.T) {
 		t.Setenv("GT_TOWN_ROOT", outerTown)
-		// Starting from the nested rig would normally find the rig's own
-		// mayor/town.json first. With GT_TOWN_ROOT set, we get the outer town.
 		got := detectTownRoot(nestedRig)
 		if got != outerTown {
 			t.Errorf("detectTownRoot(%q) = %q, want %q (outer town root via env var)", nestedRig, got, outerTown)
@@ -127,12 +124,9 @@ func TestDetectTownRoot_PrefersEnvVar(t *testing.T) {
 	t.Run("falls back to workspace.Find without env vars", func(t *testing.T) {
 		t.Setenv("GT_TOWN_ROOT", "")
 		t.Setenv("GT_ROOT", "")
-		// Without env vars, starting from the nested rig finds the nested
-		// mayor/town.json (the bug this fix addresses — documenting current behavior).
 		got := detectTownRoot(nestedRig)
-		// workspace.Find returns the nested rig since it stops at first primary marker
-		if got != nestedRig {
-			t.Logf("detectTownRoot fallback returned %q (expected %q for nested-workspace scenario)", got, nestedRig)
+		if got != outerTown {
+			t.Errorf("detectTownRoot(%q) = %q, want %q (outer town root via workspace.Find)", nestedRig, got, outerTown)
 		}
 	})
 }
