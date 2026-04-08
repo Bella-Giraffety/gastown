@@ -191,13 +191,13 @@ gt convoy list
 
 **When to use**: Testing, simple workflows, or when you prefer manual control.
 
-### Full Stack Mode (With Daemon)
+### Full Stack Mode (With Town Services)
 
 Agents run in tmux sessions. Daemon manages lifecycle automatically.
 
 ```bash
-# Start the daemon
-gt daemon start
+# Start the town stack
+gt up
 
 # Create and assign work (workers spawn automatically)
 gt convoy create "Feature X" gt-abc12 gt-def34
@@ -282,7 +282,14 @@ git config --global credential.helper cache
 
 ### Beads issues
 
-If experiencing beads problems:
+If experiencing beads or routing problems, start with the town repair surface:
+
+```bash
+cd ~/gt
+gt doctor --fix
+```
+
+If you need to inspect the rig-local beads state directly afterward:
 
 ```bash
 cd ~/gt/myproject/mayor/rig
