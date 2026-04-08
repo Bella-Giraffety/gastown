@@ -22,10 +22,10 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:     "gt", // Updated in init() based on GT_COMMAND
-	Short:   "Gas Town - Multi-agent workspace manager",
-	Version: Version,
-	Long:    "", // Updated in init() based on GT_COMMAND
+	Use:               "gt", // Updated in init() based on GT_COMMAND
+	Short:             "Gas Town - Multi-agent workspace manager",
+	Version:           Version,
+	Long:              "", // Updated in init() based on GT_COMMAND
 	PersistentPreRunE: persistentPreRun,
 }
 
@@ -42,38 +42,38 @@ across distributed teams of AI agents working on shared codebases.`, cmdName)
 // Commands that don't require beads to be installed/checked.
 // These commands should work even when bd is missing or outdated.
 var beadsExemptCommands = map[string]bool{
-	"version":    true,
-	"help":       true,
-	"completion": true,
-	"crew":       true,
-	"polecat":    true,
-	"witness":    true,
-	"refinery":   true,
-	"status":     true,
-	"mail":       true,
-	"hook":       true,
-	"prime":      true,
-	"nudge":      true,
-	"seance":     true,
-	"doctor":     true,
-	"dolt":       true,
-	"handoff":    true,
-	"costs":      true,
-	"feed":       true,
-	"rig":        true,
-	"config":     true,
-	"install":    true,
-	"tap":        true,
-	"dnd":        true,
-	"estop":      true, // E-stop must work when Dolt is down
-	"thaw":       true, // Thaw must work when Dolt is down
+	"version":       true,
+	"help":          true,
+	"completion":    true,
+	"crew":          true,
+	"polecat":       true,
+	"witness":       true,
+	"refinery":      true,
+	"status":        true,
+	"mail":          true,
+	"hook":          true,
+	"prime":         true,
+	"nudge":         true,
+	"seance":        true,
+	"doctor":        true,
+	"dolt":          true,
+	"handoff":       true,
+	"costs":         true,
+	"feed":          true,
+	"rig":           true,
+	"config":        true,
+	"install":       true,
+	"tap":           true,
+	"dnd":           true,
+	"estop":         true, // E-stop must work when Dolt is down
+	"thaw":          true, // Thaw must work when Dolt is down
 	"signal":        true, // Hook signal handlers must be fast, handle beads internally
 	"metrics":       true, // Metrics reads local JSONL, no beads needed
 	"krc":           true, // KRC doesn't require beads
-	"run-migration":       true, // Migration orchestrator handles its own beads checks
-	"health":              true, // Health check doesn't require beads
-	"upgrade":             true, // Post-install migration orchestrator
-	"heartbeat":           true, // Heartbeat state update — must be fast and dependency-free
+	"run-migration": true, // Migration orchestrator handles its own beads checks
+	"health":        true, // Health check doesn't require beads
+	"upgrade":       true, // Post-install migration orchestrator
+	"heartbeat":     true, // Heartbeat state update — must be fast and dependency-free
 }
 
 // Commands exempt from the town root branch warning.
@@ -112,11 +112,9 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	// Log command usage telemetry (fire-and-forget, excludes tap/signal)
 	logCommandUsage(cmd, args)
 
-	// Initialize session prefix registry and agent registry from town root.
-	// Try CWD detection first, then fall back to GT_TOWN_ROOT / GT_ROOT env vars.
-	// Env var fallback ensures commands invoked from outside the town directory
-	// (e.g., "gt agents menu" via a cross-socket tmux binding) still connect to
-	// the correct town socket rather than silently using the wrong server.
+	// Initialize session prefix registry and agent registry from the canonical town root.
+	// detectTownRootFromCwd prefers GT_TOWN_ROOT / GT_ROOT, then falls back to cwd
+	// detection and tmux env so commands stay pinned to the active town socket.
 	if townRoot := detectTownRootFromCwd(); townRoot != "" {
 		if err := session.InitRegistry(townRoot); err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: failed to initialize town registry: %v\n", err)

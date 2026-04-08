@@ -437,6 +437,28 @@ func TestDetectTownRootFromCwd_EnvFallback(t *testing.T) {
 		}
 	})
 
+	t.Run("prefers GT_TOWN_ROOT over nested workspace detection", func(t *testing.T) {
+		nestedTown := filepath.Join(tmpTown, "nested-town")
+		if err := os.MkdirAll(filepath.Join(nestedTown, workspace.SecondaryMarker), 0755); err != nil {
+			t.Fatalf("mkdir nested mayor: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(nestedTown, workspace.PrimaryMarker), []byte(`{"name":"nested"}`), 0644); err != nil {
+			t.Fatalf("write nested town.json: %v", err)
+		}
+
+		os.Setenv("GT_TOWN_ROOT", tmpTown)
+		os.Setenv("GT_ROOT", "")
+
+		origCwd, _ := os.Getwd()
+		os.Chdir(nestedTown)
+		defer os.Chdir(origCwd)
+
+		result := detectTownRootFromCwd()
+		if result != tmpTown {
+			t.Errorf("detectTownRootFromCwd() = %q, want %q (should prefer canonical GT_TOWN_ROOT)", result, tmpTown)
+		}
+	})
+
 	t.Run("ignores invalid GT_TOWN_ROOT", func(t *testing.T) {
 		// Set GT_TOWN_ROOT to non-existent path, GT_ROOT to valid
 		os.Setenv("GT_TOWN_ROOT", "/nonexistent/path/to/town")

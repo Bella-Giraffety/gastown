@@ -1091,20 +1091,12 @@ func sessionToGTRole(sessionName string) string {
 	return identity.GTRole()
 }
 
-// detectTownRootFromCwd walks up from the current directory to find the town root.
-// Falls back to GT_TOWN_ROOT or GT_ROOT env vars if cwd detection fails (broken state recovery).
+// detectTownRootFromCwd returns the canonical town root for control-plane work.
+// It prefers GT_TOWN_ROOT / GT_ROOT, then falls back to cwd detection and tmux.
 func detectTownRootFromCwd() string {
-	// Use workspace.FindFromCwd which handles both primary (mayor/town.json)
-	// and secondary (mayor/ directory) markers
-	townRoot, err := workspace.FindFromCwd()
-	if err == nil && townRoot != "" {
-		return townRoot
-	}
-
-	// Fallback: try environment variables for town root
-	// GT_TOWN_ROOT is set by shell integration, GT_ROOT is set by session manager
-	// This enables handoff to work even when cwd detection fails due to
-	// detached HEAD, wrong branch, deleted worktree, etc.
+	// GT_TOWN_ROOT is set by shell integration, GT_ROOT is set by session manager.
+	// Prefer them even when cwd detection would succeed, so commands launched from
+	// nested workspaces still talk to the active town's control plane.
 	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
 		if envRoot := os.Getenv(envName); envRoot != "" {
 			// Verify it's actually a workspace
@@ -1116,6 +1108,13 @@ func detectTownRootFromCwd() string {
 				return envRoot
 			}
 		}
+	}
+
+	// Use workspace.FindFromCwd which handles both primary (mayor/town.json)
+	// and secondary (mayor/ directory) markers.
+	townRoot, err := workspace.FindFromCwd()
+	if err == nil && townRoot != "" {
+		return townRoot
 	}
 
 	// Final fallback: read GT_TOWN_ROOT from tmux global environment.
