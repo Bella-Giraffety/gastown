@@ -278,3 +278,54 @@ func TestFindSkipsNestedWorkspaceInCrew(t *testing.T) {
 		t.Errorf("Find = %q, want %q (should skip nested workspace in crew/)", found, root)
 	}
 }
+
+func TestFindFromEnv_PrefersGTTownRoot(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir town mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, PrimaryMarker), []byte(`{}`), 0644); err != nil {
+		t.Fatalf("write GT_TOWN_ROOT town.json: %v", err)
+	}
+
+	gtRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gtRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir gt mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gtRoot, PrimaryMarker), []byte(`{}`), 0644); err != nil {
+		t.Fatalf("write GT_ROOT town.json: %v", err)
+	}
+
+	t.Setenv("GT_TOWN_ROOT", townRoot)
+	t.Setenv("GT_ROOT", gtRoot)
+
+	if got := FindFromEnv(); got != townRoot {
+		t.Errorf("FindFromEnv() = %q, want %q", got, townRoot)
+	}
+}
+
+func TestFindForRuntime_PrefersEnvOverFilesystem(t *testing.T) {
+	tmpDir := t.TempDir()
+	outerTown := filepath.Join(tmpDir, "outer-town")
+	innerTown := filepath.Join(outerTown, "gastown")
+
+	for _, dir := range []string{outerTown, innerTown} {
+		if err := os.MkdirAll(filepath.Join(dir, "mayor"), 0755); err != nil {
+			t.Fatalf("mkdir mayor: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, PrimaryMarker), []byte(`{}`), 0644); err != nil {
+			t.Fatalf("write town.json: %v", err)
+		}
+	}
+
+	t.Setenv("GT_TOWN_ROOT", outerTown)
+	t.Setenv("GT_ROOT", "")
+
+	got, err := FindForRuntime(innerTown)
+	if err != nil {
+		t.Fatalf("FindForRuntime: %v", err)
+	}
+	if got != outerTown {
+		t.Errorf("FindForRuntime(%q) = %q, want %q", innerTown, got, outerTown)
+	}
+}
