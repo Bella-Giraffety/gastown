@@ -13,22 +13,21 @@ import (
 // EscalationFields holds structured fields for escalation beads.
 // These are stored as "key: value" lines in the description.
 type EscalationFields struct {
-	Severity           string // critical, high, medium, low
-	Reason             string // Why this was escalated
-	Source             string // Source identifier (e.g., plugin:rebuild-gt, patrol:deacon)
-	EscalatedBy        string // Agent address that escalated (e.g., "gastown/Toast")
-	EscalatedAt        string // ISO 8601 timestamp
-	AckedBy            string // Agent that acknowledged (empty if not acked)
-	AckedAt            string // When acknowledged (empty if not acked)
-	ClosedBy           string // Agent that closed (empty if not closed)
-	ClosedReason       string // Resolution reason (empty if not closed)
-	RelatedBead        string // Optional: related bead ID (task, bug, etc.)
-	OriginalSeverity   string // Original severity before any re-escalation
-	ReescalationCount  int    // Number of times this has been re-escalated
-	LastReescalatedAt  string // When last re-escalated (empty if never)
-	LastReescalatedBy  string // Who last re-escalated (empty if never)
+	Severity          string // critical, high, medium, low
+	Reason            string // Why this was escalated
+	Source            string // Source identifier (e.g., plugin:rebuild-gt, patrol:deacon)
+	EscalatedBy       string // Agent address that escalated (e.g., "gastown/Toast")
+	EscalatedAt       string // ISO 8601 timestamp
+	AckedBy           string // Agent that acknowledged (empty if not acked)
+	AckedAt           string // When acknowledged (empty if not acked)
+	ClosedBy          string // Agent that closed (empty if not closed)
+	ClosedReason      string // Resolution reason (empty if not closed)
+	RelatedBead       string // Optional: related bead ID (task, bug, etc.)
+	OriginalSeverity  string // Original severity before any re-escalation
+	ReescalationCount int    // Number of times this has been re-escalated
+	LastReescalatedAt string // When last re-escalated (empty if never)
+	LastReescalatedBy string // Who last re-escalated (empty if never)
 }
-
 
 // FormatEscalationDescription creates a description string from escalation fields.
 func FormatEscalationDescription(title string, fields *EscalationFields) string {
@@ -283,6 +282,28 @@ func (b *Beads) GetEscalationBead(id string) (*Issue, *EscalationFields, error) 
 	return issue, fields, nil
 }
 
+// IsEscalationMailCopyLabels reports whether labels belong to an escalation
+// notification message rather than the primary escalation bead.
+func IsEscalationMailCopyLabels(labels []string) bool {
+	for _, label := range labels {
+		if label == "gt:message" {
+			return true
+		}
+	}
+	return false
+}
+
+func filterPrimaryEscalations(issues []*Issue) []*Issue {
+	filtered := make([]*Issue, 0, len(issues))
+	for _, issue := range issues {
+		if IsEscalationMailCopyLabels(issue.Labels) {
+			continue
+		}
+		filtered = append(filtered, issue)
+	}
+	return filtered
+}
+
 // ListEscalations returns all open escalation beads.
 func (b *Beads) ListEscalations() ([]*Issue, error) {
 	out, err := b.run("list", "--label=gt:escalation", "--status=open", "--json")
@@ -295,7 +316,7 @@ func (b *Beads) ListEscalations() ([]*Issue, error) {
 		return nil, fmt.Errorf("parsing bd list output: %w", err)
 	}
 
-	return issues, nil
+	return filterPrimaryEscalations(issues), nil
 }
 
 // ListEscalationsBySeverity returns open escalation beads filtered by severity.
@@ -315,7 +336,7 @@ func (b *Beads) ListEscalationsBySeverity(severity string) ([]*Issue, error) {
 		return nil, fmt.Errorf("parsing bd list output: %w", err)
 	}
 
-	return issues, nil
+	return filterPrimaryEscalations(issues), nil
 }
 
 // ListStaleEscalations returns escalations older than the given threshold.

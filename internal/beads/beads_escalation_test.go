@@ -1,6 +1,8 @@
 package beads
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -320,5 +322,57 @@ func TestBumpSeverity(t *testing.T) {
 				t.Errorf("bumpSeverity(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsEscalationMailCopyLabels(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels []string
+		want   bool
+	}{
+		{
+			name:   "primary escalation bead",
+			labels: []string{"gt:escalation", "severity:high"},
+			want:   false,
+		},
+		{
+			name:   "escalation mail copy",
+			labels: []string{"gt:escalation", "gt:message", "msg-type:escalation"},
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsEscalationMailCopyLabels(tt.labels); got != tt.want {
+				t.Fatalf("IsEscalationMailCopyLabels(%v) = %v, want %v", tt.labels, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestListEscalationsSkipsEscalationMailCopies(t *testing.T) {
+	tmpDir := t.TempDir()
+	binDir := t.TempDir()
+	bdPath := filepath.Join(binDir, "bd")
+	script := `#!/bin/sh
+printf '%s' '[{"id":"gs-esc-main","title":"Primary escalation","labels":["gt:escalation","severity:high"]},{"id":"hq-msg-esc","title":"Escalation mail copy","labels":["gt:escalation","gt:message","msg-type:escalation"]}]'
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	bd := NewIsolated(tmpDir)
+	issues, err := bd.ListEscalations()
+	if err != nil {
+		t.Fatalf("ListEscalations: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("ListEscalations returned %d issues, want 1", len(issues))
+	}
+	if issues[0].ID != "gs-esc-main" {
+		t.Fatalf("ListEscalations returned %q, want gs-esc-main", issues[0].ID)
 	}
 }

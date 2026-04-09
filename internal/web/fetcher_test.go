@@ -575,6 +575,37 @@ esac
 	})
 }
 
+func TestFetchEscalationsSkipsEscalationMailCopies(t *testing.T) {
+	binDir := t.TempDir()
+	bdPath := filepath.Join(binDir, "bd")
+	script := `#!/bin/sh
+printf '%s' '[{"id":"gs-esc-main","title":"Primary escalation","created_at":"2026-04-09T18:00:00Z","created_by":"gastown/witness","labels":["gt:escalation","severity:critical"],"description":""},{"id":"hq-msg-esc","title":"Escalation mail copy","created_at":"2026-04-09T18:01:00Z","created_by":"gastown/witness","labels":["gt:escalation","gt:message","msg-type:escalation","severity:critical"],"description":""}]'
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+
+	f := &LiveConvoyFetcher{
+		townRoot:   t.TempDir(),
+		cmdTimeout: 5 * time.Second,
+		bdBin:      bdPath,
+	}
+
+	rows, err := f.FetchEscalations()
+	if err != nil {
+		t.Fatalf("FetchEscalations: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("FetchEscalations returned %d rows, want 1", len(rows))
+	}
+	if rows[0].ID != "gs-esc-main" {
+		t.Fatalf("FetchEscalations returned %q, want gs-esc-main", rows[0].ID)
+	}
+	if rows[0].Severity != "critical" {
+		t.Fatalf("FetchEscalations severity = %q, want critical", rows[0].Severity)
+	}
+}
+
 func withMayorFetcherHooks(t *testing.T, sessionEnv func(sessionName, key string) (string, error), runCmdFunc func(time.Duration, string, ...string) (*bytes.Buffer, error)) {
 	t.Helper()
 

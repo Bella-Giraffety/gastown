@@ -1286,6 +1286,10 @@ func (f *LiveConvoyFetcher) FetchEscalations() ([]EscalationRow, error) {
 
 	var rows []EscalationRow
 	for _, issue := range issues {
+		if beads.IsEscalationMailCopyLabels(issue.Labels) {
+			continue
+		}
+
 		row := EscalationRow{
 			ID:          issue.ID,
 			Title:       issue.Title,
