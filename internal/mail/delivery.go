@@ -98,7 +98,7 @@ func AcknowledgeDeliveryBead(workDir, beadsDir, beadID, recipientIdentity string
 		if err == nil {
 			continue // bd label add silently succeeds on duplicate labels.
 		}
-		if bdErr, ok := err.(*bdError); ok && bdErr.ContainsError("not found") {
+		if isBdNotFoundError(err) {
 			return ErrMessageNotFound
 		}
 		return err

@@ -509,6 +509,13 @@ func TestBdCmd_StripBeadsDir_Chaining(t *testing.T) {
 	}
 }
 
+func TestBdCmd_RouteForBead_Chaining(t *testing.T) {
+	bdc := BdCmd("show", "id")
+	if bdc.RouteForBead("nw-abc") != bdc {
+		t.Error("RouteForBead() should return receiver for chaining")
+	}
+}
+
 // filterEnv returns env with all entries matching the given key prefix removed.
 func filterEnv(env []string, key string) []string {
 	prefix := key + "="

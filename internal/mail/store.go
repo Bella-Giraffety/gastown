@@ -104,7 +104,7 @@ func (m *Mailbox) storeGetFromDir(id string) (*Message, error) {
 
 	si, err := m.store.GetIssue(ctx, id)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if isMessageNotFoundError(err) {
 			return nil, ErrMessageNotFound
 		}
 		return nil, fmt.Errorf("store get message: %w", err)
@@ -125,7 +125,7 @@ func (m *Mailbox) storeCloseInDir(id string) error {
 		To: m.identity,
 	}, err)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if isMessageNotFoundError(err) {
 			return ErrMessageNotFound
 		}
 		return fmt.Errorf("store close message: %w", err)
@@ -140,7 +140,7 @@ func (m *Mailbox) storeMarkReadOnly(id string) error {
 
 	err := m.store.AddLabel(ctx, id, "read", "")
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if isMessageNotFoundError(err) {
 			return ErrMessageNotFound
 		}
 		return fmt.Errorf("store mark read: %w", err)
@@ -155,7 +155,7 @@ func (m *Mailbox) storeMarkUnreadOnly(id string) error {
 
 	err := m.store.RemoveLabel(ctx, id, "read", "")
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if isMessageNotFoundError(err) {
 			return ErrMessageNotFound
 		}
 		// Ignore error if label doesn't exist
@@ -177,7 +177,7 @@ func (m *Mailbox) storeMarkUnread(id string) error {
 	}
 	err := m.store.UpdateIssue(ctx, id, updates, "")
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if isMessageNotFoundError(err) {
 			return ErrMessageNotFound
 		}
 		return fmt.Errorf("store reopen message: %w", err)

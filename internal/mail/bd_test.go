@@ -191,3 +191,72 @@ func TestBdError_WithAllFields(t *testing.T) {
 		t.Error("ContainsError should return false for non-existent substring")
 	}
 }
+
+func TestIsBdNotFoundError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "matches not found",
+			err:  &bdError{Stderr: "error: bead not found"},
+			want: true,
+		},
+		{
+			name: "matches no issue found",
+			err:  &bdError{Stderr: "error: no issue found matching \"gt-123\""},
+			want: true,
+		},
+		{
+			name: "ignores other bd errors",
+			err:  &bdError{Stderr: "permission denied"},
+			want: false,
+		},
+		{
+			name: "ignores non bd errors",
+			err:  errors.New("no issue found matching \"gt-123\""),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBdNotFoundError(tt.err); got != tt.want {
+				t.Errorf("isBdNotFoundError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsMessageNotFoundError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "matches bd no issue found",
+			err:  &bdError{Stderr: "error: no issue found matching \"gt-123\""},
+			want: true,
+		},
+		{
+			name: "matches store no issue found",
+			err:  errors.New("store: no issue found matching \"gt-123\""),
+			want: true,
+		},
+		{
+			name: "ignores unrelated errors",
+			err:  errors.New("permission denied"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isMessageNotFoundError(tt.err); got != tt.want {
+				t.Errorf("isMessageNotFoundError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}

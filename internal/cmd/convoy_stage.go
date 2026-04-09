@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -45,9 +46,9 @@ func init() {
 
 // StageResult is the top-level JSON output for gt convoy stage --json.
 type StageResult struct {
-	Status           string          `json:"status"`              // "staged_ready", "staged_warnings", or "error"
-	ConvoyID         string          `json:"convoy_id"`           // empty if errors prevented creation
-	Restaged         bool            `json:"restaged"`            // true if an existing convoy was updated in place
+	Status           string          `json:"status"`                       // "staged_ready", "staged_warnings", or "error"
+	ConvoyID         string          `json:"convoy_id"`                    // empty if errors prevented creation
+	Restaged         bool            `json:"restaged"`                     // true if an existing convoy was updated in place
 	ValidationBeadID string          `json:"validation_bead_id,omitempty"` // capstone validation bead (epic input only)
 	Errors           []FindingJSON   `json:"errors"`
 	Warnings         []FindingJSON   `json:"warnings"`
@@ -1448,13 +1449,10 @@ type bdDepResult struct {
 // bdShow runs `bd show <id> --json` and returns the parsed bead info.
 // Returns error if bd exits non-zero or returns no results.
 func bdShow(beadID string) (*bdShowResult, error) {
-	cmd := exec.Command("bd", "show", beadID, "--json")
-	// Route to the correct rig database via prefix resolution.
-	if dir := resolveBeadDir(beadID); dir != "" && dir != "." {
-		cmd.Dir = dir
-		cmd.Env = filterEnvKey(os.Environ(), "BEADS_DIR")
-	}
-	out, err := cmd.Output()
+	out, err := BdCmd("show", beadID, "--json").
+		RouteForBead(beadID).
+		Stderr(io.Discard).
+		Output()
 	if err != nil {
 		return nil, fmt.Errorf("bd show %s: %w", beadID, err)
 	}
@@ -1474,13 +1472,10 @@ func bdShow(beadID string) (*bdShowResult, error) {
 // bd dep list returns the beads that <id> depends on. Each result's
 // DependsOnID is the dependency target; IssueID is set to <id> by this func.
 func bdDepList(beadID string) ([]bdDepResult, error) {
-	cmd := exec.Command("bd", "dep", "list", beadID, "--json")
-	// Route to the correct rig database via prefix resolution.
-	if dir := resolveBeadDir(beadID); dir != "" && dir != "." {
-		cmd.Dir = dir
-		cmd.Env = filterEnvKey(os.Environ(), "BEADS_DIR")
-	}
-	out, err := cmd.Output()
+	out, err := BdCmd("dep", "list", beadID, "--json").
+		RouteForBead(beadID).
+		Stderr(io.Discard).
+		Output()
 	if err != nil {
 		return nil, fmt.Errorf("bd dep list %s: %w", beadID, err)
 	}
@@ -1504,8 +1499,9 @@ func bdDepList(beadID string) ([]bdDepResult, error) {
 // routes.jsonl so this works regardless of the caller's working directory.
 func bdListChildren(parentID string) ([]bdShowResult, error) {
 	cmd := exec.Command("bd", "list", "--parent="+parentID, "--json")
-	if dir := beadsDirForID(parentID); dir != "" {
+	if dir := resolveBeadDir(parentID); dir != "" && dir != "." {
 		cmd.Dir = dir
+		cmd.Env = filterEnvKey(os.Environ(), "BEADS_DIR")
 	}
 	out, err := cmd.Output()
 	if err != nil {

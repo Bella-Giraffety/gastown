@@ -49,6 +49,25 @@ func (e *bdError) ContainsError(substr string) bool {
 	return strings.Contains(e.Stderr, substr)
 }
 
+func isBdNotFoundError(err error) bool {
+	bdErr, ok := err.(*bdError)
+	if !ok {
+		return false
+	}
+	return bdErr.ContainsError("not found") || bdErr.ContainsError("no issue found")
+}
+
+func isMessageNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if isBdNotFoundError(err) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "no issue found")
+}
+
 // runBdCommand executes a bd command with a context timeout and proper environment setup.
 // ctx controls the deadline/timeout for the subprocess.
 // workDir is the directory to run the command in.
