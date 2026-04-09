@@ -1659,6 +1659,7 @@ func Start(townRoot string) error {
 	}
 	maxAttempts := dbCount * 10 // 10 × 500ms = 5s per database
 	var lastErr error
+	tcpReachable := false
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		time.Sleep(500 * time.Millisecond)
 
@@ -1667,15 +1668,36 @@ func Start(townRoot string) error {
 			return fmt.Errorf("Dolt server process died during startup (check logs with 'gt dolt logs')")
 		}
 
-		if err := CheckServerReachable(townRoot); err == nil {
-			return nil // Server is up and accepting connections
-		} else {
-			lastErr = err
+		if !tcpReachable {
+			if err := CheckServerReachable(townRoot); err != nil {
+				lastErr = err
+				continue
+			}
+			tcpReachable = true
 		}
+
+		// Dolt can bind TCP before it has registered all on-disk databases.
+		// Only return success once the expected catalogs are visible.
+		if len(databases) == 0 {
+			return nil
+		}
+		_, missing, verifyErr := VerifyDatabases(townRoot)
+		if verifyErr != nil {
+			lastErr = fmt.Errorf("verifying databases: %w", verifyErr)
+			continue
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		lastErr = fmt.Errorf("server is reachable but %d/%d databases not yet served (missing: %v)",
+			len(missing), len(databases), missing)
 	}
 
 	totalTimeout := time.Duration(dbCount) * 5 * time.Second
-	return fmt.Errorf("Dolt server process started (PID %d) but not accepting connections after %v (%d databases × 5s): %w\nCheck logs with: gt dolt logs", cmd.Process.Pid, totalTimeout, dbCount, lastErr)
+	if !tcpReachable {
+		return fmt.Errorf("Dolt server process started (PID %d) but not accepting connections after %v (%d databases × 5s): %w\nCheck logs with: gt dolt logs", cmd.Process.Pid, totalTimeout, dbCount, lastErr)
+	}
+	return fmt.Errorf("Dolt server process started (PID %d) and is reachable, but databases failed to load after %v (%d databases × 5s): %w\nRecovery: gt dolt stop && gt dolt start\nCheck logs with: gt dolt logs", cmd.Process.Pid, totalTimeout, dbCount, lastErr)
 }
 
 // cleanupStaleDoltLock removes a stale Dolt LOCK file if no process holds it.
