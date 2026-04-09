@@ -244,16 +244,16 @@ func (m *Manager) loadRig(name string, entry config.RigEntry) (*Rig, error) {
 
 // AddRigOptions configures rig creation.
 type AddRigOptions struct {
-	Name            string   // Rig name (directory name)
-	GitURL          string   // Repository URL (fetch/pull)
-	PushURL         string   // Optional push URL (fork for read-only upstreams)
-	UpstreamURL     string   // Optional upstream URL (for fork workflows)
-	BeadsPrefix     string   // Beads issue prefix (defaults to derived from name)
-	LocalRepo       string   // Optional local repo for reference clones
-	DefaultBranch   string   // Default branch (defaults to auto-detected from remote)
-	SkipDoltCheck   bool     // Skip Dolt server availability check (for tests with mocked beads)
-	CloneFilter     string   // Git clone filter spec (e.g. "blob:none", "tree:0") for partial clones
-	SparseCheckout  []string // Sparse checkout paths (cone mode); empty means no sparse checkout
+	Name           string   // Rig name (directory name)
+	GitURL         string   // Repository URL (fetch/pull)
+	PushURL        string   // Optional push URL (fork for read-only upstreams)
+	UpstreamURL    string   // Optional upstream URL (for fork workflows)
+	BeadsPrefix    string   // Beads issue prefix (defaults to derived from name)
+	LocalRepo      string   // Optional local repo for reference clones
+	DefaultBranch  string   // Default branch (defaults to auto-detected from remote)
+	SkipDoltCheck  bool     // Skip Dolt server availability check (for tests with mocked beads)
+	CloneFilter    string   // Git clone filter spec (e.g. "blob:none", "tree:0") for partial clones
+	SparseCheckout []string // Sparse checkout paths (cone mode); empty means no sparse checkout
 }
 
 func resolveLocalRepo(path, gitURL string) (string, string) {
@@ -591,19 +591,6 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 			}
 		}
 
-		// Always ensure issue_prefix and custom types are configured, even when
-		// metadata.json was tracked in git (bdDatabaseExists returned true).
-		// The tracked metadata.json tells bd HOW to connect but doesn't guarantee
-		// the server-side database has issue_prefix set for this workspace.
-		configCmd := exec.Command("bd", "config", "set", "types.custom", constants.BeadsCustomTypes)
-		configCmd.Dir = mayorRigPath
-		_, _ = configCmd.CombinedOutput() // Ignore errors - older beads don't need this
-
-		prefixSetCmd := exec.Command("bd", "config", "set", "issue_prefix", opts.BeadsPrefix)
-		prefixSetCmd.Dir = mayorRigPath
-		if prefixOutput, prefixErr := prefixSetCmd.CombinedOutput(); prefixErr != nil {
-			fmt.Printf("  Warning: Could not set issue_prefix: %v (%s)\n", prefixErr, strings.TrimSpace(string(prefixOutput)))
-		}
 	}
 
 	// NOTE: No per-directory CLAUDE.md/AGENTS.md is created for any agent.

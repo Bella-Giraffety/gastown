@@ -1416,6 +1416,90 @@ func TestAddRig_UpstreamURL(t *testing.T) {
 	_ = rig
 }
 
+func TestAddRig_TrackedBeadsScopesIssuePrefixToRigDatabase(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based bd shim not reliable on Windows CI")
+	}
+
+	root, rigsConfig := setupTestTown(t)
+	repoDir := createTestGitRepoForRig(t, "tracked-beads-rig")
+	beadsDir := filepath.Join(repoDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "config.yaml"), []byte("prefix: tb\nissue-prefix: tb\n"), 0644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(`{"backend":"dolt","database":"dolt","dolt_mode":"server","dolt_database":"trackedbeads"}`), 0644); err != nil {
+		t.Fatalf("write metadata.json: %v", err)
+	}
+	for _, args := range [][]string{
+		{"git", "-C", repoDir, "add", ".beads"},
+		{"git", "-C", repoDir, "commit", "-m", "Add tracked beads"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+
+	cmdLog := filepath.Join(t.TempDir(), "bd-cmds.log")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "${BEADS_DIR:-<unset>}" "$*" >> "$BD_CMD_LOG"
+cmd="$1"
+[[ "$cmd" == "--allow-stale" ]] && { shift; cmd="$1"; }
+shift || true
+case "$cmd" in
+  init|config|slot) exit 0 ;;
+  show) echo "[]" ;;
+  create)
+    id=""; title=""
+    for arg in "$@"; do
+      case "$arg" in --id=*) id="${arg#--id=}" ;; --title=*) title="${arg#--title=}" ;; esac
+    done
+    printf '{"id":"%s","title":"%s","description":"","issue_type":"agent"}' "$id" "$title"
+    ;;
+  *) exit 0 ;;
+esac
+`
+	windowsScript := "@echo off\r\nexit /b 0\r\n"
+	binDir := writeFakeBD(t, script, windowsScript)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BD_CMD_LOG", cmdLog)
+
+	manager := NewManager(root, rigsConfig, git.NewGit(root))
+	if _, err := manager.AddRig(AddRigOptions{
+		Name:          "trackedbeads",
+		GitURL:        repoDir,
+		BeadsPrefix:   "tb",
+		SkipDoltCheck: true,
+	}); err != nil {
+		t.Fatalf("AddRig: %v", err)
+	}
+
+	logData, err := os.ReadFile(cmdLog)
+	if err != nil {
+		t.Fatalf("reading command log: %v", err)
+	}
+	logLines := strings.Split(strings.TrimSpace(string(logData)), "\n")
+	wantBeadsDir := filepath.Join(root, "trackedbeads", "mayor", "rig", ".beads")
+	for _, line := range logLines {
+		if !strings.Contains(line, "config set issue_prefix tb") {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 2)
+		if len(parts) != 2 {
+			t.Fatalf("malformed bd log line: %q", line)
+		}
+		if parts[0] != wantBeadsDir {
+			t.Fatalf("issue_prefix config targeted %q, want %q", parts[0], wantBeadsDir)
+		}
+		return
+	}
+	t.Fatalf("did not observe config set issue_prefix tb in bd command log:\n%s", string(logData))
+}
+
 // TestAddRig_BranchFlag verifies that --branch is passed to the bare clone so
 // the bare repo's HEAD and origin tracking ref both point to the specified branch.
 func TestAddRig_BranchFlag(t *testing.T) {
