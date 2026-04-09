@@ -243,6 +243,7 @@ func runEscalateList(cmd *cobra.Command, args []string) error {
 		if err := json.Unmarshal(out, &issues); err != nil {
 			return fmt.Errorf("parsing escalations: %w", err)
 		}
+		issues = beads.FilterCanonicalEscalations(issues)
 	} else {
 		issues, err = bd.ListEscalations()
 		if err != nil {

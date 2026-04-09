@@ -300,6 +300,54 @@ func TestEscalationFieldsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestIsCanonicalEscalationIssue(t *testing.T) {
+	tests := []struct {
+		name  string
+		issue *Issue
+		want  bool
+	}{
+		{
+			name:  "canonical escalation bead",
+			issue: &Issue{Labels: []string{"gt:escalation", "severity:high"}},
+			want:  true,
+		},
+		{
+			name:  "escalation mail copy",
+			issue: &Issue{Labels: []string{"gt:escalation", "gt:message", "msg-type:escalation"}},
+			want:  false,
+		},
+		{
+			name:  "non escalation message",
+			issue: &Issue{Labels: []string{"gt:message"}},
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsCanonicalEscalationIssue(tt.issue); got != tt.want {
+				t.Fatalf("IsCanonicalEscalationIssue() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFilterCanonicalEscalations(t *testing.T) {
+	issues := []*Issue{
+		{ID: "gs-esc-1", Labels: []string{"gt:escalation", "severity:critical"}},
+		{ID: "mail-1", Labels: []string{"gt:escalation", "gt:message", "thread:gs-esc-1"}},
+		{ID: "gs-esc-2", Labels: []string{"gt:escalation", "severity:medium"}},
+	}
+
+	filtered := FilterCanonicalEscalations(issues)
+	if len(filtered) != 2 {
+		t.Fatalf("FilterCanonicalEscalations() returned %d issues, want 2", len(filtered))
+	}
+	if filtered[0].ID != "gs-esc-1" || filtered[1].ID != "gs-esc-2" {
+		t.Fatalf("FilterCanonicalEscalations() kept %q and %q, want canonical escalation IDs", filtered[0].ID, filtered[1].ID)
+	}
+}
+
 func TestBumpSeverity(t *testing.T) {
 	tests := []struct {
 		input string

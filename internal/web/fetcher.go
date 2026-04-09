@@ -1272,17 +1272,12 @@ func (f *LiveConvoyFetcher) FetchEscalations() ([]EscalationRow, error) {
 		return nil, nil // No escalations or bd not available
 	}
 
-	var issues []struct {
-		ID          string   `json:"id"`
-		Title       string   `json:"title"`
-		CreatedAt   string   `json:"created_at"`
-		CreatedBy   string   `json:"created_by"`
-		Labels      []string `json:"labels"`
-		Description string   `json:"description"`
-	}
+	var issues []*beads.Issue
 	if err := json.Unmarshal(stdout.Bytes(), &issues); err != nil {
 		return nil, fmt.Errorf("parsing escalations: %w", err)
 	}
+
+	issues = beads.FilterCanonicalEscalations(issues)
 
 	var rows []EscalationRow
 	for _, issue := range issues {

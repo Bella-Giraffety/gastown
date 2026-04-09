@@ -533,7 +533,7 @@ var memoryTypeLabels = map[string]string{
 	"feedback":  "Behavioral Rules (from user feedback)",
 	"user":      "User Context",
 	"project":   "Project Context",
-	"reference":  "Reference Links",
+	"reference": "Reference Links",
 	"general":   "General",
 }
 
@@ -1221,15 +1221,28 @@ func checkPendingEscalations(ctx RoleContext) {
 
 	// Parse JSON output
 	var escalations []struct {
-		ID          string `json:"id"`
-		Title       string `json:"title"`
-		Priority    int    `json:"priority"`
-		Description string `json:"description"`
-		Created     string `json:"created"`
+		ID          string   `json:"id"`
+		Title       string   `json:"title"`
+		Priority    int      `json:"priority"`
+		Description string   `json:"description"`
+		Created     string   `json:"created"`
+		Labels      []string `json:"labels"`
 	}
 
 	if err := json.Unmarshal(stdout.Bytes(), &escalations); err != nil || len(escalations) == 0 {
 		// No escalations or parse error
+		return
+	}
+
+	filtered := escalations[:0]
+	for _, e := range escalations {
+		issue := &beads.Issue{Labels: e.Labels}
+		if beads.IsCanonicalEscalationIssue(issue) {
+			filtered = append(filtered, e)
+		}
+	}
+	escalations = filtered
+	if len(escalations) == 0 {
 		return
 	}
 
