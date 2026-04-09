@@ -68,6 +68,9 @@ func bootstrapRepairChecks() []doctor.Check {
 		doctor.NewRigsRegistryExistsCheck(),
 		doctor.NewMayorExistsCheck(),
 		doctor.NewTownBeadsConfigCheck(),
+		// Startup repair must also restore managed hook/settings targets so the
+		// next polecat session can actually boot after bootstrap convergence.
+		doctor.NewHooksSyncCheck(),
 		doctor.NewRoutesCheck(),
 		doctor.NewTmuxGlobalEnvCheck(),
 		doctor.NewStaleDoltPortCheck(),
