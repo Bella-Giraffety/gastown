@@ -240,17 +240,8 @@ func verifyBeadExists(beadID string) error {
 // getBeadInfo returns status and assignee for a bead.
 // Resolves the rig directory from the bead's prefix for correct dolt access.
 func getBeadInfo(beadID string) (*beadInfo, error) {
-	beadDir := resolveBeadDir(beadID)
-	townRoot, _ := workspace.Find(beadDir)
 	out, err := BdCmd("show", beadID, "--json", "--allow-stale").
-<<<<<<< HEAD
 		RouteForBead(beadID).
-=======
-		Dir(beadDir).
-		WithGTRoot(townRoot).
-		WithBeadsDir(beads.ResolveBeadsDir(beadDir)).
-		StripBeadsDir().
->>>>>>> fe23527 (fix: keep canonical rig DBs and cross-rig bd scope aligned)
 		Stderr(io.Discard).
 		Output()
 	if err != nil {

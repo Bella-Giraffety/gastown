@@ -96,7 +96,8 @@ func runBdCommand(ctx context.Context, args []string, workDir, beadsDir string, 
 	}
 	util.SetDetachedProcessGroup(cmd)
 
-	env := append(cmd.Environ(), "BEADS_DIR="+beadsDir)
+	env := stripBeadsEnv(cmd.Environ())
+	env = append(env, "BEADS_DIR="+beadsDir)
 	if dbEnv := beads.DatabaseEnv(beadsDir); dbEnv != "" {
 		env = append(env, dbEnv)
 	}
@@ -138,6 +139,19 @@ func runBdCommand(ctx context.Context, args []string, workDir, beadsDir string, 
 	}
 
 	return stdout.Bytes(), nil
+}
+
+func stripBeadsEnv(env []string) []string {
+	filtered := make([]string, 0, len(env))
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "BEADS_DIR=") ||
+			strings.HasPrefix(entry, "BEADS_DB=") ||
+			strings.HasPrefix(entry, "BEADS_DOLT_SERVER_DATABASE=") {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 // firstArg returns args[0] or "" when the slice is empty.

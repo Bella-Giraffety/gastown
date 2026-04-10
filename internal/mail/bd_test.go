@@ -225,6 +225,9 @@ printf 'args=%s\n' "$*"
 		t.Fatalf("write bd stub: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+	t.Setenv("BEADS_DB", "/wrong/beads.db")
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "wrongdb")
 
 	stdout, err := runBdCommand(context.Background(), []string{"show", "gs-wisp-ext", "--json"}, filepath.Join(tmpDir, "repo"), beadsDir)
 	if err != nil {
@@ -237,6 +240,9 @@ printf 'args=%s\n' "$*"
 	}
 	if !strings.Contains(out, "beads="+beadsDir) {
 		t.Fatalf("runBdCommand() output %q missing beads=%s", out, beadsDir)
+	}
+	if strings.Contains(out, "/wrong/.beads") || strings.Contains(out, "/wrong/beads.db") || strings.Contains(out, "wrongdb") {
+		t.Fatalf("runBdCommand() output %q leaked inherited BEADS_* env", out)
 	}
 	if !strings.Contains(out, "db=\n") {
 		t.Fatalf("runBdCommand() output %q should leave BEADS_DOLT_SERVER_DATABASE unset", out)
