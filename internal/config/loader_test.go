@@ -1510,6 +1510,36 @@ func TestBuildStartupCommand_UsesRigAgentWhenRigPathProvided(t *testing.T) {
 	}
 }
 
+func TestBuildStartupCommand_UsesCanonicalRigRootForWorktreePath(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "testrig")
+	worktreeRigPath := filepath.Join(rigPath, "polecats", "chrome", "testrig")
+	if err := SaveTownConfig(filepath.Join(townRoot, "mayor", "town.json"), &TownConfig{Name: "test"}); err != nil {
+		t.Fatalf("SaveTownConfig: %v", err)
+	}
+
+	townSettings := NewTownSettings()
+	townSettings.DefaultAgent = "claude"
+	if err := SaveTownSettings(TownSettingsPath(townRoot), townSettings); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+
+	rigSettings := NewRigSettings()
+	rigSettings.Agent = "opencode"
+	if err := SaveRigSettings(RigSettingsPath(rigPath), rigSettings); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	cmd := BuildStartupCommand(map[string]string{"GT_ROLE": constants.RoleWitness}, worktreeRigPath, "")
+	if !strings.Contains(cmd, "GT_AGENT=opencode") {
+		t.Fatalf("expected worktree path to resolve canonical rig agent, got: %q", cmd)
+	}
+	if !strings.Contains(cmd, "exec env") || !strings.Contains(cmd, "opencode") {
+		t.Fatalf("expected opencode runtime in command, got: %q", cmd)
+	}
+}
+
 func TestBuildStartupCommand_UsesRoleAgentsFromTownSettings(t *testing.T) {
 	townRoot := t.TempDir()
 	rigPath := filepath.Join(townRoot, "testrig")
@@ -1766,6 +1796,33 @@ func TestGetRuntimeCommand_UsesRigAgentWhenRigPathProvided(t *testing.T) {
 	cmd := GetRuntimeCommand(rigPath)
 	if !strings.HasPrefix(cmd, "codex") {
 		t.Fatalf("GetRuntimeCommand() = %q, want prefix %q", cmd, "codex")
+	}
+}
+
+func TestGetRuntimeCommand_UsesCanonicalRigRootForWorktreePath(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "testrig")
+	worktreeRigPath := filepath.Join(rigPath, "polecats", "chrome", "testrig")
+	if err := SaveTownConfig(filepath.Join(townRoot, "mayor", "town.json"), &TownConfig{Name: "test"}); err != nil {
+		t.Fatalf("SaveTownConfig: %v", err)
+	}
+
+	townSettings := NewTownSettings()
+	townSettings.DefaultAgent = "claude"
+	if err := SaveTownSettings(TownSettingsPath(townRoot), townSettings); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+
+	rigSettings := NewRigSettings()
+	rigSettings.Agent = "opencode"
+	if err := SaveRigSettings(RigSettingsPath(rigPath), rigSettings); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	cmd := GetRuntimeCommand(worktreeRigPath)
+	if !strings.HasPrefix(cmd, "opencode") {
+		t.Fatalf("GetRuntimeCommand(worktree) = %q, want prefix %q", cmd, "opencode")
 	}
 }
 

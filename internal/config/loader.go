@@ -2000,9 +2000,8 @@ func GetRuntimeCommand(rigPath string) string {
 		}
 		return ResolveAgentConfig(townRoot, "").BuildCommand()
 	}
-	// Derive town root from rig path (rig is typically ~/gt/<rigname>)
-	townRoot := filepath.Dir(rigPath)
-	return ResolveAgentConfig(townRoot, rigPath).BuildCommand()
+	townRoot, resolvedRigPath := resolveTownAndRigPath(rigPath)
+	return ResolveAgentConfig(townRoot, resolvedRigPath).BuildCommand()
 }
 
 // GetRuntimeCommandWithAgentOverride returns the full command for starting an LLM session,
@@ -2020,8 +2019,8 @@ func GetRuntimeCommandWithAgentOverride(rigPath, agentOverride string) (string, 
 		return rc.BuildCommand(), nil
 	}
 
-	townRoot := filepath.Dir(rigPath)
-	rc, _, err := ResolveAgentConfigWithOverride(townRoot, rigPath, agentOverride)
+	townRoot, resolvedRigPath := resolveTownAndRigPath(rigPath)
+	rc, _, err := ResolveAgentConfigWithOverride(townRoot, resolvedRigPath, agentOverride)
 	if err != nil {
 		return "", err
 	}
@@ -2038,8 +2037,8 @@ func GetRuntimeCommandWithPrompt(rigPath, prompt string) string {
 		}
 		return ResolveAgentConfig(townRoot, "").BuildCommandWithPrompt(prompt)
 	}
-	townRoot := filepath.Dir(rigPath)
-	return ResolveAgentConfig(townRoot, rigPath).BuildCommandWithPrompt(prompt)
+	townRoot, resolvedRigPath := resolveTownAndRigPath(rigPath)
+	return ResolveAgentConfig(townRoot, resolvedRigPath).BuildCommandWithPrompt(prompt)
 }
 
 // GetRuntimeCommandWithPromptAndAgentOverride returns the full command with an initial prompt,
@@ -2057,42 +2056,85 @@ func GetRuntimeCommandWithPromptAndAgentOverride(rigPath, prompt, agentOverride 
 		return rc.BuildCommandWithPrompt(prompt), nil
 	}
 
-	townRoot := filepath.Dir(rigPath)
-	rc, _, err := ResolveAgentConfigWithOverride(townRoot, rigPath, agentOverride)
+	townRoot, resolvedRigPath := resolveTownAndRigPath(rigPath)
+	rc, _, err := ResolveAgentConfigWithOverride(townRoot, resolvedRigPath, agentOverride)
 	if err != nil {
 		return "", err
 	}
 	return rc.BuildCommandWithPrompt(prompt), nil
 }
 
-// findTownRootFromCwd locates the town root by walking up from cwd.
-// It looks for the mayor/town.json marker file.
-// Returns empty string and no error if not found (caller should use defaults).
+// findTownRootFromCwd locates the outermost town root by walking up from cwd.
+// It prefers mayor/town.json over a bare mayor/ directory to handle nested rigs.
 func findTownRootFromCwd() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("getting cwd: %w", err)
 	}
+	return findTownRootFromPath(cwd)
+}
 
-	absDir, err := filepath.Abs(cwd)
+// findTownRootFromPath locates the outermost town root by walking up from startPath.
+// It prefers mayor/town.json over a bare mayor/ directory to handle nested worktrees.
+func findTownRootFromPath(startPath string) (string, error) {
+	absDir, err := filepath.Abs(startPath)
 	if err != nil {
 		return "", fmt.Errorf("resolving path: %w", err)
 	}
 
-	const marker = "mayor/town.json"
-
+	var primaryMatch, secondaryMatch string
 	current := absDir
 	for {
-		if _, err := os.Stat(filepath.Join(current, marker)); err == nil {
-			return current, nil
+		if _, err := os.Stat(filepath.Join(current, "mayor", "town.json")); err == nil {
+			primaryMatch = current
+		}
+		if info, err := os.Stat(filepath.Join(current, "mayor")); err == nil && info.IsDir() {
+			secondaryMatch = current
 		}
 
 		parent := filepath.Dir(current)
 		if parent == current {
-			return "", fmt.Errorf("town root not found (no %s marker)", marker)
+			if primaryMatch != "" {
+				return primaryMatch, nil
+			}
+			if secondaryMatch != "" {
+				return secondaryMatch, nil
+			}
+			return "", fmt.Errorf("town root not found (no mayor/town.json marker)")
 		}
 		current = parent
 	}
+}
+
+// resolveTownAndRigPath resolves the outer town root and canonical rig root from a rig path.
+// The input may already be the rig root (<town>/<rig>) or a nested worktree path
+// (<town>/<rig>/polecats/<name>/<repo>). Config resolution must use the canonical
+// rig root so rig settings and role settings stay stable across startup paths.
+func resolveTownAndRigPath(rigPath string) (townRoot, resolvedRigPath string) {
+	if rigPath == "" {
+		return "", ""
+	}
+
+	absRigPath, err := filepath.Abs(rigPath)
+	if err != nil {
+		absRigPath = rigPath
+	}
+
+	townRoot, err = findTownRootFromPath(absRigPath)
+	if err != nil || townRoot == "" {
+		return filepath.Dir(absRigPath), absRigPath
+	}
+
+	rel, err := filepath.Rel(townRoot, absRigPath)
+	if err != nil {
+		return townRoot, absRigPath
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) == 0 || parts[0] == "" || parts[0] == "." || parts[0] == ".." {
+		return townRoot, absRigPath
+	}
+
+	return townRoot, filepath.Join(townRoot, parts[0])
 }
 
 // ExtractSimpleRole extracts the simple role name from a GT_ROLE value.
@@ -2145,8 +2187,7 @@ func BuildStartupCommand(envVars map[string]string, rigPath, prompt string) stri
 	role := ExtractSimpleRole(envVars["GT_ROLE"])
 
 	if rigPath != "" {
-		// Derive town root from rig path
-		townRoot = filepath.Dir(rigPath)
+		townRoot, rigPath = resolveTownAndRigPath(rigPath)
 		if role == "crew" && envVars["GT_CREW"] != "" {
 			// Per-worker agent resolution: check worker_agents before role_agents
 			rc = ResolveWorkerAgentConfig(envVars["GT_CREW"], townRoot, rigPath)
@@ -2370,7 +2411,7 @@ func BuildStartupCommandWithAgentOverride(envVars map[string]string, rigPath, pr
 	role := ExtractSimpleRole(envVars["GT_ROLE"])
 
 	if rigPath != "" {
-		townRoot = filepath.Dir(rigPath)
+		townRoot, rigPath = resolveTownAndRigPath(rigPath)
 		if agentOverride != "" {
 			var err error
 			rc, _, err = ResolveAgentConfigWithOverride(townRoot, rigPath, agentOverride)
@@ -2575,7 +2616,7 @@ func BuildAgentStartupCommandWithAgentOverride(role, rig, townRoot, rigPath, pro
 func BuildPolecatStartupCommand(rigName, polecatName, rigPath, prompt string) string {
 	var townRoot string
 	if rigPath != "" {
-		townRoot = filepath.Dir(rigPath)
+		townRoot, rigPath = resolveTownAndRigPath(rigPath)
 	}
 	envVars := AgentEnv(AgentEnvConfig{
 		Role:      constants.RolePolecat,
@@ -2591,7 +2632,7 @@ func BuildPolecatStartupCommand(rigName, polecatName, rigPath, prompt string) st
 func BuildPolecatStartupCommandWithAgentOverride(rigName, polecatName, rigPath, prompt, agentOverride string) (string, error) {
 	var townRoot string
 	if rigPath != "" {
-		townRoot = filepath.Dir(rigPath)
+		townRoot, rigPath = resolveTownAndRigPath(rigPath)
 	}
 	envVars := AgentEnv(AgentEnvConfig{
 		Role:      constants.RolePolecat,
@@ -2608,7 +2649,7 @@ func BuildPolecatStartupCommandWithAgentOverride(rigName, polecatName, rigPath, 
 func BuildCrewStartupCommand(rigName, crewName, rigPath, prompt string) string {
 	var townRoot string
 	if rigPath != "" {
-		townRoot = filepath.Dir(rigPath)
+		townRoot, rigPath = resolveTownAndRigPath(rigPath)
 	}
 	envVars := AgentEnv(AgentEnvConfig{
 		Role:      constants.RoleCrew,
@@ -2624,7 +2665,7 @@ func BuildCrewStartupCommand(rigName, crewName, rigPath, prompt string) string {
 func BuildCrewStartupCommandWithAgentOverride(rigName, crewName, rigPath, prompt, agentOverride string) (string, error) {
 	var townRoot string
 	if rigPath != "" {
-		townRoot = filepath.Dir(rigPath)
+		townRoot, rigPath = resolveTownAndRigPath(rigPath)
 	}
 	envVars := AgentEnv(AgentEnvConfig{
 		Role:      constants.RoleCrew,
