@@ -4235,7 +4235,7 @@ func TestEnsureAllMetadata_NoOscillation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// First call: no existing metadata.json — whichever candidate wins is fine
+	// First call: prefer canonical rig-name DB when both canonical and prefix DBs exist.
 	_, errs := EnsureAllMetadata(townRoot)
 	if len(errs) > 0 {
 		t.Fatalf("first EnsureAllMetadata errors: %v", errs)
@@ -4257,8 +4257,8 @@ func TestEnsureAllMetadata_NoOscillation(t *testing.T) {
 	}
 
 	firstDB := readDB()
-	if firstDB == "" {
-		t.Fatal("dolt_database should be set after first call")
+	if firstDB != "gastown" {
+		t.Fatalf("expected canonical rig-name DB %q, got %q", "gastown", firstDB)
 	}
 
 	// Second call: must produce the same value (no oscillation)

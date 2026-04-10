@@ -3216,6 +3216,12 @@ func EnsureAllMetadata(townRoot string) (updated []string, errs []error) {
 // candidates exist. Prefers the value already in metadata.json to avoid
 // oscillating corrections between two valid aliases for the same rig.
 func pickDBForRig(townRoot, rigName string, candidates []string) string {
+	for _, c := range candidates {
+		if c == rigName {
+			return c // Prefer canonical rig-name DB when it exists
+		}
+	}
+
 	beadsDir := FindRigBeadsDir(townRoot, rigName)
 	if beadsDir != "" {
 		if data, err := os.ReadFile(filepath.Join(beadsDir, "metadata.json")); err == nil {

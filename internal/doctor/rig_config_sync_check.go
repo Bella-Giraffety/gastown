@@ -20,12 +20,12 @@ import (
 // can't find the beads prefix to check docked/parked status.
 type RigConfigSyncCheck struct {
 	FixableCheck
-	missingConfig    []string          // Rig names missing config.json
-	prefixMismatches []prefixMismatch  // Prefix mismatches between config.json and registry
-	missingRigBeads  []rigBeadInfo     // Rigs missing identity beads
-	missingDoltDB    []string          // Rigs missing Dolt database
-	missingPrefixCfg []string          // Rigs missing issue-prefix in config.yaml
-	dbNameMismatches []dbMismatch      // Dolt database name doesn't match prefix
+	missingConfig    []string         // Rig names missing config.json
+	prefixMismatches []prefixMismatch // Prefix mismatches between config.json and registry
+	missingRigBeads  []rigBeadInfo    // Rigs missing identity beads
+	missingDoltDB    []string         // Rigs missing Dolt database
+	missingPrefixCfg []string         // Rigs missing issue-prefix in config.yaml
+	dbNameMismatches []dbMismatch     // Dolt database name doesn't match prefix
 }
 
 type prefixMismatch struct {
@@ -41,10 +41,10 @@ type rigBeadInfo struct {
 }
 
 type dbMismatch struct {
-	rigName     string
-	prefix      string
-	currentDB   string
-	expectedDB  string
+	rigName    string
+	prefix     string
+	currentDB  string
+	expectedDB string
 }
 
 // NewRigConfigSyncCheck creates a new rig config sync check.
@@ -333,15 +333,15 @@ func (c *RigConfigSyncCheck) Fix(ctx *CheckContext) error {
 			continue
 		}
 
-		rigPath := filepath.Join(ctx.TownRoot, rigName)
-		mayorRigPath := filepath.Join(rigPath, "mayor", "rig")
+		// Canonical server-side DBs are named after the rig, not the short issue prefix.
+		// Create the rig database directly so metadata, routes, and doctor checks stay aligned.
+		if _, _, err := doltserver.InitRig(ctx.TownRoot, rigName); err != nil {
+			return fmt.Errorf("could not initialize Dolt DB for %s: %w", rigName, err)
+		}
 
-		// Run bd init --prefix <prefix> --force --destroy-token to create the database
-		destroyToken := fmt.Sprintf("DESTROY-%s", entry.BeadsConfig.Prefix)
-		cmd := exec.Command("bd", "init", "--prefix", entry.BeadsConfig.Prefix, "--force", "--destroy-token="+destroyToken)
-		cmd.Dir = mayorRigPath
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("could not initialize Dolt DB for %s: %w\n%s", rigName, err, string(output))
+		// Ensure metadata points at the canonical rig-name database after creation.
+		if err := doltserver.EnsureMetadata(ctx.TownRoot, rigName); err != nil {
+			return fmt.Errorf("could not ensure metadata for %s: %w", rigName, err)
 		}
 	}
 
@@ -383,8 +383,7 @@ func (c *RigConfigSyncCheck) Fix(ctx *CheckContext) error {
 		if _, err := os.Stat(oldDBPath); err == nil {
 			// Check if new path already exists
 			if _, err := os.Stat(newDBPath); err == nil {
-				// New path exists - this is a conflict, skip rename
-				// The database with the correct name already exists
+				// Canonical database already exists; leave old path for orphan cleanup.
 			} else {
 				// Rename the database directory
 				if err := os.Rename(oldDBPath, newDBPath); err != nil {

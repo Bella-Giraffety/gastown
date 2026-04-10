@@ -581,6 +581,10 @@ func (b *Beads) buildRunEnv() []string {
 	}
 	env := stripEnvPrefixes(os.Environ(), "BEADS_DIR=")
 	env = overrideDoltEnvFromBeadsDir(env, b.getResolvedBeadsDir())
+	if dbEnv := DatabaseEnv(b.getResolvedBeadsDir()); dbEnv != "" {
+		env = stripEnvPrefixes(env, "BEADS_DOLT_SERVER_DATABASE=")
+		env = append(env, dbEnv)
+	}
 	return translateDoltPort(env)
 }
 
@@ -598,6 +602,10 @@ func (b *Beads) buildRoutingEnv() []string {
 	}
 	env := stripEnvPrefixes(os.Environ(), "BEADS_DIR=")
 	env = overrideDoltEnvFromBeadsDir(env, b.getResolvedBeadsDir())
+	if dbEnv := DatabaseEnv(b.getResolvedBeadsDir()); dbEnv != "" {
+		env = stripEnvPrefixes(env, "BEADS_DOLT_SERVER_DATABASE=")
+		env = append(env, dbEnv)
+	}
 	return translateDoltPort(env)
 }
 

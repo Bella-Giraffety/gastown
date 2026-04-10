@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +53,10 @@ func TestBdCmd_Build(t *testing.T) {
 			},
 			wantArgs: []string{"bd", "cook", "formula"},
 			wantEnv: map[string]string{
-				"GT_ROOT": "/town/root",
+				"GT_TOWN_ROOT":        "/town/root",
+				"GT_ROOT":             "/town/root",
+				"GT_DOLT_DATA":        "/town/root/.dolt-data",
+				"BEADS_DOLT_DATA_DIR": "/town/root/.dolt-data",
 			},
 		},
 		{
@@ -67,7 +71,10 @@ func TestBdCmd_Build(t *testing.T) {
 			wantDir:  "/work/dir",
 			wantEnv: map[string]string{
 				"BD_DOLT_AUTO_COMMIT": "on",
+				"GT_TOWN_ROOT":        "/town/root",
 				"GT_ROOT":             "/town/root",
+				"GT_DOLT_DATA":        "/town/root/.dolt-data",
+				"BEADS_DOLT_DATA_DIR": "/town/root/.dolt-data",
 			},
 		},
 	}
@@ -102,6 +109,23 @@ func TestBdCmd_Build(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBdCmd_WithBeadsDir_SetsDatabaseEnv(t *testing.T) {
+	beadsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(`{"backend":"dolt","database":"dolt","dolt_database":"coder_dotfiles"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := BdCmd("show", "do-123").WithBeadsDir(beadsDir).Build()
+	envMap := parseEnv(cmd.Env)
+
+	if got := envMap["BEADS_DIR"]; got != beadsDir {
+		t.Fatalf("BEADS_DIR = %q, want %q", got, beadsDir)
+	}
+	if got := envMap["BEADS_DOLT_SERVER_DATABASE"]; got != "coder_dotfiles" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want %q", got, "coder_dotfiles")
 	}
 }
 

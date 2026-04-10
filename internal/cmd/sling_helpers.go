@@ -219,8 +219,13 @@ func burnExistingMolecules(molecules []string, beadID, townRoot string) error {
 // StripBeadsDir prevents inherited BEADS_DIR from overriding the resolved
 // directory, which caused rig-prefixed beads to fail (GH#2126).
 func verifyBeadExists(beadID string) error {
+	beadDir := resolveBeadDir(beadID)
+	townRoot, _ := workspace.Find(beadDir)
 	out, err := BdCmd("show", beadID, "--json", "--allow-stale").
-		RouteForBead(beadID).
+		Dir(beadDir).
+		WithGTRoot(townRoot).
+		WithBeadsDir(beads.ResolveBeadsDir(beadDir)).
+		StripBeadsDir().
 		Stderr(io.Discard).
 		Output()
 	if err != nil {
@@ -235,8 +240,17 @@ func verifyBeadExists(beadID string) error {
 // getBeadInfo returns status and assignee for a bead.
 // Resolves the rig directory from the bead's prefix for correct dolt access.
 func getBeadInfo(beadID string) (*beadInfo, error) {
+	beadDir := resolveBeadDir(beadID)
+	townRoot, _ := workspace.Find(beadDir)
 	out, err := BdCmd("show", beadID, "--json", "--allow-stale").
+<<<<<<< HEAD
 		RouteForBead(beadID).
+=======
+		Dir(beadDir).
+		WithGTRoot(townRoot).
+		WithBeadsDir(beads.ResolveBeadsDir(beadDir)).
+		StripBeadsDir().
+>>>>>>> fe23527 (fix: keep canonical rig DBs and cross-rig bd scope aligned)
 		Stderr(io.Discard).
 		Output()
 	if err != nil {
@@ -702,11 +716,13 @@ func InstantiateFormulaOnBead(ctx context.Context, formulaName, beadID, title, h
 	// This handles non-gastown rigs that don't have formulas provisioned on disk.
 	// See gt-oir.
 	resolvedFormula := formulaName
+	resolvedBeadsDir := beads.ResolveBeadsDir(formulaWorkDir)
 	var formulaCleanup func()
 	if !skipCook {
 		if err := BdCmd("cook", formulaName).
 			Dir(formulaWorkDir).
 			WithGTRoot(townRoot).
+			WithBeadsDir(resolvedBeadsDir).
 			Run(); err != nil {
 			// Retry with embedded formula
 			resolvedFormula, formulaCleanup = resolveFormulaToTempFile(formulaName)
@@ -717,6 +733,7 @@ func InstantiateFormulaOnBead(ctx context.Context, formulaName, beadID, title, h
 				if retryErr := BdCmd("cook", resolvedFormula).
 					Dir(formulaWorkDir).
 					WithGTRoot(townRoot).
+					WithBeadsDir(resolvedBeadsDir).
 					Run(); retryErr != nil {
 					telemetry.RecordMolCook(ctx, formulaName, retryErr)
 					return nil, fmt.Errorf("cooking formula %s: %w (embedded retry: %v)", formulaName, err, retryErr)
@@ -749,6 +766,7 @@ func InstantiateFormulaOnBead(ctx context.Context, formulaName, beadID, title, h
 		Dir(formulaWorkDir).
 		WithAutoCommit().
 		WithGTRoot(townRoot).
+		WithBeadsDir(resolvedBeadsDir).
 		Output()
 	if err != nil {
 		return nil, fmt.Errorf("creating wisp for formula %s: %w", formulaName, err)
@@ -781,6 +799,7 @@ func InstantiateFormulaOnBead(ctx context.Context, formulaName, beadID, title, h
 		Dir(formulaWorkDir).
 		WithAutoCommit().
 		WithGTRoot(townRoot).
+		WithBeadsDir(resolvedBeadsDir).
 		Output()
 	if err != nil {
 		// Clean up orphaned wisp from the failed legacy path.
@@ -835,6 +854,7 @@ func bondFormulaDirect(formulaName, beadID, formulaWorkDir, townRoot string, var
 		Dir(formulaWorkDir).
 		WithAutoCommit().
 		WithGTRoot(townRoot).
+		WithBeadsDir(beads.ResolveBeadsDir(formulaWorkDir)).
 		Output()
 	if err != nil {
 		return "", fmt.Errorf("%w (args: %s)", err, strings.Join(bondArgs, " "))
@@ -996,11 +1016,15 @@ func hookBeadWithRetry(beadID, targetAgent, hookDir string) error {
 	const baseBackoff = 500 * time.Millisecond
 	const maxBackoff = 30 * time.Second
 	skipVerify := os.Getenv("GT_TEST_SKIP_HOOK_VERIFY") != ""
+	townRoot, _ := workspace.Find(hookDir)
+	resolvedBeadsDir := beads.ResolveBeadsDir(hookDir)
 
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err := BdCmd("update", beadID, "--status=hooked", "--assignee="+targetAgent).
 			Dir(hookDir).
+			WithGTRoot(townRoot).
+			WithBeadsDir(resolvedBeadsDir).
 			Run()
 		if err != nil {
 			lastErr = err

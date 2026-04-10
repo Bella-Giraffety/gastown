@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/steveyegge/gastown/internal/beads"
@@ -123,8 +124,15 @@ func (b *bdCmd) buildEnv() []string {
 	// Add GT_ROOT if specified.
 	// Filter existing entries first for the same reason as above.
 	if b.gtRoot != "" {
+		env = filterEnvKey(env, "GT_TOWN_ROOT")
 		env = filterEnvKey(env, "GT_ROOT")
+		env = filterEnvKey(env, "GT_DOLT_DATA")
+		env = filterEnvKey(env, "BEADS_DOLT_DATA_DIR")
+		env = append(env, "GT_TOWN_ROOT="+b.gtRoot)
 		env = append(env, "GT_ROOT="+b.gtRoot)
+		doltData := filepath.Join(b.gtRoot, ".dolt-data")
+		env = append(env, "GT_DOLT_DATA="+doltData)
+		env = append(env, "BEADS_DOLT_DATA_DIR="+doltData)
 	}
 
 	// Add BEADS_DIR if specified.
@@ -132,7 +140,11 @@ func (b *bdCmd) buildEnv() []string {
 	// database (e.g., HQ instead of rig). See gt-ctir.
 	if b.beadsDir != "" {
 		env = filterEnvKey(env, "BEADS_DIR")
+		env = filterEnvKey(env, "BEADS_DOLT_SERVER_DATABASE")
 		env = append(env, "BEADS_DIR="+b.beadsDir)
+		if dbEnv := beads.DatabaseEnv(b.beadsDir); dbEnv != "" {
+			env = append(env, dbEnv)
+		}
 	}
 
 	return env
