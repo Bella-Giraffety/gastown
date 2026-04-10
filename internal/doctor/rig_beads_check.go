@@ -3,6 +3,7 @@ package doctor
 import (
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -80,11 +81,10 @@ func (c *RigBeadsCheck) Run(ctx *CheckContext) *CheckResult {
 
 	// Check each rig for its identity bead
 	for rigName, info := range rigSet {
-		rigBeadsPath := filepath.Join(ctx.TownRoot, info.beadsPath)
-		bd := beads.New(rigBeadsPath)
-
 		rigBeadID := beads.RigBeadIDWithPrefix(info.prefix, rigName)
-		if _, err := bd.Show(rigBeadID); err != nil {
+		cmd := exec.Command("bd", "show", rigBeadID, "--json")
+		cmd.Dir = ctx.TownRoot
+		if output, err := cmd.CombinedOutput(); err != nil || len(strings.TrimSpace(string(output))) == 0 {
 			missing = append(missing, rigBeadID)
 		}
 		checked++
