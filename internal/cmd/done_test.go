@@ -229,6 +229,43 @@ func TestDoneEmptyRedirectFallback(t *testing.T) {
 	}
 }
 
+func TestRepairDoneBeadsStateRepairsStaleMetadata(t *testing.T) {
+	townRoot := t.TempDir()
+	rigRoot := filepath.Join(townRoot, "testrig")
+	mayorBeads := filepath.Join(rigRoot, "mayor", "rig", ".beads")
+	worktree := filepath.Join(rigRoot, "polecats", "worker1", "testrig")
+	worktreeBeads := filepath.Join(worktree, ".beads")
+
+	if err := os.MkdirAll(mayorBeads, 0755); err != nil {
+		t.Fatalf("mkdir mayor beads: %v", err)
+	}
+	if err := os.MkdirAll(worktreeBeads, 0755); err != nil {
+		t.Fatalf("mkdir worktree beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeBeads, "redirect"), []byte("../../../mayor/rig/.beads\n"), 0644); err != nil {
+		t.Fatalf("write redirect: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeBeads, "metadata.json"), []byte(`{"dolt_database":"gastown"}`), 0644); err != nil {
+		t.Fatalf("write stale metadata: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeBeads, "config.yaml"), []byte("prefix: gs\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	repairDoneBeadsState(RoleContext{
+		Role:     RolePolecat,
+		TownRoot: townRoot,
+		WorkDir:  worktree,
+	})
+
+	if _, err := os.Stat(filepath.Join(worktreeBeads, "metadata.json")); !os.IsNotExist(err) {
+		t.Fatalf("metadata.json should be removed during done repair, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(worktreeBeads, "config.yaml")); err != nil {
+		t.Fatalf("config.yaml should be preserved, got err=%v", err)
+	}
+}
+
 // TestDoneCircularRedirectProtection verifies that circular redirects
 // are detected and handled safely.
 func TestDoneCircularRedirectProtection(t *testing.T) {
@@ -274,7 +311,7 @@ func TestFindHookedBeadForAgent(t *testing.T) {
 			setupBeads: func(t *testing.T, bd *beads.Beads) {
 				// Create a task and set it to hooked with assignee
 				_, err := bd.CreateWithID("test-456", beads.CreateOptions{
-					Title: "Task to be hooked",
+					Title:  "Task to be hooked",
 					Labels: []string{"gt:task"},
 				})
 				if err != nil {
@@ -537,9 +574,9 @@ func TestSessionKillGateGuardLogic(t *testing.T) {
 func TestMRVerificationSetsMRFailed(t *testing.T) {
 	tests := []struct {
 		name         string
-		createErr    error  // error from bd.Create
-		showErr      error  // error from bd.Show (verification)
-		showReturns  bool   // whether Show returns a non-nil issue
+		createErr    error // error from bd.Create
+		showErr      error // error from bd.Show (verification)
+		showReturns  bool  // whether Show returns a non-nil issue
 		wantMRFailed bool
 	}{
 		{
@@ -976,7 +1013,7 @@ func TestReadDoneCheckpoints(t *testing.T) {
 			},
 		},
 		{
-			name:   "mixed with done-intent and other labels",
+			name: "mixed with done-intent and other labels",
 			labels: []string{
 				"gt:agent",
 				"done-intent:COMPLETED:1738972800",
@@ -1122,12 +1159,12 @@ func TestCheckpointNilMapSafe(t *testing.T) {
 // convoy merge=direct was not propagated because cross-rig dep resolution failed.
 func TestConvoyInfoFallbackChain(t *testing.T) {
 	tests := []struct {
-		name            string
-		attachmentInfo  *ConvoyInfo // Result from getConvoyInfoFromIssue
-		depInfo         *ConvoyInfo // Result from getConvoyInfoForIssue
-		wantConvoyID    string
-		wantMerge       string
-		wantNil         bool
+		name           string
+		attachmentInfo *ConvoyInfo // Result from getConvoyInfoFromIssue
+		depInfo        *ConvoyInfo // Result from getConvoyInfoForIssue
+		wantConvoyID   string
+		wantMerge      string
+		wantNil        bool
 	}{
 		{
 			name:           "attachment fields provide convoy info",
@@ -1193,9 +1230,9 @@ func TestConvoyInfoFallbackChain(t *testing.T) {
 // closing and caused infinite dispatch loops.
 func TestHookedBeadCloseNotRestrictedToHookedStatus(t *testing.T) {
 	tests := []struct {
-		name       string
-		status     string
-		wantClose  bool
+		name      string
+		status    string
+		wantClose bool
 	}{
 		{"status hooked → close", "hooked", true},
 		{"status in_progress → close", "in_progress", true},
@@ -1485,4 +1522,3 @@ func testRunGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
 }
-

@@ -338,6 +338,14 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	// Get agent bead ID for cross-referencing
 	var agentBeadID string
 	if roleInfo, err := GetRoleWithContext(cwd, townRoot); err == nil {
+		repairDoneBeadsState(RoleContext{
+			Role:     roleInfo.Role,
+			Rig:      roleInfo.Rig,
+			Polecat:  roleInfo.Polecat,
+			TownRoot: townRoot,
+			WorkDir:  cwd,
+		})
+
 		ctx := RoleContext{
 			Role:     roleInfo.Role,
 			Rig:      roleInfo.Rig,
@@ -1288,6 +1296,22 @@ notifyWitness:
 	}
 
 	return nil
+}
+
+// repairDoneBeadsState scrubs stale runtime files from redirect-based worktrees
+// before gt done touches beads. Without this, nested polecat worktrees can keep a
+// local metadata.json that causes raw bd calls in the completion path to preserve
+// the wrong source database and fail with PROJECT IDENTITY MISMATCH.
+func repairDoneBeadsState(ctx RoleContext) {
+	if ctx.TownRoot == "" || ctx.WorkDir == "" {
+		return
+	}
+	if ctx.Role != RoleCrew && ctx.Role != RolePolecat && ctx.Role != RoleRefinery {
+		return
+	}
+	if err := beads.SetupRedirect(ctx.TownRoot, ctx.WorkDir); err != nil {
+		style.PrintWarning("could not repair worktree beads redirect: %v", err)
+	}
 }
 
 // pushSubmoduleChanges detects submodules modified between origin/defaultBranch
