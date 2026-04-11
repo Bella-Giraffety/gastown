@@ -171,12 +171,14 @@ func (m *Manager) StartTMUX(agentOverride string) error {
 			Sender:    "human",
 			Topic:     "cold-start",
 		},
-		AgentOverride: agentOverride,
-		Theme:         theme,
-		WaitForAgent:  true,
-		WaitFatal:     true,
-		AutoRespawn:   true,
-		AcceptBypass:  true,
+		AgentOverride:  agentOverride,
+		Theme:          theme,
+		WaitForAgent:   true,
+		WaitFatal:      true,
+		ReadyDelay:     true,
+		AutoRespawn:    true,
+		AcceptBypass:   true,
+		VerifySurvived: true,
 	})
 	if err != nil {
 		return err

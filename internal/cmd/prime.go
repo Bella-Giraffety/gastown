@@ -1118,22 +1118,18 @@ func getAgentBeadID(ctx RoleContext) string {
 	}
 }
 
-// ensureBeadsRedirect ensures the .beads/redirect file exists for worktree-based roles.
-// This handles cases where git clean or other operations delete the redirect file.
-// Uses the shared SetupRedirect helper which handles both tracked and local beads.
+// ensureBeadsRedirect repairs worktree .beads state for redirect-based roles.
+// This handles both missing redirects and stale local runtime files like metadata.json
+// that can survive in redirected worktrees and confuse bd into preserving the wrong
+// source database during cross-prefix lookups.
 func ensureBeadsRedirect(ctx RoleContext) {
 	// Only applies to worktree-based roles that use shared beads
 	if ctx.Role != RoleCrew && ctx.Role != RolePolecat && ctx.Role != RoleRefinery {
 		return
 	}
 
-	// Check if redirect already exists
-	redirectPath := filepath.Join(ctx.WorkDir, ".beads", "redirect")
-	if _, err := os.Stat(redirectPath); err == nil {
-		return // Redirect exists, nothing to do
-	}
-
-	// Use shared helper - silently ignore errors during prime
+	// SetupRedirect is idempotent and also cleans stale local runtime files while
+	// preserving tracked project files like config.yaml and PRIME.md.
 	_ = beads.SetupRedirect(ctx.TownRoot, ctx.WorkDir)
 }
 
