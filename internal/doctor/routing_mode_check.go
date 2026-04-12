@@ -3,9 +3,12 @@ package doctor
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/steveyegge/gastown/internal/beads"
 )
 
 // RoutingModeCheck detects when beads routing.mode is set to "auto", which can
@@ -61,7 +64,7 @@ func (c *RoutingModeCheck) checkRoutingMode(beadsDir, location string) *CheckRes
 	// Run bd config get routing.mode
 	cmd := exec.Command("bd", "config", "get", "routing.mode")
 	cmd.Dir = filepath.Dir(beadsDir)
-	cmd.Env = append(cmd.Environ(), "BEADS_DIR="+beadsDir)
+	cmd.Env = beads.BoundEnv(os.Environ(), beadsDir)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -137,7 +140,7 @@ func (c *RoutingModeCheck) Fix(ctx *CheckContext) error {
 func (c *RoutingModeCheck) setRoutingMode(beadsDir string) error {
 	cmd := exec.Command("bd", "config", "set", "routing.mode", "explicit")
 	cmd.Dir = filepath.Dir(beadsDir)
-	cmd.Env = append(cmd.Environ(), "BEADS_DIR="+beadsDir)
+	cmd.Env = beads.BoundEnv(os.Environ(), beadsDir)
 
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("bd config set failed: %s", strings.TrimSpace(string(output)))

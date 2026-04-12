@@ -359,6 +359,7 @@ func installMockBDCreateRecorder(t *testing.T, logPath string) {
 	script := `#!/bin/sh
 printf 'pwd=%s\n' "$(pwd)" >> "$MOCK_BD_LOG"
 printf 'beads_dir=%s\n' "$BEADS_DIR" >> "$MOCK_BD_LOG"
+printf 'db=%s\n' "${BEADS_DOLT_SERVER_DATABASE-}" >> "$MOCK_BD_LOG"
 printf 'args=%s\n' "$*" >> "$MOCK_BD_LOG"
 
 cmd=""
@@ -391,7 +392,7 @@ esac
 	t.Setenv("MOCK_BD_LOG", logPath)
 }
 
-func TestCreateAgentBead_UsesTownRootForCrossRigRoutes(t *testing.T) {
+func TestCreateAgentBead_UsesTargetRigDatabaseForCrossRigRoutes(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("path assertions are Unix-oriented")
 	}
@@ -412,6 +413,9 @@ func TestCreateAgentBead_UsesTownRootForCrossRigRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte("{\"prefix\":\"pt-\",\"path\":\"imported/mayor/rig\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "imported", "mayor", "rig", ".beads", "metadata.json"), []byte(`{"backend":"dolt","database":"dolt","dolt_database":"imported_db"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -439,11 +443,16 @@ func TestCreateAgentBead_UsesTownRootForCrossRigRoutes(t *testing.T) {
 		t.Fatalf("read mock bd log: %v", err)
 	}
 	logOutput := string(logData)
-	if !strings.Contains(logOutput, "pwd="+townRoot) {
-		t.Fatalf("mock bd log missing town root cwd:\n%s", logOutput)
+	workerDir = filepath.Clean(workerDir)
+	targetBeadsDir := filepath.Join(workerDir, ".beads")
+	if !strings.Contains(logOutput, "pwd="+workerDir) {
+		t.Fatalf("mock bd log missing routed rig cwd:\n%s", logOutput)
 	}
-	if !strings.Contains(logOutput, "beads_dir="+filepath.Join(townRoot, ".beads")) {
-		t.Fatalf("mock bd log missing town-root BEADS_DIR:\n%s", logOutput)
+	if !strings.Contains(logOutput, "beads_dir="+targetBeadsDir) {
+		t.Fatalf("mock bd log missing routed rig BEADS_DIR:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, "db=imported_db") {
+		t.Fatalf("mock bd log missing routed rig database binding:\n%s", logOutput)
 	}
 	if !strings.Contains(logOutput, "create --json --id=pt-imported-polecat-shiny") {
 		t.Fatalf("mock bd log missing create call:\n%s", logOutput)

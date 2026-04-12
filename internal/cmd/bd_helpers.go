@@ -74,17 +74,17 @@ func (b *bdCmd) Dir(dir string) *bdCmd {
 func (b *bdCmd) RouteForBead(beadID string) *bdCmd {
 	if dir := resolveBeadDir(beadID); dir != "" && dir != "." {
 		b.dir = dir
-		b.env = filterEnvKey(b.env, "BEADS_DIR")
+		b.beadsDir = beads.ResolveBeadsDir(dir)
 	}
 	return b
 }
 
-// StripBeadsDir removes any inherited BEADS_DIR from the environment.
+// StripBeadsDir removes inherited beads routing env from the environment.
 // Use this when the command relies on Dir() for routing and an inherited
-// BEADS_DIR would incorrectly override the working-directory-based database
-// discovery. This fixes rig-prefixed bead resolution (GH#2126).
+// BEADS_* binding would incorrectly override the working-directory-based
+// database discovery.
 func (b *bdCmd) StripBeadsDir() *bdCmd {
-	b.env = filterEnvKey(b.env, "BEADS_DIR")
+	b.env = beads.BoundEnv(b.env, "")
 	return b
 }
 
@@ -139,12 +139,7 @@ func (b *bdCmd) buildEnv() []string {
 	// This prevents inherited BEADS_DIR from causing bd to target the wrong
 	// database (e.g., HQ instead of rig). See gt-ctir.
 	if b.beadsDir != "" {
-		env = filterEnvKey(env, "BEADS_DIR")
-		env = filterEnvKey(env, "BEADS_DOLT_SERVER_DATABASE")
-		env = append(env, "BEADS_DIR="+b.beadsDir)
-		if dbEnv := beads.DatabaseEnv(b.beadsDir); dbEnv != "" {
-			env = append(env, dbEnv)
-		}
+		env = beads.BoundEnv(env, b.beadsDir)
 	}
 
 	return env

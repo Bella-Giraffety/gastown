@@ -540,6 +540,55 @@ func TestBdCmd_RouteForBead_Chaining(t *testing.T) {
 	}
 }
 
+func TestBdCmd_RouteForBead_BindsTargetDatabase(t *testing.T) {
+	if err := os.MkdirAll(filepath.Join(t.TempDir(), "placeholder"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	townRoot := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWD) }()
+
+	for _, dir := range []string{
+		filepath.Join(townRoot, ".beads"),
+		filepath.Join(townRoot, "mayor"),
+		filepath.Join(townRoot, "rig", "mayor", "rig", ".beads"),
+	} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte("{\"prefix\":\"rt-\",\"path\":\"rig/mayor/rig\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	targetBeadsDir := filepath.Join(townRoot, "rig", "mayor", "rig", ".beads")
+	if err := os.WriteFile(filepath.Join(targetBeadsDir, "metadata.json"), []byte(`{"backend":"dolt","database":"dolt","dolt_database":"rig_db"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(townRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := BdCmd("show", "rt-123").RouteForBead("rt-123").Build()
+	envMap := parseEnv(cmd.Env)
+
+	if cmd.Dir != filepath.Join(townRoot, "rig", "mayor", "rig") {
+		t.Fatalf("Dir = %q, want %q", cmd.Dir, filepath.Join(townRoot, "rig", "mayor", "rig"))
+	}
+	if got := envMap["BEADS_DIR"]; got != targetBeadsDir {
+		t.Fatalf("BEADS_DIR = %q, want %q", got, targetBeadsDir)
+	}
+	if got := envMap["BEADS_DOLT_SERVER_DATABASE"]; got != "rig_db" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want %q", got, "rig_db")
+	}
+}
+
 // filterEnv returns env with all entries matching the given key prefix removed.
 func filterEnv(env []string, key string) []string {
 	prefix := key + "="

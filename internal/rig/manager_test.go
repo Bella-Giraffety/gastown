@@ -68,6 +68,24 @@ func assertBeadsDirLog(t *testing.T, logPath, want string) {
 	}
 }
 
+func assertDatabaseEnvLog(t *testing.T, logPath, want string) {
+	t.Helper()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading database env log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
+		t.Fatalf("expected database env log entries, got none")
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSuffix(line, "\r")
+		if trimmed != want {
+			t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want %q", trimmed, want)
+		}
+	}
+}
+
 func createTestRig(t *testing.T, root, name string) {
 	t.Helper()
 
@@ -569,6 +587,9 @@ func TestInitAgentBeadsUsesRigBeadsDir(t *testing.T) {
 	if err := os.MkdirAll(rigBeadsDir, 0755); err != nil {
 		t.Fatalf("mkdir rig beads dir: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(rigBeadsDir, "metadata.json"), []byte(`{"backend":"dolt","database":"dolt","dolt_database":"demo_db"}`), 0644); err != nil {
+		t.Fatalf("write metadata.json: %v", err)
+	}
 
 	// Track which agent IDs were created
 	var createdAgents []string
@@ -577,6 +598,9 @@ func TestInitAgentBeadsUsesRigBeadsDir(t *testing.T) {
 set -e
 if [[ -n "$BEADS_DIR_LOG" ]]; then
   echo "${BEADS_DIR:-<unset>}" >> "$BEADS_DIR_LOG"
+fi
+if [[ -n "$BEADS_DB_LOG" ]]; then
+  echo "${BEADS_DOLT_SERVER_DATABASE:-<unset>}" >> "$BEADS_DB_LOG"
 fi
 if [[ "$1" == "--allow-stale" ]]; then
   shift
@@ -621,9 +645,11 @@ esac
 	binDir := writeFakeBD(t, script, windowsScript)
 	agentLog := filepath.Join(t.TempDir(), "agents.log")
 	beadsDirLog := filepath.Join(t.TempDir(), "beads-dir.log")
+	beadsDBLog := filepath.Join(t.TempDir(), "beads-db.log")
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("AGENT_LOG", agentLog)
 	t.Setenv("BEADS_DIR_LOG", beadsDirLog)
+	t.Setenv("BEADS_DB_LOG", beadsDBLog)
 	t.Setenv("BEADS_DIR", "") // Clear any existing BEADS_DIR
 
 	manager := &Manager{townRoot: townRoot}
@@ -656,6 +682,7 @@ esac
 		}
 	}
 	assertBeadsDirLog(t, beadsDirLog, rigBeadsDir)
+	assertDatabaseEnvLog(t, beadsDBLog, "demo_db")
 }
 
 func TestIsValidBeadsPrefix(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -328,8 +330,8 @@ func TestDatabasePrefixCheck_NoBeadsDir(t *testing.T) {
 
 // mockDBPrefixGetter returns canned prefixes by directory for testing.
 type mockDBPrefixGetter struct {
-	prefixes   map[string]string // rigPath -> prefix
-	setCalls   []prefixSetCall   // recorded Fix calls (not used by getter, but handy for the mock)
+	prefixes map[string]string // rigPath -> prefix
+	setCalls []prefixSetCall   // recorded Fix calls (not used by getter, but handy for the mock)
 }
 
 type prefixSetCall struct {
@@ -550,5 +552,61 @@ func TestDatabasePrefixCheck_MixedOwnAndRedirect(t *testing.T) {
 	}
 	if check.mismatches[0].rigPath != "mission_manager" {
 		t.Errorf("expected mismatch for mission_manager, got %s", check.mismatches[0].rigPath)
+	}
+}
+
+func TestRealDBPrefixGetter_BindsResolvedBeadsDatabase(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell stub is Unix-only")
+	}
+
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "gastown")
+	rigBeadsDir := filepath.Join(rigPath, ".beads")
+	if err := os.MkdirAll(rigBeadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rigBeadsDir, "metadata.json"), []byte(`{"backend":"dolt","database":"dolt","dolt_database":"gastown_db"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	logPath := filepath.Join(townRoot, "bd.log")
+	script := `#!/usr/bin/env bash
+printf 'dir=%s\n' "$PWD" >> "$BD_LOG"
+printf 'beads=%s\n' "$BEADS_DIR" >> "$BD_LOG"
+printf 'db=%s\n' "${BEADS_DOLT_SERVER_DATABASE-}" >> "$BD_LOG"
+printf 'gt\n'
+`
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "wrongdb")
+
+	getter := &realDBPrefixGetter{}
+	got, err := getter.GetDBPrefix(rigPath)
+	if err != nil {
+		t.Fatalf("GetDBPrefix: %v", err)
+	}
+	if got != "gt" {
+		t.Fatalf("GetDBPrefix() = %q, want %q", got, "gt")
+	}
+
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logOutput := string(logData)
+	if !strings.Contains(logOutput, "dir="+rigPath) {
+		t.Fatalf("missing rig cwd in log:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, "beads="+rigBeadsDir) {
+		t.Fatalf("missing resolved BEADS_DIR in log:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, "db=gastown_db") {
+		t.Fatalf("missing resolved database binding in log:\n%s", logOutput)
 	}
 }

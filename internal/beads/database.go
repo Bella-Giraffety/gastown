@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // DatabaseNameFromMetadata reads the dolt_database field from .beads/metadata.json.
@@ -30,4 +31,29 @@ func DatabaseEnv(beadsDir string) string {
 		return ""
 	}
 	return "BEADS_DOLT_SERVER_DATABASE=" + db
+}
+
+// BoundEnv returns env with beads routing pinned to beadsDir.
+//
+// It removes inherited BEADS_DIR, BEADS_DB, and
+// BEADS_DOLT_SERVER_DATABASE entries before appending the target values so a
+// parent process cannot shadow the intended database.
+func BoundEnv(env []string, beadsDir string) []string {
+	filtered := make([]string, 0, len(env)+2)
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "BEADS_DIR=") ||
+			strings.HasPrefix(entry, "BEADS_DB=") ||
+			strings.HasPrefix(entry, "BEADS_DOLT_SERVER_DATABASE=") {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	if beadsDir == "" {
+		return filtered
+	}
+	filtered = append(filtered, "BEADS_DIR="+beadsDir)
+	if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
+		filtered = append(filtered, dbEnv)
+	}
+	return filtered
 }
