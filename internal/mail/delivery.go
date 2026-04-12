@@ -138,14 +138,20 @@ func readBeadLabelsShared(workDir, beadsDir, id string) ([]string, error) {
 	defer cancel()
 	stdout, err := runBdCommand(ctx, args, workDir, beadsDir)
 	if err != nil {
+		if isBdNotFoundError(err) {
+			return readWispLabels(workDir, beadsDir, id)
+		}
 		return nil, fmt.Errorf("bd show %s: %w", id, err)
+	}
+	if !isJSON(stdout) {
+		return readWispLabels(workDir, beadsDir, id)
 	}
 	var bms []BeadsMessage
 	if err := json.Unmarshal(stdout, &bms); err != nil {
 		return nil, fmt.Errorf("parsing bd show %s: %w", id, err)
 	}
 	if len(bms) == 0 {
-		return nil, nil
+		return readWispLabels(workDir, beadsDir, id)
 	}
 	return bms[0].Labels, nil
 }

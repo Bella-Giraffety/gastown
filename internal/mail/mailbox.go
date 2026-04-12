@@ -335,44 +335,84 @@ type wispSQLRow struct {
 	LabelsCSV   string `json:"labels_csv"`
 }
 
-// runWispSQL executes a bd sql --json query and converts results to BeadsMessages.
-func (m *Mailbox) runWispSQL(beadsDir, query string) []BeadsMessage {
+func (row wispSQLRow) toBeadsMessage() BeadsMessage {
+	bm := BeadsMessage{
+		ID:          row.ID,
+		Title:       row.Title,
+		Description: row.Description,
+		Status:      row.Status,
+		Priority:    row.Priority,
+		Assignee:    row.Assignee,
+		Wisp:        true,
+	}
+	if t, err := time.Parse(time.RFC3339, row.CreatedAt); err == nil {
+		bm.CreatedAt = t
+	} else if t, err := time.Parse("2006-01-02 15:04:05 +0000 UTC", row.CreatedAt); err == nil {
+		bm.CreatedAt = t
+	}
+	if row.LabelsCSV != "" {
+		bm.Labels = strings.Split(row.LabelsCSV, ",")
+	}
+	return bm
+}
+
+func runWispSQLQuery(workDir, beadsDir, query string) ([]wispSQLRow, error) {
 	args := []string{"sql", "--json", query}
 	ctx, cancel := bdReadCtx()
-	stdout, err := runBdCommand(ctx, args, m.workDir, beadsDir)
-	cancel()
+	defer cancel()
+	stdout, err := runBdCommand(ctx, args, workDir, beadsDir)
 	if err != nil {
-		return nil // Wisps table may not exist yet
+		return nil, err
 	}
 	if !isJSON(stdout) {
-		return nil
+		return nil, nil
 	}
 
 	var rows []wispSQLRow
 	if err := json.Unmarshal(stdout, &rows); err != nil {
-		return nil
+		return nil, err
+	}
+	return rows, nil
+}
+
+func getWispBeadsMessage(workDir, beadsDir, id string) (*BeadsMessage, error) {
+	query := fmt.Sprintf(
+		"SELECT w.id, w.title, w.description, w.status, w.priority, w.assignee, w.created_at, w.updated_at, "+
+			"GROUP_CONCAT(l.label) as labels_csv "+
+			"FROM wisps w "+
+			"LEFT JOIN wisp_labels l ON w.id = l.issue_id "+
+			"WHERE w.id = '%s' "+
+			"GROUP BY w.id, w.title, w.description, w.status, w.priority, w.assignee, w.created_at, w.updated_at",
+		escapeSQLString(id))
+	rows, err := runWispSQLQuery(workDir, beadsDir, query)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, ErrMessageNotFound
+	}
+	bm := rows[0].toBeadsMessage()
+	return &bm, nil
+}
+
+func readWispLabels(workDir, beadsDir, id string) ([]string, error) {
+	bm, err := getWispBeadsMessage(workDir, beadsDir, id)
+	if err != nil {
+		return nil, err
+	}
+	return bm.Labels, nil
+}
+
+// runWispSQL executes a bd sql --json query and converts results to BeadsMessages.
+func (m *Mailbox) runWispSQL(beadsDir, query string) []BeadsMessage {
+	rows, err := runWispSQLQuery(m.workDir, beadsDir, query)
+	if err != nil {
+		return nil // Wisps table may not exist yet
 	}
 
 	msgs := make([]BeadsMessage, 0, len(rows))
 	for _, row := range rows {
-		bm := BeadsMessage{
-			ID:          row.ID,
-			Title:       row.Title,
-			Description: row.Description,
-			Status:      row.Status,
-			Priority:    row.Priority,
-			Assignee:    row.Assignee,
-			Wisp:        true,
-		}
-		if t, err := time.Parse(time.RFC3339, row.CreatedAt); err == nil {
-			bm.CreatedAt = t
-		} else if t, err := time.Parse("2006-01-02 15:04:05 +0000 UTC", row.CreatedAt); err == nil {
-			bm.CreatedAt = t
-		}
-		if row.LabelsCSV != "" {
-			bm.Labels = strings.Split(row.LabelsCSV, ",")
-		}
-		msgs = append(msgs, bm)
+		msgs = append(msgs, row.toBeadsMessage())
 	}
 	return msgs
 }
@@ -491,25 +531,33 @@ func (m *Mailbox) getFromDir(id, beadsDir string) (*Message, error) {
 	stdout, err := runBdCommand(ctx, args, m.workDir, beadsDir)
 	if err != nil {
 		if isBdNotFoundError(err) {
-			return nil, ErrMessageNotFound
+			return m.getWispFromDir(id, beadsDir)
 		}
 		return nil, err
 	}
 
 	// bd show --json returns an array
 	if !isJSON(stdout) {
-		return nil, ErrMessageNotFound
+		return m.getWispFromDir(id, beadsDir)
 	}
 	var bms []BeadsMessage
 	if err := json.Unmarshal(stdout, &bms); err != nil {
 		return nil, err
 	}
 	if len(bms) == 0 {
-		return nil, ErrMessageNotFound
+		return m.getWispFromDir(id, beadsDir)
 	}
 
 	// Wisp status comes from beads issue.wisp field via ToMessage()
 	return bms[0].ToMessage(), nil
+}
+
+func (m *Mailbox) getWispFromDir(id, beadsDir string) (*Message, error) {
+	bm, err := getWispBeadsMessage(m.workDir, beadsDir, id)
+	if err != nil {
+		return nil, err
+	}
+	return bm.ToMessage(), nil
 }
 
 func (m *Mailbox) getLegacy(id string) (*Message, error) {

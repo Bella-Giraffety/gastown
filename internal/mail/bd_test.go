@@ -249,6 +249,42 @@ printf 'args=%s\n' "$*"
 	}
 }
 
+func TestRunBdCommand_StripsStdoutWarnings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a bash bd stub")
+	}
+
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+
+	beadsDir := filepath.Join(tmpDir, "town", ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir beads dir: %v", err)
+	}
+
+	stubPath := filepath.Join(binDir, "bd")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'warning: role-config-valid missing beads.role\n'
+printf '[{"id":"gt-123"}]\n'
+`
+	if err := os.WriteFile(stubPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stdout, err := runBdCommand(context.Background(), []string{"show", "gt-123", "--json"}, tmpDir, beadsDir)
+	if err != nil {
+		t.Fatalf("runBdCommand() error = %v, want nil", err)
+	}
+	if got := string(stdout); got != "[{\"id\":\"gt-123\"}]\n" {
+		t.Fatalf("runBdCommand() = %q, want warning-free JSON", got)
+	}
+}
+
 func TestIsBdNotFoundError(t *testing.T) {
 	tests := []struct {
 		name string

@@ -138,7 +138,28 @@ func runBdCommand(ctx context.Context, args []string, workDir, beadsDir string, 
 		}
 	}
 
-	return stdout.Bytes(), nil
+	return stripStdoutWarnings(stdout.Bytes()), nil
+}
+
+func stripStdoutWarnings(data []byte) []byte {
+	if !bytes.Contains(data, []byte("warning:")) {
+		return data
+	}
+
+	lines := bytes.Split(data, []byte("\n"))
+	cleaned := make([][]byte, 0, len(lines))
+	stripped := false
+	for _, line := range lines {
+		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("warning:")) {
+			stripped = true
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	if !stripped {
+		return data
+	}
+	return bytes.Join(cleaned, []byte("\n"))
 }
 
 func stripBeadsEnv(env []string) []string {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -704,3 +705,101 @@ func TestMailboxLegacyAtomicArchive(t *testing.T) {
 	}
 }
 
+func TestMailboxGet_WispFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a bash bd stub")
+	}
+
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir beads dir: %v", err)
+	}
+
+	stubPath := filepath.Join(binDir, "bd")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "show" ]]; then
+  printf 'no issue found\n' >&2
+  exit 1
+fi
+if [[ "$1" == "sql" ]]; then
+  printf '[{"id":"gt-wisp-123","title":"Mayor ping","description":"body","status":"open","priority":2,"assignee":"mayor/","created_at":"2026-04-12T08:00:00Z","updated_at":"2026-04-12T08:00:00Z","labels_csv":"gt:message,from:gastown/witness,msg-type:notification,delivery:pending"}]\n'
+  exit 0
+fi
+printf 'unexpected args: %s\n' "$*" >&2
+exit 1
+`
+	if err := os.WriteFile(stubPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	m := &Mailbox{identity: "mayor/", workDir: tmpDir, beadsDir: beadsDir}
+	msg, err := m.Get("gt-wisp-123")
+	if err != nil {
+		t.Fatalf("Get() error = %v, want nil", err)
+	}
+	if msg == nil {
+		t.Fatal("Get() returned nil message")
+	}
+	if !msg.Wisp {
+		t.Fatal("Get() should mark wisp-backed mail as Wisp")
+	}
+	if msg.Subject != "Mayor ping" {
+		t.Fatalf("Subject = %q, want %q", msg.Subject, "Mayor ping")
+	}
+	if msg.From != "gastown/witness" {
+		t.Fatalf("From = %q, want %q", msg.From, "gastown/witness")
+	}
+	if msg.DeliveryState != DeliveryStatePending {
+		t.Fatalf("DeliveryState = %q, want %q", msg.DeliveryState, DeliveryStatePending)
+	}
+}
+
+func TestReadBeadLabelsShared_WispFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a bash bd stub")
+	}
+
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir beads dir: %v", err)
+	}
+
+	stubPath := filepath.Join(binDir, "bd")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "show" ]]; then
+  printf 'no issue found\n' >&2
+  exit 1
+fi
+if [[ "$1" == "sql" ]]; then
+  printf '[{"id":"gt-wisp-ack","title":"Ack me","description":"body","status":"open","priority":2,"assignee":"gastown/witness","created_at":"2026-04-12T08:00:00Z","updated_at":"2026-04-12T08:00:00Z","labels_csv":"gt:message,delivery:pending,delivery-acked-by:gastown/witness"}]\n'
+  exit 0
+fi
+printf 'unexpected args: %s\n' "$*" >&2
+exit 1
+`
+	if err := os.WriteFile(stubPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	labels, err := readBeadLabelsShared(tmpDir, beadsDir, "gt-wisp-ack")
+	if err != nil {
+		t.Fatalf("readBeadLabelsShared() error = %v, want nil", err)
+	}
+	if got := strings.Join(labels, ","); got != "gt:message,delivery:pending,delivery-acked-by:gastown/witness" {
+		t.Fatalf("labels = %q, want wisp labels from SQL fallback", got)
+	}
+}
