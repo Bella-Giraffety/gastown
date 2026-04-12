@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,11 +13,14 @@ import (
 	"github.com/steveyegge/gastown/internal/acp"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/nudge"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/templates"
 	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/workspace"
 )
+
+var startNudgePoller = nudge.StartPoller
 
 // Common errors
 var (
@@ -91,6 +95,14 @@ func (m *Manager) IsActive() (bool, Mode) {
 func NewManager(townRoot string) *Manager {
 	return &Manager{
 		townRoot: townRoot,
+	}
+}
+
+func (m *Manager) startWakePoller(sessionID string) {
+	// Queued mayor notifications need an active poller to wake a promptless
+	// tmux session; otherwise urgent witness mail sits until a human prompt.
+	if _, pollerErr := startNudgePoller(m.townRoot, sessionID); pollerErr != nil {
+		log.Printf("warning: could not start nudge poller for %s: %v", sessionID, pollerErr)
 	}
 }
 
@@ -181,6 +193,8 @@ func (m *Manager) StartTMUX(agentOverride string) error {
 	if err != nil {
 		return err
 	}
+
+	m.startWakePoller(sessionID)
 
 	time.Sleep(session.ShutdownDelay())
 

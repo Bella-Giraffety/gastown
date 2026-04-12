@@ -111,3 +111,30 @@ func TestGetMayorPrime_InvalidTownRoot(t *testing.T) {
 		t.Error("GetMayorPrime should render mayor template even with invalid town root")
 	}
 }
+
+func TestMayorStartUsesQueuedWakePoller(t *testing.T) {
+	called := false
+	var gotTownRoot, gotSession string
+
+	oldStartNudgePoller := startNudgePoller
+	startNudgePoller = func(townRoot, session string) (int, error) {
+		called = true
+		gotTownRoot = townRoot
+		gotSession = session
+		return 1234, nil
+	}
+	t.Cleanup(func() { startNudgePoller = oldStartNudgePoller })
+
+	m := NewManager("/tmp/test-town")
+	m.startWakePoller(m.SessionName())
+
+	if !called {
+		t.Fatal("expected mayor startup to invoke nudge poller")
+	}
+	if gotTownRoot != "/tmp/test-town" {
+		t.Fatalf("townRoot = %q, want %q", gotTownRoot, "/tmp/test-town")
+	}
+	if gotSession != SessionName() {
+		t.Fatalf("session = %q, want %q", gotSession, SessionName())
+	}
+}
