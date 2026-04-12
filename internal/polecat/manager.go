@@ -667,11 +667,8 @@ func (m *Manager) AllocateAndAdd(opts AddOptions) (string, *Polecat, error) {
 	}
 
 	// Kill any lingering tmux session for this name (gt-pqf9x)
-	if m.tmux != nil {
-		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
-		if alive, _ := m.tmux.HasSession(sessionName); alive {
-			_ = m.tmux.KillSessionWithProcesses(sessionName)
-		}
+	if err := m.cleanupPolecatSession(name); err != nil {
+		style.PrintWarning("could not clean up stale session for %s: %v", name, err)
 	}
 
 	// Directory exists — pool lock can be released. No concurrent AllocateName
@@ -1027,6 +1024,22 @@ func (m *Manager) Remove(name string, force bool) error {
 	return m.RemoveWithOptions(name, force, false, false)
 }
 
+func (m *Manager) cleanupPolecatSession(name string) error {
+	if m.tmux == nil {
+		return nil
+	}
+
+	sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
+	if running, _ := m.tmux.HasSession(sessionName); running {
+		if err := m.tmux.KillSessionWithProcesses(sessionName); err != nil {
+			return fmt.Errorf("killing session %s: %w", sessionName, err)
+		}
+	}
+
+	RemoveSessionHeartbeat(filepath.Dir(m.rig.Path), sessionName)
+	return nil
+}
+
 // RemoveWithOptions deletes a polecat worktree with explicit control over safety checks.
 // force=true: bypass uncommitted changes and unpushed commits check
 // nuclear=true: bypass ALL safety checks including stashes
@@ -1138,6 +1151,10 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 					ErrShellInWorktree, cwd, m.rig.Name, name)
 			}
 		}
+	}
+
+	if err := m.cleanupPolecatSession(name); err != nil {
+		return err
 	}
 
 	// Get repo base to remove the worktree properly
@@ -1302,11 +1319,8 @@ func (m *Manager) AllocateName() (string, error) {
 	// can be allocated after its directory was cleaned up while the tmux session
 	// lingers (race between cleanup and allocation). This extra check ensures
 	// no stale session blocks the new polecat's session creation.
-	if m.tmux != nil {
-		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
-		if alive, _ := m.tmux.HasSession(sessionName); alive {
-			_ = m.tmux.KillSessionWithProcesses(sessionName)
-		}
+	if err := m.cleanupPolecatSession(name); err != nil {
+		style.PrintWarning("could not clean up stale session for %s: %v", name, err)
 	}
 
 	return name, nil
@@ -1541,13 +1555,9 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 	// the session is functionally idle), leaving the old session alive and the
 	// new work undiscovered.
 	if running, _ := m.polecatSessionState(name); running {
-		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
-		if err := m.tmux.KillSessionWithProcesses(sessionName); err != nil {
-			return nil, fmt.Errorf("killing existing session %s for reuse: %w", sessionName, err)
+		if err := m.cleanupPolecatSession(name); err != nil {
+			return nil, fmt.Errorf("cleaning up existing session for reuse: %w", err)
 		}
-		// Remove stale heartbeat so SessionManager.Start doesn't see leftover data.
-		townRoot := filepath.Dir(m.rig.Path)
-		RemoveSessionHeartbeat(townRoot, sessionName)
 	}
 
 	// Get worktree path (must already exist for reuse)
@@ -1745,12 +1755,10 @@ func (m *Manager) ReconcilePoolWith(namesWithDirs, namesWithSessions []string) {
 			sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
 			if !dirSet[name] {
 				// Orphan: session exists but no directory
-				_ = m.tmux.KillSessionWithProcesses(sessionName)
-				RemoveSessionHeartbeat(townRoot, sessionName)
+				_ = m.cleanupPolecatSession(name)
 			} else if isSessionProcessDead(m.tmux, sessionName, townRoot) {
 				// Stale: directory exists but session's process has died
-				_ = m.tmux.KillSessionWithProcesses(sessionName)
-				RemoveSessionHeartbeat(townRoot, sessionName)
+				_ = m.cleanupPolecatSession(name)
 			}
 		}
 	}

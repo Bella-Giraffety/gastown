@@ -1765,8 +1765,8 @@ func TestReuseIdlePolecat_KillsLiveSession(t *testing.T) {
 
 	// Verify it did NOT return ErrSessionRunning (the old buggy behavior)
 	if errors.Is(reuseErr, ErrSessionRunning) {
-		t.Fatalf("ReuseIdlePolecat returned ErrSessionRunning for live session — "+
-			"this is the sling-reuse-stale-session bug: idle polecats with live "+
+		t.Fatalf("ReuseIdlePolecat returned ErrSessionRunning for live session — " +
+			"this is the sling-reuse-stale-session bug: idle polecats with live " +
 			"sessions must have their session killed, not rejected")
 	}
 
@@ -1900,5 +1900,64 @@ func TestReuseIdlePolecat_NoSessionNoop(t *testing.T) {
 	// Error should be from later steps (worktree ops), not session handling
 	if reuseErr == nil {
 		t.Fatal("expected error from worktree operations")
+	}
+}
+
+// TestRemove_KillsSessionAndHeartbeat verifies that rollback-style cleanup removes
+// the polecat's tmux session name as well as its heartbeat. Without this, a failed
+// sling cleanup can leave a stale tmux session behind that blocks the next start.
+func TestRemove_KillsSessionAndHeartbeat(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("tmux not supported on Windows")
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+
+	townRoot := t.TempDir()
+	rigName := "testrollback"
+	rigPath := filepath.Join(townRoot, rigName)
+	polecatName := "toast"
+	polecatDir := filepath.Join(rigPath, "polecats", polecatName)
+	clonePath := filepath.Join(polecatDir, rigName)
+	if err := os.MkdirAll(clonePath, 0755); err != nil {
+		t.Fatalf("mkdir clone path: %v", err)
+	}
+
+	reg := session.NewPrefixRegistry()
+	reg.Register("gt", rigName)
+	old := session.DefaultRegistry()
+	session.SetDefaultRegistry(reg)
+	t.Cleanup(func() { session.SetDefaultRegistry(old) })
+
+	tm := tmux.NewTmux()
+	r := &rig.Rig{Name: rigName, Path: rigPath}
+	mgr := NewManager(r, git.NewGit(rigPath), tm)
+
+	sessMgr := NewSessionManager(tm, r)
+	sessionName := sessMgr.SessionName(polecatName)
+	if err := tm.NewSessionWithCommand(sessionName, townRoot, "sleep 300"); err != nil {
+		t.Fatalf("create tmux session: %v", err)
+	}
+	t.Cleanup(func() { _ = tm.KillSessionWithProcesses(sessionName) })
+
+	TouchSessionHeartbeat(townRoot, sessionName)
+
+	if err := mgr.Remove(polecatName, true); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	running, _ := tm.HasSession(sessionName)
+	if running {
+		t.Fatal("session should have been removed during cleanup")
+	}
+	if hb := ReadSessionHeartbeat(townRoot, sessionName); hb != nil {
+		t.Fatal("heartbeat should have been removed during cleanup")
+	}
+	if _, err := os.Stat(polecatDir); !os.IsNotExist(err) {
+		t.Fatalf("polecat directory %s still exists after cleanup", polecatDir)
+	}
+	if _, err := os.Stat(clonePath); !os.IsNotExist(err) {
+		t.Fatalf("clone path %s still exists after cleanup", clonePath)
 	}
 }
