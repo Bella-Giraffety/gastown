@@ -138,7 +138,11 @@ assert.equal(capped.commands.filter((entry) => entry.cmd.includes("gt escalate")
 
 const crew = await makePlugin("crew");
 await emitCompleted(crew, "s3", "m1", refusal);
-assert.equal(crew.prompts.length, 0);
+assert.equal(crew.prompts.length, 1);
+
+const exactOnly = await makePlugin("crew");
+await emitCompleted(exactOnly, "s4", "m1", "Im sorry, but I cannot assist with that request.");
+assert.equal(exactOnly.prompts.length, 0);
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
 		t.Fatalf("write node harness: %v", err)
