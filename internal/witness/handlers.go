@@ -32,6 +32,9 @@ import (
 // constants.HungSessionThreshold (single source of truth).
 var HungSessionThresholdMinutes = int(constants.HungSessionThreshold.Minutes())
 
+var defaultBdCliFn = DefaultBdCli
+var notifyMayorSlotOpenFn = notifyMayorSlotOpen
+
 // initRegistryFromWorkDir initializes the session prefix and agent registries
 // from a work directory. This ensures session.PrefixFor(rigName) returns the
 // correct rig prefix (e.g., "tr" for testrig) instead of the default "gt",
@@ -333,6 +336,10 @@ func isStalePolecatDone(workDir, rigName, polecatName string, msg *mail.Message)
 // Similar to POLECAT_DONE but triggered by daemon rather than polecat.
 // Persistent polecat model (gt-4ac): sandbox preserved, polecat goes idle.
 func HandleLifecycleShutdown(workDir, rigName string, msg *mail.Message) *HandlerResult {
+	return handleLifecycleShutdown(defaultBdCliFn(), workDir, rigName, msg)
+}
+
+func handleLifecycleShutdown(bd *BdCli, workDir, rigName string, msg *mail.Message) *HandlerResult {
 	result := &HandlerResult{
 		MessageID:    msg.ID,
 		ProtocolType: ProtoLifecycleShutdown,
@@ -345,12 +352,55 @@ func HandleLifecycleShutdown(workDir, rigName string, msg *mail.Message) *Handle
 		return result
 	}
 	polecatName := matches[1]
+	cleanupStatus := ""
+	if bd != nil {
+		cleanupStatus = getCleanupStatus(bd, workDir, rigName, polecatName)
+		result.CleanupStatus = cleanupStatus
+
+		switch cleanupStatus {
+		case "has_uncommitted", "has_stash", "has_unpushed":
+			issueID := ""
+			prefix := beads.GetPrefixForRig(workDirToTownRoot(workDir), rigName)
+			agentBeadID := beads.PolecatBeadIDWithPrefix(prefix, rigName, polecatName)
+			if fields := getAgentBeadFields(bd, workDir, agentBeadID); fields != nil {
+				issueID = fields.HookBead
+			}
+
+			if existingWisp := findAnyCleanupWisp(bd, workDir, polecatName); existingWisp != "" {
+				result.Handled = true
+				result.WispCreated = existingWisp
+				result.Action = fmt.Sprintf("polecat %s shutdown - idle, sandbox preserved (cleanup_status=%s, existing-wisp=%s)", polecatName, cleanupStatus, existingWisp)
+				notifyMayorSlotOpenFn(workDir, rigName, polecatName, "LIFECYCLE_SHUTDOWN")
+				return result
+			}
+
+			wispID, err := createCleanupWisp(bd, workDir, polecatName, issueID, "")
+			if err != nil {
+				result.Handled = true
+				result.Error = fmt.Errorf("creating cleanup wisp: %w", err)
+				result.Action = fmt.Sprintf("polecat %s shutdown - idle, sandbox preserved (cleanup_status=%s, cleanup-wisp-failed)", polecatName, cleanupStatus)
+				notifyMayorSlotOpenFn(workDir, rigName, polecatName, "LIFECYCLE_SHUTDOWN")
+				return result
+			}
+
+			result.Handled = true
+			result.WispCreated = wispID
+			result.Action = fmt.Sprintf("polecat %s shutdown - idle, sandbox preserved (cleanup_status=%s, wisp=%s)", polecatName, cleanupStatus, wispID)
+			notifyMayorSlotOpenFn(workDir, rigName, polecatName, "LIFECYCLE_SHUTDOWN")
+			return result
+		}
+	}
 
 	// Persistent model: polecat goes idle, sandbox preserved for reuse.
-	// If polecat has dirty state, that's fine — it stays idle until
+	// If polecat has dirty state, that's fine - it stays idle until
 	// someone slings new work to it (which will repair the worktree).
 	result.Handled = true
-	result.Action = fmt.Sprintf("polecat %s shutdown — now idle, sandbox preserved", polecatName)
+	if cleanupStatus != "" {
+		result.Action = fmt.Sprintf("polecat %s shutdown - now idle, sandbox preserved (cleanup_status=%s)", polecatName, cleanupStatus)
+	} else {
+		result.Action = fmt.Sprintf("polecat %s shutdown - now idle, sandbox preserved", polecatName)
+	}
+	notifyMayorSlotOpenFn(workDir, rigName, polecatName, "LIFECYCLE_SHUTDOWN")
 
 	return result
 }
@@ -1666,7 +1716,7 @@ type CompletionDiscovery struct {
 	MRID           string
 	Branch         string
 	MRFailed       bool
-	PushFailed     bool   // True when branch push to origin failed (gas-556)
+	PushFailed     bool // True when branch push to origin failed (gas-556)
 	CompletionTime string
 	Action         string // What was done: "merge-ready-sent", "acknowledged-idle", "phase-complete"
 	WispCreated    string // ID of cleanup wisp if created
@@ -1844,12 +1894,12 @@ func processDiscoveredCompletion(bd *BdCli, workDir, rigName string, payload *Po
 // Used to avoid redundant subprocess invocations during zombie detection, where the same
 // agent bead was previously queried 3-5 times per polecat per patrol cycle. (gt-2gra)
 type agentBeadSnapshot struct {
-	AgentState  string
-	HookBead    string
-	Labels      []string
-	UpdatedAt   string
-	ActiveMR    string
-	Fields      *beads.AgentFields // parsed from description
+	AgentState string
+	HookBead   string
+	Labels     []string
+	UpdatedAt  string
+	ActiveMR   string
+	Fields     *beads.AgentFields // parsed from description
 }
 
 // fetchAgentBeadSnapshot fetches all agent bead data in a single bd show call.
@@ -2032,13 +2082,13 @@ func getBeadStatus(bd *BdCli, workDir, beadID string) (string, bool) {
 
 // resetAbandonedBead resets a dead polecat's hooked bead so it can be re-dispatched.
 // If the bead is in "hooked" or "in_progress" status, it:
-// 0. Checks if the polecat's work is already on main — if so, closes
-//    the bead instead of resetting (prevents re-dispatch of completed work)
-// 1. Records the respawn in the witness spawn-count ledger
-// 2. Resets status to open
-// 3. Clears assignee
-// 4. Sends mail to deacon for re-dispatch (includes respawn count; SPAWN_STORM
-//    prefix and Urgent priority when count exceeds max bead respawns config)
+//  0. Checks if the polecat's work is already on main — if so, closes
+//     the bead instead of resetting (prevents re-dispatch of completed work)
+//  1. Records the respawn in the witness spawn-count ledger
+//  2. Resets status to open
+//  3. Clears assignee
+//  4. Sends mail to deacon for re-dispatch (includes respawn count; SPAWN_STORM
+//     prefix and Urgent priority when count exceeds max bead respawns config)
 //
 // Returns true if the bead was recovered.
 func resetAbandonedBead(bd *BdCli, workDir, rigName, hookBead, polecatName string, router *mail.Router) bool {

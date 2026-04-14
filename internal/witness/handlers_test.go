@@ -12,6 +12,7 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/tmux"
 )
@@ -71,6 +72,105 @@ func TestHandlePolecatDoneFromBead_ProtocolType(t *testing.T) {
 	result := HandlePolecatDoneFromBead(DefaultBdCli(), "/tmp/nonexistent", "testrig", "nux", fields, nil)
 	if result.ProtocolType != ProtoPolecatDone {
 		t.Errorf("ProtocolType = %q, want %q", result.ProtocolType, ProtoPolecatDone)
+	}
+}
+
+func TestHandleLifecycleShutdown_InvalidSubject(t *testing.T) {
+	t.Parallel()
+
+	result := handleLifecycleShutdown(nil, "/tmp", "testrig", &mail.Message{Subject: "LIFECYCLE:Shutdown"})
+	if result.Error == nil {
+		t.Fatal("expected invalid subject error")
+	}
+	if result.Handled {
+		t.Fatal("invalid subject should not be handled")
+	}
+}
+
+func TestHandleLifecycleShutdown_CleanNotifiesMayor(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			cmd := stripMockBdFlags(args)
+			if len(cmd) > 0 && cmd[0] == "show" {
+				return `[{"description":"polecat alpha\ncleanup_status: clean\n"}]`, nil
+			}
+			return "[]", nil
+		},
+		func(args []string) error { return nil },
+	)
+
+	prevNotify := notifyMayorSlotOpenFn
+	called := false
+	notifyMayorSlotOpenFn = func(workDir, rigName, polecatName, exitType string) {
+		called = workDir == "/tmp" && rigName == "testrig" && polecatName == "alpha" && exitType == "LIFECYCLE_SHUTDOWN"
+	}
+	defer func() { notifyMayorSlotOpenFn = prevNotify }()
+
+	result := handleLifecycleShutdown(bd, "/tmp", "testrig", &mail.Message{Subject: "LIFECYCLE:Shutdown alpha"})
+	if !result.Handled {
+		t.Fatal("expected lifecycle shutdown to be handled")
+	}
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	if result.CleanupStatus != "clean" {
+		t.Fatalf("CleanupStatus = %q, want clean", result.CleanupStatus)
+	}
+	if !strings.Contains(result.Action, "cleanup_status=clean") {
+		t.Fatalf("unexpected action: %q", result.Action)
+	}
+	if !called {
+		t.Fatal("expected mayor slot-open notification")
+	}
+}
+
+func TestHandleLifecycleShutdown_DirtyCreatesCleanupWisp(t *testing.T) {
+	bd, mock := mockBd(
+		func(args []string) (string, error) {
+			cmd := stripMockBdFlags(args)
+			if len(cmd) == 0 {
+				return "[]", nil
+			}
+			switch cmd[0] {
+			case "show":
+				return `[{"description":"polecat bravo\nhook_bead: gt-abc123\ncleanup_status: has_uncommitted\n"}]`, nil
+			case "list":
+				return "[]", nil
+			case "create":
+				return `{"id":"gt-wisp-cleanup"}`, nil
+			}
+			return "[]", nil
+		},
+		func(args []string) error { return nil },
+	)
+
+	prevNotify := notifyMayorSlotOpenFn
+	notifyMayorSlotOpenFn = func(string, string, string, string) {}
+	defer func() { notifyMayorSlotOpenFn = prevNotify }()
+
+	result := handleLifecycleShutdown(bd, "/tmp/town/gastown/witness", "gastown", &mail.Message{Subject: "LIFECYCLE:Shutdown bravo"})
+	if !result.Handled {
+		t.Fatal("expected lifecycle shutdown to be handled")
+	}
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	if result.CleanupStatus != "has_uncommitted" {
+		t.Fatalf("CleanupStatus = %q, want has_uncommitted", result.CleanupStatus)
+	}
+	if result.WispCreated != "gt-wisp-cleanup" {
+		t.Fatalf("WispCreated = %q, want gt-wisp-cleanup", result.WispCreated)
+	}
+	if !strings.Contains(result.Action, "cleanup_status=has_uncommitted") {
+		t.Fatalf("unexpected action: %q", result.Action)
+	}
+
+	got := strings.Join(mock.calls, "\n")
+	if !strings.Contains(got, "create") {
+		t.Fatalf("expected cleanup wisp creation, got calls: %s", got)
+	}
+	if !strings.Contains(got, "gt-abc123") {
+		t.Fatalf("expected hooked bead context in cleanup wisp creation, got calls: %s", got)
 	}
 }
 
@@ -1704,7 +1804,6 @@ func TestClearCompletionMetadata_NoBd(t *testing.T) {
 		t.Error("expected error when bd unavailable")
 	}
 }
-
 
 // --- Heartbeat v2 tests (gt-3vr5) ---
 
