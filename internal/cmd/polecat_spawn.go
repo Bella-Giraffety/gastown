@@ -14,6 +14,7 @@ import (
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/lock"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/style"
@@ -147,11 +148,23 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		}
 	}
 
-	// Persistent polecat model (gt-4ac): try to reuse an idle polecat first.
-	// Idle polecats have completed their work but kept their sandbox (worktree).
-	// Reusing avoids the overhead of creating a new worktree.
-	idlePolecat, findErr := polecatMgr.FindIdlePolecat()
-	if findErr == nil && idlePolecat != nil {
+	// Serialize idle-polecat reuse selection within a rig so concurrent slings
+	// cannot both select the same idle polecat before its bead/session state flips.
+	if reusedInfo, err := func() (*SpawnedPolecatInfo, error) {
+		reuseUnlock, reuseLockErr := tryAcquireRigIdleReuseLock(townRoot, rigName)
+		if reuseLockErr != nil {
+			return nil, fmt.Errorf("serializing idle reuse for rig %s: %w", rigName, reuseLockErr)
+		}
+		defer reuseUnlock()
+
+		// Persistent polecat model (gt-4ac): try to reuse an idle polecat first.
+		// Idle polecats have completed their work but kept their sandbox (worktree).
+		// Reusing avoids the overhead of creating a new worktree.
+		idlePolecat, findErr := polecatMgr.FindIdlePolecat()
+		if findErr != nil || idlePolecat == nil {
+			return nil, nil
+		}
+
 		polecatName := idlePolecat.Name
 		fmt.Printf("Reusing idle polecat: %s\n", polecatName)
 
@@ -199,38 +212,44 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 			reuseOK = true
 		}
 
-		if reuseOK {
-			polecatObj, err := polecatMgr.Get(polecatName)
-			if err != nil {
-				return nil, fmt.Errorf("getting idle polecat after reuse: %w", err)
-			}
-			if err := verifyWorktreeExists(polecatObj.ClonePath); err != nil {
-				return nil, fmt.Errorf("worktree verification failed for reused %s: %w", polecatName, err)
-			}
-
-			polecatSessMgr := polecat.NewSessionManager(t, r)
-			sessionName := polecatSessMgr.SessionName(polecatName)
-
-			fmt.Printf("%s Polecat %s reused (idle → working, session start deferred)\n", style.Bold.Render("✓"), polecatName)
-			_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
-
-			effectiveBranch := strings.TrimPrefix(baseBranch, "origin/")
-			if effectiveBranch == "" {
-				effectiveBranch = r.DefaultBranch()
-			}
-
-			return &SpawnedPolecatInfo{
-				RigName:     rigName,
-				PolecatName: polecatName,
-				ClonePath:   polecatObj.ClonePath,
-				SessionName: sessionName,
-				Pane:        "",
-				BaseBranch:  effectiveBranch,
-				Branch:      polecatObj.Branch,
-				account:     opts.Account,
-				agent:       opts.Agent,
-			}, nil
+		if !reuseOK {
+			return nil, nil
 		}
+
+		polecatObj, err := polecatMgr.Get(polecatName)
+		if err != nil {
+			return nil, fmt.Errorf("getting idle polecat after reuse: %w", err)
+		}
+		if err := verifyWorktreeExists(polecatObj.ClonePath); err != nil {
+			return nil, fmt.Errorf("worktree verification failed for reused %s: %w", polecatName, err)
+		}
+
+		polecatSessMgr := polecat.NewSessionManager(t, r)
+		sessionName := polecatSessMgr.SessionName(polecatName)
+
+		fmt.Printf("%s Polecat %s reused (idle → working, session start deferred)\n", style.Bold.Render("✓"), polecatName)
+		_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
+
+		effectiveBranch := strings.TrimPrefix(baseBranch, "origin/")
+		if effectiveBranch == "" {
+			effectiveBranch = r.DefaultBranch()
+		}
+
+		return &SpawnedPolecatInfo{
+			RigName:     rigName,
+			PolecatName: polecatName,
+			ClonePath:   polecatObj.ClonePath,
+			SessionName: sessionName,
+			Pane:        "",
+			BaseBranch:  effectiveBranch,
+			Branch:      polecatObj.Branch,
+			account:     opts.Account,
+			agent:       opts.Agent,
+		}, nil
+	}(); err != nil {
+		return nil, err
+	} else if reusedInfo != nil {
+		return reusedInfo, nil
 	}
 
 	// Determine base branch for polecat worktree
@@ -452,6 +471,34 @@ func IsRigName(target string) (string, bool) {
 	}
 
 	return target, true
+}
+
+func tryAcquireRigIdleReuseLock(townRoot, rigName string) (func(), error) {
+	lockDir := filepath.Join(townRoot, ".runtime", "locks", "sling")
+	if err := os.MkdirAll(lockDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating sling lock dir: %w", err)
+	}
+
+	safeRig := strings.NewReplacer("/", "_", ":", "_").Replace(rigName)
+	lockPath := filepath.Join(lockDir, "idle_reuse_"+safeRig+".flock")
+
+	const maxAttempts = 20
+	const retryInterval = 500 * time.Millisecond
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		release, locked, err := lock.FlockTryAcquire(lockPath)
+		if err != nil {
+			return nil, fmt.Errorf("acquiring idle reuse lock for rig %s: %w", rigName, err)
+		}
+		if locked {
+			return release, nil
+		}
+		if attempt < maxAttempts {
+			time.Sleep(retryInterval)
+		}
+	}
+
+	totalWait := time.Duration(maxAttempts) * retryInterval
+	return nil, fmt.Errorf("timed out acquiring idle reuse lock for rig %s after %ds", rigName, int(totalWait/time.Second))
 }
 
 // verifyWorktreeExists checks that a git worktree was actually created at the given path

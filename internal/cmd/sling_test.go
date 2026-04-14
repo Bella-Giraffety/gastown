@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -551,6 +552,149 @@ exit /b 0
 
 	if !burnCalled {
 		t.Fatalf("expected rollbackSlingArtifacts to burn attached molecules")
+	}
+}
+
+func TestRunSlingRollsBackFormulaOnAssigneeLockFailure(t *testing.T) {
+	townRoot := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	bdScript := `#!/bin/sh
+set -e
+cmd="$1"
+shift || true
+case "$cmd" in
+  show)
+    echo '[{"title":"Test issue","status":"open","assignee":"","description":""}]'
+    ;;
+  cook)
+    exit 0
+    ;;
+  mol)
+    sub="$1"
+    shift || true
+    case "$sub" in
+      wisp)
+        echo '{"new_epic_id":"gt-wisp-xyz"}'
+        exit 0
+        ;;
+      bond)
+        echo '{"root_id":"gt-wisp-xyz"}'
+        exit 0
+        ;;
+    esac
+    ;;
+  update)
+    exit 0
+    ;;
+esac
+exit 0
+`
+	bdScriptWindows := `@echo off
+setlocal enableextensions
+set "cmd=%1"
+set "sub=%2"
+if "%cmd%"=="show" (
+  echo [{"title":"Test issue","status":"open","assignee":"","description":""}]
+  exit /b 0
+)
+if "%cmd%"=="cook" exit /b 0
+if "%cmd%"=="mol" (
+  if "%sub%"=="wisp" (
+    echo {"new_epic_id":"gt-wisp-xyz"}
+    exit /b 0
+  )
+  if "%sub%"=="bond" (
+    echo {"root_id":"gt-wisp-xyz"}
+    exit /b 0
+  )
+)
+if "%cmd%"=="update" exit /b 0
+exit /b 0
+`
+	_ = writeBDStub(t, binDir, bdScript, bdScriptWindows)
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(EnvGTRole, "mayor")
+	t.Setenv("GT_POLECAT", "")
+	t.Setenv("GT_CREW", "")
+	t.Setenv("TMUX_PANE", "")
+	t.Setenv("GT_TEST_NO_NUDGE", "1")
+	t.Setenv("GT_TEST_SKIP_HOOK_VERIFY", "1")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevNoConvoy := slingNoConvoy
+	prevNoBoot := slingNoBoot
+	prevDryRun := slingDryRun
+	prevForce := slingForce
+	prevResolve := resolveTargetAgentFn
+	prevRollback := rollbackSlingArtifactsFn
+	prevAcquire := acquireSlingAssigneeLockFn
+	t.Cleanup(func() {
+		slingNoConvoy = prevNoConvoy
+		slingNoBoot = prevNoBoot
+		slingDryRun = prevDryRun
+		slingForce = prevForce
+		resolveTargetAgentFn = prevResolve
+		rollbackSlingArtifactsFn = prevRollback
+		acquireSlingAssigneeLockFn = prevAcquire
+	})
+
+	slingDryRun = false
+	slingNoConvoy = true
+	slingNoBoot = true
+	slingForce = true
+	resolveTargetAgentFn = func(target string) (string, string, string, error) {
+		return "gastown/polecats/toast", "%99", townRoot, nil
+	}
+	acquireSlingAssigneeLockFn = func(townRoot, targetAgent string) (func(), error) {
+		return nil, fmt.Errorf("synthetic lock failure")
+	}
+
+	rollbackCalled := false
+	rollbackSlingArtifactsFn = func(spawnInfo *SpawnedPolecatInfo, beadID, hookWorkDir, convoyID string) {
+		rollbackCalled = true
+		if spawnInfo != nil {
+			t.Fatalf("expected no spawned polecat for existing target, got %+v", spawnInfo)
+		}
+		if beadID != "gt-abc123" {
+			t.Fatalf("unexpected beadID in rollback: %q", beadID)
+		}
+		if hookWorkDir != townRoot {
+			t.Fatalf("unexpected hookWorkDir in rollback: got %q want %q", hookWorkDir, townRoot)
+		}
+		if convoyID != "" {
+			t.Fatalf("unexpected convoyID in rollback: %q", convoyID)
+		}
+	}
+
+	err = runSling(nil, []string{"gt-abc123", "gastown/polecats/toast"})
+	if err == nil {
+		t.Fatalf("expected error from runSling")
+	}
+	if !strings.Contains(err.Error(), "serializing hook write") {
+		t.Fatalf("expected assignee lock error, got: %v", err)
+	}
+	if !rollbackCalled {
+		t.Fatalf("expected rollbackSlingArtifactsFn to be called")
 	}
 }
 
@@ -1192,19 +1336,19 @@ func TestLooksLikeBeadID(t *testing.T) {
 		{"aaaaaa-b", false},     // prefix too long (6 chars)
 
 		// Injection / invalid suffix characters - should return false
-		{"gt-abc;rm -rf /", false},       // shell injection in suffix
-		{"gt-abc$(cmd)", false},          // command substitution in suffix
-		{"gt-abc&bg", false},            // ampersand in suffix
-		{"gt-abc|pipe", false},          // pipe in suffix
-		{"gt-abc`tick`", false},         // backtick in suffix
-		{"gt-abc>redir", false},         // redirect in suffix
-		{"gt-abc<redir", false},         // redirect in suffix
-		{"gt-abc'quote", false},         // single quote in suffix
-		{"gt-abc\"dquote", false},       // double quote in suffix
-		{"gt-abc\\slash", false},        // backslash in suffix
-		{"gt-abc xyz", false},           // space in suffix
-		{"gt-ABC", false},              // uppercase in suffix
-		{"gt-abc/path", false},          // slash in suffix
+		{"gt-abc;rm -rf /", false}, // shell injection in suffix
+		{"gt-abc$(cmd)", false},    // command substitution in suffix
+		{"gt-abc&bg", false},       // ampersand in suffix
+		{"gt-abc|pipe", false},     // pipe in suffix
+		{"gt-abc`tick`", false},    // backtick in suffix
+		{"gt-abc>redir", false},    // redirect in suffix
+		{"gt-abc<redir", false},    // redirect in suffix
+		{"gt-abc'quote", false},    // single quote in suffix
+		{"gt-abc\"dquote", false},  // double quote in suffix
+		{"gt-abc\\slash", false},   // backslash in suffix
+		{"gt-abc xyz", false},      // space in suffix
+		{"gt-ABC", false},          // uppercase in suffix
+		{"gt-abc/path", false},     // slash in suffix
 	}
 
 	for _, tt := range tests {

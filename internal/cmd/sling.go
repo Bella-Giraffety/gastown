@@ -401,7 +401,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			DryRun:      slingDryRun,
 			Force:       slingForce,
 			NoMerge:     slingNoMerge,
-				ReviewOnly:  slingReviewOnly,
+			ReviewOnly:  slingReviewOnly,
 			Account:     slingAccount,
 			Agent:       slingAgent,
 			HookRawBead: slingHookRawBead,
@@ -909,8 +909,14 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// Acquire a per-assignee lock before writing hook_bead to serialize concurrent slings
 	// targeting the same polecat. Without this, multiple concurrent slings race on the
 	// same assignee's row in Dolt, causing silent rollbacks (issue #3114).
-	assigneeUnlock, assigneeLockErr := tryAcquireSlingAssigneeLock(townRoot, targetAgent)
+	assigneeUnlock, assigneeLockErr := acquireSlingAssigneeLockFn(townRoot, targetAgent)
 	if assigneeLockErr != nil {
+		if formulaName != "" || newPolecatInfo != nil {
+			rollbackSlingArtifactsFn(newPolecatInfo, beadID, hookWorkDir, "")
+			if force && originalStatus == "pinned" {
+				restorePinnedBead(townRoot, beadID, originalAssignee)
+			}
+		}
 		return fmt.Errorf("serializing hook write for %s: %w", targetAgent, assigneeLockErr)
 	}
 	defer assigneeUnlock()
@@ -1069,6 +1075,9 @@ func checkCrossRigGuard(beadID, targetAgent, townRoot string) error {
 // rollbackSlingArtifactsFn is a seam for tests. Production uses rollbackSlingArtifacts.
 var rollbackSlingArtifactsFn = rollbackSlingArtifacts
 
+// acquireSlingAssigneeLockFn is a seam for tests. Production uses tryAcquireSlingAssigneeLock.
+var acquireSlingAssigneeLockFn = tryAcquireSlingAssigneeLock
+
 // Rollback seams allow tests to assert molecule-cleanup behavior without
 // depending on full beads storage side effects.
 var getBeadInfoForRollback = getBeadInfo
@@ -1187,6 +1196,10 @@ func rollbackSlingArtifacts(spawnInfo *SpawnedPolecatInfo, beadID, hookWorkDir, 
 		}
 	}
 
-	// 3. Clean up the spawned polecat (worktree, agent bead, convoy, etc.)
-	cleanupSpawnedPolecat(spawnInfo, spawnInfo.RigName, convoyID)
+	// 3. Clean up any spawned polecat (worktree, agent bead, convoy, etc.)
+	rigName := ""
+	if spawnInfo != nil {
+		rigName = spawnInfo.RigName
+	}
+	cleanupSpawnedPolecat(spawnInfo, rigName, convoyID)
 }
