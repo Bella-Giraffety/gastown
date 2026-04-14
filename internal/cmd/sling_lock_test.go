@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestTryAcquireSlingBeadLock_Contention(t *testing.T) {
@@ -150,4 +151,26 @@ func TestTryAcquireSlingAssigneeLock_AgentNameSanitization(t *testing.T) {
 		}
 		release()
 	}
+}
+
+func TestTryAcquireRigIdleReuseLock_Contention(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("advisory flock is a no-op on Windows")
+	}
+	t.Parallel()
+
+	townRoot := t.TempDir()
+	rigName := "gastown"
+
+	release1, err := tryAcquireRigIdleReuseLock(townRoot, rigName)
+	if err != nil {
+		t.Fatalf("first idle reuse lock acquire failed: %v", err)
+	}
+	time.AfterFunc(600*time.Millisecond, release1)
+
+	release3, err := tryAcquireRigIdleReuseLock(townRoot, rigName)
+	if err != nil {
+		t.Fatalf("expected idle reuse lock acquire to succeed after retry: %v", err)
+	}
+	release3()
 }
