@@ -75,6 +75,82 @@ func TestDiscoverRigAgents_UsesRigPrefix(t *testing.T) {
 	}
 }
 
+func TestDiscoverRigAgents_FallsBackToDescriptionHookBead(t *testing.T) {
+	townRoot := t.TempDir()
+	writeTestRoutes(t, townRoot, []beads.Route{{Prefix: "gt-", Path: "gastown/mayor/rig"}})
+
+	r := &rig.Rig{
+		Name:     "gastown",
+		Path:     filepath.Join(townRoot, "gastown"),
+		Polecats: []string{"guzzle"},
+	}
+
+	allAgentBeads := map[string]*beads.Issue{
+		"gt-gastown-polecat-guzzle": {
+			ID:          "gt-gastown-polecat-guzzle",
+			AgentState:  "working",
+			Description: "role_type: polecat\nrig: gastown\nagent_state: working\nhook_bead: gt-v7b",
+		},
+	}
+	allHookBeads := map[string]*beads.Issue{
+		"gt-v7b": {ID: "gt-v7b", Title: "Hooked work"},
+	}
+
+	agents := discoverRigAgents(map[string]bool{}, r, nil, allAgentBeads, allHookBeads, nil, true)
+	if len(agents) != 1 {
+		t.Fatalf("discoverRigAgents() returned %d agents, want 1", len(agents))
+	}
+	if !agents[0].HasWork {
+		t.Fatal("agent HasWork = false, want true")
+	}
+	if agents[0].HookBead != "gt-v7b" {
+		t.Fatalf("agent HookBead = %q, want %q", agents[0].HookBead, "gt-v7b")
+	}
+	if agents[0].WorkTitle != "Hooked work" {
+		t.Fatalf("agent WorkTitle = %q, want %q", agents[0].WorkTitle, "Hooked work")
+	}
+}
+
+func TestDiscoverRigHooks_FallsBackToAgentHookBead(t *testing.T) {
+	townRoot := t.TempDir()
+	writeTestRoutes(t, townRoot, []beads.Route{{Prefix: "gt-", Path: "gastown/mayor/rig"}})
+
+	r := &rig.Rig{
+		Name:     "gastown",
+		Path:     filepath.Join(townRoot, "gastown"),
+		Polecats: []string{"guzzle"},
+	}
+
+	hooks := discoverRigHooks(r, nil,
+		map[string]*beads.Issue{
+			"gt-gastown-polecat-guzzle": {
+				ID:          "gt-gastown-polecat-guzzle",
+				Description: "role_type: polecat\nrig: gastown\nagent_state: working\nhook_bead: gt-v7b",
+			},
+		},
+		map[string]*beads.Issue{
+			"gt-v7b": {
+				ID:          "gt-v7b",
+				Title:       "Hooked work",
+				Description: "attached_molecule: gt-wisp-gach",
+			},
+		},
+	)
+
+	if len(hooks) != 1 {
+		t.Fatalf("discoverRigHooks() returned %d hooks, want 1", len(hooks))
+	}
+	if !hooks[0].HasWork {
+		t.Fatal("hook HasWork = false, want true")
+	}
+	if hooks[0].Title != "Hooked work" {
+		t.Fatalf("hook Title = %q, want %q", hooks[0].Title, "Hooked work")
+	}
+	if hooks[0].Molecule != "gt-wisp-gach" {
+		t.Fatalf("hook Molecule = %q, want %q", hooks[0].Molecule, "gt-wisp-gach")
+	}
+}
+
 func TestRenderAgentDetails_UsesRigPrefix(t *testing.T) {
 	townRoot := t.TempDir()
 	writeTestRoutes(t, townRoot, []beads.Route{
