@@ -120,15 +120,15 @@ type DNDInfo struct {
 
 // AgentRuntime represents the runtime state of an agent.
 type AgentRuntime struct {
-	Name         string `json:"name"`                    // Display name (e.g., "mayor", "witness")
-	Address      string `json:"address"`                 // Full address (e.g., "greenplace/witness")
-	Session      string `json:"session"`                 // tmux session name
-	Role         string `json:"role"`                    // Role type
-	Running      bool   `json:"running"`                 // Is tmux session running?
-	ACP          bool   `json:"acp"`                     // Is ACP session active?
-	HasWork      bool   `json:"has_work"`                // Has pinned work?
-	WorkTitle    string `json:"work_title,omitempty"`    // Title of pinned work
-	HookBead     string `json:"hook_bead,omitempty"`     // Pinned bead ID from agent bead
+	Name              string `json:"name"`                         // Display name (e.g., "mayor", "witness")
+	Address           string `json:"address"`                      // Full address (e.g., "greenplace/witness")
+	Session           string `json:"session"`                      // tmux session name
+	Role              string `json:"role"`                         // Role type
+	Running           bool   `json:"running"`                      // Is tmux session running?
+	ACP               bool   `json:"acp"`                          // Is ACP session active?
+	HasWork           bool   `json:"has_work"`                     // Has pinned work?
+	WorkTitle         string `json:"work_title,omitempty"`         // Title of pinned work
+	HookBead          string `json:"hook_bead,omitempty"`          // Pinned bead ID from agent bead
 	State             string `json:"state,omitempty"`              // Agent state from agent bead
 	NotificationLevel string `json:"notification_level,omitempty"` // Notification level (verbose, normal, muted)
 	UnreadMail        int    `json:"unread_mail"`                  // Number of unread messages
@@ -897,7 +897,7 @@ func gatherStatus() (TownStatus, error) {
 				rigWg.Add(1)
 				go func() {
 					defer rigWg.Done()
-					rs.Hooks = discoverRigHooks(r, rs.Crews)
+					rs.Hooks = discoverRigHooks(r, rs.Crews, allAgentBeads, allHookBeads)
 				}()
 			}
 
@@ -1527,7 +1527,7 @@ func capitalizeFirst(s string) string {
 // It fetches all pinned handoff beads in a single bd call, then resolves
 // each agent's hook in-memory. This replaces the previous N+1 pattern where
 // each agent triggered a separate bd subprocess.
-func discoverRigHooks(r *rig.Rig, crews []string) []AgentHookInfo {
+func discoverRigHooks(r *rig.Rig, crews []string, allAgentBeads map[string]*beads.Issue, allHookBeads map[string]*beads.Issue) []AgentHookInfo {
 	var hooks []AgentHookInfo
 
 	// Create beads instance for the rig
@@ -1540,24 +1540,52 @@ func discoverRigHooks(r *rig.Rig, crews []string) []AgentHookInfo {
 		allHandoffs = make(map[string]*beads.Issue)
 	}
 
+	townRoot := filepath.Dir(r.Path)
+	prefix := beads.GetPrefixForRig(townRoot, r.Name)
+	mergeDirectHook := func(hook AgentHookInfo, agentID string) AgentHookInfo {
+		if hook.HasWork {
+			return hook
+		}
+		issue, ok := allAgentBeads[agentID]
+		if !ok {
+			return hook
+		}
+		hookBead := resolveAgentHookBead(issue)
+		if hookBead == "" {
+			return hook
+		}
+		hook.HasWork = true
+		if pinnedIssue, ok := allHookBeads[hookBead]; ok {
+			hook.Title = pinnedIssue.Title
+			if attachment := beads.ParseAttachmentFields(pinnedIssue); attachment != nil {
+				hook.Molecule = attachment.AttachedMolecule
+			}
+		}
+		return hook
+	}
+
 	// Check polecats
 	for _, name := range r.Polecats {
-		hooks = append(hooks, resolveHookFromMap(allHandoffs, name, r.Name+"/"+name, constants.RolePolecat))
+		hook := resolveHookFromMap(allHandoffs, name, r.Name+"/"+name, constants.RolePolecat)
+		hooks = append(hooks, mergeDirectHook(hook, beads.PolecatBeadIDWithPrefix(prefix, r.Name, name)))
 	}
 
 	// Check crew workers
 	for _, name := range crews {
-		hooks = append(hooks, resolveHookFromMap(allHandoffs, name, r.Name+"/crew/"+name, constants.RoleCrew))
+		hook := resolveHookFromMap(allHandoffs, name, r.Name+"/crew/"+name, constants.RoleCrew)
+		hooks = append(hooks, mergeDirectHook(hook, beads.CrewBeadIDWithPrefix(prefix, r.Name, name)))
 	}
 
 	// Check witness
 	if r.HasWitness {
-		hooks = append(hooks, resolveHookFromMap(allHandoffs, constants.RoleWitness, r.Name+"/witness", constants.RoleWitness))
+		hook := resolveHookFromMap(allHandoffs, constants.RoleWitness, r.Name+"/witness", constants.RoleWitness)
+		hooks = append(hooks, mergeDirectHook(hook, beads.WitnessBeadIDWithPrefix(prefix, r.Name)))
 	}
 
 	// Check refinery
 	if r.HasRefinery {
-		hooks = append(hooks, resolveHookFromMap(allHandoffs, constants.RoleRefinery, r.Name+"/refinery", constants.RoleRefinery))
+		hook := resolveHookFromMap(allHandoffs, constants.RoleRefinery, r.Name+"/refinery", constants.RoleRefinery)
+		hooks = append(hooks, mergeDirectHook(hook, beads.RefineryBeadIDWithPrefix(prefix, r.Name)))
 	}
 
 	return hooks
@@ -1587,6 +1615,19 @@ func resolveHookFromMap(allHandoffs map[string]*beads.Issue, role, agentAddress,
 	}
 
 	return hook
+}
+
+func resolveAgentHookBead(issue *beads.Issue) string {
+	if issue == nil {
+		return ""
+	}
+	if issue.HookBead != "" {
+		return issue.HookBead
+	}
+	if fields := beads.ParseAgentFields(issue.Description); fields != nil {
+		return fields.HookBead
+	}
+	return ""
 }
 
 // discoverGlobalAgents checks runtime state for town-level agents (Mayor, Deacon).
@@ -1646,9 +1687,7 @@ func discoverGlobalAgents(townRoot string, allSessions map[string]bool, allAgent
 
 			// Look up agent bead from preloaded map (O(1))
 			if issue, ok := allAgentBeads[d.beadID]; ok {
-				// Prefer database columns over description parsing
-				// HookBead column is authoritative (cleared by unsling)
-				agent.HookBead = issue.HookBead
+				agent.HookBead = resolveAgentHookBead(issue)
 				agent.State = beads.ResolveAgentState(issue.Description, issue.AgentState)
 				if agent.HookBead != "" {
 					agent.HasWork = true
@@ -1821,9 +1860,7 @@ func discoverRigAgents(allSessions map[string]bool, r *rig.Rig, crews []string, 
 
 			// Look up agent bead from preloaded map (O(1))
 			if issue, ok := allAgentBeads[d.beadID]; ok {
-				// Prefer database columns over description parsing
-				// HookBead column is authoritative (cleared by unsling)
-				agent.HookBead = issue.HookBead
+				agent.HookBead = resolveAgentHookBead(issue)
 				agent.State = beads.ResolveAgentState(issue.Description, issue.AgentState)
 				if agent.HookBead != "" {
 					agent.HasWork = true
@@ -1936,7 +1973,7 @@ func getAgentHook(b *beads.Beads, role, agentAddress, roleType string) AgentHook
 		Role:  roleType,
 	}
 
-	// Find handoff bead for this role
+	// Find handoff bead for this role.
 	handoff, err := b.FindHandoffBead(role)
 	if err != nil || handoff == nil {
 		return hook
