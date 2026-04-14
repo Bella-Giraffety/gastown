@@ -3,10 +3,7 @@
 export const GasTown = async ({ client, $, directory }) => {
   const role = (process.env.GT_ROLE || "").toLowerCase();
   const autonomousRoles = new Set(["polecat", "witness", "refinery", "deacon"]);
-  const refusalTexts = new Set([
-    "I'm sorry, but I cannot assist with that request.",
-    "Im sorry, but I cannot assist with that request.",
-  ]);
+  const refusalText = "I'm sorry, but I cannot assist with that request.";
   const refusalPrompt = "Continue";
   const maxConsecutiveRefusalRetries = 4;
   let didInit = false;
@@ -110,10 +107,6 @@ export const GasTown = async ({ client, $, directory }) => {
   };
 
   const handleCompletedAssistantMessage = async (info) => {
-    if (!autonomousRoles.has(role)) {
-      return;
-    }
-
     const sessionID = info?.sessionID;
     const messageID = info?.id;
     if (!sessionID || !messageID || info?.role !== "assistant" || !info?.time?.completed) {
@@ -131,7 +124,7 @@ export const GasTown = async ({ client, $, directory }) => {
       return;
     }
 
-    if (!refusalTexts.has(text)) {
+    if (text !== refusalText) {
       state.consecutiveRefusals = 0;
       state.didEscalate = false;
       return;
