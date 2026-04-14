@@ -1201,9 +1201,5 @@ func rollbackSlingArtifacts(spawnInfo *SpawnedPolecatInfo, beadID, hookWorkDir, 
 	}
 
 	// 3. Clean up any spawned polecat (worktree, agent bead, convoy, etc.)
-	rigName := ""
-	if spawnInfo != nil {
-		rigName = spawnInfo.RigName
-	}
 	cleanupSpawnedPolecat(spawnInfo, rigName, convoyID)
 }
