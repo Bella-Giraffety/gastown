@@ -745,6 +745,12 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 	var startPoint string
 	if opts.BaseBranch != "" {
 		startPoint = opts.BaseBranch
+		if !strings.HasPrefix(startPoint, "origin/") {
+			canonical := "origin/" + startPoint
+			if exists, err := repoGit.RefExists(canonical); err == nil && exists {
+				startPoint = canonical
+			}
+		}
 	} else {
 		defaultBranch := "main"
 		if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
@@ -921,6 +927,12 @@ func (m *Manager) AddWithOptions(name string, opts AddOptions) (_ *Polecat, retE
 	var startPoint string
 	if opts.BaseBranch != "" {
 		startPoint = opts.BaseBranch
+		if !strings.HasPrefix(startPoint, "origin/") {
+			canonical := "origin/" + startPoint
+			if exists, err := repoGit.RefExists(canonical); err == nil && exists {
+				startPoint = canonical
+			}
+		}
 	} else {
 		defaultBranch := "main"
 		if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
@@ -1426,6 +1438,12 @@ func (m *Manager) RepairWorktreeWithOptions(name string, force bool, opts AddOpt
 	var startPoint string
 	if opts.BaseBranch != "" {
 		startPoint = opts.BaseBranch
+		if !strings.HasPrefix(startPoint, "origin/") {
+			canonical := "origin/" + startPoint
+			if exists, err := polecatGit.RefExists(canonical); err == nil && exists {
+				startPoint = canonical
+			}
+		}
 	} else {
 		defaultBranch := "main"
 		if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
