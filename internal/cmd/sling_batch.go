@@ -224,10 +224,10 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 // and optionally the associated auto-convoy.
 func cleanupSpawnedPolecat(spawnInfo *SpawnedPolecatInfo, rigName, convoyID string) {
 	if spawnInfo == nil {
-		if convoyID != "" {
-			closeConvoy(convoyID, "Sling rollback - hook failed")
-		}
 		return
+	}
+	if rigName == "" {
+		rigName = spawnInfo.RigName
 	}
 
 	townRoot, err := workspace.FindFromCwdOrError()

@@ -187,20 +187,11 @@ exit 0
 
 // TestCleanupSpawnedPolecat_WithNilSpawnInfo handles nil spawnInfo gracefully.
 func TestCleanupSpawnedPolecat_WithNilSpawnInfo(t *testing.T) {
-	// This test verifies that cleanupSpawnedPolecat doesn't panic when spawnInfo is nil
-	// The function should handle this gracefully
-
-	// We expect this to return early without panicking
-	// In practice this might dereference nil, so let's check
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("ISSUE: cleanupSpawnedPolecat panics with nil spawnInfo: %v", r)
-			// Don't fail the test, just document the behavior
-			t.Skip("Known issue: cleanupSpawnedPolecat panics with nil spawnInfo")
-		}
-	}()
-
 	cleanupSpawnedPolecat(nil, "gastown", "")
+}
+
+func TestRollbackSlingArtifacts_WithNilSpawnInfo(t *testing.T) {
+	rollbackSlingArtifacts(nil, "", "", "")
 }
 
 // TestCloseConvoy_ClosesConvoy verifies that the convoy is closed

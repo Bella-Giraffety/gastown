@@ -1160,6 +1160,10 @@ func tryAcquireSlingAssigneeLock(townRoot, targetAgent string) (func(), error) {
 // Cleanup is best-effort: each step logs warnings but continues to clean as much as possible.
 func rollbackSlingArtifacts(spawnInfo *SpawnedPolecatInfo, beadID, hookWorkDir, convoyID string) {
 	townRoot, err := workspace.FindFromCwdOrError()
+	rigName := ""
+	if spawnInfo != nil {
+		rigName = spawnInfo.RigName
+	}
 
 	// 1. Burn any attached molecules from partial formula instantiation.
 	// This clears attached_molecule metadata and closes stale wisps that
