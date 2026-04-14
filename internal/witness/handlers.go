@@ -211,18 +211,9 @@ func HandlePolecatDoneFromBead(bd *BdCli, workDir, rigName, polecatName string, 
 
 	// Push failed: branch never reached origin (gas-556). Report recovery needed.
 	if payload.PushFailed {
-		result.Handled = true
-		result.Action = fmt.Sprintf("push-failed-recovery-needed for %s (branch=%s issue=%s) — branch not on origin, worktree may be at risk",
-			polecatName, payload.Branch, payload.IssueID)
-		townRoot, _ := workspace.Find(workDir)
-		if townRoot != "" {
-			mayorMsg := fmt.Sprintf("PUSH_FAILED: polecat=%s branch=%s issue=%s — branch not on origin, possible work loss",
-				polecatName, payload.Branch, payload.IssueID)
-			mayorSession := session.MayorSessionName()
-			t := tmux.NewTmux()
-			if running, err := t.HasSession(mayorSession); err == nil && running {
-				_ = t.NudgeSession(mayorSession, mayorMsg)
-			}
+		result = handlePushFailedCompletion(bd, workDir, rigName, payload, result)
+		if result.Handled {
+			notifyMayorSlotOpen(workDir, rigName, polecatName, payload.Exit)
 		}
 		return result
 	}
@@ -282,6 +273,55 @@ func handlePolecatDonePendingMR(bd *BdCli, workDir, rigName string, payload *Pol
 	result.WispCreated = wispID
 	result.Action = fmt.Sprintf("deferred cleanup for %s (pending MR=%s, nudged refinery)", payload.PolecatName, payload.MRID)
 	return result
+}
+
+func notifyMayorPushFailed(workDir, polecatName, branch, issueID string) {
+	townRoot, _ := workspace.Find(workDir)
+	if townRoot == "" {
+		return
+	}
+	mayorMsg := fmt.Sprintf("PUSH_FAILED: polecat=%s branch=%s issue=%s — branch not on origin, possible work loss",
+		polecatName, branch, issueID)
+	mayorSession := session.MayorSessionName()
+	t := tmux.NewTmux()
+	if running, err := t.HasSession(mayorSession); err == nil && running {
+		_ = t.NudgeSession(mayorSession, mayorMsg)
+	}
+}
+
+func handlePushFailedCompletion(bd *BdCli, workDir, rigName string, payload *PolecatDonePayload, result *HandlerResult) *HandlerResult {
+	result.Handled = true
+	result.Action = fmt.Sprintf("push-failed-recovery-needed for %s (branch=%s issue=%s) — branch not on origin, worktree may be at risk",
+		payload.PolecatName, payload.Branch, payload.IssueID)
+	if wispID, err := createCleanupWisp(bd, workDir, payload.PolecatName, payload.IssueID, payload.Branch); err == nil {
+		result.WispCreated = wispID
+		if stateErr := UpdateCleanupWispState(bd, workDir, wispID, "push-failed"); stateErr != nil && result.Error == nil {
+			result.Error = fmt.Errorf("updating push-failed cleanup wisp: %w", stateErr)
+		}
+		result.Action = fmt.Sprintf("push-failed-recovery-needed for %s (branch=%s issue=%s, wisp=%s) — branch not on origin, worktree may be at risk",
+			payload.PolecatName, payload.Branch, payload.IssueID, wispID)
+	} else {
+		result.Error = fmt.Errorf("creating push-failed cleanup wisp: %w", err)
+	}
+	notifyMayorPushFailed(workDir, payload.PolecatName, payload.Branch, payload.IssueID)
+	return result
+}
+
+func handleDiscoveredPushFailedCompletion(bd *BdCli, workDir, rigName string, payload *PolecatDonePayload, discovery *CompletionDiscovery) {
+	discovery.Action = fmt.Sprintf("push-failed-recovery-needed (branch=%s issue=%s) — branch not on origin, worktree may be at risk",
+		payload.Branch, payload.IssueID)
+	if wispID, err := createCleanupWisp(bd, workDir, payload.PolecatName, payload.IssueID, payload.Branch); err == nil {
+		discovery.WispCreated = wispID
+		if stateErr := UpdateCleanupWispState(bd, workDir, wispID, "push-failed"); stateErr != nil && discovery.Error == nil {
+			discovery.Error = fmt.Errorf("updating push-failed cleanup wisp: %w", stateErr)
+		}
+		discovery.Action = fmt.Sprintf("push-failed-recovery-needed (branch=%s issue=%s, wisp=%s) — branch not on origin, worktree may be at risk",
+			payload.Branch, payload.IssueID, wispID)
+	} else {
+		discovery.Error = fmt.Errorf("creating push-failed cleanup wisp: %w", err)
+	}
+	notifyMayorPushFailed(workDir, payload.PolecatName, payload.Branch, payload.IssueID)
+	notifyMayorSlotOpen(workDir, rigName, payload.PolecatName, payload.Exit)
 }
 
 // notifyRefineryMergeReady emits a MERGE_READY channel event and nudges the
@@ -1829,19 +1869,7 @@ func processDiscoveredCompletion(bd *BdCli, workDir, rigName string, payload *Po
 	// The polecat's worktree may be in /tmp and lost on reboot. Escalate so the
 	// witness agent can investigate and trigger recovery (gas-556).
 	if payload.PushFailed {
-		discovery.Action = fmt.Sprintf("push-failed-recovery-needed (branch=%s issue=%s) — branch not on origin, worktree may be at risk",
-			payload.Branch, payload.IssueID)
-		// Notify mayor so a new polecat can be dispatched if work is lost.
-		townRoot, _ := workspace.Find(workDir)
-		if townRoot != "" {
-			mayorMsg := fmt.Sprintf("PUSH_FAILED: polecat=%s branch=%s issue=%s — branch not on origin, possible work loss",
-				payload.PolecatName, payload.Branch, payload.IssueID)
-			mayorSession := session.MayorSessionName()
-			t := tmux.NewTmux()
-			if running, err := t.HasSession(mayorSession); err == nil && running {
-				_ = t.NudgeSession(mayorSession, mayorMsg)
-			}
-		}
+		handleDiscoveredPushFailedCompletion(bd, workDir, rigName, payload, discovery)
 		return
 	}
 

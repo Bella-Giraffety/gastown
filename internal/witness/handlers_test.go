@@ -1779,6 +1779,88 @@ func TestProcessDiscoveredCompletion_EscalatedNoMR(t *testing.T) {
 	}
 }
 
+func TestHandlePolecatDoneFromBead_PushFailedCreatesCleanupWisp(t *testing.T) {
+	t.Parallel()
+	bd, mock := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "create":
+				return `{"id":"gt-wisp-pushfail"}`, nil
+			case "show":
+				return `[]`, nil
+			default:
+				return "{}", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+	fields := &beads.AgentFields{
+		ExitType:   "COMPLETED",
+		HookBead:   "gt-work-001",
+		Branch:     "polecat/nux/gt-work-001@abc123",
+		PushFailed: true,
+	}
+	result := HandlePolecatDoneFromBead(bd, t.TempDir(), "testrig", "nux", fields, nil)
+	if !result.Handled {
+		t.Fatal("expected push-failed completion to be handled")
+	}
+	if result.WispCreated != "gt-wisp-pushfail" {
+		t.Fatalf("WispCreated = %q, want %q", result.WispCreated, "gt-wisp-pushfail")
+	}
+	got := strings.Join(mock.calls, "\n")
+	if !strings.Contains(got, "create --ephemeral --json --title cleanup:nux") {
+		t.Fatalf("expected cleanup wisp creation, got calls:\n%s", got)
+	}
+	if !strings.Contains(got, "update gt-wisp-pushfail") || !strings.Contains(got, "state:push-failed") {
+		t.Fatalf("expected push-failed cleanup wisp state update, got calls:\n%s", got)
+	}
+	if !strings.Contains(result.Action, "wisp=gt-wisp-pushfail") {
+		t.Fatalf("Action = %q, want wisp reference", result.Action)
+	}
+}
+
+func TestProcessDiscoveredCompletion_PushFailedCreatesCleanupWisp(t *testing.T) {
+	t.Parallel()
+	bd, mock := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "create":
+				return `{"id":"gt-wisp-discovered"}`, nil
+			case "show":
+				return `[]`, nil
+			default:
+				return "{}", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+	payload := &PolecatDonePayload{
+		PolecatName: "nux",
+		Exit:        "COMPLETED",
+		IssueID:     "gt-work-002",
+		Branch:      "polecat/nux/gt-work-002@abc123",
+		PushFailed:  true,
+	}
+	discovery := &CompletionDiscovery{}
+	processDiscoveredCompletion(bd, t.TempDir(), "testrig", payload, discovery)
+	if discovery.WispCreated != "gt-wisp-discovered" {
+		t.Fatalf("WispCreated = %q, want %q", discovery.WispCreated, "gt-wisp-discovered")
+	}
+	got := strings.Join(mock.calls, "\n")
+	if !strings.Contains(got, "create --ephemeral --json --title cleanup:nux") {
+		t.Fatalf("expected cleanup wisp creation, got calls:\n%s", got)
+	}
+	if !strings.Contains(discovery.Action, "wisp=gt-wisp-discovered") {
+		t.Fatalf("Action = %q, want wisp reference", discovery.Action)
+	}
+}
+
 func TestGetAgentBeadFields_NoAgentBead(t *testing.T) {
 	t.Parallel()
 	// When bd fails, should return nil
