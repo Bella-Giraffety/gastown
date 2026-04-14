@@ -143,6 +143,14 @@ assert.equal(crew.prompts.length, 1);
 const exactOnly = await makePlugin("crew");
 await emitCompleted(exactOnly, "s4", "m1", "Im sorry, but I cannot assist with that request.");
 assert.equal(exactOnly.prompts.length, 0);
+
+const leadingWhitespace = await makePlugin("crew");
+await emitCompleted(leadingWhitespace, "s5", "m1", " " + refusal);
+assert.equal(leadingWhitespace.prompts.length, 0);
+
+const trailingWhitespace = await makePlugin("crew");
+await emitCompleted(trailingWhitespace, "s6", "m1", refusal + "\n");
+assert.equal(trailingWhitespace.prompts.length, 0);
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
 		t.Fatalf("write node harness: %v", err)

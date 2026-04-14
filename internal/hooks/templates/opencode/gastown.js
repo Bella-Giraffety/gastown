@@ -57,8 +57,7 @@ export const GasTown = async ({ client, $, directory }) => {
       return parts
         .filter((part) => part?.type === "text" && !part?.ignored)
         .map((part) => part.text || "")
-        .join("")
-        .trim();
+        .join("");
     } catch (err) {
       await log("warn", "failed to fetch completed assistant text", {
         sessionID,
