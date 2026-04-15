@@ -271,7 +271,7 @@ func resolvePrimeWorkspace() (cwd, townRoot string, err error) {
 		return "", "", fmt.Errorf("getting current directory: %w", err)
 	}
 
-	townRoot, err = workspace.FindFromCwd()
+	townRoot, err = workspace.FindFromStartDirOrEnv(cwd)
 	if err != nil {
 		return "", "", fmt.Errorf("finding workspace: %w", err)
 	}
@@ -540,7 +540,7 @@ var memoryTypeLabels = map[string]string{
 	"feedback":  "Behavioral Rules (from user feedback)",
 	"user":      "User Context",
 	"project":   "Project Context",
-	"reference":  "Reference Links",
+	"reference": "Reference Links",
 	"general":   "General",
 }
 
