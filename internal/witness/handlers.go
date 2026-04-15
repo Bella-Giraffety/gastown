@@ -158,7 +158,7 @@ func HandlePolecatDone(bd *BdCli, workDir, rigName string, msg *mail.Message, ro
 	if hasPendingMR {
 		result = handlePolecatDonePendingMR(bd, workDir, rigName, payload, result)
 	} else {
-		result = handlePolecatDoneNoMR(workDir, rigName, payload, result)
+		result = handlePolecatDoneNoMR(bd, workDir, rigName, payload, result)
 	}
 
 	// Notify Mayor that a slot is open regardless of MR status.
@@ -194,14 +194,16 @@ func HandlePolecatDoneFromBead(bd *BdCli, workDir, rigName, polecatName string, 
 
 	// Map agent bead fields to the existing PolecatDonePayload for reuse
 	payload := &PolecatDonePayload{
-		PolecatName: polecatName,
-		Exit:        fields.ExitType,
-		IssueID:     fields.HookBead,
-		MRID:        fields.MRID,
-		Branch:      fields.Branch,
-		MRFailed:    fields.MRFailed,
-		PushFailed:  fields.PushFailed,
+		PolecatName:   polecatName,
+		Exit:          fields.ExitType,
+		IssueID:       fields.HookBead,
+		MRID:          fields.MRID,
+		Branch:        fields.Branch,
+		CleanupStatus: fields.CleanupStatus,
+		MRFailed:      fields.MRFailed,
+		PushFailed:    fields.PushFailed,
 	}
+	result.CleanupStatus = fields.CleanupStatus
 
 	if payload.Exit == "PHASE_COMPLETE" {
 		result.Handled = true
@@ -231,7 +233,7 @@ func HandlePolecatDoneFromBead(bd *BdCli, workDir, rigName, polecatName string, 
 	if hasPendingMR {
 		result = handlePolecatDonePendingMR(bd, workDir, rigName, payload, result)
 	} else {
-		result = handlePolecatDoneNoMR(workDir, rigName, payload, result)
+		result = handlePolecatDoneNoMR(bd, workDir, rigName, payload, result)
 	}
 
 	// Notify Mayor that a slot is open regardless of MR status.
@@ -347,13 +349,49 @@ func notifyRefineryMergeReady(workDir, rigName string, result *HandlerResult) {
 
 // handlePolecatDoneNoMR handles a POLECAT_DONE with no pending MR.
 // Tries auto-nuke; falls back to creating a cleanup wisp for manual intervention.
-func handlePolecatDoneNoMR(_, _ string, payload *PolecatDonePayload, result *HandlerResult) *HandlerResult {
+func handlePolecatDoneNoMR(bd *BdCli, workDir, _ string, payload *PolecatDonePayload, result *HandlerResult) *HandlerResult {
+	if wispID, action, err, handled := ensureDirtyCompletionWisp(bd, workDir, payload); handled {
+		result.Handled = true
+		result.CleanupStatus = payload.CleanupStatus
+		result.WispCreated = wispID
+		result.Error = err
+		result.Action = fmt.Sprintf("polecat %s completed (%s) — now idle, sandbox preserved", payload.PolecatName, action)
+		return result
+	}
+
 	// Persistent polecat model (gt-4ac): polecats go idle after completion, no nuke.
 	// The polecat has already set its own state to "idle" in gt done.
 	// We just acknowledge the completion here.
 	result.Handled = true
 	result.Action = fmt.Sprintf("polecat %s completed (exit=%s, no MR) — now idle, sandbox preserved", payload.PolecatName, payload.Exit)
 	return result
+}
+
+func ensureDirtyCompletionWisp(bd *BdCli, workDir string, payload *PolecatDonePayload) (string, string, error, bool) {
+	switch payload.CleanupStatus {
+	case "has_uncommitted", "has_stash", "has_unpushed":
+	default:
+		return "", "", nil, false
+	}
+
+	if bd == nil {
+		action := fmt.Sprintf("exit=%s, no MR, cleanup_status=%s, cleanup-wisp-unavailable", payload.Exit, payload.CleanupStatus)
+		return "", action, fmt.Errorf("cleanup wisp creation unavailable for dirty completion state"), true
+	}
+
+	if existingWisp := findAnyCleanupWisp(bd, workDir, payload.PolecatName); existingWisp != "" {
+		action := fmt.Sprintf("exit=%s, no MR, cleanup_status=%s, existing-wisp=%s", payload.Exit, payload.CleanupStatus, existingWisp)
+		return existingWisp, action, nil, true
+	}
+
+	wispID, err := createCleanupWisp(bd, workDir, payload.PolecatName, payload.IssueID, payload.Branch)
+	if err != nil {
+		action := fmt.Sprintf("exit=%s, no MR, cleanup_status=%s, cleanup-wisp-failed", payload.Exit, payload.CleanupStatus)
+		return "", action, fmt.Errorf("creating cleanup wisp: %w", err), true
+	}
+
+	action := fmt.Sprintf("exit=%s, no MR, cleanup_status=%s, wisp=%s", payload.Exit, payload.CleanupStatus, wispID)
+	return wispID, action, nil, true
 }
 
 func isStalePolecatDone(workDir, rigName, polecatName string, msg *mail.Message) (bool, string) {
@@ -1832,13 +1870,14 @@ func DiscoverCompletions(bd *BdCli, workDir, rigName string, router *mail.Router
 
 		// Build a payload compatible with the existing routing logic
 		payload := &PolecatDonePayload{
-			PolecatName: polecatName,
-			Exit:        fields.ExitType,
-			IssueID:     fields.HookBead,
-			MRID:        fields.MRID,
-			Branch:      fields.Branch,
-			MRFailed:    fields.MRFailed,
-			PushFailed:  fields.PushFailed,
+			PolecatName:   polecatName,
+			Exit:          fields.ExitType,
+			IssueID:       fields.HookBead,
+			MRID:          fields.MRID,
+			Branch:        fields.Branch,
+			CleanupStatus: fields.CleanupStatus,
+			MRFailed:      fields.MRFailed,
+			PushFailed:    fields.PushFailed,
 		}
 
 		// Route based on exit type and MR presence
@@ -1907,6 +1946,14 @@ func processDiscoveredCompletion(bd *BdCli, workDir, rigName string, payload *Po
 		discovery.Action = fmt.Sprintf("merge-ready-nudged (MR=%s, wisp=%s)", payload.MRID, wispID)
 
 		// Notify Mayor that a slot is open even with pending MR — polecat is idle. (GH#2727)
+		notifyMayorSlotOpen(workDir, rigName, payload.PolecatName, payload.Exit)
+		return
+	}
+
+	if wispID, action, err, handled := ensureDirtyCompletionWisp(bd, workDir, payload); handled {
+		discovery.WispCreated = wispID
+		discovery.Action = "cleanup-deferred-idle (" + action + ")"
+		discovery.Error = err
 		notifyMayorSlotOpen(workDir, rigName, payload.PolecatName, payload.Exit)
 		return
 	}
