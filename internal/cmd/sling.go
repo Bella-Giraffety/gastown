@@ -1075,6 +1075,12 @@ func checkCrossRigGuard(beadID, targetAgent, townRoot string) error {
 // rollbackSlingArtifactsFn is a seam for tests. Production uses rollbackSlingArtifacts.
 var rollbackSlingArtifactsFn = rollbackSlingArtifacts
 
+// instantiateFormulaOnBeadFn is a seam for tests. Production uses InstantiateFormulaOnBead.
+var instantiateFormulaOnBeadFn = InstantiateFormulaOnBead
+
+// hookBeadWithRetryFn is a seam for tests. Production uses hookBeadWithRetry.
+var hookBeadWithRetryFn = hookBeadWithRetry
+
 // acquireSlingAssigneeLockFn is a seam for tests. Production uses tryAcquireSlingAssigneeLock.
 var acquireSlingAssigneeLockFn = tryAcquireSlingAssigneeLock
 
