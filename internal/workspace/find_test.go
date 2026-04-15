@@ -278,3 +278,52 @@ func TestFindSkipsNestedWorkspaceInCrew(t *testing.T) {
 		t.Errorf("Find = %q, want %q (should skip nested workspace in crew/)", found, root)
 	}
 }
+
+func TestFindFromCwdAuthoritativeResolversFallBackToEnv(t *testing.T) {
+	makeTown := func(t *testing.T, name string) string {
+		t.Helper()
+		townRoot := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"`+name+`"}`), 0644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		return townRoot
+	}
+
+	envTown := makeTown(t, "env-town")
+	nonTownDir := t.TempDir()
+
+	origCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(nonTownDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origCwd) })
+
+	t.Setenv("GT_TOWN_ROOT", envTown)
+	t.Setenv("GT_ROOT", "")
+
+	if got := FindFromEnv(); got != envTown {
+		t.Fatalf("FindFromEnv() = %q, want %q", got, envTown)
+	}
+
+	if got, err := FindFromCwd(); err != nil || got != "" {
+		t.Fatalf("FindFromCwd() = %q, %v; want empty string, nil", got, err)
+	}
+
+	if got, err := FindFromStartDirOrEnv(nonTownDir); err != nil || got != envTown {
+		t.Fatalf("FindFromStartDirOrEnv() = %q, %v; want %q, nil", got, err, envTown)
+	}
+
+	if got, err := FindFromCwdOrError(); err != nil || got != envTown {
+		t.Fatalf("FindFromCwdOrError() = %q, %v; want %q, nil", got, err, envTown)
+	}
+
+	if got, cwd, err := FindFromCwdWithFallback(); err != nil || got != envTown || cwd != nonTownDir {
+		t.Fatalf("FindFromCwdWithFallback() = (%q, %q, %v); want (%q, %q, nil)", got, cwd, err, envTown, nonTownDir)
+	}
+}

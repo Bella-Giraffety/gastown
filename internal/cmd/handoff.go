@@ -1107,8 +1107,15 @@ func sessionToGTRole(sessionName string) string {
 // detectTownRootFromCwd walks up from the current directory to find the town root.
 // Falls back to GT_TOWN_ROOT or GT_ROOT env vars if cwd detection fails (broken state recovery).
 func detectTownRootFromCwd() string {
-	// Use workspace.FindFromCwd which handles both primary (mayor/town.json)
-	// and secondary (mayor/ directory) markers
+	cwd, err := os.Getwd()
+	if err == nil {
+		townRoot, resolveErr := workspace.FindFromStartDirOrEnv(cwd)
+		if resolveErr == nil && townRoot != "" {
+			return townRoot
+		}
+	}
+
+	// Fall back to plain cwd detection when GT_TOWN_ROOT is not available.
 	townRoot, err := workspace.FindFromCwd()
 	if err == nil && townRoot != "" {
 		return townRoot
