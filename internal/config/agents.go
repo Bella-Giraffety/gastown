@@ -365,7 +365,10 @@ var builtinPresets = map[AgentPreset]*AgentPresetInfo{
 			OutputFlag: "--format json",
 		},
 		// Runtime defaults
-		PromptMode:        "arg",
+		// OpenCode's interactive prompt should arrive via hook/nudge fallback,
+		// not a CLI startup argument. Passing the startup beacon as --prompt can
+		// execute before Gas Town's hook-driven priming completes.
+		PromptMode:        "none",
 		ConfigDir:         ".opencode",
 		HooksProvider:     "opencode",
 		HooksDir:          ".opencode/plugins",

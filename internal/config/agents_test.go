@@ -973,6 +973,10 @@ func TestOpenCodeAgentPreset(t *testing.T) {
 	if info.NonInteractive.OutputFlag != "--format json" {
 		t.Errorf("opencode NonInteractive.OutputFlag = %q, want --format json", info.NonInteractive.OutputFlag)
 	}
+
+	if info.PromptMode != "none" {
+		t.Errorf("opencode PromptMode = %q, want none", info.PromptMode)
+	}
 }
 
 func TestOpenCodeProviderDefaults(t *testing.T) {
@@ -1018,6 +1022,9 @@ func TestOpenCodeRuntimeConfigFromPreset(t *testing.T) {
 	}
 	if rc.Env["OPENCODE_PERMISSION"] != `{"*":"allow"}` {
 		t.Errorf("RuntimeConfig.Env[OPENCODE_PERMISSION] = %q, want {\"*\":\"allow\"}", rc.Env["OPENCODE_PERMISSION"])
+	}
+	if rc.PromptMode != "none" {
+		t.Errorf("RuntimeConfig.PromptMode = %q, want none", rc.PromptMode)
 	}
 
 	// Verify Env is a copy (mutation doesn't affect original)

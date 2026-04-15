@@ -343,6 +343,27 @@ func TestGetStartupFallbackInfo_HooksNoPrompt(t *testing.T) {
 	}
 }
 
+func TestGetStartupFallbackInfo_OpenCodePresetUsesHookNoPromptPath(t *testing.T) {
+	rc := config.RuntimeConfigFromPreset(config.AgentOpenCode)
+	if rc == nil {
+		t.Fatal("RuntimeConfigFromPreset(opencode) returned nil")
+	}
+
+	info := GetStartupFallbackInfo(rc)
+	if info.IncludePrimeInBeacon {
+		t.Error("OpenCode preset should not include prime instruction in beacon")
+	}
+	if !info.SendBeaconNudge {
+		t.Error("OpenCode preset should deliver startup beacon via nudge")
+	}
+	if !info.SendStartupNudge {
+		t.Error("OpenCode preset should deliver work instructions via nudge")
+	}
+	if info.StartupNudgeDelayMs != 0 {
+		t.Errorf("OpenCode preset StartupNudgeDelayMs = %d, want 0", info.StartupNudgeDelayMs)
+	}
+}
+
 func TestGetStartupFallbackInfo_NoHooksWithPrompt(t *testing.T) {
 	// Codex: no hooks, but has prompt support
 	rc := &config.RuntimeConfig{
