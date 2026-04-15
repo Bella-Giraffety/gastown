@@ -299,7 +299,7 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 			allVars = append(allVars, priorVars...)
 			fmt.Printf("  %s Prior attempt found — context injected for polecat\n", style.Dim.Render("↻"))
 		}
-		formulaResult, err := InstantiateFormulaOnBead(context.Background(), params.FormulaName, params.BeadID, info.Title, hookWorkDir, townRoot, true, allVars)
+		formulaResult, err := instantiateFormulaOnBeadFn(context.Background(), params.FormulaName, params.BeadID, info.Title, hookWorkDir, townRoot, true, allVars)
 		if err != nil {
 			if params.FormulaFailFatal {
 				// Rollback spawned polecat on fatal formula failure
@@ -328,9 +328,10 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	}
 	defer assigneeUnlock()
 	hookDir := beads.ResolveHookDir(townRoot, beadToHook, hookWorkDir)
-	if err := hookBeadWithRetry(beadToHook, targetAgent, hookDir); err != nil {
-		// Clean up orphaned polecat to avoid leaving spawned-but-unhookable polecats
-		cleanupSpawnedPolecat(spawnInfo, params.RigName, convoyID)
+	if err := hookBeadWithRetryFn(beadToHook, targetAgent, hookDir); err != nil {
+		// Hook failures can happen after formula instantiation, so use the full
+		// rollback path to burn attached molecules in addition to polecat cleanup.
+		rollbackSlingArtifactsFn(spawnInfo, beadToHook, hookWorkDir, convoyID)
 		result.ErrMsg = "hook failed"
 		return result, fmt.Errorf("failed to hook bead: %w", err)
 	}
