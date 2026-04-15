@@ -63,6 +63,54 @@ func TestHandlePolecatDoneFromBead_NoMR(t *testing.T) {
 	}
 }
 
+func TestHandlePolecatDoneFromBead_DirtyNoMRCreatesCleanupWisp(t *testing.T) {
+	t.Parallel()
+	bd, mock := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "list":
+				return `[]`, nil
+			case "create":
+				return `{"id":"gt-wisp-dirty"}`, nil
+			case "show":
+				return `[]`, nil
+			default:
+				return "{}", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+
+	fields := &beads.AgentFields{
+		ExitType:       "COMPLETED",
+		HookBead:       "gt-test123",
+		Branch:         "polecat/nux/gt-test123@abc123",
+		CleanupStatus:  "has_uncommitted",
+		CompletionTime: "2026-02-28T01:00:00Z",
+	}
+
+	result := HandlePolecatDoneFromBead(bd, "/tmp", "testrig", "nux", fields, nil)
+	if !result.Handled {
+		t.Fatal("expected dirty completion with no MR to be handled")
+	}
+	if result.WispCreated != "gt-wisp-dirty" {
+		t.Fatalf("WispCreated = %q, want %q", result.WispCreated, "gt-wisp-dirty")
+	}
+	if !strings.Contains(result.Action, "cleanup_status=has_uncommitted") {
+		t.Fatalf("Action = %q, want cleanup status in action", result.Action)
+	}
+	got := strings.Join(mock.calls, "\n")
+	if !strings.Contains(got, "create --ephemeral --json --title cleanup:nux") {
+		t.Fatalf("expected cleanup wisp creation, got calls:\n%s", got)
+	}
+	if !strings.Contains(got, "gt-test123") {
+		t.Fatalf("expected hooked bead context in cleanup wisp creation, got calls:\n%s", got)
+	}
+}
+
 func TestHandlePolecatDoneFromBead_ProtocolType(t *testing.T) {
 	t.Parallel()
 	fields := &beads.AgentFields{
@@ -1776,6 +1824,51 @@ func TestProcessDiscoveredCompletion_EscalatedNoMR(t *testing.T) {
 	processDiscoveredCompletion(DefaultBdCli(), "/tmp", "testrig", payload, discovery)
 	if !strings.Contains(discovery.Action, "acknowledged-idle") {
 		t.Errorf("Action = %q, want to contain %q for ESCALATED exit", discovery.Action, "acknowledged-idle")
+	}
+}
+
+func TestProcessDiscoveredCompletion_DirtyNoMRCreatesCleanupWisp(t *testing.T) {
+	t.Parallel()
+	bd, mock := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "list":
+				return `[]`, nil
+			case "create":
+				return `{"id":"gt-wisp-discovery-dirty"}`, nil
+			case "show":
+				return `[]`, nil
+			default:
+				return "{}", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+
+	payload := &PolecatDonePayload{
+		PolecatName:   "nux",
+		Exit:          "COMPLETED",
+		IssueID:       "gt-work-003",
+		Branch:        "polecat/nux/gt-work-003@abc123",
+		CleanupStatus: "has_unpushed",
+	}
+	discovery := &CompletionDiscovery{}
+	processDiscoveredCompletion(bd, t.TempDir(), "testrig", payload, discovery)
+	if discovery.WispCreated != "gt-wisp-discovery-dirty" {
+		t.Fatalf("WispCreated = %q, want %q", discovery.WispCreated, "gt-wisp-discovery-dirty")
+	}
+	if !strings.Contains(discovery.Action, "cleanup_status=has_unpushed") {
+		t.Fatalf("Action = %q, want cleanup status in action", discovery.Action)
+	}
+	got := strings.Join(mock.calls, "\n")
+	if !strings.Contains(got, "create --ephemeral --json --title cleanup:nux") {
+		t.Fatalf("expected cleanup wisp creation, got calls:\n%s", got)
+	}
+	if !strings.Contains(got, "gt-work-003") {
+		t.Fatalf("expected hooked bead context in cleanup wisp creation, got calls:\n%s", got)
 	}
 }
 
