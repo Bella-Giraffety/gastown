@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/git"
@@ -1523,6 +1524,53 @@ func TestAddRig_BranchFlag(t *testing.T) {
 			t.Errorf("config.json DefaultBranch = %q, want %q", cfg.DefaultBranch, "develop")
 		}
 	})
+}
+
+func TestAddRig_CleansUpRouteAndRegistryOnLateFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based bd shim not reliable on Windows CI")
+	}
+
+	fakeBDForAddRig(t)
+
+	root, rigsConfig := setupTestTown(t)
+	repoDir := createTestGitRepoForRig(t, "cleanup")
+
+	// Force the final rigs.json write to fail after route registration succeeds.
+	blockedMayorPath := filepath.Join(root, "mayor")
+	if err := os.WriteFile(blockedMayorPath, []byte("not a directory"), 0644); err != nil {
+		t.Fatalf("write blocking mayor path: %v", err)
+	}
+
+	manager := NewManager(root, rigsConfig, git.NewGit(root))
+	_, err := manager.AddRig(AddRigOptions{
+		Name:          "cleanuprig",
+		GitURL:        repoDir,
+		BeadsPrefix:   "cr",
+		SkipDoltCheck: true,
+	})
+	if err == nil {
+		t.Fatal("AddRig succeeded, want failure")
+	}
+	if !strings.Contains(err.Error(), "registering rig in rigs.json") {
+		t.Fatalf("AddRig error = %q, want rigs.json registration failure", err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, "cleanuprig")); !os.IsNotExist(statErr) {
+		t.Fatalf("cleanuprig directory still exists after failure: %v", statErr)
+	}
+
+	routes, routeErr := beads.LoadRoutes(filepath.Join(root, ".beads"))
+	if routeErr != nil {
+		t.Fatalf("LoadRoutes: %v", routeErr)
+	}
+	if len(routes) != 0 {
+		t.Fatalf("routes left behind after AddRig failure: %+v", routes)
+	}
+
+	if _, exists := rigsConfig.Rigs["cleanuprig"]; exists {
+		t.Fatal("cleanuprig remained in in-memory registry after AddRig failure")
+	}
 }
 
 // TestBareCloneDefaultBranch verifies that DefaultBranch() returns the correct
