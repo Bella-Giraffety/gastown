@@ -243,6 +243,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// This prevents bd from seeing stale config and spawning orphan servers.
 	if doltOK {
 		_, _ = doltserver.EnsureAllMetadata(townRoot)
+		waitForDoltReady(townRoot)
+		ensureDoltPortEnv(townRoot)
 	}
 
 	// Phase 2: Start all agents in parallel (Dolt is now ready)
