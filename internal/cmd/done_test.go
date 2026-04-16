@@ -252,6 +252,77 @@ func TestDoneCircularRedirectProtection(t *testing.T) {
 	}
 }
 
+func TestNormalizeDoneTargetBranch(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: ""},
+		{name: "trim spaces", input: "  main  ", want: "main"},
+		{name: "plain branch", input: "feature/review", want: "feature/review"},
+		{name: "origin main", input: "origin/main", want: "main"},
+		{name: "origin feature", input: "origin/upstream-rebuild-main", want: "upstream-rebuild-main"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeDoneTargetBranch(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizeDoneTargetBranch(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDoneNormalizedTargetReuseAvoidsDoubleOrigin(t *testing.T) {
+	tests := []struct {
+		name       string
+		rawTarget  string
+		wantTarget string
+		wantOrigin string
+	}{
+		{
+			name:       "explicit prefixed target",
+			rawTarget:  "origin/upstream-rebuild-main",
+			wantTarget: "upstream-rebuild-main",
+			wantOrigin: "origin/upstream-rebuild-main",
+		},
+		{
+			name:       "already normalized target",
+			rawTarget:  "feat/contract-review",
+			wantTarget: "feat/contract-review",
+			wantOrigin: "origin/feat/contract-review",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate the target reuse in runDone: MR/PR metadata keeps the normalized
+			// branch name, while contamination and pre-verified lookup add origin/ once.
+			target := normalizeDoneTargetBranch(tt.rawTarget)
+			contaminationRef := "origin/" + target
+			preVerifiedRef := "origin/" + target
+
+			if target != tt.wantTarget {
+				t.Fatalf("normalized target = %q, want %q", target, tt.wantTarget)
+			}
+			if contaminationRef != tt.wantOrigin {
+				t.Errorf("contamination ref = %q, want %q", contaminationRef, tt.wantOrigin)
+			}
+			if preVerifiedRef != tt.wantOrigin {
+				t.Errorf("pre-verified ref = %q, want %q", preVerifiedRef, tt.wantOrigin)
+			}
+			if strings.Contains(contaminationRef, "origin/origin/") {
+				t.Errorf("contamination ref should not double-prefix origin: %q", contaminationRef)
+			}
+			if strings.Contains(preVerifiedRef, "origin/origin/") {
+				t.Errorf("pre-verified ref should not double-prefix origin: %q", preVerifiedRef)
+			}
+		})
+	}
+}
+
 // TestFindHookedBeadForAgent verifies that findHookedBeadForAgent correctly
 // finds hooked beads by querying status=hooked + assignee (hq-l6mm5).
 // This is critical because branch names like "polecat/furiosa-mkb0vq9f" don't
@@ -274,7 +345,7 @@ func TestFindHookedBeadForAgent(t *testing.T) {
 			setupBeads: func(t *testing.T, bd *beads.Beads) {
 				// Create a task and set it to hooked with assignee
 				_, err := bd.CreateWithID("test-456", beads.CreateOptions{
-					Title: "Task to be hooked",
+					Title:  "Task to be hooked",
 					Labels: []string{"gt:task"},
 				})
 				if err != nil {
@@ -537,9 +608,9 @@ func TestSessionKillGateGuardLogic(t *testing.T) {
 func TestMRVerificationSetsMRFailed(t *testing.T) {
 	tests := []struct {
 		name         string
-		createErr    error  // error from bd.Create
-		showErr      error  // error from bd.Show (verification)
-		showReturns  bool   // whether Show returns a non-nil issue
+		createErr    error // error from bd.Create
+		showErr      error // error from bd.Show (verification)
+		showReturns  bool  // whether Show returns a non-nil issue
 		wantMRFailed bool
 	}{
 		{
@@ -607,10 +678,10 @@ func TestMRVerificationSetsMRFailed(t *testing.T) {
 // Without this, the refinery never finds the MR and the branch sits unmerged.
 func TestMRBeadCreationUsesRig(t *testing.T) {
 	tests := []struct {
-		name     string
-		issueID  string
-		rigName  string
-		wantRig  string
+		name    string
+		issueID string
+		rigName string
+		wantRig string
 	}{
 		{
 			name:    "same-rig bead: rig is still set",
@@ -636,10 +707,10 @@ func TestMRBeadCreationUsesRig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Simulate the CreateOptions construction in done.go.
 			opts := beads.CreateOptions{
-				Title:       "Merge: " + tt.issueID,
-				Labels:      []string{"gt:merge-request"},
-				Ephemeral:   true,
-				Rig:         tt.rigName,
+				Title:     "Merge: " + tt.issueID,
+				Labels:    []string{"gt:merge-request"},
+				Ephemeral: true,
+				Rig:       tt.rigName,
 			}
 			if opts.Rig != tt.wantRig {
 				t.Errorf("CreateOptions.Rig = %q, want %q (issue %s)", opts.Rig, tt.wantRig, tt.issueID)
@@ -1024,7 +1095,7 @@ func TestReadDoneCheckpoints(t *testing.T) {
 			},
 		},
 		{
-			name:   "mixed with done-intent and other labels",
+			name: "mixed with done-intent and other labels",
 			labels: []string{
 				"gt:agent",
 				"done-intent:COMPLETED:1738972800",
@@ -1170,12 +1241,12 @@ func TestCheckpointNilMapSafe(t *testing.T) {
 // convoy merge=direct was not propagated because cross-rig dep resolution failed.
 func TestConvoyInfoFallbackChain(t *testing.T) {
 	tests := []struct {
-		name            string
-		attachmentInfo  *ConvoyInfo // Result from getConvoyInfoFromIssue
-		depInfo         *ConvoyInfo // Result from getConvoyInfoForIssue
-		wantConvoyID    string
-		wantMerge       string
-		wantNil         bool
+		name           string
+		attachmentInfo *ConvoyInfo // Result from getConvoyInfoFromIssue
+		depInfo        *ConvoyInfo // Result from getConvoyInfoForIssue
+		wantConvoyID   string
+		wantMerge      string
+		wantNil        bool
 	}{
 		{
 			name:           "attachment fields provide convoy info",
@@ -1241,9 +1312,9 @@ func TestConvoyInfoFallbackChain(t *testing.T) {
 // closing and caused infinite dispatch loops.
 func TestHookedBeadCloseNotRestrictedToHookedStatus(t *testing.T) {
 	tests := []struct {
-		name       string
-		status     string
-		wantClose  bool
+		name      string
+		status    string
+		wantClose bool
 	}{
 		{"status hooked → close", "hooked", true},
 		{"status in_progress → close", "in_progress", true},
@@ -1533,4 +1604,3 @@ func testRunGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
 }
-
