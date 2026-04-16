@@ -76,6 +76,15 @@ const (
 	ExitDeferred  = "DEFERRED"
 )
 
+func doneContaminationBaseRef(defaultBranch, explicitTarget string) string {
+	targetBranch := defaultBranch
+	if explicitTarget != "" {
+		targetBranch = strings.TrimPrefix(explicitTarget, "origin/")
+	}
+
+	return "origin/" + targetBranch
+}
+
 func init() {
 	doneCmd.Flags().StringVar(&doneIssue, "issue", "", "Source issue ID (default: parse from branch name)")
 	doneCmd.Flags().IntVarP(&donePriority, "priority", "p", -1, "Override priority (0-4, default: inherit from issue)")
