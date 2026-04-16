@@ -147,7 +147,7 @@ export const GasTown = async ({ client, $, directory }) => {
   };
 
   const loadPrime = async () => {
-    let context = await captureRun("gt prime");
+    let context = await captureRun("gt prime --hook");
     if (autonomousRoles.has(role)) {
       const mail = await captureRun("gt mail check --inject");
       if (mail) {
