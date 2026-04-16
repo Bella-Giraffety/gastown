@@ -178,6 +178,28 @@ func TestSyncForRole_CreatesNewFile(t *testing.T) {
 	}
 }
 
+func TestComputeExpectedTemplate_OpenCodeIncludesRefusalAutoContinue(t *testing.T) {
+	content, err := ComputeExpectedTemplate("opencode", "gastown.js", "polecat")
+	if err != nil {
+		t.Fatalf("ComputeExpectedTemplate: %v", err)
+	}
+
+	got := string(content)
+	checks := []string{
+		`const refusalTexts = new Set([`,
+		`const refusalPrompt = "Continue";`,
+		`const maxConsecutiveRefusalRetries = 4;`,
+		`if (event?.type === "message.updated") {`,
+		`await promptSession(sessionID, refusalPrompt);`,
+		`gt escalate ${summary} -s HIGH -m ${details}`,
+	}
+	for _, check := range checks {
+		if !strings.Contains(got, check) {
+			t.Errorf("expected OpenCode template to contain %q", check)
+		}
+	}
+}
+
 func TestSyncForRole_EmptyProvider(t *testing.T) {
 	dir := t.TempDir()
 	result, err := SyncForRole("", dir, dir, "crew", ".opencode/plugins", "gastown.js", false)
