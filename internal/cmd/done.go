@@ -393,6 +393,22 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		defaultBranch = rigCfg.DefaultBranch
 	}
 
+	issueBeads := beads.New(cwd)
+	var sourceIssueForDone *beads.Issue
+	if issueID != "" {
+		sourceIssueForDone, _ = issueBeads.Show(issueID)
+	}
+	target, targetSource := resolveDoneTargetBranch(issueBeads, g, townRoot, rigName, issueID, defaultBranch, doneTarget, sourceIssueForDone)
+	if targetSource != "" {
+		fmt.Printf("  Target branch: %s (%s)\n", target, targetSource)
+	} else if issueID != "" && sourceIssueForDone == nil && doneTarget == "" {
+		// sourceIssueForDone is nil — bd.Show(issueID) failed earlier.
+		// This is the silent failure path that caused 150+ procedure beads to
+		// target main instead of feat/contract-review-procedure.
+		style.PrintWarning("could not load source issue %s for target branch detection (Dolt/beads lookup failed) — using default branch %s", issueID, defaultBranch)
+	}
+	originTarget := remoteTrackingRef("origin", target)
+
 	// For COMPLETED, we need an issue ID and branch must not be the default branch
 	var mrID string
 	var pushFailed bool
@@ -429,16 +445,15 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			return fmt.Errorf("cannot complete: uncommitted changes would be lost\nCommit your changes first, or use --status DEFERRED to exit without completing\nUncommitted: %s", workStatus.String())
 		}
 
-		// Check if branch has commits ahead of origin/default
+		// Check if branch has commits ahead of the effective target branch.
 		// If not, work may have been pushed directly to main - that's fine, just skip MR
-		originDefault := "origin/" + defaultBranch
-		aheadCount, err := g.CommitsAhead(originDefault, "HEAD")
+		aheadCount, err := g.CommitsAhead(originTarget, "HEAD")
 		if err != nil {
 			// Fallback to local branch comparison if origin not available
-			aheadCount, err = g.CommitsAhead(defaultBranch, branch)
+			aheadCount, err = g.CommitsAhead(target, branch)
 			if err != nil {
 				// Can't determine - assume work exists and continue
-				style.PrintWarning("could not check commits ahead of %s: %v", defaultBranch, err)
+				style.PrintWarning("could not check commits ahead of %s: %v", target, err)
 				aheadCount = 1
 			}
 		}
@@ -449,9 +464,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// Must be checked before the zero-commit guard below (GH#2496, gt-kvf).
 		isNoMergeTask := false
 		if issueID != "" {
-			noMergeBd := beads.New(cwd)
-			if noMergeIssue, showErr := noMergeBd.Show(issueID); showErr == nil {
-				if af := beads.ParseAttachmentFields(noMergeIssue); af != nil && (af.NoMerge || af.ReviewOnly) {
+			if sourceIssueForDone != nil {
+				if af := beads.ParseAttachmentFields(sourceIssueForDone); af != nil && (af.NoMerge || af.ReviewOnly) {
 					isNoMergeTask = true
 				}
 			}
@@ -482,7 +496,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 						"Polecats must have at least 1 commit to submit.\n"+
 						"If the bug was already fixed upstream: gt done --status DEFERRED\n"+
 						"If you're blocked: gt done --status ESCALATED",
-						originDefault)
+						originTarget)
 				}
 			}
 
@@ -490,7 +504,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			// (report-only tasks like audits/reviews), or no_merge polecat
 			// (non-code tasks like email/research per GH#2496):
 			// zero commits is valid.
-			fmt.Printf("%s Branch has no commits ahead of %s\n", style.Bold.Render("→"), originDefault)
+			fmt.Printf("%s Branch has no commits ahead of %s\n", style.Bold.Render("→"), originTarget)
 			fmt.Printf("  Work was likely pushed directly to main or already merged.\n")
 			fmt.Printf("  Skipping MR creation - completing without merge request.\n\n")
 
@@ -544,7 +558,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// Branch contamination preflight: check if branch is significantly behind
 		// origin/main, which indicates the branch may contain stale merge-base
 		// artifacts that will pollute the PR diff. (GH#2220)
-		contam, err := g.CheckBranchContamination(originDefault)
+		contam, err := g.CheckBranchContamination(originTarget)
 		if err == nil && contam.Behind > 0 {
 			const warnThreshold = 50
 			const blockThreshold = 200
@@ -552,9 +566,9 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				return fmt.Errorf("branch contamination: %d commits behind %s (threshold: %d)\n"+
 					"The branch is severely stale and will include unrelated changes in the PR.\n"+
 					"Fix: git fetch origin && git rebase origin/%s",
-					contam.Behind, originDefault, blockThreshold, defaultBranch)
+					contam.Behind, originTarget, blockThreshold, target)
 			} else if contam.Behind >= warnThreshold {
-				style.PrintWarning("branch is %d commits behind %s — consider rebasing to avoid PR contamination", contam.Behind, originDefault)
+				style.PrintWarning("branch is %d commits behind %s — consider rebasing to avoid PR contamination", contam.Behind, originTarget)
 			}
 		}
 
@@ -563,7 +577,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// overwriting project-specific CLAUDE.md content. Detect and revert before push.
 		if stripped := stripOverlayCLAUDEmd(g, defaultBranch); stripped {
 			// Recalculate commits ahead since we added a cleanup commit
-			aheadCount, _ = g.CommitsAhead("origin/"+defaultBranch, "HEAD")
+			aheadCount, _ = g.CommitsAhead(originTarget, "HEAD")
 		}
 
 		// Determine merge strategy from convoy (gt-myofa.3)
@@ -767,9 +781,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		bd := beads.NewWithBeadsDir(cwd, resolvedBeads)
 
 		// Check for no_merge flag - if set, skip merge queue and notify for review
-		sourceIssueForNoMerge, err := bd.Show(issueID)
-		if err == nil {
-			attachmentFields := beads.ParseAttachmentFields(sourceIssueForNoMerge)
+		if sourceIssueForDone != nil {
+			attachmentFields := beads.ParseAttachmentFields(sourceIssueForDone)
 			if attachmentFields != nil && attachmentFields.NoMerge {
 				fmt.Printf("%s No-merge mode: skipping merge queue\n", style.Bold.Render("→"))
 				fmt.Printf("  Branch: %s\n", branch)
@@ -782,7 +795,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				noMergeSettingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
 				if noMergeSettings, noMergeSettingsErr := config.LoadRigSettings(noMergeSettingsPath); noMergeSettingsErr == nil &&
 					noMergeSettings.MergeQueue != nil && noMergeSettings.MergeQueue.MergeStrategy == "pr" {
-					issueTitle := sourceIssueForNoMerge.Title
+					issueTitle := sourceIssueForDone.Title
 					prTitle := fmt.Sprintf("%s (%s)", issueTitle, issueID)
 					if issueTitle == "" {
 						prTitle = issueID
@@ -790,9 +803,9 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					// Build PR body from bead description + diff stat
 					var prBodyBuilder strings.Builder
 					prBodyBuilder.WriteString("## Summary\n\n")
-					if sourceIssueForNoMerge.Description != "" {
+					if sourceIssueForDone.Description != "" {
 						// Strip attachment metadata lines from description
-						descLines := strings.Split(sourceIssueForNoMerge.Description, "\n")
+						descLines := strings.Split(sourceIssueForDone.Description, "\n")
 						var cleanDesc []string
 						for _, line := range descLines {
 							trimmed := strings.TrimSpace(line)
@@ -808,7 +821,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 						}
 					}
 					// Add diff stat for quick review context
-					if diffStat, diffErr := g.DiffStat(defaultBranch + "..." + branch); diffErr == nil && diffStat != "" {
+					if diffStat, diffErr := g.DiffStat(target + "..." + branch); diffErr == nil && diffStat != "" {
 						prBodyBuilder.WriteString("## Changes\n\n```\n")
 						prBodyBuilder.WriteString(diffStat)
 						prBodyBuilder.WriteString("```\n\n")
@@ -817,7 +830,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					prBodyBuilder.WriteString(fmt.Sprintf("*Polecat: %s | Issue: %s*\n", worker, issueID))
 					prBody := prBodyBuilder.String()
 					ghCmd := exec.CommandContext(context.Background(), "gh", "pr", "create",
-						"--base", defaultBranch,
+						"--base", target,
 						"--head", branch,
 						"--title", prTitle,
 						"--body", prBody,
@@ -903,51 +916,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				}
 
 				goto notifyWitness
-			}
-		}
-
-		// Determine target branch for the MR.
-		// Priority: explicit --target flag > formula_vars base_branch > integration branch auto-detect > rig default.
-		target := defaultBranch
-
-		// 1. Explicit --target flag (highest priority — polecat knows its base branch).
-		// This is the most reliable path: the formula passes {{base_branch}} directly,
-		// avoiding any dependency on bd.Show() or Dolt availability.
-		if doneTarget != "" && doneTarget != defaultBranch {
-			target = doneTarget
-			fmt.Printf("  Target branch: %s (from --target flag)\n", target)
-		}
-
-		// 2. Check for --base-branch override in formula vars (stored on bead at sling time).
-		// Fallback for polecats dispatched before --target flag existed, or when
-		// the formula doesn't pass --target explicitly.
-		if target == defaultBranch && sourceIssueForNoMerge != nil {
-			if af := beads.ParseAttachmentFields(sourceIssueForNoMerge); af != nil {
-				if bb := extractFormulaVar(af.FormulaVars, "base_branch"); bb != "" && bb != defaultBranch {
-					target = bb
-					fmt.Printf("  Target branch override: %s (from formula_vars)\n", target)
-				}
-			}
-		} else if target == defaultBranch && sourceIssueForNoMerge == nil && issueID != "" {
-			// sourceIssueForNoMerge is nil — bd.Show(issueID) failed earlier.
-			// This is the silent failure path that caused 150+ procedure beads to
-			// target main instead of feat/contract-review-procedure.
-			style.PrintWarning("could not load source issue %s for target branch detection (Dolt/beads lookup failed) — using default branch %s", issueID, defaultBranch)
-		}
-
-		// 3. Auto-detect integration branch from epic hierarchy (if enabled).
-		// Only overrides if no explicit target was set above.
-		if target == defaultBranch {
-			refineryEnabled := true
-			settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
-			if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
-				refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
-			}
-			if refineryEnabled {
-				autoTarget, err := beads.DetectIntegrationBranch(bd, g, issueID)
-				if err == nil && autoTarget != "" {
-					target = autoTarget
-				}
 			}
 		}
 
@@ -1037,10 +1005,10 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				description += fmt.Sprintf("\npre_verified_at: %s", time.Now().UTC().Format(time.RFC3339))
 				// Capture current origin/target HEAD as the verified base.
 				// The polecat rebased onto this SHA before running gates.
-				if verifiedBase, baseErr := g.Rev("origin/" + target); baseErr == nil {
+				if verifiedBase, baseErr := g.Rev(originTarget); baseErr == nil {
 					description += fmt.Sprintf("\npre_verified_base: %s", verifiedBase)
 				} else {
-					style.PrintWarning("could not resolve origin/%s for pre-verified base: %v (pre-verification data incomplete)", target, baseErr)
+					style.PrintWarning("could not resolve %s for pre-verified base: %v (pre-verification data incomplete)", originTarget, baseErr)
 				}
 			}
 
@@ -1790,6 +1758,59 @@ func selfKillSession(townRoot string, roleInfo RoleInfo) error {
 	}
 
 	return nil
+}
+
+func resolveDoneTargetBranch(bd *beads.Beads, g *git.Git, townRoot, rigName, issueID, defaultBranch, explicitTarget string, sourceIssue *beads.Issue) (string, string) {
+	if explicitTarget != "" {
+		target := normalizeDoneTargetBranch(explicitTarget, defaultBranch)
+		if target != defaultBranch {
+			return target, "from --target flag"
+		}
+	}
+
+	if sourceIssue != nil {
+		if af := beads.ParseAttachmentFields(sourceIssue); af != nil {
+			if bb := normalizeDoneTargetBranch(extractFormulaVar(af.FormulaVars, "base_branch"), defaultBranch); bb != defaultBranch {
+				return bb, "from formula_vars"
+			}
+		}
+	}
+
+	if bd != nil && g != nil && issueID != "" {
+		refineryEnabled := true
+		settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
+		if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
+			refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
+		}
+		if refineryEnabled {
+			if autoTarget, err := beads.DetectIntegrationBranch(bd, g, issueID); err == nil && autoTarget != "" {
+				return normalizeDoneTargetBranch(autoTarget, defaultBranch), "from integration branch"
+			}
+		}
+	}
+
+	return defaultBranch, ""
+}
+
+func normalizeDoneTargetBranch(target, defaultBranch string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return defaultBranch
+	}
+
+	target = strings.TrimPrefix(target, "refs/heads/")
+	target = strings.TrimPrefix(target, "refs/remotes/")
+	target = strings.TrimPrefix(target, "origin/")
+
+	if target == "" {
+		return defaultBranch
+	}
+
+	return target
+}
+
+func remoteTrackingRef(remote, branch string) string {
+	return remote + "/" + branch
 }
 
 // stripOverlayCLAUDEmd detects and removes Gas Town overlay content from CLAUDE.md
