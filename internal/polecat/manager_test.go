@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
@@ -1240,6 +1241,100 @@ func TestAddWithOptions_SettingsInstalledInPolecatsDir(t *testing.T) {
 	}
 }
 
+func TestAddWithOptions_OpencodeInstallsPluginInNestedPolecatWorktree(t *testing.T) {
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "rig")
+
+	mayorRig := filepath.Join(rigPath, "mayor", "rig")
+	if err := os.MkdirAll(mayorRig, 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+
+	rigBeads := filepath.Join(rigPath, ".beads")
+	if err := os.MkdirAll(rigBeads, 0755); err != nil {
+		t.Fatalf("mkdir rig .beads: %v", err)
+	}
+	mayorBeads := filepath.Join(mayorRig, ".beads")
+	if err := os.MkdirAll(mayorBeads, 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig/.beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rigBeads, "redirect"), []byte("mayor/rig/.beads\n"), 0644); err != nil {
+		t.Fatalf("write rig redirect: %v", err)
+	}
+
+	if _, err := exec.LookPath("bd"); err == nil {
+		testutil.RequireDoltContainer(t)
+		port, _ := strconv.Atoi(testutil.DoltContainerPort())
+		bd := beads.NewIsolatedWithPort(mayorRig, port)
+		if err := bd.Init("gt"); err != nil {
+			t.Fatalf("bd init: %v", err)
+		}
+	} else {
+		installMockBd(t)
+		_ = os.WriteFile(filepath.Join(mayorBeads, ".gt-types-configured"), []byte("v1\n"), 0644)
+	}
+
+	cmd := exec.Command("git", "init")
+	cmd.Dir = mayorRig
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+
+	if err := os.WriteFile(filepath.Join(mayorRig, "README.md"), []byte("# Test Repo\n"), 0644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+
+	townSettings := config.NewTownSettings()
+	townSettings.RoleAgents = map[string]string{"polecat": "opencode"}
+	townSettings.Agents["opencode"] = &config.RuntimeConfig{
+		Provider: "opencode",
+		Command:  "opencode",
+	}
+	if err := config.SaveTownSettings(config.TownSettingsPath(townRoot), townSettings); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+
+	mayorGit := git.NewGit(mayorRig)
+	if err := mayorGit.Add("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := mayorGit.Commit("Initial commit"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	cmd = exec.Command("git", "remote", "add", "origin", mayorRig)
+	cmd.Dir = mayorRig
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "update-ref", "refs/remotes/origin/main", "HEAD")
+	cmd.Dir = mayorRig
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git update-ref: %v\n%s", err, out)
+	}
+
+	r := &rig.Rig{
+		Name: "rig",
+		Path: rigPath,
+	}
+	m := NewManager(r, git.NewGit(rigPath), nil)
+
+	polecat, err := m.AddWithOptions("Dust", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+
+	pluginPath := filepath.Join(polecat.ClonePath, ".opencode", "plugins", "gastown.js")
+	if _, err := os.Stat(pluginPath); os.IsNotExist(err) {
+		t.Fatalf("gastown.js should exist in nested polecat worktree at %s", pluginPath)
+	}
+
+	sharedPluginPath := filepath.Join(filepath.Dir(filepath.Dir(polecat.ClonePath)), ".opencode", "plugins", "gastown.js")
+	if _, err := os.Stat(sharedPluginPath); err == nil {
+		t.Fatalf("gastown.js should not be installed in shared polecats dir at %s", sharedPluginPath)
+	}
+}
+
 // TestOverflowNameSessionFormat verifies that overflow names don't create double-prefix.
 // Regression test for the double-prefix bug (tr-testrig-N instead of tr-N).
 func TestOverflowNameSessionFormat(t *testing.T) {
@@ -1765,8 +1860,8 @@ func TestReuseIdlePolecat_KillsLiveSession(t *testing.T) {
 
 	// Verify it did NOT return ErrSessionRunning (the old buggy behavior)
 	if errors.Is(reuseErr, ErrSessionRunning) {
-		t.Fatalf("ReuseIdlePolecat returned ErrSessionRunning for live session — "+
-			"this is the sling-reuse-stale-session bug: idle polecats with live "+
+		t.Fatalf("ReuseIdlePolecat returned ErrSessionRunning for live session — " +
+			"this is the sling-reuse-stale-session bug: idle polecats with live " +
 			"sessions must have their session killed, not rejected")
 	}
 

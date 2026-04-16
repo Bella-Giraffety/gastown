@@ -164,7 +164,7 @@ func runHooksSync(cmd *cobra.Command, args []string) error {
 			if loc.Rig == "" || useSettingsDir {
 				syncDirs = []string{loc.Dir}
 			} else {
-				syncDirs = hooks.DiscoverWorktrees(loc.Dir)
+				syncDirs = hooks.DiscoverWorktrees(loc.Dir, loc.Role, loc.Rig)
 			}
 
 			for _, dir := range syncDirs {

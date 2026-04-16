@@ -489,7 +489,6 @@ func DiscoverTargets(townRoot string) ([]Target, error) {
 	return targets, nil
 }
 
-
 // RoleLocation represents a discovered role directory in the workspace,
 // independent of any specific agent. Used by callers that need to resolve
 // agent configuration for each location (e.g., syncing non-Claude agents).
@@ -549,10 +548,11 @@ func DiscoverRoleLocations(townRoot string) ([]RoleLocation, error) {
 	return locations, nil
 }
 
-// DiscoverWorktrees returns subdirectories within a role parent directory that
-// are individual worktrees (e.g., crew/alice, crew/bob, polecats/toast).
+// DiscoverWorktrees returns individual worktree roots beneath a role parent directory.
+// Most roles use roleDir/<name>/ directly, while polecats use the nested
+// roleDir/<name>/<rig>/ layout for the actual repo root.
 // Skips hidden directories and non-directories.
-func DiscoverWorktrees(roleDir string) []string {
+func DiscoverWorktrees(roleDir, role, rigName string) []string {
 	entries, err := os.ReadDir(roleDir)
 	if err != nil {
 		return nil
@@ -563,7 +563,14 @@ func DiscoverWorktrees(roleDir string) []string {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-		dirs = append(dirs, filepath.Join(roleDir, entry.Name()))
+		worktreeDir := filepath.Join(roleDir, entry.Name())
+		if role == "polecat" && rigName != "" {
+			nestedRepoDir := filepath.Join(worktreeDir, rigName)
+			if info, err := os.Stat(nestedRepoDir); err == nil && info.IsDir() {
+				worktreeDir = nestedRepoDir
+			}
+		}
+		dirs = append(dirs, worktreeDir)
 	}
 	return dirs
 }

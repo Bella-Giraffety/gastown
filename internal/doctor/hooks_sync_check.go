@@ -126,7 +126,7 @@ func (c *HooksSyncCheck) Run(ctx *CheckContext) *CheckResult {
 			if loc.Rig == "" || useSettingsDir {
 				checkDirs = []string{loc.Dir}
 			} else {
-				checkDirs = hooks.DiscoverWorktrees(loc.Dir)
+				checkDirs = hooks.DiscoverWorktrees(loc.Dir, loc.Role, loc.Rig)
 			}
 
 			for _, dir := range checkDirs {

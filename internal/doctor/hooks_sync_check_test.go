@@ -303,3 +303,37 @@ func TestHooksSyncCheck_Fix_PreservesClaudePath(t *testing.T) {
 		t.Errorf("editorMode not preserved: got %q, want %q", settings.EditorMode, "vim")
 	}
 }
+
+func TestHooksSyncCheck_TemplateAgent_PolecatNestedLayout(t *testing.T) {
+	townRoot := scaffoldWorkspace(t, map[string]string{"polecat": "opencode"})
+
+	worktree := filepath.Join(townRoot, "myrig", "polecats", "dust", "myrig")
+	if err := os.MkdirAll(worktree, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	syncAllClaudeTargets(t, townRoot)
+
+	expectedContent, err := hooks.ComputeExpectedTemplate("opencode", "gastown.js", "polecat")
+	if err != nil {
+		t.Fatalf("ComputeExpectedTemplate: %v", err)
+	}
+	pluginDir := filepath.Join(worktree, ".opencode", "plugins")
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "gastown.js"), expectedContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	check := NewHooksSyncCheck()
+	ctx := &CheckContext{TownRoot: townRoot}
+	result := check.Run(ctx)
+
+	if result.Status != StatusOK {
+		t.Errorf("expected StatusOK for nested polecat template agent, got %v: %s", result.Status, result.Message)
+		for _, d := range result.Details {
+			t.Logf("  detail: %s", d)
+		}
+	}
+}

@@ -994,7 +994,7 @@ func TestDiscoverWorktrees(t *testing.T) {
 	// Files should be skipped
 	os.WriteFile(filepath.Join(tmpDir, "state.json"), []byte("{}"), 0644)
 
-	dirs := DiscoverWorktrees(tmpDir)
+	dirs := DiscoverWorktrees(tmpDir, "crew", "")
 
 	if len(dirs) != 2 {
 		t.Errorf("expected 2 worktrees, got %d: %v", len(dirs), dirs)
@@ -1014,16 +1014,43 @@ func TestDiscoverWorktrees(t *testing.T) {
 
 func TestDiscoverWorktrees_EmptyDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	dirs := DiscoverWorktrees(tmpDir)
+	dirs := DiscoverWorktrees(tmpDir, "crew", "")
 	if len(dirs) != 0 {
 		t.Errorf("expected 0 worktrees, got %d", len(dirs))
 	}
 }
 
 func TestDiscoverWorktrees_InvalidDir(t *testing.T) {
-	dirs := DiscoverWorktrees("/nonexistent/path/that/does/not/exist")
+	dirs := DiscoverWorktrees("/nonexistent/path/that/does/not/exist", "crew", "")
 	if dirs != nil {
 		t.Errorf("expected nil for invalid dir, got %v", dirs)
+	}
+}
+
+func TestDiscoverWorktrees_PolecatNestedLayout(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "dust", "gastown"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "rust"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := DiscoverWorktrees(tmpDir, "polecat", "gastown")
+
+	if len(dirs) != 2 {
+		t.Fatalf("expected 2 worktrees, got %d: %v", len(dirs), dirs)
+	}
+
+	got := make(map[string]bool)
+	for _, dir := range dirs {
+		got[dir] = true
+	}
+	if !got[filepath.Join(tmpDir, "dust", "gastown")] {
+		t.Errorf("expected nested polecat worktree path, got %v", dirs)
+	}
+	if !got[filepath.Join(tmpDir, "rust")] {
+		t.Errorf("expected fallback parent path for non-nested entry, got %v", dirs)
 	}
 }
 
