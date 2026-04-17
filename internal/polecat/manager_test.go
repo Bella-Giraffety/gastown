@@ -1262,17 +1262,8 @@ func TestAddWithOptions_OpencodeInstallsPluginInNestedPolecatWorktree(t *testing
 		t.Fatalf("write rig redirect: %v", err)
 	}
 
-	if _, err := exec.LookPath("bd"); err == nil {
-		testutil.RequireDoltContainer(t)
-		port, _ := strconv.Atoi(testutil.DoltContainerPort())
-		bd := beads.NewIsolatedWithPort(mayorRig, port)
-		if err := bd.Init("gt"); err != nil {
-			t.Fatalf("bd init: %v", err)
-		}
-	} else {
-		installMockBd(t)
-		_ = os.WriteFile(filepath.Join(mayorBeads, ".gt-types-configured"), []byte("v1\n"), 0644)
-	}
+	installMockBd(t)
+	_ = os.WriteFile(filepath.Join(mayorBeads, ".gt-types-configured"), []byte("v1\n"), 0644)
 
 	cmd := exec.Command("git", "init")
 	cmd.Dir = mayorRig
