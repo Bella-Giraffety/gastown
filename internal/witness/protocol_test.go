@@ -46,7 +46,8 @@ func TestParsePolecatDone(t *testing.T) {
 	body := `Exit: MERGED
 Issue: gt-abc123
 MR: gt-mr-xyz
-Branch: feature-branch`
+Branch: feature-branch
+CleanupStatus: has_unpushed`
 
 	payload, err := ParsePolecatDone(subject, body)
 	if err != nil {
@@ -67,6 +68,9 @@ Branch: feature-branch`
 	}
 	if payload.Branch != "feature-branch" {
 		t.Errorf("Branch = %q, want %q", payload.Branch, "feature-branch")
+	}
+	if payload.CleanupStatus != "has_unpushed" {
+		t.Errorf("CleanupStatus = %q, want %q", payload.CleanupStatus, "has_unpushed")
 	}
 }
 
