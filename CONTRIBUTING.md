@@ -18,6 +18,23 @@ We use a direct-to-main workflow for trusted contributors. For external contribu
 3. Ensure tests pass: `go test ./...`
 4. Submit a pull request
 
+### Cleanup-Only PR Shape
+
+Cleanup-only PRs in this repo are expected to be small by default. Treat review
+independence as the rule, and sequencing as an exception that must be justified.
+
+- One PR, one safety argument
+- One PR, one subsystem boundary
+- Prefer one authority path or invariant per PR
+- Split the work when proof mode, subsystem contract, cleanup class, or
+  invariant changes
+
+If a later cleanup PR truly depends on an earlier one, name that dependency in
+the PR summary and explain why the work cannot be reviewed independently.
+
+See [`docs/design/cleanup-pr-shape.md`](docs/design/cleanup-pr-shape.md) for the
+full contract used by the cleanup program.
+
 ### PR Branch Naming
 
 **Never create PRs from your fork's `main` branch.** Always create a dedicated branch for each PR:
