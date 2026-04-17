@@ -1,16 +1,16 @@
 # Cleanup-Only PR Shape Contract
 
-> **Bead:** gt-djp.4.3
-> **Date:** 2026-04-17
-> **Author:** guzzle (gastown polecat)
-> **Status:** Draft contract
-> **Related:** gt-djp.4, gt-djp.4.5
-
 ## Goal
 
 Make cleanup review objective at author time by forcing small, independent PRs.
 The default slice is one cleanup PR that carries one safety argument across one
 subsystem boundary. If the proof story changes, the PR splits.
+
+This document pairs with
+[`cleanup-proof-standards.md`](cleanup-proof-standards.md) and
+[`cleanup-approval-triggers.md`](cleanup-approval-triggers.md) to define what
+cleanup-only work is allowed to claim, how it must prove that claim, and when a
+PR must be split before review.
 
 ## Default Rule: Independence First
 
