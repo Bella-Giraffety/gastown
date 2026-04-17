@@ -3835,7 +3835,8 @@ func serverExecSQL(townRoot, query string) error {
 //
 // Dolt requires --host, --port, --user, --no-tls as global flags (before the
 // subcommand), not as subcommand flags. The order is:
-//   dolt --host=H --port=P --user=U --no-tls sql -q "..."
+//
+//	dolt --host=H --port=P --user=U --no-tls sql -q "..."
 func buildServerSQLCmd(ctx context.Context, config *Config, args ...string) *exec.Cmd {
 	// Global connection flags must come before the "sql" subcommand.
 	// Always pass --password to prevent dolt from prompting on stdin

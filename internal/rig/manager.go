@@ -372,10 +372,18 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 
 	// Track cleanup on failure (best-effort cleanup)
 	cleanup := func() { _ = os.RemoveAll(rigPath) }
+	rigDatabaseCreated := false
+	routeRegistered := false
 	success := false
 	defer func() {
 		if !success {
 			cleanup()
+			if routeRegistered {
+				_ = beads.RemoveRoute(m.townRoot, opts.BeadsPrefix+"-")
+			}
+			if rigDatabaseCreated {
+				_ = doltserver.RemoveDatabase(m.townRoot, opts.Name, true)
+			}
 		}
 	}()
 
@@ -624,8 +632,10 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 	// database in .dolt-data/ must exist first for bd config commands to work.
 	if !opts.SkipDoltCheck {
 		if _, err := exec.LookPath("dolt"); err == nil {
-			if _, _, err := doltserver.InitRig(m.townRoot, opts.Name); err != nil {
-				fmt.Printf("  Warning: Could not create rig database: %v\n", err)
+			if _, created, err := doltserver.InitRig(m.townRoot, opts.Name); err != nil {
+				return nil, fmt.Errorf("creating rig database: %w", err)
+			} else {
+				rigDatabaseCreated = created
 			}
 		}
 	}
@@ -644,10 +654,7 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 	// This must happen BEFORE setting issue_prefix below, so bd connects to
 	// the correct server-side database (rigName, not beads_<prefix>).
 	if err := doltserver.EnsureMetadata(m.townRoot, opts.Name); err != nil {
-		// Non-fatal: daemon's EnsureAllMetadata self-heals on next startup,
-		// or user can run gt doctor --fix to repair manually.
-		fmt.Printf("  Warning: Could not set Dolt server metadata: %v\n", err)
-		fmt.Printf("  Run 'gt doctor --fix' to repair, or it will self-heal on next daemon start.\n")
+		return nil, fmt.Errorf("setting Dolt server metadata: %w", err)
 	}
 
 	// Safety-net: drop orphaned beads_<prefix> database if it differs from rigName (gt-sv1h).
@@ -666,7 +673,7 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 		prefixCmd.Dir = rigPath
 		prefixCmd.Env = append(os.Environ(), "BEADS_DIR="+resolvedBeadsDir)
 		if out, err := prefixCmd.CombinedOutput(); err != nil {
-			fmt.Printf("  Warning: Could not set issue_prefix on rig database: %v (%s)\n", err, strings.TrimSpace(string(out)))
+			return nil, fmt.Errorf("setting issue_prefix on rig database: %w (%s)", err, strings.TrimSpace(string(out)))
 		}
 		typesCmd := exec.Command("bd", "config", "set", "types.custom", constants.BeadsCustomTypes)
 		typesCmd.Dir = rigPath
@@ -813,8 +820,9 @@ Use crew for your own workspace. Polecats are for batch work dispatch.
 			Path:   routePath,
 		}
 		if err := beads.AppendRoute(m.townRoot, route); err != nil {
-			fmt.Printf("  Warning: Could not update routes.jsonl: %v\n", err)
+			return nil, fmt.Errorf("registering route in routes.jsonl: %w", err)
 		}
+		routeRegistered = true
 	}
 
 	// Create rig-level settings directory (used by gt config for rig overrides)
@@ -832,8 +840,7 @@ Use crew for your own workspace. Polecats are for batch work dispatch.
 	// Create rig-level agent beads (witness, refinery) in rig beads.
 	// Town-level agents (mayor, deacon) are created by gt install in town beads.
 	if err := m.initAgentBeads(rigPath, opts.Name, opts.BeadsPrefix); err != nil {
-		// Non-fatal: log warning but continue
-		fmt.Fprintf(os.Stderr, "  Warning: Could not create agent beads: %v\n", err)
+		return nil, fmt.Errorf("creating rig agent beads: %w", err)
 	}
 
 	// Seed patrol molecules for this rig
