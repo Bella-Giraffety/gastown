@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/tmux"
 )
 
 func TestCheckHelpFlag(t *testing.T) {
@@ -246,5 +248,75 @@ func TestPersistentPreRunMalformedAgentRegistry(t *testing.T) {
 	got := config.GetProcessNames("claude")
 	if len(got) < 2 || got[0] != "node" || got[1] != "claude" {
 		t.Fatalf("GetProcessNames(claude) after malformed registry = %v, want builtin [node claude ...]", got)
+	}
+}
+
+func TestPersistentPreRunPrefersGTTownRootForRegistryAndSocket(t *testing.T) {
+	config.ResetRegistryForTesting()
+	t.Cleanup(config.ResetRegistryForTesting)
+
+	origSocket := tmux.GetDefaultSocket()
+	t.Cleanup(func() { tmux.SetDefaultSocket(origSocket) })
+
+	makeTown := func(t *testing.T, name string, processNames []string) string {
+		t.Helper()
+		townRoot := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"`+name+`"}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(townRoot, "settings"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		registry := config.AgentRegistry{
+			Version: config.CurrentAgentRegistryVersion,
+			Agents: map[string]*config.AgentPresetInfo{
+				"claude": {
+					Name:         "claude",
+					Command:      "claude",
+					Args:         []string{"--dangerously-skip-permissions"},
+					ProcessNames: processNames,
+				},
+			},
+		}
+		data, err := json.Marshal(registry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(townRoot, "settings", "agents.json"), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+		return townRoot
+	}
+
+	envTown := makeTown(t, "env-town", []string{"env-proc"})
+	nonTownDir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(nonTownDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	t.Setenv("GT_TOWN_ROOT", envTown)
+	t.Setenv("GT_ROOT", "")
+	t.Setenv("GT_TMUX_SOCKET", "")
+
+	cmd := &cobra.Command{Use: "version"}
+	if err := persistentPreRun(cmd, nil); err != nil {
+		t.Fatalf("persistentPreRun: %v", err)
+	}
+
+	if got := config.GetProcessNames("claude"); len(got) != 1 || got[0] != "env-proc" {
+		t.Fatalf("GetProcessNames(claude) = %v, want [env-proc]", got)
+	}
+
+	if got := tmux.GetDefaultSocket(); !strings.HasPrefix(got, "env-town-") || strings.Contains(got, "cwd-town") {
+		t.Fatalf("tmux.GetDefaultSocket() = %q, want env-town-derived socket", got)
 	}
 }

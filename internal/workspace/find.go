@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/steveyegge/gastown/internal/config"
 )
@@ -84,32 +85,80 @@ func FindFromCwd() (string, error) {
 	return Find(cwd)
 }
 
-// FindFromCwdOrError is like FindFromCwd but returns an error if not found.
-// It searches for a workspace starting from the CWD. If none is found, it
-// falls back to the GT_TOWN_ROOT or GT_ROOT environment variables.
-func FindFromCwdOrError() (string, error) {
-	cwd, err := os.Getwd()
-	if err == nil {
-		root, err := Find(cwd)
-		if err == nil && root != "" {
-			return root, nil
-		}
-	}
-
-	// Fallback: try GT_TOWN_ROOT or GT_ROOT env vars (set by shell integration or session manager)
+// FindFromEnv returns the explicit town root override from GT_TOWN_ROOT or
+// GT_ROOT when it points at a valid Gas Town workspace.
+func FindFromEnv() string {
 	for _, envName := range []string{"GT_TOWN_ROOT", "GT_ROOT"} {
 		if townRoot := os.Getenv(envName); townRoot != "" {
-			// Verify it's actually a workspace
 			if ok, _ := IsWorkspace(townRoot); ok {
-				return townRoot, nil
+				return townRoot
 			}
 		}
 	}
+	return ""
+}
 
+// FindFromStartDirOrEnv resolves the authoritative town root for a command.
+// It uses GT_TOWN_ROOT / GT_ROOT when the start dir is inside that town (for
+// worktrees, subprocesses, and tmux sessions) or when cwd detection cannot find
+// any workspace at all.
+func FindFromStartDirOrEnv(startDir string) (string, error) {
+	envRoot := FindFromEnv()
+	if envRoot != "" && isWithinTownRoot(startDir, envRoot) {
+		return envRoot, nil
+	}
+
+	root, err := Find(startDir)
+	if err == nil && root != "" {
+		return root, nil
+	}
+	if envRoot != "" {
+		return envRoot, nil
+	}
+	return root, err
+}
+
+func isWithinTownRoot(startDir, townRoot string) bool {
+	if startDir == "" || townRoot == "" {
+		return false
+	}
+
+	absStartDir, err := filepath.Abs(startDir)
 	if err != nil {
+		return false
+	}
+	absTownRoot, err := filepath.Abs(townRoot)
+	if err != nil {
+		return false
+	}
+
+	rel, err := filepath.Rel(absTownRoot, absStartDir)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// FindFromCwdOrError is like FindFromCwd but returns an error if not found.
+// It prefers explicit GT_TOWN_ROOT / GT_ROOT when they describe the current
+// town, or falls back to them when cwd detection cannot find any workspace.
+func FindFromCwdOrError() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		if root := FindFromEnv(); root != "" {
+			return root, nil
+		}
 		return "", fmt.Errorf("getting current directory: %w", err)
 	}
-	return "", ErrNotFound
+
+	root, err := FindFromStartDirOrEnv(cwd)
+	if err != nil {
+		return "", err
+	}
+	if root == "" {
+		return "", ErrNotFound
+	}
+	return root, nil
 }
 
 // FindFromCwdWithFallback is like FindFromCwdOrError but returns (townRoot, cwd, error).
@@ -119,19 +168,18 @@ func FindFromCwdOrError() (string, error) {
 func FindFromCwdWithFallback() (townRoot string, cwd string, err error) {
 	cwd, err = os.Getwd()
 	if err != nil {
-		// Fallback: try GT_TOWN_ROOT env var
-		if townRoot = os.Getenv("GT_TOWN_ROOT"); townRoot != "" {
-			// Verify it's actually a workspace
-			if _, statErr := os.Stat(filepath.Join(townRoot, PrimaryMarker)); statErr == nil {
-				return townRoot, "", nil // cwd is gone but townRoot is valid
-			}
+		if townRoot = FindFromEnv(); townRoot != "" {
+			return townRoot, "", nil // cwd is gone but townRoot is valid
 		}
 		return "", "", fmt.Errorf("getting current directory: %w", err)
 	}
 
-	townRoot, err = FindOrError(cwd)
+	townRoot, err = FindFromStartDirOrEnv(cwd)
 	if err != nil {
 		return "", "", err
+	}
+	if townRoot == "" {
+		return "", "", ErrNotFound
 	}
 	return townRoot, cwd, nil
 }

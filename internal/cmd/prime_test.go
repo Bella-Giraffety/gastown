@@ -55,6 +55,46 @@ func writeTestRoutes(t *testing.T, townRoot string, routes []beads.Route) {
 	}
 }
 
+func TestResolvePrimeWorkspacePrefersGTTownRoot(t *testing.T) {
+	makeTown := func(t *testing.T, name string) string {
+		t.Helper()
+		townRoot := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"`+name+`"}`), 0644); err != nil {
+			t.Fatalf("write town.json: %v", err)
+		}
+		return townRoot
+	}
+
+	envTown := makeTown(t, "env-town")
+	nonTownDir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(nonTownDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	t.Setenv("GT_TOWN_ROOT", envTown)
+	t.Setenv("GT_ROOT", "")
+
+	cwd, townRoot, err := resolvePrimeWorkspace()
+	if err != nil {
+		t.Fatalf("resolvePrimeWorkspace(): %v", err)
+	}
+	if cwd != nonTownDir {
+		t.Fatalf("cwd = %q, want %q", cwd, nonTownDir)
+	}
+	if townRoot != envTown {
+		t.Fatalf("townRoot = %q, want %q", townRoot, envTown)
+	}
+}
+
 func TestGetAgentBeadID_UsesRigPrefix(t *testing.T) {
 	townRoot := t.TempDir()
 	writeTestRoutes(t, townRoot, []beads.Route{

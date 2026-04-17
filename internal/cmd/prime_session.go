@@ -168,7 +168,13 @@ func ReadPersistedSessionID() string {
 	}
 
 	// Try town root
-	townRoot, err := workspace.FindFromCwd()
+	townRoot, err := func() (string, error) {
+		cwd, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			return "", cwdErr
+		}
+		return workspace.FindFromStartDirOrEnv(cwd)
+	}()
 	if err == nil && townRoot != "" {
 		if id := readSessionFile(townRoot); id != "" {
 			return id
