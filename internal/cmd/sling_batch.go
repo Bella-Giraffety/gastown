@@ -244,6 +244,13 @@ func cleanupSpawnedPolecat(spawnInfo *SpawnedPolecatInfo, rigName, convoyID stri
 	if err := polecatMgr.Remove(spawnInfo.PolecatName, true); err != nil {
 		fmt.Printf("  %s Could not clean up orphaned polecat %s: %v\n",
 			style.Dim.Render("Warning:"), spawnInfo.PolecatName, err)
+		if stateErr := polecatMgr.SetAgentStateWithRetry(spawnInfo.PolecatName, string(beads.AgentStateStuck)); stateErr != nil {
+			fmt.Printf("  %s Could not mark failed-start polecat %s as stuck: %v\n",
+				style.Dim.Render("Warning:"), spawnInfo.PolecatName, stateErr)
+		} else {
+			fmt.Printf("  %s Marked failed-start polecat %s as stuck for manual repair\n",
+				style.Dim.Render("○"), spawnInfo.PolecatName)
+		}
 	} else {
 		fmt.Printf("  %s Cleaned up orphaned polecat %s\n",
 			style.Dim.Render("○"), spawnInfo.PolecatName)

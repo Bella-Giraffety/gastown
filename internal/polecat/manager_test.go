@@ -123,6 +123,28 @@ func TestStateIsWorking(t *testing.T) {
 	}
 }
 
+func TestRestingPolecatState(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields *beads.AgentFields
+		want   State
+	}{
+		{name: "nil fields defaults idle", fields: nil, want: StateIdle},
+		{name: "idle stays idle", fields: &beads.AgentFields{AgentState: string(beads.AgentStateIdle)}, want: StateIdle},
+		{name: "stuck stays stuck", fields: &beads.AgentFields{AgentState: string(beads.AgentStateStuck)}, want: StateStuck},
+		{name: "awaiting gate stays stuck", fields: &beads.AgentFields{AgentState: string(beads.AgentStateAwaitingGate)}, want: StateStuck},
+		{name: "working without session falls back idle", fields: &beads.AgentFields{AgentState: string(beads.AgentStateWorking)}, want: StateIdle},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := restingPolecatState(tt.fields); got != tt.want {
+				t.Fatalf("restingPolecatState() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPolecatSummary(t *testing.T) {
 	p := &Polecat{
 		Name:  "Toast",
@@ -1765,8 +1787,8 @@ func TestReuseIdlePolecat_KillsLiveSession(t *testing.T) {
 
 	// Verify it did NOT return ErrSessionRunning (the old buggy behavior)
 	if errors.Is(reuseErr, ErrSessionRunning) {
-		t.Fatalf("ReuseIdlePolecat returned ErrSessionRunning for live session — "+
-			"this is the sling-reuse-stale-session bug: idle polecats with live "+
+		t.Fatalf("ReuseIdlePolecat returned ErrSessionRunning for live session — " +
+			"this is the sling-reuse-stale-session bug: idle polecats with live " +
 			"sessions must have their session killed, not rejected")
 	}
 

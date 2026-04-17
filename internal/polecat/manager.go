@@ -2268,12 +2268,12 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 	}
 
 	// Persistent polecat model (gt-4ac): only trust agent_state=idle once the
-	// tmux session is gone. This prevents reusing a polecat that still has a live
-	// session when its bead state was cleared early.
-	state := StateIdle
+	// tmux session is gone. Protected states like "stuck" must remain non-idle so
+	// failed-start leftovers are not immediately reused again.
+	state := restingPolecatState(fields)
 	if issueID != "" {
 		state = StateWorking
-	} else if agentErr == nil && fields != nil && beads.AgentState(fields.AgentState) == beads.AgentStateIdle {
+	} else if agentErr != nil {
 		state = StateIdle
 	}
 
@@ -2285,6 +2285,21 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 		Branch:    branchName,
 		Issue:     issueID,
 	}, nil
+}
+
+func restingPolecatState(fields *beads.AgentFields) State {
+	if fields == nil {
+		return StateIdle
+	}
+
+	agentState := beads.AgentState(fields.AgentState)
+	if agentState.ProtectsFromCleanup() {
+		return StateStuck
+	}
+	if agentState == beads.AgentStateIdle {
+		return StateIdle
+	}
+	return StateIdle
 }
 
 func (m *Manager) polecatSessionState(name string) (running bool, stale bool) {
