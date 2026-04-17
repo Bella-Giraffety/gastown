@@ -365,7 +365,9 @@ var builtinPresets = map[AgentPreset]*AgentPresetInfo{
 			OutputFlag: "--format json",
 		},
 		// Runtime defaults
-		PromptMode:        "arg",
+		// OpenCode should receive startup context through its hook/nudge flow.
+		// Passing the startup beacon as a CLI prompt races hook-driven priming.
+		PromptMode:        "none",
 		ConfigDir:         ".opencode",
 		HooksProvider:     "opencode",
 		HooksDir:          ".opencode/plugins",
