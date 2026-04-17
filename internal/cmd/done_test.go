@@ -13,6 +13,33 @@ import (
 	gitpkg "github.com/steveyegge/gastown/internal/git"
 )
 
+func TestNormalizeDoneTargetBranch(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "plain branch", target: "upstream-rebuild-main", want: "upstream-rebuild-main"},
+		{name: "origin prefix", target: "origin/upstream-rebuild-main", want: "upstream-rebuild-main"},
+		{name: "refs remotes prefix", target: "refs/remotes/origin/upstream-rebuild-main", want: "upstream-rebuild-main"},
+		{name: "refs heads prefix", target: "refs/heads/feat/contract-review", want: "feat/contract-review"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeDoneTargetBranch(tt.target); got != tt.want {
+				t.Fatalf("normalizeDoneTargetBranch(%q) = %q, want %q", tt.target, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDoneTargetBaseRef(t *testing.T) {
+	if got := doneTargetBaseRef("origin/upstream-rebuild-main"); got != "origin/upstream-rebuild-main" {
+		t.Fatalf("doneTargetBaseRef() = %q, want %q", got, "origin/upstream-rebuild-main")
+	}
+}
+
 // TestDoneUsesResolveBeadsDir verifies that the done command correctly uses
 // beads.ResolveBeadsDir to follow redirect files when initializing beads.
 // This is critical for polecat/crew worktrees that use .beads/redirect to point
@@ -274,7 +301,7 @@ func TestFindHookedBeadForAgent(t *testing.T) {
 			setupBeads: func(t *testing.T, bd *beads.Beads) {
 				// Create a task and set it to hooked with assignee
 				_, err := bd.CreateWithID("test-456", beads.CreateOptions{
-					Title: "Task to be hooked",
+					Title:  "Task to be hooked",
 					Labels: []string{"gt:task"},
 				})
 				if err != nil {
@@ -537,9 +564,9 @@ func TestSessionKillGateGuardLogic(t *testing.T) {
 func TestMRVerificationSetsMRFailed(t *testing.T) {
 	tests := []struct {
 		name         string
-		createErr    error  // error from bd.Create
-		showErr      error  // error from bd.Show (verification)
-		showReturns  bool   // whether Show returns a non-nil issue
+		createErr    error // error from bd.Create
+		showErr      error // error from bd.Show (verification)
+		showReturns  bool  // whether Show returns a non-nil issue
 		wantMRFailed bool
 	}{
 		{
@@ -607,10 +634,10 @@ func TestMRVerificationSetsMRFailed(t *testing.T) {
 // Without this, the refinery never finds the MR and the branch sits unmerged.
 func TestMRBeadCreationUsesRig(t *testing.T) {
 	tests := []struct {
-		name     string
-		issueID  string
-		rigName  string
-		wantRig  string
+		name    string
+		issueID string
+		rigName string
+		wantRig string
 	}{
 		{
 			name:    "same-rig bead: rig is still set",
@@ -636,10 +663,10 @@ func TestMRBeadCreationUsesRig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Simulate the CreateOptions construction in done.go.
 			opts := beads.CreateOptions{
-				Title:       "Merge: " + tt.issueID,
-				Labels:      []string{"gt:merge-request"},
-				Ephemeral:   true,
-				Rig:         tt.rigName,
+				Title:     "Merge: " + tt.issueID,
+				Labels:    []string{"gt:merge-request"},
+				Ephemeral: true,
+				Rig:       tt.rigName,
 			}
 			if opts.Rig != tt.wantRig {
 				t.Errorf("CreateOptions.Rig = %q, want %q (issue %s)", opts.Rig, tt.wantRig, tt.issueID)
@@ -1024,7 +1051,7 @@ func TestReadDoneCheckpoints(t *testing.T) {
 			},
 		},
 		{
-			name:   "mixed with done-intent and other labels",
+			name: "mixed with done-intent and other labels",
 			labels: []string{
 				"gt:agent",
 				"done-intent:COMPLETED:1738972800",
@@ -1170,12 +1197,12 @@ func TestCheckpointNilMapSafe(t *testing.T) {
 // convoy merge=direct was not propagated because cross-rig dep resolution failed.
 func TestConvoyInfoFallbackChain(t *testing.T) {
 	tests := []struct {
-		name            string
-		attachmentInfo  *ConvoyInfo // Result from getConvoyInfoFromIssue
-		depInfo         *ConvoyInfo // Result from getConvoyInfoForIssue
-		wantConvoyID    string
-		wantMerge       string
-		wantNil         bool
+		name           string
+		attachmentInfo *ConvoyInfo // Result from getConvoyInfoFromIssue
+		depInfo        *ConvoyInfo // Result from getConvoyInfoForIssue
+		wantConvoyID   string
+		wantMerge      string
+		wantNil        bool
 	}{
 		{
 			name:           "attachment fields provide convoy info",
@@ -1241,9 +1268,9 @@ func TestConvoyInfoFallbackChain(t *testing.T) {
 // closing and caused infinite dispatch loops.
 func TestHookedBeadCloseNotRestrictedToHookedStatus(t *testing.T) {
 	tests := []struct {
-		name       string
-		status     string
-		wantClose  bool
+		name      string
+		status    string
+		wantClose bool
 	}{
 		{"status hooked → close", "hooked", true},
 		{"status in_progress → close", "in_progress", true},
@@ -1533,4 +1560,3 @@ func testRunGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
 }
-
