@@ -1,0 +1,67 @@
+name: Cleanup Proof Gate
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+jobs:
+  cleanup-proof-gate:
+    name: Require cleanup proof metadata
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Validate cleanup-only PR contract fields
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const body = context.payload.pull_request.body || "";
+
+            const cleanupOnly = /^- \[[xX]\] This PR is cleanup-only under the cleanup proof contract$/m.test(body);
+            if (!cleanupOnly) {
+              console.log("Cleanup-only box not checked; skipping cleanup proof gate.");
+              return;
+            }
+
+            const requiredFields = [
+              "Subsystem boundary",
+              "Preserved invariant",
+              "Primary proof form",
+              "Evidence bundle",
+              "Approval-trigger status",
+            ];
+
+            const placeholderPatterns = [
+              /^required for cleanup-only PRs$/i,
+              /^`?required for cleanup-only PRs`?$/i,
+              /^<.+>$/,
+              /^`?<.+>`?$/,
+              /^$/,
+            ];
+
+            function readField(label) {
+              const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const match = body.match(new RegExp(`^- ${escapedLabel}:\\s*(.*)$`, "mi"));
+              return match ? match[1].trim() : "";
+            }
+
+            const missing = [];
+            for (const label of requiredFields) {
+              const value = readField(label);
+              const isPlaceholder = placeholderPatterns.some((pattern) => pattern.test(value));
+              if (isPlaceholder) {
+                missing.push(label);
+              }
+            }
+
+            if (missing.length > 0) {
+              core.setFailed(
+                [
+                  "Cleanup-only PRs must name their cleanup proof metadata before review.",
+                  `Missing or placeholder fields: ${missing.join(", ")}.`,
+                  "Fill out the Cleanup-Only Contract section in the PR template and use docs/design/cleanup-reviewer-checklist.md.",
+                ].join("\n")
+              );
+            }
+
+            console.log("Cleanup-only PR metadata present.");

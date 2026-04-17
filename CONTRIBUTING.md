@@ -33,7 +33,9 @@ If a later cleanup PR truly depends on an earlier one, name that dependency in
 the PR summary and explain why the work cannot be reviewed independently.
 
 See [`docs/design/cleanup-pr-shape.md`](docs/design/cleanup-pr-shape.md) for the
-full contract used by the cleanup program.
+full contract used by the cleanup program, and
+[`docs/design/cleanup-reviewer-checklist.md`](docs/design/cleanup-reviewer-checklist.md)
+for the reviewer checklist and required PR metadata fields.
 
 ### PR Branch Naming
 
