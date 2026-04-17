@@ -1917,9 +1917,22 @@ func (m *Manager) FindIdlePolecat() (*Polecat, error) {
 		return nil, err
 	}
 	for _, p := range polecats {
-		if p.State == StateIdle {
-			return p, nil
+		if p.State != StateIdle {
+			continue
 		}
+
+		agentID := m.agentBeadID(p.Name)
+		_, fields, err := m.beads.GetAgentBead(agentID)
+		if err == nil && fields != nil {
+			if CleanupStatus(fields.CleanupStatus).RequiresRecovery() {
+				continue
+			}
+			if fields.ActiveMR != "" {
+				continue
+			}
+		}
+
+		return p, nil
 	}
 	return nil, nil
 }

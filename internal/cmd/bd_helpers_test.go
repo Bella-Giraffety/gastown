@@ -494,15 +494,15 @@ func TestBdCmd_StripBeadsDir_RemovesInherited(t *testing.T) {
 	// so that bd discovers the database from Dir() instead (GH#2126).
 	bdc := &bdCmd{
 		args:   []string{"show", "myproject-abc", "--json"},
-		env:    []string{"PATH=/usr/bin", "BEADS_DIR=/town/.beads", "HOME=/home/user"},
+		env:    []string{"PATH=/usr/bin", "BEADS_DIR=/town/.beads", "BEADS_DB=/tmp/db", "BEADS_DOLT_SERVER_DATABASE=hq", "HOME=/home/user"},
 		stderr: os.Stderr,
 	}
 	bdc.Dir("/town/myproject/mayor/rig").StripBeadsDir()
 	cmd := bdc.Build()
 
 	for _, e := range cmd.Env {
-		if strings.HasPrefix(e, "BEADS_DIR=") {
-			t.Errorf("StripBeadsDir should remove BEADS_DIR, found: %s", e)
+		if strings.HasPrefix(e, "BEADS_DIR=") || strings.HasPrefix(e, "BEADS_DB=") || strings.HasPrefix(e, "BEADS_DOLT_SERVER_DATABASE=") {
+			t.Errorf("StripBeadsDir should remove inherited beads context, found: %s", e)
 		}
 	}
 
@@ -537,6 +537,57 @@ func TestBdCmd_RouteForBead_Chaining(t *testing.T) {
 	bdc := BdCmd("show", "id")
 	if bdc.RouteForBead("nw-abc") != bdc {
 		t.Error("RouteForBead() should return receiver for chaining")
+	}
+}
+
+func TestBdCmd_RouteForBead_BindsResolvedBeadsDir(t *testing.T) {
+	townRoot := t.TempDir()
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	beadsDir := filepath.Join(rigDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", beadsDir, err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(town .beads): %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(town mayor): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "rigs.json"), []byte(`{"version":1,"rigs":{}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(rigs.json): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte("{\"prefix\":\"gt-\",\"path\":\"gastown/mayor/rig\"}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(routes.jsonl): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(`{"dolt_database":"gastown"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(metadata.json): %v", err)
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd(): %v", err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
+	if err := os.Chdir(rigDir); err != nil {
+		t.Fatalf("Chdir(%q): %v", rigDir, err)
+	}
+
+	bdc := &bdCmd{
+		args:   []string{"show", "gt-123", "--json"},
+		env:    []string{"PATH=/usr/bin", "BEADS_DIR=/wrong/.beads", "BEADS_DOLT_SERVER_DATABASE=hq", "HOME=/home/user"},
+		stderr: os.Stderr,
+	}
+	cmd := bdc.RouteForBead("gt-123").Build()
+	envMap := parseEnv(cmd.Env)
+
+	if cmd.Dir != rigDir {
+		t.Fatalf("Dir = %q, want %q", cmd.Dir, rigDir)
+	}
+	if envMap["BEADS_DIR"] != beadsDir {
+		t.Fatalf("BEADS_DIR = %q, want %q", envMap["BEADS_DIR"], beadsDir)
+	}
+	if envMap["BEADS_DOLT_SERVER_DATABASE"] != "gastown" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want %q", envMap["BEADS_DOLT_SERVER_DATABASE"], "gastown")
 	}
 }
 

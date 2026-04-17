@@ -293,8 +293,10 @@ type dbPrefixGetter interface {
 type realDBPrefixGetter struct{}
 
 func (r *realDBPrefixGetter) GetDBPrefix(rigPath string) (string, error) {
+	beadsDir := beads.ResolveBeadsDir(rigPath)
 	cmd := exec.Command("bd", "config", "get", "issue_prefix")
 	cmd.Dir = rigPath
+	cmd.Env = beads.BoundEnv(os.Environ(), beadsDir)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -468,6 +470,7 @@ func (c *DatabasePrefixCheck) Fix(ctx *CheckContext) error {
 		for _, key := range []string{"prefix", "issue_prefix"} {
 			cmd := exec.Command("bd", "config", "set", key, m.routesPrefix)
 			cmd.Dir = filepath.Join(ctx.TownRoot, m.rigPath)
+			cmd.Env = beads.BoundEnv(os.Environ(), beads.ResolveBeadsDir(cmd.Dir))
 			if output, err := cmd.CombinedOutput(); err != nil {
 				return fmt.Errorf("updating %s %s: %s", m.rigPath, key, strings.TrimSpace(string(output)))
 			}

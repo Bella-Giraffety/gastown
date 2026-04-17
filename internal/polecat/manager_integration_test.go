@@ -227,3 +227,67 @@ func TestManagerDoesNotTreatLiveSessionAsIdle(t *testing.T) {
 		t.Fatalf("FindIdlePolecat() = %q, want nil while session %s is alive", idle.Name, sessionName)
 	}
 }
+
+func TestManagerDoesNotReuseRecoveryOnlyIdlePolecat(t *testing.T) {
+	if _, err := exec.LookPath("bd"); err != nil {
+		t.Skip("bd not installed, skipping integration test")
+	}
+	testutil.RequireDoltContainer(t)
+
+	n := polecatManagerIntegrationCounter.Add(1)
+	prefix := fmt.Sprintf("pm%d", n)
+
+	townRoot := t.TempDir()
+	rigName := "testrig"
+	rigPath := filepath.Join(townRoot, rigName)
+	mayorRigPath := filepath.Join(rigPath, "mayor", "rig")
+
+	if err := os.MkdirAll(mayorRigPath, 0755); err != nil {
+		t.Fatalf("mkdir mayor rig path: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(rigPath, "polecats", "toast"), 0755); err != nil {
+		t.Fatalf("mkdir polecat dir: %v", err)
+	}
+
+	rigBeadsDir := filepath.Join(rigPath, ".beads")
+	if err := os.MkdirAll(rigBeadsDir, 0755); err != nil {
+		t.Fatalf("mkdir rig .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rigBeadsDir, "redirect"), []byte("mayor/rig/.beads\n"), 0644); err != nil {
+		t.Fatalf("write rig redirect: %v", err)
+	}
+
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(townBeadsDir, 0755); err != nil {
+		t.Fatalf("mkdir town .beads: %v", err)
+	}
+	routes := []beads.Route{
+		{Prefix: "hq-", Path: "."},
+		{Prefix: prefix + "-", Path: filepath.Join(rigName, "mayor", "rig")},
+	}
+	if err := beads.WriteRoutes(townBeadsDir, routes); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	initBeadsDBWithPrefix(t, mayorRigPath, prefix)
+
+	r := &rig.Rig{Name: rigName, Path: rigPath}
+	mgr := NewManager(r, git.NewGit(rigPath), nil)
+
+	agentID := mgr.agentBeadID("toast")
+	assignee := mgr.assigneeID("toast")
+	if _, err := mgr.beads.CreateOrReopenAgentBead(agentID, assignee, &beads.AgentFields{
+		AgentState:    string(beads.AgentStateIdle),
+		CleanupStatus: string(CleanupUnpushed),
+	}); err != nil {
+		t.Fatalf("create recovery-only agent bead: %v", err)
+	}
+
+	idle, err := mgr.FindIdlePolecat()
+	if err != nil {
+		t.Fatalf("mgr.FindIdlePolecat(): %v", err)
+	}
+	if idle != nil {
+		t.Fatalf("FindIdlePolecat() = %q, want nil for recovery-only idle polecat", idle.Name)
+	}
+}

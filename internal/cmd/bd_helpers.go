@@ -74,7 +74,10 @@ func (b *bdCmd) Dir(dir string) *bdCmd {
 func (b *bdCmd) RouteForBead(beadID string) *bdCmd {
 	if dir := resolveBeadDir(beadID); dir != "" && dir != "." {
 		b.dir = dir
+		b.beadsDir = beads.ResolveBeadsDir(dir)
 		b.env = filterEnvKey(b.env, "BEADS_DIR")
+		b.env = filterEnvKey(b.env, "BEADS_DB")
+		b.env = filterEnvKey(b.env, "BEADS_DOLT_SERVER_DATABASE")
 	}
 	return b
 }
@@ -85,6 +88,8 @@ func (b *bdCmd) RouteForBead(beadID string) *bdCmd {
 // discovery. This fixes rig-prefixed bead resolution (GH#2126).
 func (b *bdCmd) StripBeadsDir() *bdCmd {
 	b.env = filterEnvKey(b.env, "BEADS_DIR")
+	b.env = filterEnvKey(b.env, "BEADS_DB")
+	b.env = filterEnvKey(b.env, "BEADS_DOLT_SERVER_DATABASE")
 	return b
 }
 

@@ -900,12 +900,7 @@ func doctorConfigBeadsDir(ctx *CheckContext) string {
 }
 
 func doctorConfigEnv(beadsDir string) []string {
-	env := stripEnvPrefixes(os.Environ(), "BEADS_DIR=", "BEADS_DB=", "BEADS_DOLT_SERVER_DATABASE=")
-	env = append(env, "BEADS_DIR="+beadsDir)
-	if dbEnv := beads.DatabaseEnv(beadsDir); dbEnv != "" {
-		env = append(env, dbEnv)
-	}
-	return env
+	return beads.BoundEnv(os.Environ(), beadsDir)
 }
 
 func stripEnvPrefixes(env []string, prefixes ...string) []string {

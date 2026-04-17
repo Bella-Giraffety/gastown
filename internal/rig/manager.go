@@ -642,13 +642,13 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 		resolvedBeadsDir := beads.ResolveBeadsDir(rigPath)
 		prefixCmd := exec.Command("bd", "config", "set", "issue_prefix", opts.BeadsPrefix)
 		prefixCmd.Dir = rigPath
-		prefixCmd.Env = append(os.Environ(), "BEADS_DIR="+resolvedBeadsDir)
+		prefixCmd.Env = beads.BoundEnv(os.Environ(), resolvedBeadsDir)
 		if out, err := prefixCmd.CombinedOutput(); err != nil {
 			fmt.Printf("  Warning: Could not set issue_prefix on rig database: %v (%s)\n", err, strings.TrimSpace(string(out)))
 		}
 		typesCmd := exec.Command("bd", "config", "set", "types.custom", constants.BeadsCustomTypes)
 		typesCmd.Dir = rigPath
-		typesCmd.Env = append(os.Environ(), "BEADS_DIR="+resolvedBeadsDir)
+		typesCmd.Env = beads.BoundEnv(os.Environ(), resolvedBeadsDir)
 		_, _ = typesCmd.CombinedOutput()
 	}
 
@@ -975,16 +975,9 @@ func (m *Manager) InitBeads(rigPath, prefix, rigName string) error {
 		return err
 	}
 
-	// Build environment with explicit BEADS_DIR to prevent bd from
-	// finding a parent directory's .beads/ database
-	env := os.Environ()
-	filteredEnv := make([]string, 0, len(env)+1)
-	for _, e := range env {
-		if !strings.HasPrefix(e, "BEADS_DIR=") {
-			filteredEnv = append(filteredEnv, e)
-		}
-	}
-	filteredEnv = append(filteredEnv, "BEADS_DIR="+beadsDir)
+	// Bind bd init to this rig's beads dir so shared-server state does not drift
+	// into HQ or another rig during bootstrap.
+	filteredEnv := beads.BoundEnv(os.Environ(), beadsDir)
 
 	// Ensure BEADS_DOLT_PORT and BEADS_DOLT_SERVER_HOST are set when their GT_
 	// counterparts are present, so that bd subprocesses connect to the correct
