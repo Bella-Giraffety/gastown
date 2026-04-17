@@ -40,3 +40,10 @@ Preferred PR classes map to the cleanup contracts in
 - The hook sync duplication candidate is promising, but it should stay within the
   hook-sync subsystem and avoid mixing target discovery cleanup with any behavior
   changes to sync output, target counting, or integrity handling.
+
+## Explicit Follow-up Records
+
+- `runtime/session-id` -> `gt-djp.7.3.1`
+- `runtime/startup-fallback` -> `gt-djp.7.3.2`
+- `worktree-layout/compat` -> `gt-djp.7.3.3`
+- `hooks/config-home` -> `gt-djp.7.3.4`

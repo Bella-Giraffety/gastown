@@ -41,3 +41,9 @@ Preferred PR classes map to the cleanup contracts in
 - Witness/refinery startup deduplication looks promising, but it should be
   sequenced by role and must avoid pulling the much more specialized polecat
   startup path into the same slice.
+
+## Explicit Follow-up Records
+
+- `priming/worktree-prime-fallback` -> `gt-djp.3.3.1`
+- `session/startup-managers` -> `gt-djp.3.3.2`
+- `polecat/bootstrap-overlay` -> `gt-djp.3.3.3`

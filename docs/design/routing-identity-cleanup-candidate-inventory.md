@@ -36,3 +36,12 @@ Preferred PR classes map to the cleanup contracts in
 - The routing-mode and workspace-recipient fallbacks are historical safety nets.
   They should be treated as preserve-or-defer items until a replacement proof is
   stronger than the current operational hedge.
+
+## Explicit Follow-up Records
+
+- `identity/address-parsing` -> `gt-djp.6.3.1`
+- `mail/address-aliases` -> `gt-djp.6.3.2`
+- `mail/sender-detection` -> `gt-djp.6.3.3`
+- `identity/env-attribution` -> `gt-djp.6.3.4`
+- `mail/recipient-validation` -> `gt-djp.6.3.5`
+- `beads/routing-mode` -> `gt-djp.6.3.6`
