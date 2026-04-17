@@ -640,30 +640,13 @@ func TestRigAddUpdatesRoutes(t *testing.T) {
 	g := git.NewGit(townRoot)
 	mgr := rig.NewManager(townRoot, rigsConfig, g)
 
-	newRig, err := mgr.AddRig(rig.AddRigOptions{
+	_, err = mgr.AddRig(rig.AddRigOptions{
 		Name:        "routetest",
 		GitURL:      gitURL,
 		BeadsPrefix: "rt",
 	})
 	if err != nil {
 		t.Fatalf("AddRig: %v", err)
-	}
-
-	// Append route to routes.jsonl (this is done by the CLI command, not AddRig)
-	// The CLI command in runRigAdd calls beads.AppendRoute after AddRig succeeds
-	if newRig.Config != nil && newRig.Config.Prefix != "" {
-		route := beads.Route{
-			Prefix: newRig.Config.Prefix + "-",
-			Path:   "routetest",
-		}
-		if err := beads.AppendRoute(townRoot, route); err != nil {
-			t.Fatalf("AppendRoute: %v", err)
-		}
-	}
-
-	// Save rigs config (normally done by the command)
-	if err := config.SaveRigsConfig(rigsPath, rigsConfig); err != nil {
-		t.Fatalf("save rigs.json: %v", err)
 	}
 
 	// Load routes and verify the new route exists
