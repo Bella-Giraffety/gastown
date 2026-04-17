@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -161,5 +162,29 @@ assert.equal(trailingWhitespace.prompts.length, 0);
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("node harness failed: %v\n%s", err, string(output))
+	}
+}
+
+func TestOpenCodePluginSessionStartUsesHookPrime(t *testing.T) {
+	content, err := resolveAndSubstitute("opencode", "gastown.js", "polecat")
+	if err != nil {
+		t.Fatalf("resolveAndSubstitute(opencode): %v", err)
+	}
+
+	plugin := string(content)
+	if !strings.Contains(plugin, `let context = await captureRun("gt prime --hook");`) {
+		t.Fatalf("OpenCode plugin should run gt prime --hook on session start, got:\n%s", plugin)
+	}
+	if strings.Contains(plugin, `let context = await captureRun("gt prime");`) {
+		t.Fatalf("OpenCode plugin should not use bare gt prime on session start, got:\n%s", plugin)
+	}
+	if !strings.Contains(plugin, `const mail = await captureRun("gt mail check --inject");`) {
+		t.Fatalf("OpenCode plugin should inject mail for autonomous roles, got:\n%s", plugin)
+	}
+	if !strings.Contains(plugin, `const autonomousRoles = new Set(["polecat", "witness", "refinery", "deacon"]);`) {
+		t.Fatalf("OpenCode plugin should keep the autonomous role allowlist, got:\n%s", plugin)
+	}
+	if strings.Contains(plugin, `"crew"`) {
+		t.Fatalf("OpenCode plugin autonomous role allowlist should not include crew, got:\n%s", plugin)
 	}
 }
