@@ -3,6 +3,9 @@
 This document defines when a change is no longer cleanup-safe and must either
 get explicit human approval or default to preserving existing behavior.
 
+The behavior boundary for that decision is defined in
+[`cleanup-behavior-invariants.md`](cleanup-behavior-invariants.md).
+
 ## Core Rule
 
 Cleanup may remove duplication, dead paths, or unnecessary indirection only when

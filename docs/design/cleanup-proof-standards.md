@@ -4,6 +4,11 @@ This document defines what counts as sufficient proof for a
 "no-behavior-change" cleanup slice in gastown. The goal is to make cleanup
 review evidence-based instead of taste-based.
 
+The behavior being preserved is defined in
+[`cleanup-behavior-invariants.md`](cleanup-behavior-invariants.md). Authors
+should cite the relevant invariant class and subsystem boundary before choosing
+the proof form below.
+
 ## Core Rule
 
 Every cleanup-only slice must state:

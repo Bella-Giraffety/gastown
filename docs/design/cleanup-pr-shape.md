@@ -7,6 +7,7 @@ The default slice is one cleanup PR that carries one safety argument across one
 subsystem boundary. If the proof story changes, the PR splits.
 
 This document pairs with
+[`cleanup-behavior-invariants.md`](cleanup-behavior-invariants.md),
 [`cleanup-proof-standards.md`](cleanup-proof-standards.md) and
 [`cleanup-approval-triggers.md`](cleanup-approval-triggers.md) to define what
 cleanup-only work is allowed to claim, how it must prove that claim, and when a
