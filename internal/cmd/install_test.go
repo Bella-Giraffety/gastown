@@ -9,7 +9,65 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/doltserver"
+	"github.com/steveyegge/gastown/internal/templates"
 )
+
+func TestCreateTownRootAgentMDs_UsesCanonicalTemplateAndSymlink(t *testing.T) {
+	townRoot := t.TempDir()
+
+	created, err := createTownRootAgentMDs(townRoot)
+	if err != nil {
+		t.Fatalf("createTownRootAgentMDs() error = %v", err)
+	}
+	if !created {
+		t.Fatal("createTownRootAgentMDs() created = false, want true")
+	}
+
+	claudePath := filepath.Join(townRoot, "CLAUDE.md")
+	data, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("reading CLAUDE.md: %v", err)
+	}
+	if string(data) != templates.TownRootCLAUDEmd() {
+		t.Fatal("CLAUDE.md does not match canonical town-root template")
+	}
+
+	agentsPath := filepath.Join(townRoot, "AGENTS.md")
+	target, err := os.Readlink(agentsPath)
+	if err != nil {
+		t.Fatalf("reading AGENTS.md symlink: %v", err)
+	}
+	if target != "CLAUDE.md" {
+		t.Fatalf("AGENTS.md target = %q, want %q", target, "CLAUDE.md")
+	}
+}
+
+func TestCreateTownRootAgentMDs_PreservesExistingAnchor(t *testing.T) {
+	townRoot := t.TempDir()
+	existing := "# Custom anchor\n"
+	if err := os.WriteFile(filepath.Join(townRoot, "CLAUDE.md"), []byte(existing), 0644); err != nil {
+		t.Fatalf("writing CLAUDE.md: %v", err)
+	}
+	if err := os.Symlink("CLAUDE.md", filepath.Join(townRoot, "AGENTS.md")); err != nil {
+		t.Fatalf("creating AGENTS.md symlink: %v", err)
+	}
+
+	created, err := createTownRootAgentMDs(townRoot)
+	if err != nil {
+		t.Fatalf("createTownRootAgentMDs() error = %v", err)
+	}
+	if created {
+		t.Fatal("createTownRootAgentMDs() created = true, want false when anchor already exists")
+	}
+
+	data, err := os.ReadFile(filepath.Join(townRoot, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("reading CLAUDE.md: %v", err)
+	}
+	if string(data) != existing {
+		t.Fatal("existing CLAUDE.md was modified")
+	}
+}
 
 func TestBuildBdInitArgs_AlwaysIncludesServerPort(t *testing.T) {
 	townDir := t.TempDir()

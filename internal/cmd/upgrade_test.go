@@ -5,10 +5,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/steveyegge/gastown/internal/templates"
 )
 
-func TestGenerateCLAUDEMD(t *testing.T) {
-	content := generateCLAUDEMD()
+func TestTownRootCLAUDEmdTemplate(t *testing.T) {
+	content := templates.TownRootCLAUDEmd()
 
 	// Must contain the Gas Town header
 	if content == "" {
@@ -26,7 +28,6 @@ func TestGenerateCLAUDEMD(t *testing.T) {
 		t.Error("CLAUDE.md should reference GT_ROLE environment variable")
 	}
 }
-
 
 func TestUpgradeCLAUDEMD_CreatesMissingFile(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -57,7 +58,7 @@ func TestUpgradeCLAUDEMD_CreatesMissingFile(t *testing.T) {
 		t.Fatalf("CLAUDE.md not created: %v", err)
 	}
 
-	expected := generateCLAUDEMD()
+	expected := templates.TownRootCLAUDEmd()
 	if string(data) != expected {
 		t.Error("CLAUDE.md content doesn't match expected template")
 	}
@@ -79,7 +80,7 @@ func TestUpgradeCLAUDEMD_UpToDate(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Write the expected content
-	expected := generateCLAUDEMD()
+	expected := templates.TownRootCLAUDEmd()
 	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
 	if err := os.WriteFile(claudePath, []byte(expected), 0644); err != nil {
 		t.Fatal(err)

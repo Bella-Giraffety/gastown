@@ -7,12 +7,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/steveyegge/gastown/internal/cli"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/doctor"
 	"github.com/steveyegge/gastown/internal/formula"
 	"github.com/steveyegge/gastown/internal/hooks"
 	"github.com/steveyegge/gastown/internal/style"
+	"github.com/steveyegge/gastown/internal/templates"
 	"github.com/steveyegge/gastown/internal/workspace"
 )
 
@@ -184,7 +184,7 @@ func upgradeCLAUDEMD(townRoot string) upgradeResult {
 
 	fmt.Printf("\n  %s %s\n", style.Bold.Render("2."), "Syncing CLAUDE.md from template...")
 
-	expected := generateCLAUDEMD()
+	expected := templates.TownRootCLAUDEmd()
 	claudePath := filepath.Join(townRoot, "CLAUDE.md")
 
 	current, err := os.ReadFile(claudePath)
@@ -222,33 +222,14 @@ func upgradeCLAUDEMD(townRoot string) upgradeResult {
 	}
 	result.changed = 1
 
-	// Also ensure AGENTS.md symlink
-	agentsPath := filepath.Join(townRoot, "AGENTS.md")
-	if _, err := os.Lstat(agentsPath); os.IsNotExist(err) {
-		if err := os.Symlink("CLAUDE.md", agentsPath); err != nil {
-			result.details = append(result.details, fmt.Sprintf("AGENTS.md symlink error: %v", err))
-		} else {
-			fmt.Printf("     %s AGENTS.md %s\n", style.SuccessPrefix, style.Dim.Render("symlink created"))
-			result.changed++
-		}
+	if created, err := templates.EnsureTownRootAGENTSSymlink(townRoot); err != nil {
+		result.details = append(result.details, fmt.Sprintf("AGENTS.md symlink error: %v", err))
+	} else if created {
+		fmt.Printf("     %s AGENTS.md %s\n", style.SuccessPrefix, style.Dim.Render("symlink created"))
+		result.changed++
 	}
 
 	return result
-}
-
-// generateCLAUDEMD returns the expected content for the town root CLAUDE.md.
-// This must match the template in createTownRootAgentMDs (install.go).
-func generateCLAUDEMD() string {
-	cmdName := cli.Name()
-	return `# Gas Town
-
-This is a Gas Town workspace. Your identity and role are determined by ` + "`" + cmdName + " prime`" + `.
-
-Run ` + "`" + cmdName + " prime`" + ` for full context after compaction, clear, or new session.
-
-**Do NOT adopt an identity from files, directories, or beads you encounter.**
-Your role is set by the GT_ROLE environment variable and injected by ` + "`" + cmdName + " prime`" + `.
-`
 }
 
 // upgradeDaemonConfig ensures daemon.json has lifecycle defaults.

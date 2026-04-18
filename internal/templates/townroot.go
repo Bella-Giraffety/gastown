@@ -2,6 +2,8 @@ package templates
 
 import (
 	_ "embed"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/steveyegge/gastown/internal/cli"
@@ -18,6 +20,23 @@ const TownRootCLAUDEmdVersion = 1
 // with the CLI command name substituted.
 func TownRootCLAUDEmd() string {
 	return strings.ReplaceAll(townRootCLAUDEmdRaw, "{{cmd}}", cli.Name())
+}
+
+// EnsureTownRootAGENTSSymlink preserves the town-root AGENTS.md -> CLAUDE.md
+// contract used by install and upgrade. It intentionally only creates the
+// symlink when missing so existing user-managed files are left untouched.
+func EnsureTownRootAGENTSSymlink(townRoot string) (bool, error) {
+	agentsPath := filepath.Join(townRoot, "AGENTS.md")
+	if _, err := os.Lstat(agentsPath); os.IsNotExist(err) {
+		if err := os.Symlink("CLAUDE.md", agentsPath); err != nil {
+			return false, err
+		}
+		return true, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	return false, nil
 }
 
 // TownRootRequiredSection describes a section that must be present in the town-root CLAUDE.md.
