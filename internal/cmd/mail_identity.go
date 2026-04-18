@@ -79,12 +79,8 @@ func findLocalBeadsDir() (string, error) {
 // detectSender determines the current context's address.
 // Priority:
 //  1. GT_ROLE env var → use the role-based identity (agent session)
-//  2. No GT_ROLE → try cwd-based detection (witness/refinery/polecat/crew directories)
+//  2. .gt-agent metadata → use explicit agent identity for supported debug flows
 //  3. No match → return "overseer" (human at terminal)
-//
-// All Gas Town agents run in tmux sessions with GT_ROLE set at spawn.
-// However, cwd-based detection is also tried to support running commands
-// from agent directories without GT_ROLE set (e.g., debugging sessions).
 func detectSender() string {
 	// Check GT_ROLE first (authoritative for agent sessions)
 	role := os.Getenv("GT_ROLE")
@@ -93,8 +89,11 @@ func detectSender() string {
 		return detectSenderFromRole(role)
 	}
 
-	// No GT_ROLE - try cwd-based detection, defaults to overseer if not in agent directory
-	return detectSenderFromCwd()
+	if fromFile := detectSenderFromCurrentAgentFile(); fromFile != "" {
+		return fromFile
+	}
+
+	return "overseer"
 }
 
 // detectSenderFromRole builds an address from the GT_ROLE and related env vars.
@@ -102,8 +101,7 @@ func detectSender() string {
 // ("greenplace/crew/joe") depending on how the session was started.
 //
 // If GT_ROLE is a simple name but required env vars (GT_RIG, GT_POLECAT, etc.)
-// are missing, falls back to cwd-based detection. This could return "overseer"
-// if cwd doesn't match any known agent path - a misconfigured agent session.
+// are missing, fall back only to explicit .gt-agent metadata.
 func detectSenderFromRole(role string) string {
 	rig := os.Getenv("GT_RIG")
 
@@ -124,105 +122,47 @@ func detectSenderFromRole(role string) string {
 		if rig != "" && polecat != "" {
 			return fmt.Sprintf("%s/%s", rig, polecat)
 		}
-		// Fallback to cwd detection for polecats
-		return detectSenderFromCwd()
+		return detectSenderFromCurrentAgentFileOrOverseer()
 	case constants.RoleCrew:
 		crew := os.Getenv("GT_CREW")
 		if rig != "" && crew != "" {
 			return fmt.Sprintf("%s/crew/%s", rig, crew)
 		}
-		// Fallback to cwd detection for crew
-		return detectSenderFromCwd()
+		return detectSenderFromCurrentAgentFileOrOverseer()
 	case constants.RoleWitness:
 		if rig != "" {
 			return fmt.Sprintf("%s/witness", rig)
 		}
-		return detectSenderFromCwd()
+		return detectSenderFromCurrentAgentFileOrOverseer()
 	case constants.RoleRefinery:
 		if rig != "" {
 			return fmt.Sprintf("%s/refinery", rig)
 		}
-		return detectSenderFromCwd()
+		return detectSenderFromCurrentAgentFileOrOverseer()
 	case "dog":
 		dogName := os.Getenv("GT_DOG_NAME")
 		if dogName != "" {
 			return fmt.Sprintf("deacon/dogs/%s", dogName)
 		}
-		return detectSenderFromCwd()
+		return detectSenderFromCurrentAgentFileOrOverseer()
 	default:
-		// Unknown role, try cwd detection
-		return detectSenderFromCwd()
+		return detectSenderFromCurrentAgentFileOrOverseer()
 	}
 }
 
-// detectSenderFromCwd is the legacy cwd-based detection for edge cases.
-func detectSenderFromCwd() string {
+func detectSenderFromCurrentAgentFile() string {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "overseer"
+		return ""
 	}
 
-	// Prefer explicit agent identity metadata when available.
-	// This avoids brittle path parsing from nested agent dirs (for example witness/rig).
-	if fromFile := detectSenderFromAgentFile(cwd); fromFile != "" {
+	return detectSenderFromAgentFile(cwd)
+}
+
+func detectSenderFromCurrentAgentFileOrOverseer() string {
+	if fromFile := detectSenderFromCurrentAgentFile(); fromFile != "" {
 		return fromFile
 	}
-
-	// If in a rig's polecats directory, extract address (format: rig/polecats/name)
-	if strings.Contains(cwd, "/polecats/") {
-		parts := strings.Split(cwd, "/polecats/")
-		if len(parts) >= 2 {
-			rigPath := parts[0]
-			polecatPath := strings.Split(parts[1], "/")[0]
-			rigName := filepath.Base(rigPath)
-			return fmt.Sprintf("%s/polecats/%s", rigName, polecatPath)
-		}
-	}
-
-	// If in deacon's dogs directory, extract address (format: deacon/dogs/name)
-	if strings.Contains(cwd, "/deacon/dogs/") {
-		parts := strings.Split(cwd, "/deacon/dogs/")
-		if len(parts) >= 2 {
-			dogName := strings.Split(parts[1], "/")[0]
-			return fmt.Sprintf("deacon/dogs/%s", dogName)
-		}
-	}
-
-	// If in a rig's crew directory, extract address (format: rig/crew/name)
-	if strings.Contains(cwd, "/crew/") {
-		parts := strings.Split(cwd, "/crew/")
-		if len(parts) >= 2 {
-			rigPath := parts[0]
-			crewName := strings.Split(parts[1], "/")[0]
-			rigName := filepath.Base(rigPath)
-			return fmt.Sprintf("%s/crew/%s", rigName, crewName)
-		}
-	}
-
-	// If in a rig's refinery directory, extract address (format: rig/refinery)
-	if strings.Contains(cwd, "/refinery") {
-		parts := strings.Split(cwd, "/refinery")
-		if len(parts) >= 1 {
-			rigName := filepath.Base(parts[0])
-			return fmt.Sprintf("%s/refinery", rigName)
-		}
-	}
-
-	// If in a rig's witness directory, extract address (format: rig/witness)
-	if strings.Contains(cwd, "/witness") {
-		parts := strings.Split(cwd, "/witness")
-		if len(parts) >= 1 {
-			rigName := filepath.Base(parts[0])
-			return fmt.Sprintf("%s/witness", rigName)
-		}
-	}
-
-	// If in the town's mayor directory
-	if strings.Contains(cwd, "/mayor") {
-		return "mayor"
-	}
-
-	// Default to overseer (human)
 	return "overseer"
 }
 
