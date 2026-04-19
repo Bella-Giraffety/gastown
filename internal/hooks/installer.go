@@ -21,13 +21,11 @@ import (
 var templateFS embed.FS
 
 // InstallForRole provisions hook/settings files for an agent based on its preset config.
-// It creates the file if it does not exist, or overwrites if the existing file contains
-// known stale patterns (e.g., legacy "export PATH=" format). Otherwise it does not
-// overwrite — this is the safe path for session startup, where Claude's settings.json
-// may have been customized by syncTarget (base + role overrides merge) and must not
-// be clobbered.
+// It creates the file if it does not exist, but does not overwrite existing files.
+// This is the safe path for session startup, where Claude's settings.json may have
+// been customized by syncTarget (base + role overrides merge) and must not be clobbered.
 //
-// For explicit sync operations that should update stale files, use SyncForRole.
+// For explicit sync operations that should update stale or drifted files, use SyncForRole.
 //
 // Parameters:
 //   - provider: the preset's HooksProvider (e.g., "claude", "gemini").
@@ -51,24 +49,11 @@ func InstallForRole(provider, settingsDir, workDir, role, hooksDir, hooksFile st
 
 	targetPath := installTargetPath(settingsDir, workDir, hooksDir, hooksFile, useSettingsDir)
 
-	if existing, err := os.ReadFile(targetPath); err == nil {
-		if !needsUpgrade(existing) {
-			return nil // File exists and is current — don't overwrite
-		}
-		// Stale file detected — fall through to overwrite with current template
+	if _, err := os.Stat(targetPath); err == nil {
+		return nil // File exists — don't overwrite during startup install
 	}
 
 	return writeTemplate(provider, role, hooksFile, targetPath)
-}
-
-// needsUpgrade returns true if an existing hooks file contains stale patterns
-// that should be replaced by the current template. This allows the installer
-// to auto-upgrade hooks from earlier versions without requiring manual intervention.
-func needsUpgrade(content []byte) bool {
-	// Stale pattern: export PATH=... && gt — replaced by {{GT_BIN}} in current templates.
-	// The PATH export breaks Gemini CLI's hook runner which expands $PATH into
-	// an enormous string. Also catches files missing GT_HOOK_SOURCE env vars.
-	return bytes.Contains(content, []byte(`export PATH=`))
 }
 
 // SyncResult describes what SyncForRole did.

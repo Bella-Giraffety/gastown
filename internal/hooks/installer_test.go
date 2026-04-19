@@ -2,8 +2,10 @@ package hooks
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -93,13 +95,13 @@ func TestInstallForRole_SkipsExisting(t *testing.T) {
 	}
 }
 
-func TestInstallForRole_UpgradesStaleExportPath(t *testing.T) {
+func TestInstallForRole_PreservesExistingLegacyExportPathFile(t *testing.T) {
 	dir := t.TempDir()
 	hooksPath := filepath.Join(dir, ".opencode/plugins", "gastown.js")
 	os.MkdirAll(filepath.Dir(hooksPath), 0755)
 
-	// Write a stale file with the legacy "export PATH=" pattern
-	os.WriteFile(hooksPath, []byte(`export PATH=/usr/local/bin:$PATH && gt hook`), 0644)
+	legacy := []byte(`export PATH=/usr/local/bin:$PATH && gt hook`)
+	os.WriteFile(hooksPath, legacy, 0644)
 
 	err := InstallForRole("opencode", dir, dir, "crew", ".opencode/plugins", "gastown.js", false)
 	if err != nil {
@@ -107,13 +109,33 @@ func TestInstallForRole_UpgradesStaleExportPath(t *testing.T) {
 	}
 
 	got, _ := os.ReadFile(hooksPath)
-	if strings.Contains(string(got), "export PATH=") {
-		t.Error("stale export PATH pattern was not upgraded")
+	if string(got) != string(legacy) {
+		t.Error("existing file should not be overwritten during startup install")
 	}
-	// Should now match the current template
-	template, _ := templateFS.ReadFile("templates/opencode/gastown.js")
-	if string(got) != string(template) {
-		t.Error("upgraded file does not match current template")
+}
+
+func TestManagedTemplatesDoNotUseLegacyPathExportStartupPattern(t *testing.T) {
+	legacyStartupPattern := regexp.MustCompile(`export PATH=.*&& gt (hook|prime --hook|mail check --inject|costs record|tap guard pr-workflow)`)
+
+	err := fs.WalkDir(templateFS, "templates", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		content, readErr := templateFS.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if legacyStartupPattern.Match(content) {
+			t.Fatalf("template %s still contains legacy PATH export startup pattern", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk templates: %v", err)
 	}
 }
 
