@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/crew"
 	"github.com/steveyegge/gastown/internal/deps"
 	"github.com/steveyegge/gastown/internal/doltserver"
@@ -296,31 +298,31 @@ Examples:
 
 // Flags
 var (
-	rigAddPrefix       string
-	rigAddLocalRepo    string
-	rigAddBranch       string
-	rigAddPushURL      string
-	rigAddUpstreamURL  string
-	rigAddAdopt           bool
+	rigAddPrefix         string
+	rigAddLocalRepo      string
+	rigAddBranch         string
+	rigAddPushURL        string
+	rigAddUpstreamURL    string
+	rigAddAdopt          bool
 	rigAddAdoptURL       string
 	rigAddAdoptForce     bool
 	rigAddFilter         string
 	rigAddSparseCheckout []string
-	rigResetHandoff    bool
-	rigResetMail       bool
-	rigResetStale      bool
-	rigResetDryRun     bool
-	rigResetRole       string
-	rigShutdownForce   bool
-	rigShutdownNuclear bool
-	rigRebootForce     bool
-	rigRebootNuclear   bool
-	rigStopForce       bool
-	rigStopNuclear     bool
-	rigRestartForce    bool
-	rigRestartNuclear  bool
-	rigListJSON        bool
-	rigRemoveForce     bool
+	rigResetHandoff      bool
+	rigResetMail         bool
+	rigResetStale        bool
+	rigResetDryRun       bool
+	rigResetRole         string
+	rigShutdownForce     bool
+	rigShutdownNuclear   bool
+	rigRebootForce       bool
+	rigRebootNuclear     bool
+	rigStopForce         bool
+	rigStopNuclear       bool
+	rigRestartForce      bool
+	rigRestartNuclear    bool
+	rigListJSON          bool
+	rigRemoveForce       bool
 )
 
 var (
@@ -1201,6 +1203,13 @@ func runRigAdopt(_ *cobra.Command, args []string) error {
 			continue
 		}
 		foundBeadsCandidate = true
+		beadsWorkDir := filepath.Dir(beadsDir)
+
+		if beadsDir == filepath.Join(rigPath, "mayor", "rig", ".beads") {
+			if err := mgr.InitBeads(rigPath, result.BeadsPrefix, name); err != nil {
+				fmt.Printf("  %s Could not set up rig beads redirect: %v\n", style.Warning.Render("!"), err)
+			}
+		}
 
 		// Detect prefix from Dolt metadata: try "bd config get issue_prefix" first,
 		// then extract from metadata.json dolt_database name as fallback.
@@ -1280,12 +1289,13 @@ func runRigAdopt(_ *cobra.Command, args []string) error {
 				fmt.Printf("  %s Could not init bd database: Dolt server is not running\n", style.Warning.Render("!"))
 				break
 			}
-			if err := mgr.InitBeads(rigPath, prefix, name); err != nil {
+			if err := initAdoptedBeadsDatabase(townRoot, beadsWorkDir, prefix); err != nil {
 				fmt.Printf("  %s Could not init bd database: %v\n", style.Warning.Render("!"), err)
 			} else {
 				fmt.Printf("  %s Initialized beads database (Dolt)\n", style.Success.Render("✓"))
 			}
 		}
+		finalizeAdoptedBeadsDatabase(townRoot, rigPath, result.BeadsPrefix, name)
 		break
 	}
 
@@ -1299,6 +1309,7 @@ func runRigAdopt(_ *cobra.Command, args []string) error {
 			fmt.Printf("  %s Could not init beads database: %v\n", style.Warning.Render("!"), err)
 		} else {
 			fmt.Printf("  %s Initialized beads database\n", style.Success.Render("✓"))
+			finalizeAdoptedBeadsDatabase(townRoot, rigPath, result.BeadsPrefix, name)
 		}
 	}
 
@@ -2477,6 +2488,54 @@ func commitTownConfigChanges(townRoot, rigName string) {
 			fmt.Fprintf(os.Stderr, "  Warning: could not commit town config files: %v\n", err)
 		}
 	}
+}
+
+func initAdoptedBeadsDatabase(townRoot, workDir, prefix string) error {
+	initArgs := []string{"init"}
+	if prefix != "" {
+		initArgs = append(initArgs, "--prefix", prefix)
+	}
+	initArgs = append(initArgs, "--server")
+	doltCfg := doltserver.DefaultConfig(townRoot)
+	initArgs = append(initArgs, "--server-port", strconv.Itoa(doltCfg.Port))
+
+	resolvedBeadsDir := beads.ResolveBeadsDir(workDir)
+	cmd := exec.Command("bd", initArgs...)
+	cmd.Dir = workDir
+	cmd.Env = withBeadsDirEnv(resolvedBeadsDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("bd init failed: %v (%s)", err, strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
+func finalizeAdoptedBeadsDatabase(townRoot, rigPath, prefix, rigName string) {
+	if prefix == "" {
+		return
+	}
+
+	if err := doltserver.EnsureMetadata(townRoot, rigName); err != nil {
+		fmt.Printf("  Warning: Could not set Dolt server metadata: %v\n", err)
+		fmt.Printf("  Run 'gt doctor --fix' to repair, or it will self-heal on next daemon start.\n")
+	}
+
+	if orphanDB := "beads_" + prefix; orphanDB != rigName {
+		_ = doltserver.RemoveDatabase(townRoot, orphanDB, true)
+	}
+
+	resolvedBeadsDir := beads.ResolveBeadsDir(rigPath)
+	prefixCmd := exec.Command("bd", "config", "set", "issue_prefix", prefix)
+	prefixCmd.Dir = rigPath
+	prefixCmd.Env = withBeadsDirEnv(resolvedBeadsDir)
+	if out, err := prefixCmd.CombinedOutput(); err != nil {
+		fmt.Printf("  Warning: Could not set issue_prefix on rig database: %v (%s)\n", err, strings.TrimSpace(string(out)))
+	}
+
+	typesCmd := exec.Command("bd", "config", "set", "types.custom", constants.BeadsCustomTypes)
+	typesCmd.Dir = rigPath
+	typesCmd.Env = withBeadsDirEnv(resolvedBeadsDir)
+	_, _ = typesCmd.CombinedOutput()
 }
 
 // isGitRemoteURL returns true if s looks like a remote git URL rather than a
