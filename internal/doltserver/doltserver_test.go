@@ -77,6 +77,55 @@ func TestDirSize_NonexistentDir(t *testing.T) {
 	}
 }
 
+func TestWritePidFiles_MirrorsLegacyPath(t *testing.T) {
+	townRoot := t.TempDir()
+	config := DefaultConfig(townRoot)
+	if err := os.MkdirAll(filepath.Dir(config.PidFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(config.DataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writePidFiles(config, 12345); err != nil {
+		t.Fatalf("writePidFiles: %v", err)
+	}
+
+	for _, path := range []string{config.PidFile, legacyPidFilePath(config)} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		if got := strings.TrimSpace(string(data)); got != "12345" {
+			t.Fatalf("pid file %s = %q, want %q", path, got, "12345")
+		}
+	}
+}
+
+func TestRemovePidFiles_RemovesCanonicalAndLegacy(t *testing.T) {
+	townRoot := t.TempDir()
+	config := DefaultConfig(townRoot)
+	if err := os.MkdirAll(filepath.Dir(config.PidFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(config.DataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{config.PidFile, legacyPidFilePath(config)} {
+		if err := os.WriteFile(path, []byte("999"), 0644); err != nil {
+			t.Fatalf("seeding %s: %v", path, err)
+		}
+	}
+
+	removePidFiles(config)
+
+	for _, path := range []string{config.PidFile, legacyPidFilePath(config)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be removed, got err=%v", path, err)
+		}
+	}
+}
+
 func TestGetDoltFlagFromArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1730,6 +1779,59 @@ func TestEnsureMetadata_RepairsWrongDoltDatabase(t *testing.T) {
 	}
 }
 
+func TestEnsureMetadata_RepairsProjectIDFromServer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based dolt shim not reliable on Windows CI")
+	}
+
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+printf 'value\nserver-project-id\n'
+`
+	if err := os.WriteFile(filepath.Join(binDir, "dolt"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock dolt: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, ".dolt-data"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	beadsDir := filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := map[string]interface{}{
+		"backend":       "dolt",
+		"database":      "dolt",
+		"dolt_mode":     "server",
+		"dolt_database": "gastown",
+		"project_id":    "stale-project-id",
+	}
+	data, _ := json.Marshal(stale)
+	metaPath := filepath.Join(beadsDir, "metadata.json")
+	if err := os.WriteFile(metaPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureMetadata(townRoot, "gastown"); err != nil {
+		t.Fatalf("EnsureMetadata failed: %v", err)
+	}
+
+	repaired, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("reading metadata: %v", err)
+	}
+	var meta map[string]interface{}
+	if err := json.Unmarshal(repaired, &meta); err != nil {
+		t.Fatalf("parsing metadata: %v", err)
+	}
+	if meta["project_id"] != "server-project-id" {
+		t.Errorf("project_id = %v, want %q", meta["project_id"], "server-project-id")
+	}
+}
+
 // TestEnsureAllMetadata_RepairsAllCorrupt tests that EnsureAllMetadata
 // repairs metadata for all known databases, even if some are corrupt.
 func TestEnsureAllMetadata_RepairsAllCorrupt(t *testing.T) {
@@ -2554,6 +2656,17 @@ func TestFindBrokenWorkspaces_SqliteNotBroken(t *testing.T) {
 }
 
 func TestFindBrokenWorkspaces_MultipleRigs(t *testing.T) {
+	// Isolate from any real shared Dolt server running on the default port.
+	// This test is validating filesystem-backed broken-workspace detection, not
+	// live server serving state.
+	tmpListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	port := tmpListener.Addr().(*net.TCPAddr).Port
+	tmpListener.Close()
+	t.Setenv("GT_DOLT_PORT", fmt.Sprintf("%d", port))
+
 	townRoot := t.TempDir()
 
 	// Set up rigs.json with two rigs
@@ -2584,7 +2697,11 @@ func TestFindBrokenWorkspaces_MultipleRigs(t *testing.T) {
 		[]byte(`{"backend":"dolt","dolt_mode":"server","dolt_database":"rig-b"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(townRoot, ".dolt-data", "rig-b", ".dolt"), 0755); err != nil {
+	nomsDir := filepath.Join(townRoot, ".dolt-data", "rig-b", ".dolt", "noms")
+	if err := os.MkdirAll(nomsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nomsDir, "manifest"), []byte("test"), 0644); err != nil {
 		t.Fatal(err)
 	}
 

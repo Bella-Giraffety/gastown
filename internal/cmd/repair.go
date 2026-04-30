@@ -50,6 +50,7 @@ func init() {
 
 func rigRepairChecks() []doctor.Check {
 	return []doctor.Check{
+		doctor.NewDoltMetadataCheck(),
 		doctor.NewRigConfigSyncCheck(),
 		doctor.NewRoutesCheck(),
 		doctor.NewDatabasePrefixCheck(),
@@ -63,6 +64,7 @@ func rigRepairChecks() []doctor.Check {
 
 func bootstrapRepairChecks() []doctor.Check {
 	return []doctor.Check{
+		doctor.NewDoltMetadataCheck(),
 		doctor.NewTownConfigExistsCheck(),
 		doctor.NewTownConfigValidCheck(),
 		doctor.NewRigsRegistryExistsCheck(),

@@ -21,7 +21,7 @@ import (
 // opens isolated local databases instead of the centralized Dolt server.
 type DoltMetadataCheck struct {
 	FixableCheck
-	missingMetadata []string // Cached during Run for use in Fix
+	staleMetadata []string // Cached during Run for use in Fix
 }
 
 // NewDoltMetadataCheck creates a new dolt metadata check.
@@ -39,7 +39,7 @@ func NewDoltMetadataCheck() *DoltMetadataCheck {
 
 // Run checks if all rig metadata.json files have dolt server config.
 func (c *DoltMetadataCheck) Run(ctx *CheckContext) *CheckResult {
-	c.missingMetadata = nil
+	c.staleMetadata = nil
 
 	// Check if dolt data directory exists (no point checking if dolt isn't in use)
 	doltDataDir := filepath.Join(ctx.TownRoot, ".dolt-data")
@@ -58,9 +58,9 @@ func (c *DoltMetadataCheck) Run(ctx *CheckContext) *CheckResult {
 	// Check town-level beads (hq database)
 	townBeadsDir := filepath.Join(ctx.TownRoot, ".beads")
 	if _, err := os.Stat(filepath.Join(doltDataDir, "hq")); err == nil {
-		if !c.hasDoltMetadata(townBeadsDir, "hq") {
+		if !c.hasDoltMetadata(ctx.TownRoot, townBeadsDir, "hq") {
 			missing = append(missing, "hq (town root .beads/)")
-			c.missingMetadata = append(c.missingMetadata, "hq")
+			c.staleMetadata = append(c.staleMetadata, "hq")
 		} else {
 			ok++
 		}
@@ -86,14 +86,14 @@ func (c *DoltMetadataCheck) Run(ctx *CheckContext) *CheckResult {
 		beadsDir := c.findRigBeadsDir(ctx.TownRoot, rigName)
 		if beadsDir == "" {
 			missing = append(missing, rigName+" (no .beads directory)")
-			c.missingMetadata = append(c.missingMetadata, rigName)
+			c.staleMetadata = append(c.staleMetadata, rigName)
 			continue
 		}
 
-		if !c.hasDoltMetadata(beadsDir, expectedDB) {
+		if !c.hasDoltMetadata(ctx.TownRoot, beadsDir, expectedDB) {
 			relPath, _ := filepath.Rel(ctx.TownRoot, beadsDir)
 			missing = append(missing, rigName+" ("+relPath+")")
-			c.missingMetadata = append(c.missingMetadata, rigName)
+			c.staleMetadata = append(c.staleMetadata, rigName)
 		} else {
 			ok++
 		}
@@ -116,21 +116,21 @@ func (c *DoltMetadataCheck) Run(ctx *CheckContext) *CheckResult {
 	return &CheckResult{
 		Name:     c.Name(),
 		Status:   StatusWarning,
-		Message:  fmt.Sprintf("%d rig(s) missing Dolt server metadata", len(missing)),
+		Message:  fmt.Sprintf("%d rig(s) have stale or missing Dolt server metadata", len(missing)),
 		Details:  details,
-		FixHint:  "Run 'gt dolt fix-metadata' to update all metadata.json files",
+		FixHint:  "Run 'gt dolt fix-metadata' to update stale metadata.json files",
 		Category: c.CheckCategory,
 	}
 }
 
-// Fix updates metadata.json for all rigs with missing dolt config.
+// Fix updates metadata.json for all rigs with stale or missing dolt config.
 func (c *DoltMetadataCheck) Fix(ctx *CheckContext) error {
-	if len(c.missingMetadata) == 0 {
+	if len(c.staleMetadata) == 0 {
 		return nil
 	}
 
-	for _, rigName := range c.missingMetadata {
-		if err := c.writeDoltMetadata(ctx.TownRoot, rigName); err != nil {
+	for _, rigName := range c.staleMetadata {
+		if err := doltserver.EnsureMetadata(ctx.TownRoot, rigName); err != nil {
 			return fmt.Errorf("fixing %s: %w", rigName, err)
 		}
 	}
@@ -139,7 +139,7 @@ func (c *DoltMetadataCheck) Fix(ctx *CheckContext) error {
 }
 
 // hasDoltMetadata checks if a beads directory has proper dolt server config.
-func (c *DoltMetadataCheck) hasDoltMetadata(beadsDir, expectedDB string) bool {
+func (c *DoltMetadataCheck) hasDoltMetadata(townRoot, beadsDir, expectedDB string) bool {
 	metadataPath := filepath.Join(beadsDir, "metadata.json")
 	data, err := os.ReadFile(metadataPath)
 	if err != nil {
@@ -150,14 +150,21 @@ func (c *DoltMetadataCheck) hasDoltMetadata(beadsDir, expectedDB string) bool {
 		Backend      string `json:"backend"`
 		DoltMode     string `json:"dolt_mode"`
 		DoltDatabase string `json:"dolt_database"`
+		ProjectID    string `json:"project_id"`
 	}
 	if err := json.Unmarshal(data, &metadata); err != nil {
 		return false
 	}
 
-	return metadata.Backend == "dolt" &&
-		metadata.DoltMode == "server" &&
-		metadata.DoltDatabase == expectedDB
+	if metadata.Backend != "dolt" || metadata.DoltMode != "server" || metadata.DoltDatabase != expectedDB {
+		return false
+	}
+
+	if projectID, err := doltserver.DatabaseProjectID(townRoot, expectedDB); err == nil && projectID != "" {
+		return metadata.ProjectID == projectID
+	}
+
+	return true
 }
 
 // writeDoltMetadata writes dolt server config to a rig's metadata.json.

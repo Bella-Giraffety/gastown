@@ -338,6 +338,32 @@ func DefaultConfig(townRoot string) *Config {
 	return config
 }
 
+func legacyPidFilePath(config *Config) string {
+	return filepath.Join(config.DataDir, "dolt.pid")
+}
+
+func writePidFiles(config *Config, pid int) error {
+	pidText := []byte(strconv.Itoa(pid))
+	if err := os.WriteFile(config.PidFile, pidText, 0644); err != nil {
+		return err
+	}
+	legacyPath := legacyPidFilePath(config)
+	if legacyPath != config.PidFile {
+		if err := os.WriteFile(legacyPath, pidText, 0644); err != nil {
+			return fmt.Errorf("writing legacy PID file: %w", err)
+		}
+	}
+	return nil
+}
+
+func removePidFiles(config *Config) {
+	_ = os.Remove(config.PidFile)
+	legacyPath := legacyPidFilePath(config)
+	if legacyPath != config.PidFile {
+		_ = os.Remove(legacyPath)
+	}
+}
+
 // readDaemonEnvVar reads a single key=value variable from a simple env file.
 // Handles blank lines and # comments; returns "" if not found or on error.
 func readDaemonEnvVar(path, key string) string {
@@ -554,20 +580,22 @@ func IsRunning(townRoot string) (bool, int, error) {
 				// More reliable than ps string matching (ZFC fix: gt-utuk).
 				if isDoltServerOnPort(config.Port) {
 					if doltProcessMatchesTown(townRoot, pid, config) {
+						_ = writePidFiles(config, pid)
 						return true, pid, nil
 					}
 					// Port served by a different town's Dolt — fall through to stale cleanup
 				}
 			}
 		}
-		// PID file is stale, clean it up
-		_ = os.Remove(config.PidFile)
+		// PID file is stale, clean it up from both canonical and legacy paths.
+		removePidFiles(config)
 	}
 
 	// No valid PID file - check if port is in use by dolt anyway.
 	// This catches externally-started dolt servers.
 	pid := findDoltServerOnPort(config.Port)
 	if pid > 0 && doltProcessMatchesTown(townRoot, pid, config) {
+		_ = writePidFiles(config, pid)
 		return true, pid, nil
 	}
 
@@ -1069,8 +1097,8 @@ func KillImposters(townRoot string) error {
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if !processIsAlive(pid) {
-			// Clean up PID file if it pointed to the imposter
-			_ = os.Remove(config.PidFile)
+			// Clean up PID files if they pointed to the imposter.
+			removePidFiles(config)
 			return nil
 		}
 	}
@@ -1078,7 +1106,7 @@ func KillImposters(townRoot string) error {
 	// Force kill
 	_ = process.Kill()
 	time.Sleep(100 * time.Millisecond)
-	_ = os.Remove(config.PidFile)
+	removePidFiles(config)
 
 	return nil
 }
@@ -1459,7 +1487,7 @@ func Start(townRoot string) error {
 				if pidFromFile != pid {
 					// PID file is stale/wrong - update it
 					fmt.Printf("Updating stale PID file (was %d, actual %d)\n", pidFromFile, pid)
-					if err := os.WriteFile(config.PidFile, []byte(strconv.Itoa(pid)), 0644); err != nil {
+					if err := writePidFiles(config, pid); err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: could not update PID file: %v\n", err)
 					}
 					// Update state too
@@ -1608,8 +1636,8 @@ func Start(townRoot string) error {
 		fmt.Fprintf(os.Stderr, "Warning: failed to close dolt log file: %v\n", closeErr)
 	}
 
-	// Write PID file
-	if err := os.WriteFile(config.PidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0644); err != nil {
+	// Write PID files.
+	if err := writePidFiles(config, cmd.Process.Pid); err != nil {
 		// Try to kill the process we just started
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("writing PID file: %w", err)
@@ -1844,8 +1872,8 @@ func Stop(townRoot string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Clean up PID file
-	_ = os.Remove(config.PidFile)
+	// Clean up PID files.
+	removePidFiles(config)
 
 	// Update state - preserve historical info
 	state, _ := LoadState(townRoot)
@@ -3104,6 +3132,17 @@ func EnsureMetadata(townRoot, rigName string, doltDatabase ...string) error {
 		changed = true
 	}
 
+	// Align local metadata.json project_id with the authoritative value from the
+	// live shared database when available. This repairs clone-side project
+	// identity drift after partial bootstrap or database replacement without
+	// guessing locally.
+	if projectID, err := DatabaseProjectID(townRoot, effectiveDB); err == nil && projectID != "" {
+		if existing["project_id"] != projectID {
+			existing["project_id"] = projectID
+			changed = true
+		}
+	}
+
 	// Fast path: avoid rewriting metadata.json when already correct.
 	if !changed {
 		return nil
@@ -3119,6 +3158,28 @@ func EnsureMetadata(townRoot, rigName string, doltDatabase ...string) error {
 	}
 
 	return nil
+}
+
+func DatabaseProjectID(townRoot, dbName string) (string, error) {
+	config := DefaultConfig(townRoot)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := fmt.Sprintf("USE `%s`; SELECT value FROM metadata WHERE `key` = 'project_id' LIMIT 1", dbName)
+	cmd := buildDoltSQLCmd(ctx, config, "-r", "csv", "-q", query)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("querying project_id for %s: %w (%s)", dbName, err, strings.TrimSpace(string(output)))
+	}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed == "value" {
+			continue
+		}
+		return trimmed, nil
+	}
+	return "", nil
 }
 
 // buildRigPrefixMap reads rigs.json and returns a map from Dolt database name

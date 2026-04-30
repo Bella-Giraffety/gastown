@@ -73,7 +73,7 @@ func TestRunRepairChecks_FailsWhenBlockingIssueRemains(t *testing.T) {
 func TestBootstrapRepairChecks_HQOnlySurface(t *testing.T) {
 	names := checkNames(bootstrapRepairChecks())
 
-	for _, required := range []string{"town-config-exists", "town-config-valid", "rigs-registry-exists", "mayor-exists", "town-beads-config", "routes-config", "tmux-global-env", "stale-dolt-port", "database-prefix"} {
+	for _, required := range []string{"dolt-metadata", "town-config-exists", "town-config-valid", "rigs-registry-exists", "mayor-exists", "town-beads-config", "routes-config", "tmux-global-env", "stale-dolt-port", "database-prefix"} {
 		if !slices.Contains(names, required) {
 			t.Fatalf("bootstrapRepairChecks missing %q: %v", required, names)
 		}
@@ -88,7 +88,7 @@ func TestBootstrapRepairChecks_HQOnlySurface(t *testing.T) {
 func TestRigRepairChecks_IncludeRedirectAndAgentInvariantCoverage(t *testing.T) {
 	names := checkNames(rigRepairChecks())
 
-	for _, required := range []string{"rig-config-sync", "routes-config", "database-prefix", "stale-beads-redirect", "beads-redirect-target", "rig-beads-exist", "agent-beads-exist", "stale-dolt-port"} {
+	for _, required := range []string{"dolt-metadata", "rig-config-sync", "routes-config", "database-prefix", "stale-beads-redirect", "beads-redirect-target", "rig-beads-exist", "agent-beads-exist", "stale-dolt-port"} {
 		if !slices.Contains(names, required) {
 			t.Fatalf("rigRepairChecks missing %q: %v", required, names)
 		}

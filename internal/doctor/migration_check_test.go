@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -257,6 +258,69 @@ func TestDoltOrphanedDatabaseCheck_DetectsOrphans(t *testing.T) {
 	}
 }
 
+func TestDoltMetadataCheck_FixRepairsProjectIDDrift(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based dolt shim not reliable on Windows CI")
+	}
+
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+printf 'value\nserver-project-id\n'
+`
+	if err := os.WriteFile(filepath.Join(binDir, "dolt"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock dolt: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	townRoot := t.TempDir()
+	setupDoltDB(t, townRoot, "gastown")
+	setupRigsJSON(t, townRoot, []string{"gastown"})
+
+	beadsDir := filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	meta := map[string]interface{}{
+		"backend":       "dolt",
+		"dolt_mode":     "server",
+		"dolt_database": "gastown",
+		"project_id":    "stale-project-id",
+	}
+	data, _ := json.Marshal(meta)
+	metaPath := filepath.Join(beadsDir, "metadata.json")
+	if err := os.WriteFile(metaPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := &CheckContext{TownRoot: townRoot}
+	check := NewDoltMetadataCheck()
+	result := check.Run(ctx)
+	if result.Status != StatusWarning {
+		t.Fatalf("expected StatusWarning before fix, got %v: %s", result.Status, result.Message)
+	}
+
+	if err := check.Fix(ctx); err != nil {
+		t.Fatalf("fix failed: %v", err)
+	}
+
+	result = check.Run(ctx)
+	if result.Status != StatusOK {
+		t.Fatalf("expected StatusOK after fix, got %v: %s", result.Status, result.Message)
+	}
+
+	repaired, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	var updated map[string]interface{}
+	if err := json.Unmarshal(repaired, &updated); err != nil {
+		t.Fatalf("parse metadata: %v", err)
+	}
+	if updated["project_id"] != "server-project-id" {
+		t.Fatalf("project_id = %v, want %q", updated["project_id"], "server-project-id")
+	}
+}
+
 func TestDoltOrphanedDatabaseCheck_Fix(t *testing.T) {
 	townRoot := t.TempDir()
 
@@ -324,4 +388,3 @@ func TestDoltOrphanedDatabaseCheck_Name(t *testing.T) {
 		t.Errorf("expected name 'dolt-orphaned-databases', got %q", check.Name())
 	}
 }
-

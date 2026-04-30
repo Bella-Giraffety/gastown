@@ -13,8 +13,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/spf13/cobra"
-	"github.com/steveyegge/gastown/internal/cli"
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/cli"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/deps"
@@ -663,6 +663,14 @@ func initTownBeads(townPath string) error {
 	if prefixOutput, prefixErr := prefixCmd.CombinedOutput(); prefixErr != nil {
 		fmt.Printf("   %s Could not set allowed_prefixes: %s\n", style.Dim.Render("⚠"), strings.TrimSpace(string(prefixOutput)))
 	}
+
+	// Ensure the HQ database fingerprint is stamped non-interactively.
+	// Without --yes, bd prompts for confirmation and cancels in unattended
+	// install/bootstrap flows, leaving repo identity drift behind.
+	migrateCmd := exec.Command("bd", "migrate", "--update-repo-id", "--yes")
+	migrateCmd.Dir = townPath
+	migrateCmd.Env = beadsEnv
+	_, _ = migrateCmd.CombinedOutput()
 
 	// Ensure issues.jsonl exists — bd expects this file for git-tracked issue data.
 	issuesJSONL := filepath.Join(townPath, ".beads", "issues.jsonl")

@@ -79,6 +79,7 @@ Rig checks (with --rig flag):
   - mayor-clone-exists       Verify mayor/rig/ clone exists (fixable)
   - polecat-clones-valid     Verify polecat directories are valid clones
   - beads-config-valid       Verify beads configuration (fixable)
+  - beads-repo-fingerprint   Detect shared Beads repo fingerprint drift
 
 Routing checks (fixable):
   - routes-config            Check beads routing configuration
@@ -185,7 +186,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	d.Register(doctor.NewOverlayHealthCheck())
 	d.Register(doctor.NewPrefixConflictCheck())
 	d.Register(doctor.NewRigNameMismatchCheck())
-	d.Register(doctor.NewRigConfigSyncCheck()) // Check all registered rigs have config.json
+	d.Register(doctor.NewRigConfigSyncCheck())      // Check all registered rigs have config.json
 	d.Register(doctor.NewStaleDoltPortCheck())      // Check for stale Dolt port files
 	d.Register(doctor.NewStaleSQLServerInfoCheck()) // Check for stale sql-server.info files (GH#2770)
 	d.Register(doctor.NewPrefixMismatchCheck())
