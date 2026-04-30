@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -146,5 +147,53 @@ func TestEnsureBeadsConfigYAML_AddsMissingIssuePrefixKey(t *testing.T) {
 	}
 	if !strings.Contains(text, "issue-prefix: hq\n") {
 		t.Fatalf("config.yaml missing issue-prefix: %q", text)
+	}
+}
+
+func TestInitTownBeadsRunsRepoIDMigrationNonInteractive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based bd shim not reliable on Windows CI")
+	}
+
+	townDir := t.TempDir()
+	cmdLog := filepath.Join(t.TempDir(), "bd-cmds.log")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$BD_CMD_LOG"
+cmd="$1"
+shift || true
+case "$cmd" in
+  init)
+    mkdir -p "$PWD/.beads"
+    ;;
+  config)
+    if [[ "${1:-}" == "get" && "${2:-}" == "types.custom" ]]; then
+      printf 'agent,role,rig,convoy,slot\n'
+    fi
+    ;;
+esac
+exit 0
+`
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BD_CMD_LOG", cmdLog)
+
+	if err := initTownBeads(townDir); err != nil {
+		t.Fatalf("initTownBeads: %v", err)
+	}
+
+	logData, err := os.ReadFile(cmdLog)
+	if err != nil {
+		t.Fatalf("reading command log: %v", err)
+	}
+	cmds := string(logData)
+	if !strings.Contains(cmds, "migrate --update-repo-id --yes") {
+		t.Fatalf("expected 'bd migrate --update-repo-id --yes' in command log, got:\n%s", cmds)
 	}
 }

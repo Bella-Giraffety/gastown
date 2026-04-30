@@ -588,6 +588,9 @@ exit 0
 	if !strings.Contains(cmds, "config set issue_prefix myrig") {
 		t.Errorf("expected 'bd config set issue_prefix myrig' in commands log, got:\n%s", cmds)
 	}
+	if !strings.Contains(cmds, "migrate --update-repo-id --yes") {
+		t.Errorf("expected 'bd migrate --update-repo-id --yes' in commands log, got:\n%s", cmds)
+	}
 }
 
 func TestInitAgentBeadsUsesRigBeadsDir(t *testing.T) {

@@ -34,6 +34,58 @@ For a full diagnostic with auto-fix, use 'gt doctor --fix'.`,
 
 func init() {
 	rootCmd.AddCommand(repairCmd)
+	repairCmd.AddCommand(repairBootstrapCmd)
+}
+
+func rigRepairChecks() []doctor.Check {
+	return []doctor.Check{
+		doctor.NewDoltMetadataCheck(),
+		doctor.NewRigConfigSyncCheck(),
+		doctor.NewRoutesCheck(),
+		doctor.NewDatabasePrefixCheck(),
+		doctor.NewStaleBeadsRedirectCheck(),
+		doctor.NewBeadsRedirectTargetCheck(),
+		doctor.NewRigBeadsCheck(),
+		doctor.NewAgentBeadsCheck(),
+		doctor.NewStaleDoltPortCheck(),
+	}
+}
+
+func bootstrapRepairChecks() []doctor.Check {
+	return []doctor.Check{
+		doctor.NewDoltMetadataCheck(),
+		doctor.NewTownConfigExistsCheck(),
+		doctor.NewTownConfigValidCheck(),
+		doctor.NewRigsRegistryExistsCheck(),
+		doctor.NewMayorExistsCheck(),
+		doctor.NewTownBeadsConfigCheck(),
+		doctor.NewRoutesCheck(),
+		doctor.NewTmuxGlobalEnvCheck(),
+		doctor.NewStaleDoltPortCheck(),
+		doctor.NewDatabasePrefixCheck(),
+	}
+}
+
+func runRepairChecks(townRoot, rigName, title string, checks ...doctor.Check) error {
+	ctx := &doctor.CheckContext{
+		TownRoot: townRoot,
+		RigName:  rigName,
+		Verbose:  true,
+	}
+
+	d := doctor.NewDoctor()
+	d.RegisterAll(checks...)
+
+	if title != "" {
+		fmt.Println(title)
+		fmt.Println()
+	}
+
+	report := d.FixStreaming(ctx, os.Stdout, 0)
+	if report.HasErrors() {
+		return fmt.Errorf("repair left %d blocking issue(s)", report.Summary.Errors)
+	}
+	return nil
 }
 
 func runRepair(cmd *cobra.Command, args []string) error {

@@ -1857,6 +1857,7 @@ func RigChecks() []Check {
 		NewMayorCloneExistsCheck(),
 		NewPolecatClonesValidCheck(),
 		NewBeadsConfigValidCheck(),
+		NewBeadsRepoFingerprintCheck(),
 		NewBeadsRedirectCheck(),
 		NewTestutilSymlinkCheck(),
 	}
