@@ -275,6 +275,121 @@ exit 0
 	}
 }
 
+func writeCreateRecorderBDStub(t *testing.T, dir, argsPath, cwdPath, beadsDirPath string) {
+	t.Helper()
+
+	var scriptPath, script string
+	if runtime.GOOS == "windows" {
+		scriptPath = filepath.Join(dir, "bd.bat")
+		script = fmt.Sprintf(`@echo off
+setlocal enableextensions
+if "%%1"=="--allow-stale" shift
+>"%s" <nul set /p =%%*
+>"%s" <nul set /p =%%CD%%
+>"%s" <nul set /p =%%BEADS_DIR%%
+echo {"id":"gt-test","title":"stub create"}
+`, argsPath, cwdPath, beadsDirPath)
+	} else {
+		scriptPath = filepath.Join(dir, "bd")
+		script = fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "--allow-stale" ]; then
+  shift
+fi
+printf '%%s' "$*" > %q
+printf '%%s' "$PWD" > %q
+printf '%%s' "$BEADS_DIR" > %q
+printf '{"id":"gt-test","title":"stub create"}'
+`, argsPath, cwdPath, beadsDirPath)
+	}
+
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write create recorder bd stub: %v", err)
+	}
+}
+
+func TestCreateWithRigRunsInResolvedRigDir(t *testing.T) {
+	bdAllowStaleMu.Lock()
+	prevPath := bdAllowStalePath
+	prevResult := bdAllowStaleResult
+	bdAllowStaleMu.Unlock()
+	ResetBdAllowStaleCacheForTest()
+	t.Cleanup(func() {
+		bdAllowStaleMu.Lock()
+		bdAllowStalePath = prevPath
+		bdAllowStaleResult = prevResult
+		bdAllowStaleMu.Unlock()
+	})
+
+	townRoot := t.TempDir()
+	rigRoot := filepath.Join(townRoot, "gastown")
+	canonicalBeadsDir := filepath.Join(rigRoot, "mayor", "rig", ".beads")
+	workDir := filepath.Join(rigRoot, "polecats", "fury")
+
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir town mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte("{}"), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.MkdirAll(canonicalBeadsDir, 0755); err != nil {
+		t.Fatalf("mkdir canonical beads: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(rigRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir rig beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rigRoot, ".beads", "redirect"), []byte("mayor/rig/.beads\n"), 0644); err != nil {
+		t.Fatalf("write rig redirect: %v", err)
+	}
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		t.Fatalf("mkdir workdir: %v", err)
+	}
+
+	stubDir := t.TempDir()
+	argsPath := filepath.Join(stubDir, "args.txt")
+	cwdPath := filepath.Join(stubDir, "cwd.txt")
+	beadsDirPath := filepath.Join(stubDir, "beads_dir.txt")
+	writeCreateRecorderBDStub(t, stubDir, argsPath, cwdPath, beadsDirPath)
+
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+origPath)
+
+	b := New(workDir)
+	issue, err := b.Create(CreateOptions{Title: "redirect-safe create", Rig: "gastown"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if issue == nil || issue.ID != "gt-test" {
+		t.Fatalf("Create() issue = %#v, want parsed stub issue", issue)
+	}
+
+	argsData, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	cwdData, err := os.ReadFile(cwdPath)
+	if err != nil {
+		t.Fatalf("read cwd: %v", err)
+	}
+	beadsDirData, err := os.ReadFile(beadsDirPath)
+	if err != nil {
+		t.Fatalf("read BEADS_DIR: %v", err)
+	}
+
+	gotArgs := strings.TrimSpace(string(argsData))
+	if !strings.Contains(gotArgs, "create --json --title=redirect-safe create") {
+		t.Fatalf("bd args = %q, want create invocation", gotArgs)
+	}
+	if strings.Contains(gotArgs, "--repo=") {
+		t.Fatalf("bd args = %q, want no --repo flag", gotArgs)
+	}
+	if gotCWD := strings.TrimSpace(string(cwdData)); gotCWD != rigRoot {
+		t.Fatalf("bd cwd = %q, want %q", gotCWD, rigRoot)
+	}
+	if gotBeadsDir := strings.TrimSpace(string(beadsDirData)); gotBeadsDir != canonicalBeadsDir {
+		t.Fatalf("BEADS_DIR = %q, want %q", gotBeadsDir, canonicalBeadsDir)
+	}
+}
+
 // TestUpdateOptions verifies UpdateOptions pointer fields.
 func TestUpdateOptions(t *testing.T) {
 	status := "in_progress"

@@ -306,7 +306,7 @@ type CreateOptions struct {
 	Parent      string
 	Actor       string // Who is creating this issue (populates created_by)
 	Ephemeral   bool   // Create as ephemeral (wisp) - not synced to git
-	Rig         string // Target rig database (e.g., "gantry"). When set, routes bd create to the rig's directory via --repo.
+	Rig         string // Target rig database (e.g., "gantry"). When set, routes bd create through the rig's resolved beads directory.
 }
 
 // UpdateOptions specifies options for updating an issue.
@@ -488,6 +488,29 @@ func (b *Beads) run(args ...string) (_ []byte, retErr error) {
 	}
 
 	return stripStdoutWarnings(stdout.Bytes()), nil
+}
+
+// runInRig executes a bd command against a specific rig's beads store.
+// This avoids bd create --repo, which does not follow .beads/redirect.
+func (b *Beads) runInRig(rigName string, args ...string) ([]byte, error) {
+	townRoot := b.getTownRoot()
+	if townRoot == "" {
+		return nil, fmt.Errorf("runInRig: cannot resolve town root from workDir %q", b.workDir)
+	}
+
+	rigPath := filepath.Join(townRoot, rigName)
+	resolved := ResolveBeadsDir(rigPath)
+	if resolved == "" {
+		return nil, fmt.Errorf("runInRig: cannot resolve beads dir for rig %q at %s", rigName, rigPath)
+	}
+
+	rigBeads := &Beads{
+		workDir:    rigPath,
+		beadsDir:   resolved,
+		isolated:   b.isolated,
+		serverPort: b.serverPort,
+	}
+	return rigBeads.run(args...)
 }
 
 // runWithRouting executes a bd command without setting BEADS_DIR, allowing bd's
@@ -1234,13 +1257,6 @@ func (b *Beads) Create(opts CreateOptions) (*Issue, error) {
 	if opts.Ephemeral {
 		args = append(args, "--ephemeral")
 	}
-	if opts.Rig != "" {
-		if townRoot := b.getTownRoot(); townRoot != "" {
-			if rigDir := GetRigDirForName(townRoot, opts.Rig); rigDir != "" {
-				args = append(args, "--repo="+rigDir)
-			}
-		}
-	}
 	// Default Actor from BD_ACTOR env var if not specified
 	// Uses getActor() to respect isolated mode (tests)
 	actor := opts.Actor
@@ -1251,7 +1267,13 @@ func (b *Beads) Create(opts CreateOptions) (*Issue, error) {
 		args = append(args, "--actor="+actor)
 	}
 
-	out, err := b.run(args...)
+	var out []byte
+	var err error
+	if opts.Rig != "" {
+		out, err = b.runInRig(opts.Rig, args...)
+	} else {
+		out, err = b.run(args...)
+	}
 	if err != nil {
 		return nil, err
 	}
