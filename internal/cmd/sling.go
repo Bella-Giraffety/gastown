@@ -401,7 +401,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			DryRun:      slingDryRun,
 			Force:       slingForce,
 			NoMerge:     slingNoMerge,
-				ReviewOnly:  slingReviewOnly,
+			ReviewOnly:  slingReviewOnly,
 			Account:     slingAccount,
 			Agent:       slingAgent,
 			HookRawBead: slingHookRawBead,
@@ -764,6 +764,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 
 	// Auto-convoy: check if issue is already tracked by a convoy
 	// If not, create one for dashboard visibility (unless --no-convoy is set)
+	var convoyID string // Hoisted so fieldUpdates can persist it on the work bead.
 	if !slingNoConvoy && formulaName == "" {
 		existingConvoy := isTrackedByConvoy(beadID)
 		if existingConvoy == "" {
@@ -774,7 +775,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 					fmt.Printf("Would set convoy merge strategy: %s\n", slingMerge)
 				}
 			} else {
-				convoyID, err := createAutoConvoy(beadID, info.Title, slingOwned, slingMerge, slingBaseBranch)
+				var err error
+				convoyID, err = createAutoConvoy(beadID, info.Title, slingOwned, slingMerge, slingBaseBranch)
 				if err != nil {
 					// Log warning but don't fail - convoy is optional
 					fmt.Printf("%s Could not create auto-convoy: %v\n", style.Dim.Render("Warning:"), err)
@@ -966,6 +968,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		AttachedFormula:  formulaName,
 		NoMerge:          slingNoMerge,
 		ReviewOnly:       slingReviewOnly,
+		ConvoyID:         convoyID,
+		MergeStrategy:    slingMerge,
+		ConvoyOwned:      slingOwned,
 		FormulaVars:      strings.Join(slingVars, "\n"),
 	}
 	if err := storeFieldsInBead(beadID, fieldUpdates); err != nil {
