@@ -34,6 +34,8 @@ var ErrUnknownAnnounce = errors.New("unknown announce channel")
 // session to become idle before falling back to a queued nudge.
 const DefaultIdleNotifyTimeout = 3 * time.Second
 
+const replyReminderNudgeKind = "reply-reminder"
+
 // Router handles message delivery via beads.
 // It routes messages to the correct beads database based on address:
 // - Town-level (mayor/, deacon/) -> {townRoot}/.beads
@@ -1748,11 +1750,24 @@ func (r *Router) enqueueReplyReminder(msg *Message, sessionID string) {
 		Sender:       "system",
 		Message:      fmt.Sprintf("Remember to reply to %s (subject: %q) via `gt mail send %s` — not in chat.", msg.From, msg.Subject, msg.From),
 		Priority:     nudge.PriorityNormal,
+		Kind:         replyReminderNudgeKind,
+		ThreadID:     msg.ThreadID,
 		DeliverAfter: time.Now().Add(delay),
 	}
 	if err := nudge.Enqueue(r.townRoot, sessionID, reminder); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to enqueue reply reminder for %s: %v\n", sessionID, err)
 	}
+}
+
+// ClearReplyReminder removes queued reply reminders for a handled mail thread.
+func ClearReplyReminder(townRoot, sessionID, threadID string) error {
+	if townRoot == "" || sessionID == "" || threadID == "" {
+		return nil
+	}
+	_, err := nudge.RemoveMatching(townRoot, sessionID, func(n nudge.QueuedNudge) bool {
+		return n.Kind == replyReminderNudgeKind && n.ThreadID == threadID
+	})
+	return err
 }
 
 // IsRecipientMuted checks if a mail recipient has DND/muted notifications enabled.

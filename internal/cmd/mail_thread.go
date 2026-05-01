@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/mail"
+	"github.com/steveyegge/gastown/internal/runtime"
 	"github.com/steveyegge/gastown/internal/style"
 )
 
@@ -145,6 +146,9 @@ func runMailReply(cmd *cobra.Command, args []string) error {
 	defer router.WaitPendingNotifications()
 	if err := router.Send(reply); err != nil {
 		return fmt.Errorf("sending reply: %w", err)
+	}
+	if err := mail.ClearReplyReminder(workDir, runtime.SessionIDFromEnv(), reply.ThreadID); err != nil {
+		style.PrintWarning("could not clear queued reply reminder for thread %s: %v", reply.ThreadID, err)
 	}
 
 	fmt.Printf("%s Reply sent to %s\n", style.Bold.Render("✓"), original.From)

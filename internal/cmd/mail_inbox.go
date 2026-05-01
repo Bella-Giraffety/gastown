@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/mail"
+	"github.com/steveyegge/gastown/internal/runtime"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/style"
 )
@@ -475,10 +476,18 @@ func runMailMarkRead(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 		marked := 0
+		sessionID := runtime.SessionIDFromEnv()
+		workDir, workErr := findMailWorkDir()
+		if workErr != nil {
+			return fmt.Errorf("not in a Gas Town workspace: %w", workErr)
+		}
 		for _, msg := range messages {
 			if err := mailbox.MarkReadOnly(msg.ID); err != nil {
 				style.PrintWarning("could not mark %s as read: %v", msg.ID, err)
 			} else {
+				if clearErr := mail.ClearReplyReminder(workDir, sessionID, msg.ThreadID); clearErr != nil {
+					style.PrintWarning("could not clear queued reply reminder for thread %s: %v", msg.ThreadID, clearErr)
+				}
 				marked++
 			}
 		}
@@ -493,10 +502,23 @@ func runMailMarkRead(cmd *cobra.Command, args []string) error {
 	// Mark all specified messages as read
 	marked := 0
 	var errors []string
+	sessionID := runtime.SessionIDFromEnv()
+	workDir, workErr := findMailWorkDir()
+	if workErr != nil {
+		return fmt.Errorf("not in a Gas Town workspace: %w", workErr)
+	}
 	for _, msgID := range args {
+		msg, err := mailbox.Get(msgID)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", msgID, err))
+			continue
+		}
 		if err := mailbox.MarkReadOnly(msgID); err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", msgID, err))
 		} else {
+			if clearErr := mail.ClearReplyReminder(workDir, sessionID, msg.ThreadID); clearErr != nil {
+				style.PrintWarning("could not clear queued reply reminder for thread %s: %v", msg.ThreadID, clearErr)
+			}
 			marked++
 		}
 	}

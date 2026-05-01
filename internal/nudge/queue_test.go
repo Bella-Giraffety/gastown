@@ -561,6 +561,41 @@ func TestDrainDeliversDeferredNudgeWhenReady(t *testing.T) {
 	}
 }
 
+func TestRemoveMatching_RemovesOnlyMatchingNudges(t *testing.T) {
+	townRoot := t.TempDir()
+	session := "gt-test-remove-matching"
+
+	keep := QueuedNudge{Sender: "mayor", Message: "keep", Kind: "mail", ThreadID: "thread-keep"}
+	remove := QueuedNudge{Sender: "system", Message: "remove", Kind: "reply-reminder", ThreadID: "thread-drop"}
+	if err := Enqueue(townRoot, session, keep); err != nil {
+		t.Fatalf("Enqueue keep: %v", err)
+	}
+	if err := Enqueue(townRoot, session, remove); err != nil {
+		t.Fatalf("Enqueue remove: %v", err)
+	}
+
+	removed, err := RemoveMatching(townRoot, session, func(n QueuedNudge) bool {
+		return n.Kind == "reply-reminder" && n.ThreadID == "thread-drop"
+	})
+	if err != nil {
+		t.Fatalf("RemoveMatching: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+
+	nudges, err := Drain(townRoot, session)
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if len(nudges) != 1 {
+		t.Fatalf("Drain returned %d nudges, want 1", len(nudges))
+	}
+	if nudges[0].Message != "keep" {
+		t.Fatalf("remaining message = %q, want %q", nudges[0].Message, "keep")
+	}
+}
+
 // TestDrainMixedDeferredAndReady verifies that only ready nudges are returned
 // when a mix of deferred and immediately-deliverable nudges are queued.
 func TestDrainMixedDeferredAndReady(t *testing.T) {

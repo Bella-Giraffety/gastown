@@ -1878,6 +1878,50 @@ func TestEnqueueReplyReminder_Basic(t *testing.T) {
 	if !strings.Contains(q.Message, "gt mail send") {
 		t.Errorf("reminder message should mention 'gt mail send', got %q", q.Message)
 	}
+	if q.Kind != replyReminderNudgeKind {
+		t.Errorf("Kind = %q, want %q", q.Kind, replyReminderNudgeKind)
+	}
+	if q.ThreadID != msg.ThreadID {
+		t.Errorf("ThreadID = %q, want %q", q.ThreadID, msg.ThreadID)
+	}
+}
+
+func TestClearReplyReminder_RemovesMatchingQueuedReminder(t *testing.T) {
+	townRoot := t.TempDir()
+	sessionID := "gt-gastown-crew-alice"
+	threadID := "thread-123"
+
+	if err := nudge.Enqueue(townRoot, sessionID, nudge.QueuedNudge{
+		Sender:   "system",
+		Message:  "reply reminder",
+		Kind:     replyReminderNudgeKind,
+		ThreadID: threadID,
+	}); err != nil {
+		t.Fatalf("Enqueue reminder: %v", err)
+	}
+	if err := nudge.Enqueue(townRoot, sessionID, nudge.QueuedNudge{
+		Sender:   "mayor",
+		Message:  "keep",
+		Kind:     "mail",
+		ThreadID: threadID,
+	}); err != nil {
+		t.Fatalf("Enqueue other: %v", err)
+	}
+
+	if err := ClearReplyReminder(townRoot, sessionID, threadID); err != nil {
+		t.Fatalf("ClearReplyReminder: %v", err)
+	}
+
+	nudges, err := nudge.Drain(townRoot, sessionID)
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if len(nudges) != 1 {
+		t.Fatalf("remaining nudges = %d, want 1", len(nudges))
+	}
+	if nudges[0].Message != "keep" {
+		t.Fatalf("remaining message = %q, want %q", nudges[0].Message, "keep")
+	}
 }
 
 // TestEnqueueReplyReminder_SkipsReply verifies that reply-type messages do not

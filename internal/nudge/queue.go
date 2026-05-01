@@ -137,6 +137,64 @@ func Enqueue(townRoot, session string, nudge QueuedNudge) error {
 	return nil
 }
 
+// RemoveMatching removes queued nudges for a session that match the predicate.
+// It only scans queued .json entries; nudges already claimed by an active drain
+// are left alone and may be swept or delivered by the existing drain logic.
+func RemoveMatching(townRoot, session string, match func(QueuedNudge) bool) (int, error) {
+	dir := queueDir(townRoot, session)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("reading nudge queue: %w", err)
+	}
+
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(dir, entry.Name())
+		claimPath := path + ".claimed." + randomSuffix()
+		if err := os.Rename(path, claimPath); err != nil {
+			continue
+		}
+
+		data, err := os.ReadFile(claimPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				_ = os.Rename(claimPath, path)
+			}
+			continue
+		}
+
+		var n QueuedNudge
+		if err := json.Unmarshal(data, &n); err != nil {
+			if rmErr := os.Remove(claimPath); rmErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to remove malformed claim %s: %v\n", entry.Name(), rmErr)
+			}
+			continue
+		}
+
+		if match(n) {
+			if rmErr := os.Remove(claimPath); rmErr != nil {
+				return removed, fmt.Errorf("removing matched nudge %s: %w", entry.Name(), rmErr)
+			}
+			removed++
+			continue
+		}
+
+		if err := os.Rename(claimPath, path); err != nil {
+			return removed, fmt.Errorf("restoring unmatched nudge %s: %w", entry.Name(), err)
+		}
+	}
+
+	return removed, nil
+}
+
 // Requeue writes previously drained nudges back to the queue for later delivery.
 // Existing timestamps are preserved so FIFO ordering remains stable relative to
 // one another; only expired nudges are skipped.
