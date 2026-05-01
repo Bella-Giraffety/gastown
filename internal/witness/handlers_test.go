@@ -74,6 +74,57 @@ func TestHandlePolecatDoneFromBead_ProtocolType(t *testing.T) {
 	}
 }
 
+func TestDefaultBdCli_UsesResolvedBeadsDir(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	binDir := filepath.Join(workDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	logPath := filepath.Join(workDir, "bd-env.log")
+	if runtime.GOOS == "windows" {
+		stub := "@echo off\r\n" +
+			"setlocal EnableDelayedExpansion\r\n" +
+			"echo %BEADS_DIR%>>\"" + logPath + "\"\r\n" +
+			"if \"%1\"==\"--allow-stale\" shift\r\n" +
+			"echo [{\"id\":\"gt-123\",\"status\":\"open\"}]\r\n"
+		if err := os.WriteFile(filepath.Join(binDir, "bd.cmd"), []byte(stub), 0644); err != nil {
+			t.Fatalf("write bd.cmd: %v", err)
+		}
+	} else {
+		stub := "#!/bin/sh\n" +
+			"printf '%s\n' \"${BEADS_DIR}\" >> \"" + logPath + "\"\n" +
+			"if [ \"$1\" = \"--allow-stale\" ]; then\n" +
+			"  shift\n" +
+			"fi\n" +
+			"printf '[{\"id\":\"gt-123\",\"status\":\"open\"}]\\n'\n"
+		if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(stub), 0755); err != nil {
+			t.Fatalf("write bd: %v", err)
+		}
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+
+	if _, err := DefaultBdCli().Exec(workDir, "show", "gt-123", "--json"); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+
+	logged, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	want := filepath.Join(workDir, ".beads")
+	for _, got := range strings.Split(strings.TrimSpace(string(logged)), "\n") {
+		if got != want {
+			t.Fatalf("BEADS_DIR = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestZombieResult_Types(t *testing.T) {
 	t.Parallel()
 	// Verify the ZombieResult type has all expected fields

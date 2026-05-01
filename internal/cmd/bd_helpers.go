@@ -141,7 +141,7 @@ func (b *bdCmd) Build() *exec.Cmd {
 
 // resolvedArgs returns the final args, stripping --allow-stale if bd doesn't support it.
 func (b *bdCmd) resolvedArgs() []string {
-	if beads.BdSupportsAllowStale() {
+	if beads.BdSupportsAllowStaleWithEnv(b.buildEnv()) {
 		return b.args
 	}
 	filtered := make([]string, 0, len(b.args))

@@ -187,20 +187,58 @@ exit 0
 
 // TestCleanupSpawnedPolecat_WithNilSpawnInfo handles nil spawnInfo gracefully.
 func TestCleanupSpawnedPolecat_WithNilSpawnInfo(t *testing.T) {
-	// This test verifies that cleanupSpawnedPolecat doesn't panic when spawnInfo is nil
-	// The function should handle this gracefully
-
-	// We expect this to return early without panicking
-	// In practice this might dereference nil, so let's check
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("ISSUE: cleanupSpawnedPolecat panics with nil spawnInfo: %v", r)
-			// Don't fail the test, just document the behavior
-			t.Skip("Known issue: cleanupSpawnedPolecat panics with nil spawnInfo")
-		}
-	}()
-
 	cleanupSpawnedPolecat(nil, "gastown", "")
+}
+
+func TestCloseConvoy_StripsInheritedBeadsDir(t *testing.T) {
+	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
+
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd_close.log")
+	if runtime.GOOS == "windows" {
+		stub := "@echo off\r\n" +
+			"setlocal EnableDelayedExpansion\r\n" +
+			"echo %BEADS_DIR%>>\"" + logPath + "\"\r\n" +
+			"exit /b 0\r\n"
+		writeRollbackCleanupBDStub(t, binDir, "", stub)
+	} else {
+		stub := "#!/bin/sh\n" +
+			"printf '%s\n' \"${BEADS_DIR}\" >> \"" + logPath + "\"\n"
+		writeRollbackCleanupBDStub(t, binDir, stub, "")
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+	t.Setenv(EnvGTRole, "mayor")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	closeConvoy("hq-cv-123", "rollback")
+
+	logged, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if got := strings.TrimSpace(string(logged)); got != "" {
+		t.Fatalf("BEADS_DIR leaked to bd close: %q", got)
+	}
 }
 
 // TestCloseConvoy_ClosesConvoy verifies that the convoy is closed

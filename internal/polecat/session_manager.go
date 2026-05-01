@@ -3,11 +3,9 @@ package polecat
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,7 +21,6 @@ import (
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/tmux"
-	"github.com/steveyegge/gastown/internal/util"
 )
 
 // debugSession logs non-fatal errors during session startup when GT_DEBUG_SESSION=1.
@@ -824,28 +821,17 @@ func (m *SessionManager) resolveBeadsDir(issueID, fallbackDir string) string {
 // from agents retrying work on invalid issues.
 func (m *SessionManager) validateIssue(issueID, workDir string) error {
 	bdWorkDir := m.resolveBeadsDir(issueID, workDir)
+	bd := beads.NewWithBeadsDir(bdWorkDir, beads.ResolveBeadsDir(bdWorkDir))
 
-	ctx, cancel := context.WithTimeout(context.Background(), constants.BdCommandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "bd", "show", issueID, "--json") //nolint:gosec // G204: bd is a trusted internal tool
-	util.SetDetachedProcessGroup(cmd)
-	cmd.Dir = bdWorkDir
-	output, err := cmd.Output()
+	issue, err := bd.Show(issueID)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrIssueInvalid, issueID)
 	}
-
-	var issues []struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(output, &issues); err != nil {
-		return fmt.Errorf("parsing issue: %w", err)
-	}
-	if len(issues) == 0 {
+	if issue == nil {
 		return fmt.Errorf("%w: %s", ErrIssueInvalid, issueID)
 	}
-	if beads.IssueStatus(issues[0].Status).IsTerminal() {
-		return fmt.Errorf("%w: %s has terminal status %s", ErrIssueInvalid, issueID, issues[0].Status)
+	if beads.IssueStatus(issue.Status).IsTerminal() {
+		return fmt.Errorf("%w: %s has terminal status %s", ErrIssueInvalid, issueID, issue.Status)
 	}
 	return nil
 }
@@ -922,14 +908,9 @@ func (m *SessionManager) verifyStartupNudgeDelivery(sessionID string, rc *config
 // hookIssue pins an issue to a polecat's hook using bd update.
 func (m *SessionManager) hookIssue(issueID, agentID, workDir string) error {
 	bdWorkDir := m.resolveBeadsDir(issueID, workDir)
-
-	ctx, cancel := context.WithTimeout(context.Background(), constants.BdCommandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "bd", "update", issueID, "--status=hooked", "--assignee="+agentID) //nolint:gosec // G204: bd is a trusted internal tool
-	util.SetDetachedProcessGroup(cmd)
-	cmd.Dir = bdWorkDir
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	bd := beads.NewWithBeadsDir(bdWorkDir, beads.ResolveBeadsDir(bdWorkDir))
+	hooked := "hooked"
+	if err := bd.Update(issueID, beads.UpdateOptions{Status: &hooked, Assignee: &agentID}); err != nil {
 		return fmt.Errorf("bd update failed: %w", err)
 	}
 	fmt.Printf("✓ Hooked issue %s to %s\n", issueID, agentID)

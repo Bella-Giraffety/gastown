@@ -29,6 +29,7 @@ type SpawnedPolecatInfo struct {
 	ClonePath   string // Path to polecat's git worktree
 	SessionName string // Tmux session name (e.g., "gt-gastown-p-Toast")
 	Pane        string // Tmux pane ID (empty until StartSession is called)
+	IssueID     string // Hooked bead for this run, used to refresh session context
 	BaseBranch  string // Effective base branch (e.g., "main", "integration/epic-id")
 	Branch      string // Git branch name (for cleanup on rollback)
 
@@ -225,6 +226,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 				ClonePath:   polecatObj.ClonePath,
 				SessionName: sessionName,
 				Pane:        "",
+				IssueID:     opts.HookBead,
 				BaseBranch:  effectiveBranch,
 				Branch:      polecatObj.Branch,
 				account:     opts.Account,
@@ -309,6 +311,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		ClonePath:   polecatObj.ClonePath,
 		SessionName: sessionName,
 		Pane:        "", // Empty until StartSession is called
+		IssueID:     opts.HookBead,
 		BaseBranch:  effectiveBranch,
 		Branch:      polecatObj.Branch,
 		account:     opts.Account,
@@ -359,6 +362,7 @@ func (s *SpawnedPolecatInfo) StartSession() (string, error) {
 	startOpts := polecat.SessionStartOptions{
 		RuntimeConfigDir: claudeConfigDir,
 		Agent:            s.agent,
+		Issue:            s.IssueID,
 	}
 	if err := polecatSessMgr.Start(s.PolecatName, startOpts); err != nil {
 		return "", fmt.Errorf("starting session: %w", err)

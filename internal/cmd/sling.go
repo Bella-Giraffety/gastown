@@ -401,7 +401,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			DryRun:      slingDryRun,
 			Force:       slingForce,
 			NoMerge:     slingNoMerge,
-				ReviewOnly:  slingReviewOnly,
+			ReviewOnly:  slingReviewOnly,
 			Account:     slingAccount,
 			Agent:       slingAgent,
 			HookRawBead: slingHookRawBead,
@@ -1177,9 +1177,10 @@ func rollbackSlingArtifacts(spawnInfo *SpawnedPolecatInfo, beadID, hookWorkDir, 
 
 			// 2. Unhook the bead (set status back to open so it can be re-slung).
 			unhookDir := beads.ResolveHookDir(townRoot, beadID, hookWorkDir)
-			unhookCmd := exec.Command("bd", "update", beadID, "--status=open", "--assignee=")
-			unhookCmd.Dir = unhookDir
-			if err := unhookCmd.Run(); err != nil {
+			if err := BdCmd("update", beadID, "--status=open", "--assignee=").
+				Dir(unhookDir).
+				StripBeadsDir().
+				Run(); err != nil {
 				fmt.Printf("  %s Could not unhook bead %s: %v\n", style.Dim.Render("Warning:"), beadID, err)
 			} else {
 				fmt.Printf("  %s Unhooked bead %s\n", style.Dim.Render("○"), beadID)

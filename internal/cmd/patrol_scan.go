@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -106,9 +107,9 @@ type PatrolScanStallItem struct {
 
 // PatrolScanCompleteOutput holds completion discovery results.
 type PatrolScanCompleteOutput struct {
-	Checked   int                       `json:"checked"`
-	Found     int                       `json:"found"`
-	Completed []PatrolScanCompleteItem  `json:"completed,omitempty"`
+	Checked   int                      `json:"checked"`
+	Found     int                      `json:"found"`
+	Completed []PatrolScanCompleteItem `json:"completed,omitempty"`
 }
 
 // PatrolScanCompleteItem is a single completion discovery in scan output.
@@ -144,7 +145,10 @@ func runPatrolScan(cmd *cobra.Command, args []string) error {
 
 	bd := witness.DefaultBdCli()
 	router := mail.NewRouter(townRoot)
-	workDir := townRoot
+	workDir := filepath.Join(townRoot, rigName)
+	if info, statErr := os.Stat(workDir); statErr != nil || !info.IsDir() {
+		workDir = townRoot
+	}
 
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 

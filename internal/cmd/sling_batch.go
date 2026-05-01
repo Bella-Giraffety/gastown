@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -225,6 +224,10 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 // preventing orphaned polecats from accumulating. Cleans up worktree, agent bead, git branch,
 // and optionally the associated auto-convoy.
 func cleanupSpawnedPolecat(spawnInfo *SpawnedPolecatInfo, rigName, convoyID string) {
+	if spawnInfo == nil {
+		return
+	}
+
 	townRoot, err := workspace.FindFromCwdOrError()
 	if err != nil {
 		return
@@ -372,10 +375,10 @@ func closeConvoy(convoyID, reason string) {
 		return
 	}
 	townBeads := filepath.Join(townRoot, ".beads")
-	closeArgs := []string{"close", convoyID, "-r", reason}
-	closeCmd := exec.Command("bd", closeArgs...)
-	closeCmd.Dir = townBeads
-	if err := closeCmd.Run(); err != nil {
+	if err := BdCmd("close", convoyID, "-r", reason).
+		Dir(townBeads).
+		StripBeadsDir().
+		Run(); err != nil {
 		fmt.Printf("  %s Could not close convoy %s: %v\n", style.Dim.Render("Warning:"), convoyID, err)
 	} else {
 		fmt.Printf("  %s Closed convoy %s\n", style.Dim.Render("○"), convoyID)

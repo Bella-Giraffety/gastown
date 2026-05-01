@@ -238,6 +238,73 @@ func TestInjectNotFound(t *testing.T) {
 	}
 }
 
+func TestSessionManagerBDCommandsUseResolvedBeadsDir(t *testing.T) {
+	setupTestRegistryForSession(t)
+
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "gastown")
+	if err := os.MkdirAll(filepath.Join(rigPath, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd-env.log")
+	if runtime.GOOS == "windows" {
+		stub := "@echo off\r\n" +
+			"setlocal EnableDelayedExpansion\r\n" +
+			"if \"%1\"==\"--allow-stale\" shift\r\n" +
+			"echo %1 %BEADS_DIR%>>\"" + logPath + "\"\r\n" +
+			"if \"%1\"==\"show\" echo [{\"id\":\"gt-123\",\"status\":\"open\"}]\r\n" +
+			"exit /b 0\r\n"
+		if err := os.WriteFile(filepath.Join(binDir, "bd.cmd"), []byte(stub), 0644); err != nil {
+			t.Fatalf("write bd.cmd: %v", err)
+		}
+	} else {
+		stub := "#!/bin/sh\n" +
+			"if [ \"$1\" = \"--allow-stale\" ]; then\n" +
+			"  shift\n" +
+			"fi\n" +
+			"printf '%s %s\n' \"$1\" \"${BEADS_DIR}\" >> \"" + logPath + "\"\n" +
+			"if [ \"$1\" = \"show\" ]; then\n" +
+			"  printf '[{\"id\":\"gt-123\",\"status\":\"open\"}]\\n'\n" +
+			"fi\n"
+		if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(stub), 0755); err != nil {
+			t.Fatalf("write bd: %v", err)
+		}
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+
+	r := &rig.Rig{Name: "gastown", Path: rigPath}
+	m := NewSessionManager(tmux.NewTmux(), r)
+
+	if err := m.validateIssue("gt-123", rigPath); err != nil {
+		t.Fatalf("validateIssue: %v", err)
+	}
+	if err := m.hookIssue("gt-123", "gastown/polecats/toast", rigPath); err != nil {
+		t.Fatalf("hookIssue: %v", err)
+	}
+
+	logged, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(logged)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("logged %d bd calls, want 3: %q", len(lines), string(logged))
+	}
+	want := filepath.Join(rigPath, ".beads")
+	for _, line := range lines {
+		if !strings.HasSuffix(line, " "+want) {
+			t.Fatalf("bd env line = %q, want suffix %q", line, " "+want)
+		}
+	}
+}
+
 // TestPolecatCommandFormat verifies the polecat session command exports
 // GT_ROLE, GT_RIG, GT_POLECAT, and BD_ACTOR inline before starting Claude.
 // This is a regression test for gt-y41ep - env vars must be exported inline
