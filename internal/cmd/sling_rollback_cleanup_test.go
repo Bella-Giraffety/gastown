@@ -187,20 +187,119 @@ exit 0
 
 // TestCleanupSpawnedPolecat_WithNilSpawnInfo handles nil spawnInfo gracefully.
 func TestCleanupSpawnedPolecat_WithNilSpawnInfo(t *testing.T) {
-	// This test verifies that cleanupSpawnedPolecat doesn't panic when spawnInfo is nil
-	// The function should handle this gracefully
-
-	// We expect this to return early without panicking
-	// In practice this might dereference nil, so let's check
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("ISSUE: cleanupSpawnedPolecat panics with nil spawnInfo: %v", r)
-			// Don't fail the test, just document the behavior
-			t.Skip("Known issue: cleanupSpawnedPolecat panics with nil spawnInfo")
-		}
-	}()
-
 	cleanupSpawnedPolecat(nil, "gastown", "")
+}
+
+func TestRollbackSlingArtifacts_UnhookUsesRoutedBdHelperAndNilSpawnInfo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
+
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir gastown/mayor/rig: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	routes := strings.Join([]string{
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+
+	rigsPath := filepath.Join(townRoot, "mayor", "rigs.json")
+	rigs := &config.RigsConfig{
+		Version: 1,
+		Rigs: map[string]config.RigEntry{
+			"gastown": {
+				GitURL:    "git@github.com:test/gastown.git",
+				LocalRepo: "",
+				AddedAt:   time.Now().Truncate(time.Second),
+				BeadsConfig: &config.BeadsConfig{
+					Repo:   "local",
+					Prefix: "gt-",
+				},
+			},
+		},
+	}
+	if err := config.SaveRigsConfig(rigsPath, rigs); err != nil {
+		t.Fatalf("SaveRigsConfig: %v", err)
+	}
+
+	expectedWD := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	logPath := filepath.Join(townRoot, "bd_update.log")
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	bdScript := `#!/bin/sh
+if [ "$*" = "--allow-stale version" ]; then
+  exit 0
+fi
+
+if [ -n "$BEADS_DIR" ]; then
+  echo "BEADS_DIR leaked: $BEADS_DIR" >&2
+  exit 1
+fi
+
+case "$*" in
+  "update gt-abc123 --status=open --assignee=")
+    if [ "$PWD" != "` + expectedWD + `" ]; then
+      echo "expected ` + expectedWD + `, got $PWD" >&2
+      exit 1
+    fi
+    echo "$PWD|$*" >> "` + logPath + `"
+    exit 0
+    ;;
+esac
+
+echo "unexpected bd args: $*" >&2
+exit 1
+`
+	writeRollbackCleanupBDStub(t, binDir, bdScript, "@echo off\r\nexit /b 1\r\n")
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+	t.Setenv(EnvGTRole, "mayor")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevGetBeadInfo := getBeadInfoForRollback
+	getBeadInfoForRollback = func(beadID string) (*beadInfo, error) {
+		return &beadInfo{Status: "open"}, nil
+	}
+	t.Cleanup(func() { getBeadInfoForRollback = prevGetBeadInfo })
+
+	prevCollectMolecules := collectExistingMoleculesForRollback
+	collectExistingMoleculesForRollback = func(info *beadInfo) []string {
+		return nil
+	}
+	t.Cleanup(func() { collectExistingMoleculesForRollback = prevCollectMolecules })
+
+	rollbackSlingArtifacts(nil, "gt-abc123", "", "")
+
+	logContent, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading update log: %v", err)
+	}
+	if got := strings.TrimSpace(string(logContent)); got != expectedWD+"|update gt-abc123 --status=open --assignee=" {
+		t.Fatalf("unexpected update log: %q", got)
+	}
 }
 
 // TestCloseConvoy_ClosesConvoy verifies that the convoy is closed
