@@ -12,6 +12,7 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/tmux"
 )
@@ -492,6 +493,102 @@ func TestFindAllCleanupWisps_EmptyList(t *testing.T) {
 	result := findAllCleanupWisps(bd, workDir, "nux")
 	if result != nil {
 		t.Errorf("findAllCleanupWisps: got %v, want nil for empty list", result)
+	}
+}
+
+func TestGetCleanupStatus_UsesOwningRigContext(t *testing.T) {
+	t.Parallel()
+
+	townRoot := t.TempDir()
+	rigWorkDir := filepath.Join(townRoot, "testrig", "mayor", "rig")
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(rigWorkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	routes := `{"prefix": "tr-", "path": "testrig/mayor/rig"}`
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotWorkDir string
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) > 0 && args[0] == "show" {
+				return `[{"description":"cleanup_status: clean"}]`, nil
+			}
+			return "", nil
+		},
+		func(args []string) error { return nil },
+	)
+	origExec := bd.Exec
+	bd.Exec = func(workDir string, args ...string) (string, error) {
+		gotWorkDir = workDir
+		return origExec(workDir, args...)
+	}
+
+	status := getCleanupStatus(bd, townRoot, "testrig", "nux")
+	if status != "clean" {
+		t.Fatalf("cleanup status = %q, want clean", status)
+	}
+	if gotWorkDir != rigWorkDir {
+		t.Fatalf("bd workDir = %q, want %q", gotWorkDir, rigWorkDir)
+	}
+}
+
+func TestHandleMerged_UsesRigContextForCleanupLookups(t *testing.T) {
+	t.Parallel()
+
+	townRoot := t.TempDir()
+	rigWorkDir := filepath.Join(townRoot, "testrig", "mayor", "rig")
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(rigWorkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	routes := `{"prefix": "tr-", "path": "testrig/mayor/rig"}`
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	seenWorkDirs := map[string]bool{}
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			switch args[0] {
+			case "list":
+				return `[{"id":"tr-wisp-123"}]`, nil
+			case "show":
+				return `[{"description":"cleanup_status: clean"}]`, nil
+			default:
+				return "", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+	origExec := bd.Exec
+	bd.Exec = func(workDir string, args ...string) (string, error) {
+		seenWorkDirs[workDir] = true
+		return origExec(workDir, args...)
+	}
+
+	origVerify := verifyCommitOnMain
+	verifyCommitOnMain = func(workDir, rigName, polecatName string) (bool, error) {
+		return true, nil
+	}
+	t.Cleanup(func() { verifyCommitOnMain = origVerify })
+
+	msg := &mail.Message{Subject: "MERGED nux", Body: "Branch: polecat/nux/tr-issue@abc\nIssue: tr-issue"}
+	result := HandleMerged(bd, townRoot, "testrig", msg)
+	if result.Error != nil {
+		t.Fatalf("HandleMerged error: %v", result.Error)
+	}
+	if !seenWorkDirs[rigWorkDir] {
+		t.Fatalf("expected cleanup bd calls in rig work dir %q, got %v", rigWorkDir, seenWorkDirs)
+	}
+	if seenWorkDirs[townRoot] {
+		t.Fatalf("unexpected cleanup bd calls in town root %q", townRoot)
 	}
 }
 

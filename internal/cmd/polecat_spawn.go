@@ -31,6 +31,7 @@ type SpawnedPolecatInfo struct {
 	Pane        string // Tmux pane ID (empty until StartSession is called)
 	BaseBranch  string // Effective base branch (e.g., "main", "integration/epic-id")
 	Branch      string // Git branch name (for cleanup on rollback)
+	Issue       string // Hooked issue preserved for deferred session start
 
 	// Internal fields for deferred session start
 	account string
@@ -227,6 +228,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 				Pane:        "",
 				BaseBranch:  effectiveBranch,
 				Branch:      polecatObj.Branch,
+				Issue:       opts.HookBead,
 				account:     opts.Account,
 				agent:       opts.Agent,
 			}, nil
@@ -311,9 +313,18 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		Pane:        "", // Empty until StartSession is called
 		BaseBranch:  effectiveBranch,
 		Branch:      polecatObj.Branch,
+		Issue:       opts.HookBead,
 		account:     opts.Account,
 		agent:       opts.Agent,
 	}, nil
+}
+
+func (s *SpawnedPolecatInfo) sessionStartOptions(runtimeConfigDir string) polecat.SessionStartOptions {
+	return polecat.SessionStartOptions{
+		Issue:            s.Issue,
+		RuntimeConfigDir: runtimeConfigDir,
+		Agent:            s.agent,
+	}
 }
 
 // StartSession starts the tmux session for a spawned polecat.
@@ -356,10 +367,7 @@ func (s *SpawnedPolecatInfo) StartSession() (string, error) {
 	polecatSessMgr := polecat.NewSessionManager(t, r)
 
 	fmt.Printf("Starting session for %s/%s...\n", s.RigName, s.PolecatName)
-	startOpts := polecat.SessionStartOptions{
-		RuntimeConfigDir: claudeConfigDir,
-		Agent:            s.agent,
-	}
+	startOpts := s.sessionStartOptions(claudeConfigDir)
 	if err := polecatSessMgr.Start(s.PolecatName, startOpts); err != nil {
 		return "", fmt.Errorf("starting session: %w", err)
 	}

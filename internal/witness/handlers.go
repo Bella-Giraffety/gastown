@@ -52,6 +52,15 @@ func workDirToTownRoot(workDir string) string {
 	return workDir
 }
 
+func resolveWitnessRigWorkDir(workDir, rigName string) string {
+	townRoot := workDirToTownRoot(workDir)
+	prefix := beads.GetPrefixForRig(townRoot, rigName)
+	if rigPath := beads.GetRigPathForPrefix(townRoot, prefix+"-"); rigPath != "" {
+		return rigPath
+	}
+	return workDir
+}
+
 // registryMu serializes calls to initRegistryFromTownRoot so that concurrent
 // callers (including parallel tests) don't race on the global registries.
 var registryMu sync.Mutex
@@ -120,6 +129,7 @@ func HandlePolecatDone(bd *BdCli, workDir, rigName string, msg *mail.Message, ro
 		MessageID:    msg.ID,
 		ProtocolType: ProtoPolecatDone,
 	}
+	rigWorkDir := resolveWitnessRigWorkDir(workDir, rigName)
 
 	payload, err := ParsePolecatDone(msg.Subject, msg.Body)
 	if err != nil {
@@ -146,14 +156,14 @@ func HandlePolecatDone(bd *BdCli, workDir, rigName string, msg *mail.Message, ro
 	// This handles the case where the MR was created but the ID wasn't included
 	// in the POLECAT_DONE message (e.g., message truncation, race condition).
 	if !hasPendingMR && payload.Exit == "COMPLETED" && !payload.MRFailed && payload.Branch != "" {
-		if mrID := findMRBeadForBranch(bd, workDir, payload.Branch); mrID != "" {
+		if mrID := findMRBeadForBranch(bd, rigWorkDir, payload.Branch); mrID != "" {
 			payload.MRID = mrID
 			hasPendingMR = true
 		}
 	}
 
 	if hasPendingMR {
-		result = handlePolecatDonePendingMR(bd, workDir, rigName, payload, result)
+		result = handlePolecatDonePendingMR(bd, rigWorkDir, rigName, payload, result)
 	} else {
 		result = handlePolecatDoneNoMR(workDir, rigName, payload, result)
 	}
@@ -183,6 +193,7 @@ func HandlePolecatDoneFromBead(bd *BdCli, workDir, rigName, polecatName string, 
 	result := &HandlerResult{
 		ProtocolType: ProtoPolecatDone,
 	}
+	rigWorkDir := resolveWitnessRigWorkDir(workDir, rigName)
 
 	if fields == nil {
 		result.Error = fmt.Errorf("nil agent fields for polecat %s", polecatName)
@@ -208,21 +219,21 @@ func HandlePolecatDoneFromBead(bd *BdCli, workDir, rigName, polecatName string, 
 
 	// Push failed: branch never reached origin (gas-556). Report recovery needed.
 	if payload.PushFailed {
-		return handlePolecatDonePushFailed(bd, workDir, rigName, payload, result)
+		return handlePolecatDonePushFailed(bd, rigWorkDir, rigName, payload, result)
 	}
 
 	hasPendingMR := payload.MRID != ""
 
 	// Same MR-discovery fallback as HandlePolecatDone
 	if !hasPendingMR && payload.Exit == "COMPLETED" && !payload.MRFailed && payload.Branch != "" {
-		if mrID := findMRBeadForBranch(bd, workDir, payload.Branch); mrID != "" {
+		if mrID := findMRBeadForBranch(bd, rigWorkDir, payload.Branch); mrID != "" {
 			payload.MRID = mrID
 			hasPendingMR = true
 		}
 	}
 
 	if hasPendingMR {
-		result = handlePolecatDonePendingMR(bd, workDir, rigName, payload, result)
+		result = handlePolecatDonePendingMR(bd, rigWorkDir, rigName, payload, result)
 	} else {
 		result = handlePolecatDoneNoMR(workDir, rigName, payload, result)
 	}
@@ -418,6 +429,7 @@ func HandleMerged(bd *BdCli, workDir, rigName string, msg *mail.Message) *Handle
 		MessageID:    msg.ID,
 		ProtocolType: ProtoMerged,
 	}
+	rigWorkDir := resolveWitnessRigWorkDir(workDir, rigName)
 
 	payload, err := ParseMerged(msg.Subject, msg.Body)
 	if err != nil {
@@ -425,7 +437,7 @@ func HandleMerged(bd *BdCli, workDir, rigName string, msg *mail.Message) *Handle
 		return result
 	}
 
-	wispID, err := findCleanupWisp(bd, workDir, payload.PolecatName)
+	wispID, err := findCleanupWisp(bd, rigWorkDir, payload.PolecatName)
 	if err != nil {
 		result.Error = fmt.Errorf("finding cleanup wisp: %w", err)
 		return result
@@ -449,7 +461,7 @@ func HandleMerged(bd *BdCli, workDir, rigName string, msg *mail.Message) *Handle
 		return result
 	}
 
-	cleanupStatus := getCleanupStatus(bd, workDir, rigName, payload.PolecatName)
+	cleanupStatus := getCleanupStatus(bd, rigWorkDir, rigName, payload.PolecatName)
 	handleMergedCleanupStatus(workDir, rigName, payload.PolecatName, cleanupStatus, wispID, result)
 	return result
 }
@@ -634,6 +646,7 @@ type agentBeadResponse struct {
 // ZFC #10: This enables the Witness to verify it's safe to nuke before proceeding.
 // The polecat self-reports its git state when running `gt done`, and we trust that report.
 func getCleanupStatus(bd *BdCli, workDir, rigName, polecatName string) string {
+	workDir = resolveWitnessRigWorkDir(workDir, rigName)
 	// Construct agent bead ID using the rig's configured prefix
 	// This supports non-gt prefixes like "bd-" for the beads rig
 	townRoot, err := workspace.Find(workDir)
