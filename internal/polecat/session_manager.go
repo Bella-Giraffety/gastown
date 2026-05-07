@@ -24,6 +24,7 @@ import (
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/util"
+	"github.com/steveyegge/gastown/internal/workspace"
 )
 
 // debugSession logs non-fatal errors during session startup when GT_DEBUG_SESSION=1.
@@ -52,6 +53,23 @@ func NewSessionManager(t *tmux.Tmux, r *rig.Rig) *SessionManager {
 		tmux: t,
 		rig:  r,
 	}
+}
+
+// resolveRigPrefix mirrors the dashboard's local registry resolution so polecat
+// session management doesn't silently fall back to the default prefix when the
+// package-level registry hasn't been initialized in this process.
+func resolveRigPrefix(r *rig.Rig) string {
+	if r == nil {
+		return session.DefaultPrefix
+	}
+	if r.Path != "" {
+		if townRoot, err := workspace.Find(r.Path); err == nil && townRoot != "" {
+			if registry, err := session.BuildPrefixRegistryFromTown(townRoot); err == nil && registry != nil {
+				return registry.PrefixForRig(r.Name)
+			}
+		}
+	}
+	return session.PrefixFor(r.Name)
 }
 
 // SessionStartOptions configures polecat session startup.
@@ -109,7 +127,7 @@ type SessionInfo struct {
 // Validates that the polecat name doesn't contain the rig prefix to prevent
 // double-prefix bugs (e.g., "gt-gastown_manager-gastown_manager-142").
 func (m *SessionManager) SessionName(polecat string) string {
-	sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), polecat)
+	sessionName := session.PolecatSessionName(resolveRigPrefix(m.rig), polecat)
 
 	// Validate session name format to detect double-prefix bugs
 	if err := validateSessionName(sessionName, m.rig.Name); err != nil {
@@ -691,7 +709,7 @@ func (m *SessionManager) List() ([]SessionInfo, error) {
 		return nil, err
 	}
 
-	prefix := session.PrefixFor(m.rig.Name) + "-"
+	prefix := resolveRigPrefix(m.rig) + "-"
 	var infos []SessionInfo
 
 	for _, sessionID := range sessions {

@@ -19,6 +19,18 @@ import (
 	"github.com/steveyegge/gastown/internal/tmux"
 )
 
+func writeTestTownRegistry(t *testing.T, townRoot, rigName, prefix string) {
+	t.Helper()
+	mayorDir := filepath.Join(townRoot, "mayor")
+	if err := os.MkdirAll(mayorDir, 0755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	data := fmt.Sprintf(`{"rigs":{"%s":{"beads":{"prefix":"%s"}}}}`, rigName, prefix)
+	if err := os.WriteFile(filepath.Join(mayorDir, "rigs.json"), []byte(data), 0644); err != nil {
+		t.Fatalf("write rigs.json: %v", err)
+	}
+}
+
 func setupTestRegistryForSession(t *testing.T) {
 	t.Helper()
 	reg := session.NewPrefixRegistry()
@@ -91,6 +103,26 @@ func TestSessionName(t *testing.T) {
 	name := m.SessionName("Toast")
 	if name != "gt-Toast" {
 		t.Errorf("sessionName = %q, want gt-Toast", name)
+	}
+}
+
+func TestSessionNameUsesTownRegistryWhenDefaultRegistryIsEmpty(t *testing.T) {
+	old := session.DefaultRegistry()
+	session.SetDefaultRegistry(session.NewPrefixRegistry())
+	t.Cleanup(func() { session.SetDefaultRegistry(old) })
+
+	townRoot := t.TempDir()
+	rigName := "testrig"
+	writeTestTownRegistry(t, townRoot, rigName, "tr")
+
+	r := &rig.Rig{Name: rigName, Path: filepath.Join(townRoot, rigName)}
+	if err := os.MkdirAll(r.Path, 0755); err != nil {
+		t.Fatalf("mkdir rig path: %v", err)
+	}
+
+	m := NewSessionManager(tmux.NewTmux(), r)
+	if name := m.SessionName("Toast"); name != "tr-Toast" {
+		t.Fatalf("SessionName() = %q, want %q", name, "tr-Toast")
 	}
 }
 
@@ -190,6 +222,44 @@ func TestSessionManagerListEmpty(t *testing.T) {
 	}
 	if len(infos) != 0 {
 		t.Errorf("infos count = %d, want 0", len(infos))
+	}
+}
+
+func TestSessionManagerListUsesTownRegistryWhenDefaultRegistryIsEmpty(t *testing.T) {
+	requireTmux(t)
+
+	old := session.DefaultRegistry()
+	session.SetDefaultRegistry(session.NewPrefixRegistry())
+	t.Cleanup(func() { session.SetDefaultRegistry(old) })
+
+	townRoot := t.TempDir()
+	rigName := "testrig"
+	writeTestTownRegistry(t, townRoot, rigName, "tr")
+	rigPath := filepath.Join(townRoot, rigName)
+	if err := os.MkdirAll(rigPath, 0755); err != nil {
+		t.Fatalf("mkdir rig path: %v", err)
+	}
+
+	tm := tmux.NewTmux()
+	m := NewSessionManager(tm, &rig.Rig{Name: rigName, Path: rigPath})
+	sessionName := "tr-Toast"
+	if err := tm.NewSessionWithCommand(sessionName, townRoot, "sleep 300"); err != nil {
+		t.Fatalf("create tmux session: %v", err)
+	}
+	t.Cleanup(func() { _ = tm.KillSessionWithProcesses(sessionName) })
+
+	infos, err := m.ListPolecats()
+	if err != nil {
+		t.Fatalf("ListPolecats: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("ListPolecats count = %d, want 1", len(infos))
+	}
+	if infos[0].SessionID != sessionName {
+		t.Fatalf("ListPolecats session = %q, want %q", infos[0].SessionID, sessionName)
+	}
+	if infos[0].Polecat != "Toast" {
+		t.Fatalf("ListPolecats polecat = %q, want %q", infos[0].Polecat, "Toast")
 	}
 }
 

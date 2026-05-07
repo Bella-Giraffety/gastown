@@ -681,7 +681,7 @@ func (m *Manager) AllocateAndAdd(opts AddOptions) (string, *Polecat, error) {
 
 	// Kill any lingering tmux session for this name (gt-pqf9x)
 	if m.tmux != nil {
-		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
+		sessionName := session.PolecatSessionName(resolveRigPrefix(m.rig), name)
 		if alive, _ := m.tmux.HasSession(sessionName); alive {
 			_ = m.tmux.KillSessionWithProcesses(sessionName)
 		}
@@ -1348,7 +1348,7 @@ func (m *Manager) AllocateName() (string, error) {
 	// lingers (race between cleanup and allocation). This extra check ensures
 	// no stale session blocks the new polecat's session creation.
 	if m.tmux != nil {
-		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
+		sessionName := session.PolecatSessionName(resolveRigPrefix(m.rig), name)
 		if alive, _ := m.tmux.HasSession(sessionName); alive {
 			_ = m.tmux.KillSessionWithProcesses(sessionName)
 		}
@@ -1586,7 +1586,7 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 	// the session is functionally idle), leaving the old session alive and the
 	// new work undiscovered.
 	if running, _ := m.polecatSessionState(name); running {
-		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
+		sessionName := session.PolecatSessionName(resolveRigPrefix(m.rig), name)
 		if err := m.tmux.KillSessionWithProcesses(sessionName); err != nil {
 			return nil, fmt.Errorf("killing existing session %s for reuse: %w", sessionName, err)
 		}
@@ -2441,7 +2441,7 @@ func (m *Manager) DetectStalePolecats(threshold int) ([]*StalenessInfo, error) {
 
 		// Check for active tmux session
 		// Session name follows pattern: gt-<rig>-<polecat>
-		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), p.Name)
+		sessionName := session.PolecatSessionName(resolveRigPrefix(m.rig), p.Name)
 		info.HasActiveSession = checkTmuxSession(sessionName)
 
 		// Check how far behind main
