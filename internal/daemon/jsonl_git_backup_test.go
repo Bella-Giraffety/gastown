@@ -476,6 +476,58 @@ func TestCountFileLines_Empty(t *testing.T) {
 	}
 }
 
+func TestCommitAndPushJsonlBackup_StagesOnlyExportPaths(t *testing.T) {
+	gitRepo := t.TempDir()
+	initGitRepo(t, gitRepo)
+
+	trackedPath := filepath.Join(gitRepo, "app.txt")
+	if err := os.WriteFile(trackedPath, []byte("keep me\n"), 0644); err != nil {
+		t.Fatalf("write tracked file: %v", err)
+	}
+	commitAll(t, gitRepo, "add tracked app file")
+
+	dbDir := filepath.Join(gitRepo, "testdb")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "issues.jsonl"), []byte("{\"id\":\"gt-1\"}\n"), 0644); err != nil {
+		t.Fatalf("write issues.jsonl: %v", err)
+	}
+
+	if err := os.Remove(trackedPath); err != nil {
+		t.Fatalf("remove tracked file: %v", err)
+	}
+
+	d := &Daemon{logger: log.New(io.Discard, "", 0)}
+	if err := d.commitAndPushJsonlBackup(gitRepo, []string{"testdb"}, map[string]int{"testdb": 1}, nil); err != nil {
+		t.Fatalf("commitAndPushJsonlBackup: %v", err)
+	}
+
+	showCmd := exec.Command("git", "show", "--name-status", "--format=", "HEAD")
+	showCmd.Dir = gitRepo
+	out, err := showCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git show failed: %v: %s", err, out)
+	}
+	files := string(out)
+	if !contains(files, "A\ttestdb/issues.jsonl") {
+		t.Fatalf("expected backup file in commit, got %q", files)
+	}
+	if contains(files, "D\tapp.txt") {
+		t.Fatalf("unexpected tracked-file deletion in backup commit: %q", files)
+	}
+
+	statusCmd := exec.Command("git", "status", "--short")
+	statusCmd.Dir = gitRepo
+	statusOut, err := statusCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git status failed: %v: %s", err, statusOut)
+	}
+	if !contains(string(statusOut), " D app.txt") {
+		t.Fatalf("expected unrelated deletion to remain unstaged, got %q", statusOut)
+	}
+}
+
 func TestParseLineCount(t *testing.T) {
 	tests := []struct {
 		input    string
