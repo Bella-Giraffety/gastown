@@ -51,6 +51,15 @@ func TestRenderRole_Mayor(t *testing.T) {
 	if !strings.Contains(output, "global coordinator") {
 		t.Error("output missing role description")
 	}
+	if !strings.Contains(output, "/test/town/<rig>/mayor/rig/") {
+		t.Error("output missing mayor/rig git operations guidance")
+	}
+	if !strings.Contains(output, "ALL git/code operations") {
+		t.Error("output missing explicit git/code operations guidance")
+	}
+	if !strings.Contains(output, "Polecat sandboxes") {
+		t.Error("output missing warning about polecat workspaces")
+	}
 }
 
 func TestRenderRole_Polecat(t *testing.T) {
