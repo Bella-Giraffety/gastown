@@ -156,6 +156,13 @@ type LiveConvoyFetcher struct {
 	convoyBreaker fetchCircuitBreaker
 }
 
+func (f *LiveConvoyFetcher) rigPrefix(rig string) string {
+	if f.registry != nil {
+		return f.registry.PrefixForRig(rig)
+	}
+	return session.PrefixFor(rig)
+}
+
 // NewLiveConvoyFetcher creates a fetcher for the current workspace.
 // Loads timeout and threshold config from TownSettings; falls back to defaults if missing.
 func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
@@ -504,12 +511,13 @@ func (f *LiveConvoyFetcher) getSessionActivityForAssignee(assignee string) *time
 	rig := parts[0]
 	polecat := parts[2]
 
-	// Construct session name
-	sessionName := session.PolecatSessionName(session.PrefixFor(rig), polecat)
+	// Use the fetcher's registry so visibility resolves the same rig prefix
+	// that session management used when the worker session was created.
+	sessionName := session.PolecatSessionName(f.rigPrefix(rig), polecat)
 
 	// Query tmux for session activity
 	// Format: session_activity returns unix timestamp
-	stdout, err := runCmd(f.tmuxCmdTimeout, "tmux", "list-sessions", "-F", "#{session_name}|#{session_activity}",
+	stdout, err := fetcherRunCmd(f.tmuxCmdTimeout, "tmux", "list-sessions", "-F", "#{session_name}|#{session_activity}",
 		"-f", fmt.Sprintf("#{==:#{session_name},%s}", sessionName))
 	if err != nil {
 		return nil

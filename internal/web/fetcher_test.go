@@ -13,6 +13,7 @@ import (
 	"github.com/steveyegge/gastown/internal/activity"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/session"
 )
 
 func TestCalculateWorkStatus(t *testing.T) {
@@ -732,6 +733,47 @@ func TestResolveMayorRuntime(t *testing.T) {
 				t.Fatalf("resolveMayorRuntime() = %q, want %q", got, tt.wantRuntime)
 			}
 		})
+	}
+}
+
+func TestGetSessionActivityForAssignee_UsesFetcherRegistry(t *testing.T) {
+	originalRegistry := session.DefaultRegistry()
+	originalRunCmd := fetcherRunCmd
+	t.Cleanup(func() {
+		session.SetDefaultRegistry(originalRegistry)
+		fetcherRunCmd = originalRunCmd
+	})
+
+	session.SetDefaultRegistry(session.NewPrefixRegistry())
+
+	registry := session.NewPrefixRegistry()
+	registry.Register("tr", "testrig")
+
+	var gotFilter string
+	fetcherRunCmd = func(_ time.Duration, name string, args ...string) (*bytes.Buffer, error) {
+		if name != "tmux" {
+			t.Fatalf("unexpected command %q", name)
+		}
+		if len(args) < 5 {
+			t.Fatalf("unexpected args: %v", args)
+		}
+		gotFilter = args[4]
+		return bytes.NewBufferString("tr-dag|1704312345\n"), nil
+	}
+
+	f := &LiveConvoyFetcher{
+		registry:       registry,
+		tmuxCmdTimeout: time.Second,
+	}
+
+	activity := f.getSessionActivityForAssignee("testrig/polecats/dag")
+	if activity == nil {
+		t.Fatal("getSessionActivityForAssignee() = nil, want activity")
+	}
+
+	wantFilter := "#{==:#{session_name},tr-dag}"
+	if gotFilter != wantFilter {
+		t.Fatalf("tmux filter = %q, want %q", gotFilter, wantFilter)
 	}
 }
 
