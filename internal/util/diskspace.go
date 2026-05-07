@@ -1,13 +1,21 @@
 package util
 
 import (
+	"encoding/xml"
 	"fmt"
+	"io"
+	"strconv"
+	"strings"
 )
 
 // DiskSpaceInfo contains filesystem space information.
 type DiskSpaceInfo struct {
-	// AvailableBytes is the number of bytes available to non-root users.
+	// AvailableBytes is the effective number of bytes available to non-root users.
+	// On APFS volumes this may include purgeable space that macOS can reclaim.
 	AvailableBytes uint64
+
+	// PurgeableBytes is macOS APFS space the OS can reclaim on demand.
+	PurgeableBytes uint64
 
 	// TotalBytes is the total filesystem capacity.
 	TotalBytes uint64
@@ -17,6 +25,96 @@ type DiskSpaceInfo struct {
 
 	// UsedPercent is the usage percentage (0-100).
 	UsedPercent float64
+}
+
+func evaluateDiskSpace(info *DiskSpaceInfo) (DiskSpaceLevel, string) {
+	availMB := info.AvailableMB()
+
+	if availMB < DiskSpaceMinimumMB || info.UsedPercent >= DiskSpaceCriticalPercent {
+		return DiskSpaceCritical,
+			fmt.Sprintf("CRITICAL: only %s free (%.1f%% used) — disk space exhausted, operations blocked",
+				info.AvailableHuman(), info.UsedPercent)
+	}
+
+	if availMB < DiskSpaceWarningMB {
+		return DiskSpaceWarning,
+			fmt.Sprintf("WARNING: only %s free (%.1f%% used) — disk space low, reduce workload",
+				info.AvailableHuman(), info.UsedPercent)
+	}
+
+	return DiskSpaceOK, ""
+}
+
+func applyPurgeableSpace(info *DiskSpaceInfo, purgeableBytes uint64) {
+	if info == nil || purgeableBytes == 0 {
+		return
+	}
+
+	maxExtra := uint64(0)
+	if info.TotalBytes > info.AvailableBytes {
+		maxExtra = info.TotalBytes - info.AvailableBytes
+	}
+	if purgeableBytes > maxExtra {
+		purgeableBytes = maxExtra
+	}
+	if purgeableBytes == 0 {
+		return
+	}
+
+	info.PurgeableBytes = purgeableBytes
+	info.AvailableBytes += purgeableBytes
+	if purgeableBytes >= info.UsedBytes {
+		info.UsedBytes = 0
+	} else {
+		info.UsedBytes -= purgeableBytes
+	}
+	if info.TotalBytes > 0 {
+		info.UsedPercent = float64(info.UsedBytes) / float64(info.TotalBytes) * 100
+	}
+}
+
+func parseDiskutilPurgeableBytes(plist string) (uint64, error) {
+	decoder := xml.NewDecoder(strings.NewReader(plist))
+	var currentKey string
+
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				return 0, nil
+			}
+			return 0, fmt.Errorf("decode diskutil plist: %w", err)
+		}
+
+		start, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+
+		switch start.Name.Local {
+		case "key":
+			var key string
+			if err := decoder.DecodeElement(&key, &start); err != nil {
+				return 0, fmt.Errorf("decode diskutil key: %w", err)
+			}
+			currentKey = strings.TrimSpace(key)
+
+		case "integer":
+			var value string
+			if err := decoder.DecodeElement(&value, &start); err != nil {
+				return 0, fmt.Errorf("decode diskutil integer: %w", err)
+			}
+			if currentKey != "APFSPurgeableSpace" {
+				continue
+			}
+
+			purgeableBytes, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("parse APFSPurgeableSpace %q: %w", value, err)
+			}
+			return purgeableBytes, nil
+		}
+	}
 }
 
 // AvailableMB returns available space in megabytes.
@@ -106,21 +204,6 @@ func CheckDiskSpace(path string) (DiskSpaceLevel, string, error) {
 		return DiskSpaceOK, "", err
 	}
 
-	availMB := info.AvailableMB()
-
-	if availMB < DiskSpaceMinimumMB || info.UsedPercent >= DiskSpaceCriticalPercent {
-		return DiskSpaceCritical,
-			fmt.Sprintf("CRITICAL: only %s free (%.1f%% used) — disk space exhausted, operations blocked",
-				info.AvailableHuman(), info.UsedPercent),
-			nil
-	}
-
-	if availMB < DiskSpaceWarningMB {
-		return DiskSpaceWarning,
-			fmt.Sprintf("WARNING: only %s free (%.1f%% used) — disk space low, reduce workload",
-				info.AvailableHuman(), info.UsedPercent),
-			nil
-	}
-
-	return DiskSpaceOK, "", nil
+	level, msg := evaluateDiskSpace(info)
+	return level, msg, nil
 }
