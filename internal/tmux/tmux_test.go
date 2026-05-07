@@ -1834,6 +1834,37 @@ func TestMatchesPromptPrefix(t *testing.T) {
 	}
 }
 
+func TestMatchesEmptyPrompt(t *testing.T) {
+	t.Parallel()
+	const (
+		nbsp          = "\u00a0"
+		regularPrefix = "❯ "
+	)
+
+	tests := []struct {
+		name   string
+		line   string
+		prefix string
+		want   bool
+	}{
+		{"regular bare prompt", "❯ ", regularPrefix, true},
+		{"bare prompt without space", "❯", regularPrefix, true},
+		{"NBSP bare prompt", "❯" + nbsp, regularPrefix, true},
+		{"prompt with typed input", "❯ partial input", regularPrefix, false},
+		{"NBSP prompt with typed input", "❯" + nbsp + "partial input", regularPrefix, false},
+		{"non-prompt line", "hello world", regularPrefix, false},
+		{"empty prefix", "❯ ", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesEmptyPrompt(tt.line, tt.prefix); got != tt.want {
+				t.Errorf("matchesEmptyPrompt(%q, %q) = %v, want %v", tt.line, tt.prefix, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWaitForIdle_Timeout(t *testing.T) {
 	if os.Getenv("TMUX") == "" {
 		t.Skip("not inside tmux")
@@ -1860,6 +1891,54 @@ func TestWaitForIdle_Timeout(t *testing.T) {
 	}
 	if !errors.Is(err, ErrIdleTimeout) {
 		t.Errorf("expected ErrIdleTimeout, got: %v", err)
+	}
+}
+
+func TestWaitForIdle_PartialInputNotIdle(t *testing.T) {
+	if os.Getenv("TMUX") == "" {
+		t.Skip("not inside tmux")
+	}
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("test requires unix")
+	}
+
+	tm := newTestTmux(t)
+	sessionName := fmt.Sprintf("gt-test-idle-input-%d", time.Now().UnixNano())
+	err := tm.NewSession(sessionName, os.TempDir())
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer func() { _ = tm.KillSession(sessionName) }()
+
+	if err := tm.SetEnvironment(sessionName, "GT_AGENT", "claude"); err != nil {
+		t.Fatalf("SetEnvironment GT_AGENT: %v", err)
+	}
+	if _, err := tm.run("send-keys", "-t", sessionName, "export PS1='❯ '", "Enter"); err != nil {
+		t.Fatalf("configure prompt: %v", err)
+	}
+
+	if err := tm.WaitForIdle(sessionName, 3*time.Second); err != nil {
+		content, _ := tm.CapturePane(sessionName, 10)
+		t.Fatalf("WaitForIdle(initial): %v\npane:\n%s", err, content)
+	}
+
+	if _, err := tm.run("send-keys", "-t", sessionName, "-l", "partial input"); err != nil {
+		t.Fatalf("send-keys: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	err = tm.WaitForIdle(sessionName, 500*time.Millisecond)
+	if err == nil {
+		content, _ := tm.CapturePane(sessionName, 10)
+		t.Fatalf("WaitForIdle should timeout with partial input; pane:\n%s", content)
+	}
+	if !errors.Is(err, ErrIdleTimeout) {
+		t.Fatalf("expected ErrIdleTimeout, got: %v", err)
+	}
+
+	if tm.IsIdle(sessionName) {
+		content, _ := tm.CapturePane(sessionName, 10)
+		t.Fatalf("IsIdle should be false with partial input; pane:\n%s", content)
 	}
 }
 

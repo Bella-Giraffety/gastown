@@ -2824,6 +2824,19 @@ func matchesPromptPrefix(line, readyPromptPrefix string) bool {
 	return strings.HasPrefix(trimmed, normalizedPrefix) || (prefix != "" && trimmed == prefix)
 }
 
+// matchesEmptyPrompt reports whether a captured pane line shows an idle prompt
+// with no typed input after it. This is stricter than matchesPromptPrefix:
+// lines like "❯ partial input" mean a human has started typing, so direct
+// nudge injection would corrupt their input.
+func matchesEmptyPrompt(line, readyPromptPrefix string) bool {
+	if !matchesPromptPrefix(line, readyPromptPrefix) {
+		return false
+	}
+	trimmed := strings.TrimSpace(strings.ReplaceAll(line, "\u00a0", " "))
+	prefix := strings.TrimSpace(strings.ReplaceAll(readyPromptPrefix, "\u00a0", " "))
+	return prefix != "" && trimmed == prefix
+}
+
 func hasBusyIndicator(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
@@ -2894,11 +2907,12 @@ const DefaultReadyPromptPrefix = "❯ "
 // Returns an error if the timeout expires while the agent is still busy.
 func (t *Tmux) WaitForIdle(session string, timeout time.Duration) error {
 	promptPrefix := readyPromptPrefixForSession(t, session)
-	prefix := strings.TrimSpace(promptPrefix)
 
 	// Require 2 consecutive idle polls to filter out transient states.
 	// During inter-tool-call gaps (~500ms), the prompt may briefly appear
 	// in the pane buffer while Claude Code is still actively working.
+	// We also require the prompt line to be empty: "❯ partial input" means a
+	// human is typing, so direct nudge injection would corrupt their input.
 	// Two polls 200ms apart (400ms window) confirms genuine idle state.
 	consecutiveIdle := 0
 	const requiredConsecutive = 2
@@ -2935,15 +2949,11 @@ func (t *Tmux) WaitForIdle(session string, timeout time.Duration) error {
 		}
 
 		// Scan all captured lines for the prompt prefix.
-		// Claude Code renders a status bar below the prompt line,
-		// so the prompt may not be the last non-empty line.
+		// Claude Code renders a status bar below the prompt line, so the empty
+		// prompt may not be the last non-empty line.
 		promptFound := false
 		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
-				continue
-			}
-			if matchesPromptPrefix(trimmed, promptPrefix) || (prefix != "" && trimmed == prefix) {
+			if matchesEmptyPrompt(line, promptPrefix) {
 				promptFound = true
 				break
 			}
@@ -2978,7 +2988,7 @@ func (t *Tmux) IsAtPrompt(session string, rc *config.RuntimeConfig) bool {
 	}
 
 	for _, line := range lines {
-		if matchesPromptPrefix(line, promptPrefix) {
+		if matchesEmptyPrompt(line, promptPrefix) {
 			return true
 		}
 	}
@@ -3007,7 +3017,7 @@ func (t *Tmux) IsIdle(session string) bool {
 
 	promptPrefix := readyPromptPrefixForSession(t, session)
 	for _, line := range lines {
-		if matchesPromptPrefix(line, promptPrefix) {
+		if matchesEmptyPrompt(line, promptPrefix) {
 			return true
 		}
 	}
