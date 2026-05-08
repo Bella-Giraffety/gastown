@@ -1,6 +1,9 @@
 package tmux
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +163,99 @@ func TestWaitForCommand_Timeout(t *testing.T) {
 	if err == nil {
 		t.Error("WaitForCommand should timeout when shell is still running")
 	}
+}
+
+func buildWinchReaderHelper(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "main.go")
+	binPath := filepath.Join(dir, "winch-reader")
+
+	const source = `package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func main() {
+	fmt.Println("READY >")
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGWINCH)
+	<-sigCh
+	fmt.Println("WOKE")
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		fmt.Printf("INPUT:%s\n", scanner.Text())
+	}
+}
+`
+
+	if err := os.WriteFile(srcPath, []byte(source), 0o600); err != nil {
+		t.Fatalf("WriteFile helper: %v", err)
+	}
+
+	cmd := exec.Command("go", "build", "-o", binPath, srcPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("building winch helper: %v\n%s", err, output)
+	}
+
+	return binPath
+}
+
+func TestWaitForCommand_WakesDetachedTTYInput(t *testing.T) {
+	tm := newTestTmux(t)
+	session := "gt-test-wait-winch-" + t.Name()
+	_ = tm.KillSession(session)
+	defer func() { _ = tm.KillSession(session) }()
+
+	helper := buildWinchReaderHelper(t)
+	if err := tm.NewSessionWithCommand(session, "", helper); err != nil {
+		t.Fatalf("NewSessionWithCommand: %v", err)
+	}
+
+	if err := tm.WaitForCommand(session, []string{"bash", "zsh", "sh"}, 3*time.Second); err != nil {
+		t.Fatalf("WaitForCommand: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	woke := false
+	for time.Now().Before(deadline) {
+		output, _ := tm.CapturePane(session, 20)
+		if strings.Contains(output, "WOKE") {
+			woke = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !woke {
+		output, _ := tm.CapturePane(session, 20)
+		t.Fatalf("expected detached session wake after WaitForCommand, got: %q", strings.TrimSpace(output))
+	}
+
+	if _, err := tm.run("send-keys", "-t", session, "-l", "hello-from-test"); err != nil {
+		t.Fatalf("send-keys literal: %v", err)
+	}
+	if _, err := tm.run("send-keys", "-t", session, "Enter"); err != nil {
+		t.Fatalf("send-keys Enter: %v", err)
+	}
+
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		output, _ := tm.CapturePane(session, 20)
+		if strings.Contains(output, "INPUT:hello-from-test") {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	output, _ := tm.CapturePane(session, 20)
+	t.Fatalf("expected stdin to reach detached session after wake, got: %q", strings.TrimSpace(output))
 }
 
 // TestSanitizeNudgeMessage verifies control character stripping.

@@ -2752,12 +2752,17 @@ func (t *Tmux) WaitForCommand(session string, excludeCommands []string, timeout 
 			}
 		}
 		if !excluded {
+			// Detached tmux sessions can start the agent process before its TUI begins
+			// consuming stdin. Trigger SIGWINCH once the runtime is confirmed alive so
+			// later attaches and keystrokes work without a manual resize.
+			t.WakePaneIfDetached(session)
 			return nil
 		}
 		// ZFC fallback: check if the agent signaled readiness via its startup
 		// hook. This replaces process-tree descendant probing (IsAgentAlive)
 		// for wrapped agents where pane_current_command remains a shell.
 		if ready, err := t.GetEnvironment(session, EnvAgentReady); err == nil && ready == "1" {
+			t.WakePaneIfDetached(session)
 			return nil
 		}
 		time.Sleep(constants.PollInterval)
