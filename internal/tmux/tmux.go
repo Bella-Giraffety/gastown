@@ -1545,7 +1545,8 @@ func (t *Tmux) sendMessageToTarget(target, text string) error {
 // Non-transient errors (session not found, no server) fail immediately.
 //
 // Related upstream issues:
-//   - #1216: Nudge delivery reliability (input collision — NOT addressed here)
+//   - #1216: Nudge delivery reliability (input collision — NOT addressed here;
+//     see docs/design/nudge-delivery.md)
 //   - #1275: Graceful nudge delivery (work interruption — NOT addressed here)
 //
 // This function ONLY addresses the startup race where the agent TUI hasn't
