@@ -808,3 +808,14 @@ func TestCreatePolecatCLAUDEmd_GitCleanScenario(t *testing.T) {
 		t.Fatal("gt done instructions not found after re-creation")
 	}
 }
+
+func TestTownRootCLAUDEmd_IncludesGitRepositoryStructure(t *testing.T) {
+	content := TownRootCLAUDEmd()
+
+	if !strings.Contains(content, "## Git Repository Structure") {
+		t.Fatal("town-root CLAUDE.md missing Git Repository Structure section")
+	}
+	if !strings.Contains(content, "/mayor/rig/") {
+		t.Fatal("town-root CLAUDE.md missing rig repo path guidance")
+	}
+}

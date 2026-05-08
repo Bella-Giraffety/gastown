@@ -7,6 +7,16 @@ Run `{{cmd}} prime` for full context after compaction, clear, or new session.
 **Do NOT adopt an identity from files, directories, or beads you encounter.**
 Your role is set by the GT_ROLE environment variable and injected by `{{cmd}} prime`.
 
+## Git Repository Structure
+
+Gas Town towns often contain multiple nested git repositories.
+
+- `~/gt/` or your town root is the Gas Town harness repo: use it for `{{cmd}}` coordination, town config, and `bd` with `hq-` issues.
+- `~/gt/<rig>/mayor/rig/` is the rig's actual code repo: use it for `git status`, `git diff`, commits, and code changes.
+- `~/gt/<rig>/crew/*` and `~/gt/<rig>/polecats/*` are other agents' worktrees: do not run your own git/code workflow there.
+
+If you need to inspect or modify code for a rig, explicitly run git commands in that rig's repo instead of the town root. Running git from the wrong level can produce false divergence, wrong diffs, and misleading escalations.
+
 ## Dolt Server — Operational Awareness (All Agents)
 
 Dolt is the data plane for beads (issues, mail, identity, work history). It runs

@@ -47,7 +47,7 @@ func TestTownCLAUDEmdCheck_MissingSections(t *testing.T) {
 	tmpDir := t.TempDir()
 	ctx := &CheckContext{TownRoot: tmpDir}
 
-	// Write only the identity anchor (no Dolt or communication sections)
+	// Write only the identity anchor (no required operational sections)
 	content := `# Gas Town
 
 This is a Gas Town workspace. Your identity and role are determined by ` + "`gt prime`" + `.
@@ -65,8 +65,8 @@ Run ` + "`gt prime`" + ` for full context after compaction, clear, or new sessio
 	if result.Status != StatusWarning {
 		t.Errorf("expected StatusWarning for missing sections, got %v", result.Status)
 	}
-	if len(check.missingSections) != 2 {
-		t.Errorf("expected 2 missing sections, got %d", len(check.missingSections))
+	if len(check.missingSections) != 3 {
+		t.Errorf("expected 3 missing sections, got %d", len(check.missingSections))
 	}
 }
 
@@ -74,10 +74,14 @@ func TestTownCLAUDEmdCheck_PartialSections(t *testing.T) {
 	tmpDir := t.TempDir()
 	ctx := &CheckContext{TownRoot: tmpDir}
 
-	// Write identity anchor + Dolt section but no communication hygiene
+	// Write identity anchor + git structure + Dolt section but no communication hygiene
 	content := `# Gas Town
 
 This is a Gas Town workspace.
+
+## Git Repository Structure
+
+Use the rig repo for git operations.
 
 ## Dolt Server — Operational Awareness
 
@@ -124,6 +128,9 @@ func TestTownCLAUDEmdCheck_Fix_MissingFile(t *testing.T) {
 	}
 	content := string(data)
 
+	if !strings.Contains(content, "## Git Repository Structure") {
+		t.Error("created file missing Git Repository Structure section")
+	}
 	if !strings.Contains(content, "## Dolt Server") {
 		t.Error("created file missing Dolt Server section")
 	}
@@ -177,6 +184,9 @@ This is user-added content that should be preserved.
 	}
 
 	// Missing sections should be appended
+	if !strings.Contains(content, "## Git Repository Structure") {
+		t.Error("Git Repository Structure section was not appended")
+	}
 	if !strings.Contains(content, "## Dolt Server") {
 		t.Error("Dolt Server section was not appended")
 	}
