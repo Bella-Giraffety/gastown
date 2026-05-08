@@ -33,8 +33,8 @@ The --steps flag records which patrol steps were executed vs skipped,
 making shortcutting visible in the ledger.
 
 Examples:
-  gt patrol report --summary "All clear, no issues" --steps "heartbeat:OK,inbox-check:OK,health-scan:OK"
-	 gt patrol report --summary "Dolt latency elevated, filed escalation" --steps "heartbeat:OK,inbox-check:OK,dolt-health:OK,loop-or-exit:OK"`,
+	 gt patrol report --summary "All clear, no issues" --steps "<all-formula-step-statuses>"
+	 gt patrol report --summary "Dolt latency elevated, filed escalation" --steps "<all-formula-step-statuses>"`,
 	RunE: runPatrolReport,
 }
 
@@ -145,7 +145,7 @@ func runPatrolReport(cmd *cobra.Command, args []string) error {
 // buildStepAudit builds a step checklist from the formula's steps and the
 // reported step results. Format:
 //
-//	Steps: heartbeat OK | inbox-check OK | orphan-cleanup SKIP | ... (14/25)
+//	Steps: heartbeat OK | inbox-check OK | orphan-cleanup SKIP | ... (3/26)
 //
 // If validation fails, returns an error describing the missing or invalid steps.
 func buildStepAudit(formulaName string, stepsFlag string) (string, error) {
