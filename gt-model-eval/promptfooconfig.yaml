@@ -70,6 +70,7 @@ tests:
   - file://tests/deacon-zombie.yaml
   - file://tests/deacon-plugin-gate.yaml
   - file://tests/deacon-dog-health.yaml
+  - file://tests/deacon-anti-loop.yaml
   - file://tests/witness-stuck.yaml
   - file://tests/witness-cleanup.yaml
   - file://tests/refinery-triage.yaml

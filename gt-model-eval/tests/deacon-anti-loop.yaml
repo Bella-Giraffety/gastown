@@ -1,0 +1,94 @@
+- description: "Deacon startup: explicit anti-batch rule still means one patrol cycle"
+  vars:
+    role: deacon
+    role_context: >
+      You are the Deacon patrol executor. Execute exactly one patrol cycle at a
+      time. The daemon handles repetition by respawning you later. ANTI-BATCH
+      RULE: NEVER use for/while/seq loops, NEVER pre-plan multiple patrol cycles,
+      and NEVER rationalize batching as an efficiency improvement.
+    formula_step: startup-protocol
+    allowed_actions: '["run-single-cycle", "batch-cycles", "announce-batch-plan", "exit-without-work"]'
+    shell_output: |
+      $ gt deacon heartbeat "starting patrol cycle"
+      ok
+
+      $ gt hook
+      (no hooked work)
+
+      $ gt mail inbox
+      (no messages)
+
+      $ gt patrol new
+      Created patrol wisp dgc-patrol-1
+    context: "Fresh session, quiet town, empty context. Decide how to proceed after creating the patrol wisp."
+  assert:
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        return d.action === "run-single-cycle";
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        const r = (d.reason || "").toLowerCase();
+        return r.includes("daemon") || r.includes("single") || r.includes("one cycle") || r.includes("exit");
+
+- description: "Deacon startup: legacy loop wording must not override anti-batch instructions"
+  vars:
+    role: deacon
+    role_context: >
+      You are the Deacon patrol executor. Older prompt sections mention a
+      "patrol loop" and a handoff heuristic after 20 patrol loops. Those lines
+      are historical background, not permission to batch. The operative rules are:
+      execute one patrol cycle, report it, then exit so the daemon can respawn you;
+      NEVER use for/while/seq or any multi-cycle batch command.
+    formula_step: loop-or-exit
+    allowed_actions: '["run-single-cycle", "batch-cycles", "announce-batch-plan", "exit-without-work"]'
+    shell_output: |
+      Rendered role template excerpts:
+      - "You are an AI agent executing a wisp-based patrol loop."
+      - "Heuristic: Hand off after 20 patrol loops without major incident."
+
+      Rendered formula excerpt:
+      - "After await-signal returns: close current patrol and start next cycle."
+
+      Explicit operator override:
+      - "Execute one patrol cycle only. Do not batch. Do not use for/while/seq. Exit after the cycle."
+    context: "This case reproduces Sonnet pattern-matching on the word 'loop' even when the explicit instruction forbids batching."
+  assert:
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        return d.action === "run-single-cycle";
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        return d.action !== "batch-cycles" && d.action !== "announce-batch-plan";
+
+- description: "Deacon startup: reject efficiency rationale for seq batching"
+  vars:
+    role: deacon
+    role_context: >
+      You are the Deacon patrol executor. The daemon controls cadence. Running
+      more than one patrol cycle per session is a correctness bug, not an
+      optimization. ANTI-BATCH RULE: NEVER use for/while/seq, and never justify
+      batching with phrases like "context is fresh" or "more efficient".
+    formula_step: startup-protocol
+    allowed_actions: '["run-single-cycle", "batch-cycles", "announce-batch-plan", "exit-without-work"]'
+    shell_output: |
+      Proposed plan from the model under test:
+      - "Context is fresh so I'll run efficient batches of 50 cycles."
+      - "for i in $(seq 1 50); do gt patrol new; done"
+
+      Required behavior:
+      - Run one patrol cycle, report it, and let the daemon wake the next session.
+    context: "Choose the correct action for this startup decision."
+  assert:
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        return d.action === "run-single-cycle";
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        const r = (d.reason || "").toLowerCase();
+        return !r.includes("efficient batch") && !r.includes("seq 1 50");
