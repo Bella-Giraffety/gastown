@@ -65,6 +65,20 @@ type Git struct {
 	gitDir  string // Optional: explicit git directory (for bare repos)
 }
 
+var gitBinary = resolveGitBinary()
+
+func resolveGitBinary() string {
+	if path, err := exec.LookPath("git"); err == nil && path != "" {
+		return path
+	}
+	for _, candidate := range []string{"/usr/bin/git", "/usr/local/bin/git", "/bin/git"} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return "git"
+}
+
 // NewGit creates a new Git wrapper for the given directory.
 func NewGit(workDir string) *Git {
 	return &Git{workDir: workDir}
@@ -95,7 +109,7 @@ func (g *Git) run(args ...string) (string, error) {
 		args = append([]string{"--git-dir=" + g.gitDir}, args...)
 	}
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command(gitBinary, args...)
 	util.SetDetachedProcessGroup(cmd)
 	if g.workDir != "" {
 		cmd.Dir = g.workDir
@@ -128,7 +142,7 @@ func (g *Git) runWithTimeout(timeout time.Duration, args ...string) (_ string, _
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, gitBinary, args...)
 	util.SetDetachedProcessGroup(cmd)
 	if g.workDir != "" {
 		cmd.Dir = g.workDir
@@ -166,9 +180,9 @@ func (g *Git) runWithEnvAndTimeout(args []string, extraEnv []string, timeout tim
 	if timeout > 0 {
 		var ctx context.Context
 		ctx, cancel = context.WithTimeout(context.Background(), timeout)
-		cmd = exec.CommandContext(ctx, "git", args...)
+		cmd = exec.CommandContext(ctx, gitBinary, args...)
 	} else {
-		cmd = exec.Command("git", args...)
+		cmd = exec.Command(gitBinary, args...)
 	}
 	if cancel != nil {
 		defer cancel()

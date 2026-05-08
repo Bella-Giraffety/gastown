@@ -730,6 +730,50 @@ func TestCollectGitState(t *testing.T) {
 	})
 }
 
+func TestCollectHandoffStateFallsBackToGitContextWhenCommandsUnavailable(t *testing.T) {
+	// Reproduce the auto-handoff failure mode from GH#1996: the collector may run
+	// in an environment where helper commands are unavailable. The deterministic
+	// git fallback must still produce useful context instead of an empty handoff.
+	tmpDir := makeTestGitRepo(t)
+
+	trackedFile := filepath.Join(tmpDir, "file.txt")
+	if err := os.WriteFile(trackedFile, []byte("hello"), 0644); err != nil {
+		t.Fatalf("write tracked file: %v", err)
+	}
+	for _, args := range [][]string{
+		{"git", "-C", tmpDir, "add", "file.txt"},
+		{"git", "-C", tmpDir, "commit", "-m", "tracked file"},
+	} {
+		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v failed: %s", args, out)
+		}
+	}
+	if err := os.WriteFile(trackedFile, []byte("modified"), 0644); err != nil {
+		t.Fatalf("modify tracked file: %v", err)
+	}
+
+	t.Chdir(tmpDir)
+	t.Setenv("PATH", "")
+
+	state := collectHandoffState()
+
+	if state == "" {
+		t.Fatal("collectHandoffState() returned empty string")
+	}
+	if state == "No active state to report." {
+		t.Fatalf("expected deterministic git fallback context, got: %q", state)
+	}
+	if !strings.Contains(state, "## Workspace State") {
+		t.Fatalf("expected workspace state section, got: %s", state)
+	}
+	if !strings.Contains(state, "Modified: ") {
+		t.Fatalf("expected modified files in fallback context, got: %s", state)
+	}
+	if !strings.Contains(state, "tracked file") {
+		t.Fatalf("expected recent commit in fallback context, got: %s", state)
+	}
+}
+
 // TestRecordHandoffTime verifies that recordHandoffTime creates the
 // timestamp file in .runtime/ with a recent modification time.
 func TestRecordHandoffTime(t *testing.T) {

@@ -1438,12 +1438,12 @@ func hookBeadForHandoff(beadID string) error {
 
 // collectHandoffState gathers current state for handoff context.
 // Collects: git workspace state (deterministic), inbox summary, ready beads, hooked work.
-// Git state is always collected first via Go library calls (no shelling out) to ensure
-// the handoff always contains useful context even when external commands fail. (GH#1996)
+// Git state is always collected first via the git wrapper so the handoff still
+// contains useful context when gt/bd collection fails. (GH#1996)
 func collectHandoffState() string {
 	var parts []string
 
-	// Deterministic git state — always collected via Go library, never empty. (GH#1996)
+	// Deterministic git state collected before any gt/bd subprocess calls. (GH#1996)
 	if gitState := collectGitState(); gitState != "" {
 		parts = append(parts, gitState)
 	}
@@ -1505,9 +1505,9 @@ func collectHandoffState() string {
 	return strings.Join(parts, "\n\n")
 }
 
-// collectGitState captures deterministic workspace state using the Go git library.
-// This uses only the git.Git wrapper (no shelling out to gt/bd), so it works
-// reliably even when PATH is broken or external commands are unavailable.
+// collectGitState captures deterministic workspace state using the git wrapper.
+// It avoids gt/bd dependencies and uses a cached git executable path, so it
+// still works when helper-command lookups fail during auto-handoff.
 // Returns empty string if git state cannot be read (e.g., not in a git repo). (GH#1996)
 func collectGitState() string {
 	cwd, err := os.Getwd()
