@@ -590,6 +590,44 @@ exit 0
 	}
 }
 
+func TestInitBeadsPassesCentralServerPort(t *testing.T) {
+	// Cannot use t.Parallel() due to t.Setenv
+	// GH #2405: bd init must target Gas Town's shared Dolt server instead of
+	// starting its own random-port instance.
+	rigPath := t.TempDir()
+	mayorRigDir := filepath.Join(rigPath, "mayor", "rig")
+	if err := os.MkdirAll(mayorRigDir, 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+
+	cmdLog := filepath.Join(t.TempDir(), "bd-cmds.log")
+	script := `#!/usr/bin/env bash
+set -e
+echo "$@" >> "$BD_CMD_LOG"
+exit 0
+`
+	windowsScript := "@echo off\r\nif defined BD_CMD_LOG echo %* >> \"%BD_CMD_LOG%\"\r\nexit /b 0\r\n"
+	binDir := writeFakeBD(t, script, windowsScript)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BD_CMD_LOG", cmdLog)
+
+	manager := &Manager{}
+	if err := manager.InitBeads(rigPath, "myrig", ""); err != nil {
+		t.Fatalf("initBeads: %v", err)
+	}
+
+	logData, err := os.ReadFile(cmdLog)
+	if err != nil {
+		t.Fatalf("reading command log: %v", err)
+	}
+	cmds := string(logData)
+
+	want := fmt.Sprintf("init --prefix myrig --server --server-port %d", doltserver.DefaultPort)
+	if !strings.Contains(cmds, want) {
+		t.Fatalf("expected bd init to include shared Dolt port %d, got commands:\n%s", doltserver.DefaultPort, cmds)
+	}
+}
+
 func TestInitAgentBeadsUsesRigBeadsDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake bd stub is not compatible with multiline descriptions on Windows")
@@ -1323,6 +1361,12 @@ func TestEnsureMetadata_SetsRequiredFields(t *testing.T) {
 		if got != want {
 			t.Errorf("metadata.json %q = %q, want %q", key, got, want)
 		}
+	}
+	if got, ok := meta["dolt_server_host"].(string); !ok || got != "127.0.0.1" {
+		t.Errorf("metadata.json dolt_server_host = %v, want 127.0.0.1", meta["dolt_server_host"])
+	}
+	if got, ok := meta["dolt_server_port"].(float64); !ok || got != float64(doltserver.DefaultPort) {
+		t.Errorf("metadata.json dolt_server_port = %v, want %d", meta["dolt_server_port"], doltserver.DefaultPort)
 	}
 }
 
