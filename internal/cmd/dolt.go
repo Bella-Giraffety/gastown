@@ -17,6 +17,20 @@ import (
 	"github.com/steveyegge/gastown/internal/workspace"
 )
 
+var (
+	findTownRootForDoltCommand     = workspace.FindFromCwdOrError
+	doltDefaultConfigFn            = doltserver.DefaultConfig
+	doltIsRunningFn                = doltserver.IsRunning
+	doltStopFn                     = doltserver.Stop
+	doltStopIdleMonitorsFn         = doltserver.StopIdleMonitors
+	doltKillImpostersFn            = doltserver.KillImposters
+	doltListDatabasesFn            = doltserver.ListDatabases
+	doltStartFn                    = doltserver.Start
+	doltLoadStateFn                = doltserver.LoadState
+	doltVerifyDatabasesWithRetryFn = doltserver.VerifyDatabasesWithRetry
+	doltRestartSleepFn             = time.Sleep
+)
+
 var doltCmd = &cobra.Command{
 	Use:     "dolt",
 	GroupID: GroupServices,
@@ -497,21 +511,28 @@ func runDoltStop(cmd *cobra.Command, args []string) error {
 }
 
 func runDoltRestart(cmd *cobra.Command, args []string) error {
-	townRoot, err := workspace.FindFromCwdOrError()
+	townRoot, err := findTownRootForDoltCommand()
 	if err != nil {
 		return fmt.Errorf("not in a Gas Town workspace: %w", err)
 	}
 
-	config := doltserver.DefaultConfig(townRoot)
+	config := doltDefaultConfigFn(townRoot)
 	if config.IsRemote() {
 		return fmt.Errorf("Dolt server is remote (%s) — start/stop managed externally", config.HostPort())
 	}
 
+	// Stop idle-monitors before taking the canonical server down so they cannot
+	// auto-spawn a rogue server during the restart gap.
+	if stopped := doltStopIdleMonitorsFn(townRoot); stopped > 0 {
+		fmt.Printf("Stopped %d idle-monitor process(es) before restart\n", stopped)
+		doltRestartSleepFn(200 * time.Millisecond)
+	}
+
 	// Step 1: Stop tracked server (if running)
-	running, pid, _ := doltserver.IsRunning(townRoot)
+	running, pid, _ := doltIsRunningFn(townRoot)
 	if running {
 		fmt.Printf("Stopping Dolt server (PID %d)...\n", pid)
-		if err := doltserver.Stop(townRoot); err != nil {
+		if err := doltStopFn(townRoot); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: stop failed: %v (continuing with imposter kill)\n", err)
 		} else {
 			fmt.Printf("%s Stopped\n", style.Bold.Render("✓"))
@@ -520,27 +541,27 @@ func runDoltRestart(cmd *cobra.Command, args []string) error {
 
 	// Step 2: Kill any imposters on the port
 	fmt.Println("Checking for imposter servers...")
-	if err := doltserver.KillImposters(townRoot); err != nil {
+	if err := doltKillImpostersFn(townRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: imposter kill failed: %v\n", err)
 	}
 
 	// Brief pause to let port be released
-	time.Sleep(500 * time.Millisecond)
+	doltRestartSleepFn(500 * time.Millisecond)
 
 	// Step 3: Check for databases before starting
-	databases, _ := doltserver.ListDatabases(townRoot)
+	databases, _ := doltListDatabasesFn(townRoot)
 	if len(databases) == 0 {
 		return fmt.Errorf("no databases found in %s\nInitialize with: gt dolt init-rig <name>", config.DataDir)
 	}
 
 	// Step 4: Start the correct server
 	fmt.Println("Starting Dolt server...")
-	if err := doltserver.Start(townRoot); err != nil {
+	if err := doltStartFn(townRoot); err != nil {
 		return fmt.Errorf("restart failed: %w", err)
 	}
 
 	// Display status (same as gt dolt start)
-	state, _ := doltserver.LoadState(townRoot)
+	state, _ := doltLoadStateFn(townRoot)
 
 	fmt.Printf("%s Dolt server restarted (PID %d, port %d)\n",
 		style.Bold.Render("✓"), state.PID, config.Port)
@@ -549,7 +570,7 @@ func runDoltRestart(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Connection: %s\n", style.Dim.Render(doltserver.GetConnectionString(townRoot)))
 
 	// Verify databases
-	served, missing, verifyErr := doltserver.VerifyDatabasesWithRetry(townRoot, 5)
+	served, missing, verifyErr := doltVerifyDatabasesWithRetryFn(townRoot, 5)
 	if verifyErr != nil {
 		fmt.Printf("  %s Could not verify databases: %v\n", style.Dim.Render("⚠"), verifyErr)
 	} else if len(missing) > 0 {
