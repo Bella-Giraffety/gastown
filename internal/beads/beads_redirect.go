@@ -366,6 +366,13 @@ func IsLocalBeadsDir(cwd, resolvedPath string) bool {
 // dolt_database. Rigs with their own database (e.g., laneassist with "lc-"
 // prefix) must not be redirected to town-level beads ("hq-" prefix).
 func rigHasOwnDB(rigBeadsPath string) bool {
+	// A redirect means this directory is only an intermediate hop. Treating its
+	// metadata.json as a real local database creates redirect chains that bd
+	// won't follow, which breaks routed reads from worktrees.
+	if _, err := os.Stat(filepath.Join(rigBeadsPath, "redirect")); err == nil {
+		return false
+	}
+
 	metadataPath := filepath.Join(rigBeadsPath, "metadata.json")
 	data, err := os.ReadFile(metadataPath) //nolint:gosec // G304: trusted beads path
 	if err != nil {
