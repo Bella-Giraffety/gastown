@@ -32,6 +32,7 @@ import (
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/feed"
 	gitpkg "github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/lock"
 	"github.com/steveyegge/gastown/internal/mayor"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/refinery"
@@ -1513,7 +1514,6 @@ func (d *Daemon) checkDeaconHeartbeat() {
 	}
 }
 
-
 // restartStuckDeacon kills a stuck Deacon session and respawns it.
 // Uses RestartTracker for exponential backoff and crash-loop prevention.
 // Notifies via gt-notify (zero token cost) if the notify script exists.
@@ -2484,7 +2484,7 @@ func (d *Daemon) checkPolecatHealth(rigName, polecatName string) {
 	}
 
 	if sessionAlive {
-		// Session is alive - nothing to do
+		d.detectLivePolecatCrash(rigName, polecatName, sessionName)
 		return
 	}
 
@@ -2566,19 +2566,58 @@ func (d *Daemon) checkPolecatHealth(rigName, polecatName string) {
 		return // Session came back - no restart needed
 	}
 
-	// Polecat has work but session is dead - this is a crash!
-	d.logger.Printf("CRASH DETECTED: polecat %s/%s has hook_bead=%s but session %s is dead",
-		rigName, polecatName, info.HookBead, sessionName)
+	d.reportPolecatCrash(rigName, polecatName, sessionName, info.HookBead,
+		fmt.Sprintf("session %s is dead", sessionName), "crash detected by daemon health check")
+}
 
-	// Track this death for mass death detection
+// detectLivePolecatCrash checks for the "dead worker, live tmux" failure mode.
+// In this case the shell session survives, but the agent process that acquired
+// .runtime/agent.lock is gone, so the polecat has effectively crashed.
+func (d *Daemon) detectLivePolecatCrash(rigName, polecatName, sessionName string) {
+	workDir := filepath.Join(d.config.TownRoot, rigName, "polecats", polecatName, rigName)
+	lockInfo, err := lock.New(workDir).Read()
+	if err != nil {
+		if !errors.Is(err, lock.ErrNotLocked) {
+			d.logger.Printf("Warning: reading agent lock for %s/%s: %v", rigName, polecatName, err)
+		}
+		return
+	}
+	if lockInfo == nil || !lockInfo.IsStale() {
+		return
+	}
+
+	prefix := beads.GetPrefixForRig(d.config.TownRoot, rigName)
+	agentBeadID := beads.PolecatBeadIDWithPrefix(prefix, rigName, polecatName)
+	info, err := d.getAgentBeadInfo(agentBeadID)
+	if err != nil {
+		return
+	}
+	if info.HookBead == "" {
+		return
+	}
+
+	agentState := beads.AgentState(info.State)
+	if agentState == beads.AgentStateDone || agentState == beads.AgentStateNuked || agentState == beads.AgentStateSpawning {
+		return
+	}
+	if d.isBeadClosed(info.HookBead) {
+		return
+	}
+
+	reason := fmt.Sprintf("agent.lock pid %d is dead while tmux session is still alive", lockInfo.PID)
+	d.reportPolecatCrash(rigName, polecatName, sessionName, info.HookBead, reason, "crash detected by daemon agent lock check")
+}
+
+func (d *Daemon) reportPolecatCrash(rigName, polecatName, sessionName, hookBead, logReason, feedReason string) {
+	d.logger.Printf("CRASH DETECTED: polecat %s/%s has hook_bead=%s but %s",
+		rigName, polecatName, hookBead, logReason)
+
 	d.recordSessionDeath(sessionName)
 
-	// Emit session_death event for audit trail / feed visibility
 	_ = events.LogFeed(events.TypeSessionDeath, sessionName,
-		events.SessionDeathPayload(sessionName, rigName+"/polecats/"+polecatName, "crash detected by daemon health check", "daemon"))
+		events.SessionDeathPayload(sessionName, rigName+"/polecats/"+polecatName, feedReason, "daemon"))
 
-	// Notify witness — stuck-agent-dog plugin handles context-aware restart
-	d.notifyWitnessOfCrashedPolecat(rigName, polecatName, info.HookBead)
+	d.notifyWitnessOfCrashedPolecat(rigName, polecatName, hookBead, logReason)
 }
 
 // recordSessionDeath records a session death and checks for mass death pattern.
@@ -2681,20 +2720,22 @@ func (d *Daemon) hasAssignedOpenWork(rigName, assignee string) bool {
 
 // notifyWitnessOfCrashedPolecat notifies the witness when a polecat crash is detected.
 // The stuck-agent-dog plugin handles context-aware restart decisions.
-func (d *Daemon) notifyWitnessOfCrashedPolecat(rigName, polecatName, hookBead string) {
+func (d *Daemon) notifyWitnessOfCrashedPolecat(rigName, polecatName, hookBead, reason string) {
 	witnessAddr := rigName + "/witness"
 	subject := fmt.Sprintf("CRASHED_POLECAT: %s/%s detected", rigName, polecatName)
-	body := fmt.Sprintf(`Polecat %s crash detected (session dead, work on hook).
+	body := fmt.Sprintf(`Polecat %s crash detected.
+
+reason: %s
 
 hook_bead: %s
 
 Restart deferred to stuck-agent-dog plugin for context-aware recovery.`,
-		polecatName, hookBead)
+		polecatName, reason, hookBead)
 
 	cmd := exec.Command(d.gtPath, "mail", "send", witnessAddr, "-s", subject, "-m", body) //nolint:gosec // G204: args are constructed internally
 	setSysProcAttr(cmd)
 	cmd.Dir = d.config.TownRoot
-	cmd.Env = append(os.Environ(), "BD_ACTOR=daemon")// Identify as daemon, not overseer
+	cmd.Env = append(os.Environ(), "BD_ACTOR=daemon") // Identify as daemon, not overseer
 	if err := cmd.Run(); err != nil {
 		d.logger.Printf("Warning: failed to notify witness of crashed polecat: %v", err)
 	}

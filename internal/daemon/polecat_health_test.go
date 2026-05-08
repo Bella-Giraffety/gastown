@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/steveyegge/gastown/internal/lock"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/tmux"
@@ -23,6 +24,18 @@ func writeFakeTestTmux(t *testing.T, dir string) {
 	script := "#!/bin/sh\n" +
 		"case \"$*\" in\n" +
 		"  *has-session*) echo \"can't find session\" >&2; exit 1;;\n" +
+		"  *) echo 'unexpected tmux command' >&2; exit 1;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0755); err != nil {
+		t.Fatalf("writing fake tmux: %v", err)
+	}
+}
+
+func writeFakeLiveSessionTmux(t *testing.T, dir string) {
+	t.Helper()
+	script := "#!/bin/sh\n" +
+		"case \"$*\" in\n" +
+		"  *has-session*) exit 0;;\n" +
 		"  *) echo 'unexpected tmux command' >&2; exit 1;;\n" +
 		"esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0755); err != nil {
@@ -72,6 +85,38 @@ func writeFakeBDWithHookBead(t *testing.T, dir, agentState, hookBeadID, hookBead
 		t.Fatalf("writing fake bd: %v", err)
 	}
 	return bdPath
+}
+
+func writeStaleAgentLock(t *testing.T, townRoot, rigName, polecatName string, pid int) {
+	t.Helper()
+	runtimeDir := filepath.Join(townRoot, rigName, "polecats", polecatName, rigName, ".runtime")
+	if err := os.MkdirAll(runtimeDir, 0755); err != nil {
+		t.Fatalf("creating runtime dir: %v", err)
+	}
+	data, err := json.Marshal(lock.LockInfo{
+		PID:        pid,
+		AcquiredAt: time.Now().Add(-time.Minute),
+		SessionID:  "%1",
+	})
+	if err != nil {
+		t.Fatalf("marshaling lock info: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeDir, "agent.lock"), data, 0644); err != nil {
+		t.Fatalf("writing stale agent.lock: %v", err)
+	}
+}
+
+func writeTestTownRoot(t *testing.T) string {
+	t.Helper()
+	townRoot := t.TempDir()
+	mayorDir := filepath.Join(townRoot, "mayor")
+	if err := os.MkdirAll(mayorDir, 0755); err != nil {
+		t.Fatalf("creating mayor dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mayorDir, "town.json"), []byte(`{"name":"test-town"}`), 0644); err != nil {
+		t.Fatalf("writing town.json: %v", err)
+	}
+	return townRoot
 }
 
 // TestCheckPolecatHealth_SkipsSpawning verifies that checkPolecatHealth does NOT
@@ -300,6 +345,53 @@ func TestCheckPolecatHealth_NotifiesWitnessOnCrash(t *testing.T) {
 	}
 	if !strings.Contains(invocations, "myr/witness") {
 		t.Errorf("expected witness address myr/witness, got: %q", invocations)
+	}
+}
+
+func TestCheckPolecatHealth_DetectsStaleAgentLockCrash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mocks for tmux and bd")
+	}
+
+	binDir := t.TempDir()
+	writeFakeLiveSessionTmux(t, binDir)
+	recentTime := time.Now().UTC().Format(time.RFC3339)
+	bdPath := writeFakeTestBD(t, binDir, "working", "working", "gt-xyz", recentTime)
+
+	townRoot := writeTestTownRoot(t)
+	writeStaleAgentLock(t, townRoot, "myr", "mycat", 999999)
+	t.Chdir(townRoot)
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	var logBuf strings.Builder
+	d := &Daemon{
+		config: &Config{TownRoot: townRoot},
+		logger: log.New(&logBuf, "", 0),
+		tmux:   tmux.NewTmux(),
+		bdPath: bdPath,
+	}
+
+	d.checkPolecatHealth("myr", "mycat")
+
+	got := logBuf.String()
+	if !strings.Contains(got, "CRASH DETECTED") {
+		t.Fatalf("expected CRASH DETECTED for stale agent lock, got: %q", got)
+	}
+	if !strings.Contains(got, "agent.lock pid 999999 is dead") {
+		t.Fatalf("expected stale agent.lock reason in log, got: %q", got)
+	}
+
+	eventsPath := filepath.Join(townRoot, ".events.jsonl")
+	data, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatalf("reading events log: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `"type":"session_death"`) {
+		t.Fatalf("expected session_death event, got: %q", content)
+	}
+	if !strings.Contains(content, `"reason":"crash detected by daemon agent lock check"`) {
+		t.Fatalf("expected agent-lock crash reason in event, got: %q", content)
 	}
 }
 
