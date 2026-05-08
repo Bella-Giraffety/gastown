@@ -326,6 +326,35 @@ func TestAddRig_RejectsInvalidNames(t *testing.T) {
 	}
 }
 
+func TestAddRig_RejectsDerivedPrefixCollision(t *testing.T) {
+	root, rigsConfig := setupTestTown(t)
+	beadsDir := filepath.Join(root, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	routesContent := "{\"prefix\":\"gt-\",\"path\":\"gastown/mayor/rig\"}\n"
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(routesContent), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+
+	manager := NewManager(root, rigsConfig, git.NewGit(root))
+	_, err := manager.AddRig(AddRigOptions{
+		Name:          "ghosttown",
+		GitURL:        "git@github.com:test/ghosttown.git",
+		SkipDoltCheck: true,
+	})
+	if err == nil {
+		t.Fatal("AddRig succeeded, want prefix collision error")
+	}
+	if !strings.Contains(err.Error(), `prefix collision (derived prefix "gt")`) {
+		t.Fatalf("AddRig error = %q, want derived prefix collision", err)
+	}
+	if !strings.Contains(err.Error(), `prefix "gt-" is already used by gastown`) {
+		t.Fatalf("AddRig error = %q, want existing rig details", err)
+	}
+}
+
 func TestListRigNames(t *testing.T) {
 	root, rigsConfig := setupTestTown(t)
 	rigsConfig.Rigs["rig1"] = config.RigEntry{}
