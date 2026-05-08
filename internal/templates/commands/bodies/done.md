@@ -34,6 +34,11 @@ gt done $ARGUMENTS
 - `gt done --status DEFERRED` — Pause work, skip MR
 
 **If the bead has nothing to implement** (already fixed, can't reproduce):
+
+Only use this path after you have read the issue and verified there is truly
+nothing to implement. A clean worktree at session start is normal; it is not
+proof that the assigned bead is already done.
+
 ```bash
 bd close <issue-id> --reason="no-changes: <brief explanation>"
 gt done

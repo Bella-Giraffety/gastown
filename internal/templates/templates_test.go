@@ -86,6 +86,12 @@ func TestRenderRole_Polecat(t *testing.T) {
 	if !strings.Contains(output, "myrig") {
 		t.Error("output missing rig name")
 	}
+	if strings.Contains(output, "Exception — bead has nothing to implement") {
+		t.Error("output still contains premature no-work exception")
+	}
+	if !strings.Contains(output, "A clean worktree at session start is NORMAL") {
+		t.Error("output missing clean-worktree warning")
+	}
 }
 
 func TestRenderRole_Deacon(t *testing.T) {

@@ -108,15 +108,10 @@ gt done                  # Submit and self-clean
 
 **If NO work on hook and NO mail:** run `gt done` immediately.
 
-**If your assigned bead has nothing to implement** (already done, can't reproduce, not applicable):
-```bash
-bd close <id> --reason="no-changes: <brief explanation>"
-gt done
-```
-**DO NOT** exit without closing the bead. Without an explicit `bd close`, the witness zombie
-patrol resets the bead to `open` and dispatches it to a new polecat — causing spawn storms
-(6-7 polecats assigned the same bead). Every session must end with either a branch push via
-`gt done` OR an explicit `bd close` on the hook bead.
+**Important:** A clean worktree at session start is NORMAL. It only means you have
+not started implementing yet. Do not take a no-changes path until you have read
+the issue, checked the formula steps, and verified the work is already fixed or
+truly not applicable.
 
 ---
 
