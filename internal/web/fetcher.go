@@ -50,10 +50,49 @@ var fetcherGetSessionEnv = func(sessionName, key string) (string, error) {
 	return tmux.NewTmux().GetEnvironment(sessionName, key)
 }
 
+type bdCacheEntry struct {
+	stdout  []byte
+	expires time.Time
+}
+
+type bdCacheCall struct {
+	done chan struct{}
+}
+
 // runBdCmd executes a bd command with the configured cmdTimeout in the specified beads directory.
 func (f *LiveConvoyFetcher) runBdCmd(beadsDir string, args ...string) (*bytes.Buffer, error) {
 	// bd v0.59+ requires --flat for list --json to produce JSON output
 	args = beads.InjectFlatForListJSON(args)
+	cacheKey := beadsDir + "\x00" + strings.Join(args, "\x00")
+
+	var call *bdCacheCall
+	for {
+		f.bdCacheMu.Lock()
+		if entry, ok := f.bdCache[cacheKey]; ok && time.Now().Before(entry.expires) {
+			stdout := bytes.NewBuffer(append([]byte(nil), entry.stdout...))
+			f.bdCacheMu.Unlock()
+			return stdout, nil
+		}
+		if f.bdCacheInFlight == nil {
+			f.bdCacheInFlight = make(map[string]*bdCacheCall)
+		}
+		if existing, ok := f.bdCacheInFlight[cacheKey]; ok {
+			f.bdCacheMu.Unlock()
+			<-existing.done
+			continue
+		}
+		call = &bdCacheCall{done: make(chan struct{})}
+		f.bdCacheInFlight[cacheKey] = call
+		f.bdCacheMu.Unlock()
+		break
+	}
+
+	defer func() {
+		f.bdCacheMu.Lock()
+		delete(f.bdCacheInFlight, cacheKey)
+		f.bdCacheMu.Unlock()
+		close(call.done)
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), f.cmdTimeout)
 	defer cancel()
@@ -74,11 +113,25 @@ func (f *LiveConvoyFetcher) runBdCmd(beadsDir string, args ...string) (*bytes.Bu
 		}
 		// If we got some output, return it anyway (bd may exit non-zero with warnings)
 		if stdout.Len() > 0 {
+			f.cacheBdOutput(cacheKey, stdout.Bytes())
 			return &stdout, nil
 		}
 		return nil, err
 	}
+	f.cacheBdOutput(cacheKey, stdout.Bytes())
 	return &stdout, nil
+}
+
+func (f *LiveConvoyFetcher) cacheBdOutput(cacheKey string, stdout []byte) {
+	f.bdCacheMu.Lock()
+	defer f.bdCacheMu.Unlock()
+	if f.bdCache == nil {
+		f.bdCache = make(map[string]bdCacheEntry)
+	}
+	f.bdCache[cacheKey] = bdCacheEntry{
+		stdout:  append([]byte(nil), stdout...),
+		expires: time.Now().Add(defaultCacheTTL),
+	}
 }
 
 // fetchCircuitBreaker tracks consecutive failures for a fetch operation
@@ -130,6 +183,10 @@ func (cb *fetchCircuitBreaker) recordSuccess() {
 type LiveConvoyFetcher struct {
 	townRoot  string
 	townBeads string
+
+	bdCacheMu       sync.Mutex
+	bdCache         map[string]bdCacheEntry
+	bdCacheInFlight map[string]*bdCacheCall
 
 	// bdBin is the bd binary name or path. Defaults to "bd" if empty.
 	bdBin string

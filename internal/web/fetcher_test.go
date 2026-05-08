@@ -575,6 +575,99 @@ esac
 	})
 }
 
+func TestRunBdCmd_CachesSequentialIdenticalQueries(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based command test")
+	}
+
+	binDir := t.TempDir()
+	workDir := t.TempDir()
+	bdPath := filepath.Join(binDir, "bd")
+	countPath := filepath.Join(binDir, "count")
+	script := fmt.Sprintf(`#!/bin/sh
+count=$(cat %q 2>/dev/null || printf '0')
+count=$((count + 1))
+printf '%%s' "$count" > %q
+printf 'cached output'
+`, countPath, countPath)
+	if err := os.WriteFile(bdPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+
+	f := &LiveConvoyFetcher{cmdTimeout: 5 * time.Second, bdBin: bdPath}
+
+	for i := 0; i < 2; i++ {
+		stdout, err := f.runBdCmd(workDir, "list", "--json")
+		if err != nil {
+			t.Fatalf("runBdCmd attempt %d: %v", i+1, err)
+		}
+		if got := strings.TrimSpace(stdout.String()); got != "cached output" {
+			t.Fatalf("runBdCmd output = %q, want %q", got, "cached output")
+		}
+	}
+
+	count, err := os.ReadFile(countPath)
+	if err != nil {
+		t.Fatalf("read count file: %v", err)
+	}
+	if got := strings.TrimSpace(string(count)); got != "1" {
+		t.Fatalf("bd invocation count = %s, want 1", got)
+	}
+}
+
+func TestRunBdCmd_CoalescesConcurrentIdenticalQueries(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based command test")
+	}
+
+	binDir := t.TempDir()
+	workDir := t.TempDir()
+	bdPath := filepath.Join(binDir, "bd")
+	countPath := filepath.Join(binDir, "count")
+	script := fmt.Sprintf(`#!/bin/sh
+count=$(cat %q 2>/dev/null || printf '0')
+count=$((count + 1))
+printf '%%s' "$count" > %q
+sleep 0.2
+printf 'coalesced output'
+`, countPath, countPath)
+	if err := os.WriteFile(bdPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+
+	f := &LiveConvoyFetcher{cmdTimeout: 5 * time.Second, bdBin: bdPath}
+
+	errCh := make(chan error, 2)
+	for range 2 {
+		go func() {
+			stdout, err := f.runBdCmd(workDir, "list", "--status=open", "--json")
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if got := strings.TrimSpace(stdout.String()); got != "coalesced output" {
+				errCh <- fmt.Errorf("runBdCmd output = %q, want %q", got, "coalesced output")
+				return
+			}
+			errCh <- nil
+		}()
+	}
+
+	for range 2 {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	count, err := os.ReadFile(countPath)
+	if err != nil {
+		t.Fatalf("read count file: %v", err)
+	}
+	if got := strings.TrimSpace(string(count)); got != "1" {
+		t.Fatalf("bd invocation count = %s, want 1", got)
+	}
+}
+
 func withMayorFetcherHooks(t *testing.T, sessionEnv func(sessionName, key string) (string, error), runCmdFunc func(time.Duration, string, ...string) (*bytes.Buffer, error)) {
 	t.Helper()
 
