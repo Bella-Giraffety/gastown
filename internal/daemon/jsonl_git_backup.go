@@ -32,15 +32,15 @@ const (
 // testPollutionPatterns matches issue IDs or titles that indicate test data leaked
 // into production exports. These records are filtered out before writing JSONL.
 var testPollutionPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)^Test Issue`),                              // title: "Test Issue ..."
-	regexp.MustCompile(`(?i)^test[_\s]`),                               // title: "test_something" or "test something"
-	regexp.MustCompile(`^bd-[0-9]{1,2}$`),                              // id: bd-1, bd-99 (suspiciously short IDs)
-	regexp.MustCompile(`^bd-[a-z]{3,5}[0-9]{1,2}$`),                   // id: bd-abc12 (test-style IDs)
-	regexp.MustCompile(`^(testdb_|beads_t|beads_pt|doctest_)`),         // id prefixes from test databases
-	regexp.MustCompile(`(?i)^--help`),                                  // title: "--help" CLI artifacts
-	regexp.MustCompile(`(?i)^Usage:\s`),                                // title: "Usage: ..." CLI help output
-	regexp.MustCompile(`^offlinebrew-`),                                // id: offlinebrew-* test prefixes
-	regexp.MustCompile(`-wisp-`),                                       // id: wisp-pattern IDs leaked into issues table
+	regexp.MustCompile(`(?i)^Test Issue`),                      // title: "Test Issue ..."
+	regexp.MustCompile(`(?i)^test[_\s]`),                       // title: "test_something" or "test something"
+	regexp.MustCompile(`^bd-[0-9]{1,2}$`),                      // id: bd-1, bd-99 (suspiciously short IDs)
+	regexp.MustCompile(`^bd-[a-z]{3,5}[0-9]{1,2}$`),            // id: bd-abc12 (test-style IDs)
+	regexp.MustCompile(`^(testdb_|beads_t|beads_pt|doctest_)`), // id prefixes from test databases
+	regexp.MustCompile(`(?i)^--help`),                          // title: "--help" CLI artifacts
+	regexp.MustCompile(`(?i)^Usage:\s`),                        // title: "Usage: ..." CLI help output
+	regexp.MustCompile(`^offlinebrew-`),                        // id: offlinebrew-* test prefixes
+	regexp.MustCompile(`-wisp-`),                               // id: wisp-pattern IDs leaked into issues table
 }
 
 // validDBName matches safe database names (alphanumeric, underscore, hyphen).
@@ -359,9 +359,10 @@ func (d *Daemon) exportTableToJsonl(table, query, dir, dataDir string) (int, err
 // The commit message includes counts for successful exports AND names of failed
 // databases, so partial failures are visible in git history.
 func (d *Daemon) commitAndPushJsonlBackup(gitRepo string, databases []string, counts map[string]int, failed []string) error {
-	// Stage all JSONL files (flat legacy files + subdirectory structure).
-	// Use "." instead of "*/" to correctly handle initially-untracked subdirectories.
-	if err := d.runGitCmd(gitRepo, gitCmdTimeout, "add", "-A", "."); err != nil {
+	// Stage only backup-managed paths so a mispointed gitRepo cannot commit
+	// unrelated source deletions from a broader workspace.
+	args := append([]string{"add", "-A", "--"}, backupGitPathspecs(databases)...)
+	if err := d.runGitCmd(gitRepo, gitCmdTimeout, args...); err != nil {
 		return fmt.Errorf("git add: %w", err)
 	}
 
@@ -409,6 +410,21 @@ func (d *Daemon) commitAndPushJsonlBackup(gitRepo string, databases []string, co
 		d.logger.Printf("jsonl_git_backup: committed (no remote configured, skipping push): %s", msg)
 	}
 	return nil
+}
+
+func backupGitPathspecs(databases []string) []string {
+	paths := []string{".gitignore"}
+	seen := map[string]struct{}{".gitignore": {}}
+	for _, db := range databases {
+		for _, path := range []string{db, db + ".jsonl"} {
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
 
 // hasGitRemote checks if the named remote exists in the git repo.

@@ -11,6 +11,42 @@ import (
 	"testing"
 )
 
+func TestCommitAndPushJsonlBackup_DoesNotStageUnrelatedDeletions(t *testing.T) {
+	gitRepo := t.TempDir()
+	initGitRepo(t, gitRepo)
+
+	appPath := filepath.Join(gitRepo, "app", "main.go")
+	if err := os.MkdirAll(filepath.Dir(appPath), 0755); err != nil {
+		t.Fatalf("mkdir app dir: %v", err)
+	}
+	if err := os.WriteFile(appPath, []byte("package main\n"), 0644); err != nil {
+		t.Fatalf("write app file: %v", err)
+	}
+	commitAll(t, gitRepo, "add app file")
+
+	dbDir := filepath.Join(gitRepo, "testdb")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+	writeNLines(t, filepath.Join(dbDir, "issues.jsonl"), 1)
+
+	if err := os.Remove(appPath); err != nil {
+		t.Fatalf("remove app file: %v", err)
+	}
+
+	d := &Daemon{logger: log.New(io.Discard, "", 0)}
+	if err := d.commitAndPushJsonlBackup(gitRepo, []string{"testdb"}, map[string]int{"testdb": 1}, nil); err != nil {
+		t.Fatalf("commitAndPushJsonlBackup: %v", err)
+	}
+
+	if _, err := gitShowFile(gitRepo, "HEAD:app/main.go"); err != nil {
+		t.Fatalf("unrelated tracked file was removed from commit: %v", err)
+	}
+	if _, err := gitShowFile(gitRepo, "HEAD:testdb/issues.jsonl"); err != nil {
+		t.Fatalf("backup export missing from commit: %v", err)
+	}
+}
+
 func TestIsTestPollution(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -589,4 +625,10 @@ func writeNLines(t *testing.T, path string, n int) {
 
 func itoa(i int) string {
 	return strconv.Itoa(i)
+}
+
+func gitShowFile(dir, spec string) ([]byte, error) {
+	cmd := exec.Command("git", "show", spec)
+	cmd.Dir = dir
+	return cmd.CombinedOutput()
 }
