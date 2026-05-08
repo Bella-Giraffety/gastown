@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 	"testing"
+
+	"github.com/steveyegge/gastown/internal/formula"
 )
 
 func TestExtractPatrolRole(t *testing.T) {
@@ -174,6 +176,7 @@ func TestBuildStepAudit(t *testing.T) {
 		name        string
 		formulaName string
 		stepsFlag   string
+		wantErr     string
 		wantPrefix  string // check prefix of output
 		wantSuffix  string // check suffix of output
 		wantContain string // check output contains this
@@ -182,13 +185,12 @@ func TestBuildStepAudit(t *testing.T) {
 			name:        "deacon patrol with no steps reported",
 			formulaName: "mol-deacon-patrol",
 			stepsFlag:   "",
-			wantPrefix:  "Steps: NOT REPORTED",
-			wantContain: "/26)",
+			wantErr:     "--steps is required",
 		},
 		{
 			name:        "deacon patrol with all steps OK",
 			formulaName: "mol-deacon-patrol",
-			stepsFlag:   "heartbeat:OK,inbox-check:OK,orphan-process-cleanup:OK,test-pollution-cleanup:OK,gate-evaluation:OK,dispatch-gated-molecules:OK,check-convoy-completion:OK,resolve-external-deps:OK,fire-notifications:OK,heartbeat-mid:OK,health-scan:OK,dolt-health:OK,zombie-scan:OK,plugin-run:OK,dog-pool-maintenance:OK,dog-health-check:OK,orphan-check:OK,session-gc:OK,wisp-compact:OK,compact-report:OK,costs-digest:OK,patrol-digest:OK,log-maintenance:OK,patrol-cleanup:OK,context-check:OK,loop-or-exit:OK",
+			stepsFlag:   mustBuildStepFlag(t, "mol-deacon-patrol", "OK", nil),
 			wantPrefix:  "Steps:",
 			wantSuffix:  "(26/26)",
 			wantContain: "heartbeat OK",
@@ -196,34 +198,46 @@ func TestBuildStepAudit(t *testing.T) {
 		{
 			name:        "deacon patrol with some steps skipped",
 			formulaName: "mol-deacon-patrol",
-			stepsFlag:   "heartbeat:OK,inbox-check:OK,loop-or-exit:OK",
+			stepsFlag:   mustBuildStepFlag(t, "mol-deacon-patrol", "SKIP", map[string]string{"heartbeat": "OK", "inbox-check": "OK", "loop-or-exit": "OK"}),
 			wantPrefix:  "Steps:",
 			wantSuffix:  "(3/26)",
-			wantContain: "heartbeat OK",
+			wantContain: "orphan-process-cleanup SKIP",
 		},
 		{
-			name:        "skipped steps shown as SKIP",
+			name:        "missing steps fail validation",
 			formulaName: "mol-deacon-patrol",
 			stepsFlag:   "heartbeat:OK",
-			wantContain: "inbox-check SKIP",
+			wantErr:     "--steps missing required formula step IDs: inbox-check",
 		},
 		{
-			name:        "nonexistent formula with no steps",
-			formulaName: "mol-nonexistent",
-			stepsFlag:   "",
-			wantPrefix:  "Steps: NOT REPORTED (formula not found)",
+			name:        "unknown step fails validation",
+			formulaName: "mol-deacon-patrol",
+			stepsFlag:   mustBuildStepFlag(t, "mol-deacon-patrol", "OK", map[string]string{"not-a-step": "OK"}),
+			wantErr:     "--steps contains unknown step IDs: not-a-step",
 		},
 		{
-			name:        "nonexistent formula with steps",
+			name:        "nonexistent formula fails validation",
 			formulaName: "mol-nonexistent",
 			stepsFlag:   "heartbeat:OK",
-			wantContain: "unvalidated",
+			wantErr:     "loading patrol formula \"mol-nonexistent\"",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildStepAudit(tt.formulaName, tt.stepsFlag)
+			got, err := buildStepAudit(tt.formulaName, tt.stepsFlag)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("buildStepAudit() error = nil, want %q", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("buildStepAudit() error = %q, want to contain %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("buildStepAudit() error = %v", err)
+			}
 			if tt.wantPrefix != "" && !strings.HasPrefix(got, tt.wantPrefix) {
 				t.Errorf("buildStepAudit() = %q, want prefix %q", got, tt.wantPrefix)
 			}
@@ -235,4 +249,43 @@ func TestBuildStepAudit(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustBuildStepFlag(t *testing.T, formulaName, defaultStatus string, overrides map[string]string) string {
+	t.Helper()
+
+	content, err := formula.GetEmbeddedFormulaContent(formulaName)
+	if err != nil {
+		t.Fatalf("GetEmbeddedFormulaContent(%q) error = %v", formulaName, err)
+	}
+
+	f, err := formula.Parse(content)
+	if err != nil {
+		t.Fatalf("Parse(%q) error = %v", formulaName, err)
+	}
+
+	entries := make([]string, 0, len(f.GetAllIDs())+len(overrides))
+	for _, stepID := range f.GetAllIDs() {
+		status := defaultStatus
+		if override, ok := overrides[stepID]; ok {
+			status = override
+		}
+		entries = append(entries, stepID+":"+status)
+	}
+	for stepID, status := range overrides {
+		if !slicesContains(f.GetAllIDs(), stepID) {
+			entries = append(entries, stepID+":"+status)
+		}
+	}
+
+	return strings.Join(entries, ",")
+}
+
+func slicesContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

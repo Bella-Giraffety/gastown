@@ -127,6 +127,38 @@ func TestRenderRole_Deacon(t *testing.T) {
 	}
 }
 
+func TestRenderRole_Deacon_PatrolGuardrails(t *testing.T) {
+	tmpl, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	data := RoleData{
+		Role:          "deacon",
+		TownRoot:      "/test/town",
+		TownName:      "town",
+		WorkDir:       "/test/town",
+		DefaultBranch: "main",
+		MayorSession:  "gt-town-mayor",
+		DeaconSession: "gt-town-deacon",
+	}
+
+	output, err := tmpl.RenderRole("deacon", data)
+	if err != nil {
+		t.Fatalf("RenderRole() error = %v", err)
+	}
+
+	if strings.Contains(output, "patrol_count") {
+		t.Fatal("deacon template still contains legacy patrol_count loop guidance")
+	}
+	if !strings.Contains(output, "26 steps") {
+		t.Fatal("deacon template should describe the full 26-step patrol audit")
+	}
+	if !strings.Contains(output, "--steps") {
+		t.Fatal("deacon template should require --steps in patrol report guidance")
+	}
+}
+
 func TestRenderRole_Refinery_DefaultBranch(t *testing.T) {
 	tmpl, err := New()
 	if err != nil {

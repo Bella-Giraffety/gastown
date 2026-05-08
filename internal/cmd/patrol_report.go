@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -33,7 +34,7 @@ making shortcutting visible in the ledger.
 
 Examples:
   gt patrol report --summary "All clear, no issues" --steps "heartbeat:OK,inbox-check:OK,health-scan:OK"
-  gt patrol report --summary "Dolt latency elevated, filed escalation"`,
+	 gt patrol report --summary "Dolt latency elevated, filed escalation" --steps "heartbeat:OK,inbox-check:OK,dolt-health:OK,loop-or-exit:OK"`,
 	RunE: runPatrolReport,
 }
 
@@ -41,6 +42,7 @@ func init() {
 	patrolReportCmd.Flags().StringVar(&patrolReportSummary, "summary", "", "Brief summary of patrol observations (required)")
 	patrolReportCmd.Flags().StringVar(&patrolReportSteps, "steps", "", "Step audit: comma-separated step:STATUS pairs (e.g., heartbeat:OK,inbox-check:OK)")
 	_ = patrolReportCmd.MarkFlagRequired("summary")
+	_ = patrolReportCmd.MarkFlagRequired("steps")
 }
 
 func runPatrolReport(cmd *cobra.Command, args []string) error {
@@ -94,7 +96,10 @@ func runPatrolReport(cmd *cobra.Command, args []string) error {
 	b := beads.New(cfg.BeadsDir)
 
 	// Build step audit checklist
-	stepAudit := buildStepAudit(cfg.PatrolMolName, patrolReportSteps)
+	stepAudit, err := buildStepAudit(cfg.PatrolMolName, patrolReportSteps)
+	if err != nil {
+		return err
+	}
 
 	// Update the description with the patrol summary and step audit
 	desc := fmt.Sprintf("Patrol report: %s\n\n%s", patrolReportSummary, stepAudit)
@@ -142,53 +147,68 @@ func runPatrolReport(cmd *cobra.Command, args []string) error {
 //
 //	Steps: heartbeat OK | inbox-check OK | orphan-cleanup SKIP | ... (14/25)
 //
-// If stepsFlag is empty, returns a line indicating the audit was not reported.
-func buildStepAudit(formulaName string, stepsFlag string) string {
+// If validation fails, returns an error describing the missing or invalid steps.
+func buildStepAudit(formulaName string, stepsFlag string) (string, error) {
+	if strings.TrimSpace(stepsFlag) == "" {
+		return "", fmt.Errorf("--steps is required")
+	}
+
 	// Load the formula to get the canonical step list
 	content, err := formula.GetEmbeddedFormulaContent(formulaName)
 	if err != nil {
-		if stepsFlag == "" {
-			return "Steps: NOT REPORTED (formula not found)"
-		}
-		// Can't validate without the formula, but still show what was reported
-		return fmt.Sprintf("Steps: %s (unvalidated — formula not found)", stepsFlag)
+		return "", fmt.Errorf("loading patrol formula %q: %w", formulaName, err)
 	}
 
 	f, err := formula.Parse(content)
 	if err != nil {
-		if stepsFlag == "" {
-			return "Steps: NOT REPORTED (formula parse error)"
-		}
-		return fmt.Sprintf("Steps: %s (unvalidated — formula parse error)", stepsFlag)
+		return "", fmt.Errorf("parsing patrol formula %q: %w", formulaName, err)
 	}
 
 	allStepIDs := f.GetAllIDs()
 	if len(allStepIDs) == 0 {
-		return ""
-	}
-
-	if stepsFlag == "" {
-		return fmt.Sprintf("Steps: NOT REPORTED (?/%d)", len(allStepIDs))
+		return "", fmt.Errorf("patrol formula %q has no steps", formulaName)
 	}
 
 	// Parse the reported step results
 	reported := parseStepResults(stepsFlag)
+	expected := make(map[string]struct{}, len(allStepIDs))
+	for _, stepID := range allStepIDs {
+		expected[stepID] = struct{}{}
+	}
+
+	var unknown []string
+	for stepID := range reported {
+		if _, ok := expected[stepID]; !ok {
+			unknown = append(unknown, stepID)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		return "", fmt.Errorf("--steps contains unknown step IDs: %s", strings.Join(unknown, ", "))
+	}
+
+	var missing []string
+	for _, stepID := range allStepIDs {
+		if _, ok := reported[stepID]; !ok {
+			missing = append(missing, stepID)
+		}
+	}
+	if len(missing) > 0 {
+		return "", fmt.Errorf("--steps missing required formula step IDs: %s", strings.Join(missing, ", "))
+	}
 
 	// Build the audit line: map each formula step to its reported status
 	var parts []string
 	okCount := 0
 	for _, stepID := range allStepIDs {
-		status, ok := reported[stepID]
-		if !ok {
-			status = "SKIP"
-		}
+		status := reported[stepID]
 		if status == "OK" {
 			okCount++
 		}
 		parts = append(parts, stepID+" "+status)
 	}
 
-	return fmt.Sprintf("Steps: %s (%d/%d)", strings.Join(parts, " | "), okCount, len(allStepIDs))
+	return fmt.Sprintf("Steps: %s (%d/%d)", strings.Join(parts, " | "), okCount, len(allStepIDs)), nil
 }
 
 // parseStepResults parses a comma-separated string of step:STATUS pairs.
