@@ -239,6 +239,24 @@ type OperationalConfig struct {
 
 	// Witness configures witness patrol thresholds.
 	Witness *WitnessThresholds `json:"witness,omitempty"`
+
+	// Zombie configures automatic zombie polecat cleanup.
+	Zombie *ZombieConfig `json:"zombie,omitempty"`
+}
+
+// ZombieConfig configures automatic cleanup for idle or hung polecats.
+type ZombieConfig struct {
+	// AutoCleanup controls whether clean idle polecats are nuked after IdleThreshold.
+	AutoCleanup *bool `json:"auto_cleanup,omitempty"`
+
+	// IdleThreshold is how long a clean idle polecat can remain before cleanup.
+	IdleThreshold string `json:"idle_threshold,omitempty"`
+
+	// HungThreshold is how long a non-idle live session can be inactive before restart.
+	HungThreshold string `json:"hung_threshold,omitempty"`
+
+	// Protected lists polecat names that must never be auto-nuked.
+	Protected []string `json:"protected,omitempty"`
 }
 
 // SessionThresholds configures session management timeouts.

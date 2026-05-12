@@ -204,6 +204,47 @@ func TestDoltThresholds_Defaults(t *testing.T) {
 	}
 }
 
+func TestZombieConfig_DefaultsAndOverrides(t *testing.T) {
+	t.Parallel()
+
+	op := &OperationalConfig{}
+	zombie := op.GetZombieConfig()
+
+	if got := zombie.AutoCleanupV(); got != DefaultZombieAutoCleanup {
+		t.Errorf("AutoCleanup: got %v, want %v", got, DefaultZombieAutoCleanup)
+	}
+	if got := zombie.IdleThresholdD(); got != DefaultZombieIdleThreshold {
+		t.Errorf("IdleThreshold: got %v, want %v", got, DefaultZombieIdleThreshold)
+	}
+	if got := zombie.HungThresholdD(); got != DefaultZombieHungThreshold {
+		t.Errorf("HungThreshold: got %v, want %v", got, DefaultZombieHungThreshold)
+	}
+
+	autoCleanup := true
+	op.Zombie = &ZombieConfig{
+		AutoCleanup:   &autoCleanup,
+		IdleThreshold: "3h",
+		HungThreshold: "45m",
+		Protected:     []string{"nitro", " Quartz "},
+	}
+	zombie = op.GetZombieConfig()
+	if !zombie.AutoCleanupV() {
+		t.Error("AutoCleanup should be true")
+	}
+	if got := zombie.IdleThresholdD(); got != 3*time.Hour {
+		t.Errorf("IdleThreshold: got %v, want 3h", got)
+	}
+	if got := zombie.HungThresholdD(); got != 45*time.Minute {
+		t.Errorf("HungThreshold: got %v, want 45m", got)
+	}
+	if !zombie.IsProtected("quartz") {
+		t.Error("IsProtected should match case-insensitively with surrounding whitespace")
+	}
+	if zombie.IsProtected("chrome") {
+		t.Error("IsProtected should be false for unlisted polecat")
+	}
+}
+
 func TestLoadOperationalConfig_NonexistentDir(t *testing.T) {
 	t.Parallel()
 

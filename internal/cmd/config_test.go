@@ -872,6 +872,71 @@ func TestConfigSetGet(t *testing.T) {
 			t.Errorf("error = %v, want 'invalid value'", err)
 		}
 	})
+
+	t.Run("set and get zombie config", func(t *testing.T) {
+		townRoot := setupTestTownForConfig(t)
+		settingsPath := config.TownSettingsPath(townRoot)
+
+		originalWd, _ := os.Getwd()
+		defer os.Chdir(originalWd)
+		if err := os.Chdir(townRoot); err != nil {
+			t.Fatalf("chdir: %v", err)
+		}
+
+		cmd := &cobra.Command{}
+		for _, args := range [][]string{
+			{"zombie.auto_cleanup", "true"},
+			{"zombie.idle_threshold", "2h"},
+			{"zombie.hung_threshold", "45m"},
+			{"zombie.protected", "nitro, quartz"},
+		} {
+			if err := runConfigSet(cmd, args); err != nil {
+				t.Fatalf("runConfigSet(%v) failed: %v", args, err)
+			}
+		}
+
+		loaded, err := config.LoadOrCreateTownSettings(settingsPath)
+		if err != nil {
+			t.Fatalf("load settings: %v", err)
+		}
+		if loaded.Operational == nil || loaded.Operational.Zombie == nil {
+			t.Fatal("Zombie config is nil after set")
+		}
+		zombie := loaded.Operational.Zombie
+		if zombie.AutoCleanup == nil || !*zombie.AutoCleanup {
+			t.Error("AutoCleanup should be true")
+		}
+		if zombie.IdleThreshold != "2h" {
+			t.Errorf("IdleThreshold = %q, want 2h", zombie.IdleThreshold)
+		}
+		if zombie.HungThreshold != "45m" {
+			t.Errorf("HungThreshold = %q, want 45m", zombie.HungThreshold)
+		}
+		if got := strings.Join(zombie.Protected, ","); got != "nitro,quartz" {
+			t.Errorf("Protected = %q, want nitro,quartz", got)
+		}
+
+		for _, key := range []string{"zombie.auto_cleanup", "zombie.idle_threshold", "zombie.hung_threshold", "zombie.protected"} {
+			if err := runConfigGet(cmd, []string{key}); err != nil {
+				t.Fatalf("runConfigGet(%s) failed: %v", key, err)
+			}
+		}
+	})
+
+	t.Run("zombie duration rejects invalid value", func(t *testing.T) {
+		townRoot := setupTestTownForConfig(t)
+
+		originalWd, _ := os.Getwd()
+		defer os.Chdir(originalWd)
+		if err := os.Chdir(townRoot); err != nil {
+			t.Fatalf("chdir: %v", err)
+		}
+
+		cmd := &cobra.Command{}
+		if err := runConfigSet(cmd, []string{"zombie.idle_threshold", "later"}); err == nil {
+			t.Fatal("expected error for invalid zombie.idle_threshold")
+		}
+	})
 }
 
 func TestConfigMaintenanceSetGet(t *testing.T) {

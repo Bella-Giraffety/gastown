@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -35,19 +36,19 @@ const (
 
 // Daemon defaults.
 const (
-	DefaultMassDeathWindow                 = 30 * time.Second
-	DefaultMassDeathThreshold              = 3
-	DefaultDogIdleSessionTimeout           = 1 * time.Hour
-	DefaultPolecatIdleSessionTimeout       = 15 * time.Minute
-	DefaultDogIdleRemoveTimeout            = 4 * time.Hour
-	DefaultStaleWorkingTimeout             = 2 * time.Hour
-	DefaultMaxDogPoolSize                  = 4
-	DefaultMaxLifecycleMessageAge          = 6 * time.Hour
-	DefaultSyncFailureEscalationThreshold  = 3
-	DefaultDoctorMolCooldown               = 5 * time.Minute
-	DefaultRecoveryHeartbeatInterval       = 3 * time.Minute
-	DefaultBootSpawnCooldown               = 2 * time.Minute
-	DefaultDeaconGracePeriod               = 5 * time.Minute
+	DefaultMassDeathWindow                = 30 * time.Second
+	DefaultMassDeathThreshold             = 3
+	DefaultDogIdleSessionTimeout          = 1 * time.Hour
+	DefaultPolecatIdleSessionTimeout      = 15 * time.Minute
+	DefaultDogIdleRemoveTimeout           = 4 * time.Hour
+	DefaultStaleWorkingTimeout            = 2 * time.Hour
+	DefaultMaxDogPoolSize                 = 4
+	DefaultMaxLifecycleMessageAge         = 6 * time.Hour
+	DefaultSyncFailureEscalationThreshold = 3
+	DefaultDoctorMolCooldown              = 5 * time.Minute
+	DefaultRecoveryHeartbeatInterval      = 3 * time.Minute
+	DefaultBootSpawnCooldown              = 2 * time.Minute
+	DefaultDeaconGracePeriod              = 5 * time.Minute
 
 	// Pressure check defaults — fully opt-in. All zero = disabled.
 	// Configure in settings/config.json under operational.daemon to enable.
@@ -59,21 +60,21 @@ const (
 
 // Deacon defaults.
 const (
-	DefaultDeaconPingTimeout               = 30 * time.Second
-	DefaultDeaconConsecutiveFailures       = 3
-	DefaultDeaconCooldown                  = 5 * time.Minute
-	DefaultDeaconHeartbeatStaleThreshold   = 5 * time.Minute
-	DefaultDeaconHeartbeatVeryStale        = 20 * time.Minute
-	DefaultMaxRedispatches                 = 3
-	DefaultRedispatchCooldown              = 5 * time.Minute
-	DefaultMaxFeedsPerCycle                = 3
-	DefaultFeedCooldown                    = 10 * time.Minute
+	DefaultDeaconPingTimeout             = 30 * time.Second
+	DefaultDeaconConsecutiveFailures     = 3
+	DefaultDeaconCooldown                = 5 * time.Minute
+	DefaultDeaconHeartbeatStaleThreshold = 5 * time.Minute
+	DefaultDeaconHeartbeatVeryStale      = 20 * time.Minute
+	DefaultMaxRedispatches               = 3
+	DefaultRedispatchCooldown            = 5 * time.Minute
+	DefaultMaxFeedsPerCycle              = 3
+	DefaultFeedCooldown                  = 10 * time.Minute
 )
 
 // Polecat defaults.
 const (
-	DefaultPolecatHeartbeatStale = 3 * time.Minute
-	DefaultPolecatDoltMaxRetries = 10
+	DefaultPolecatHeartbeatStale  = 3 * time.Minute
+	DefaultPolecatDoltMaxRetries  = 10
 	DefaultPolecatDoltBaseBackoff = 500 * time.Millisecond
 	DefaultPolecatDoltBackoffMax  = 30 * time.Second
 	DefaultPolecatPendingMaxAge   = 5 * time.Minute
@@ -109,9 +110,16 @@ const (
 	DefaultWitnessStartupStallThreshold  = 90 * time.Second
 	DefaultWitnessStartupActivityGrace   = 60 * time.Second
 	DefaultWitnessMaxBeadRespawns        = 3
-	DefaultWitnessDoneIntentStuckTimeout    = 60 * time.Second
-	DefaultWitnessDoneIntentRecentGrace     = 30 * time.Second
-	DefaultWitnessHeartbeatStartupGrace     = 5 * time.Minute
+	DefaultWitnessDoneIntentStuckTimeout = 60 * time.Second
+	DefaultWitnessDoneIntentRecentGrace  = 30 * time.Second
+	DefaultWitnessHeartbeatStartupGrace  = 5 * time.Minute
+)
+
+// Zombie cleanup defaults.
+const (
+	DefaultZombieAutoCleanup   = false
+	DefaultZombieIdleThreshold = 2 * time.Hour
+	DefaultZombieHungThreshold = DefaultHungSessionThreshold
 )
 
 // LoadOperationalConfig loads operational config from a town root.
@@ -692,6 +700,51 @@ func (c *OperationalConfig) GetWitnessConfig() *WitnessThresholds {
 		return c.Witness
 	}
 	return &WitnessThresholds{}
+}
+
+// GetZombieConfig returns the zombie cleanup config, never nil.
+func (c *OperationalConfig) GetZombieConfig() *ZombieConfig {
+	if c != nil && c.Zombie != nil {
+		return c.Zombie
+	}
+	return &ZombieConfig{}
+}
+
+// AutoCleanupV returns whether idle zombie auto-cleanup is enabled.
+func (z *ZombieConfig) AutoCleanupV() bool {
+	if z != nil && z.AutoCleanup != nil {
+		return *z.AutoCleanup
+	}
+	return DefaultZombieAutoCleanup
+}
+
+// IdleThresholdD returns the configured or default idle cleanup threshold.
+func (z *ZombieConfig) IdleThresholdD() time.Duration {
+	if z != nil {
+		return ParseDurationOrDefault(z.IdleThreshold, DefaultZombieIdleThreshold)
+	}
+	return DefaultZombieIdleThreshold
+}
+
+// HungThresholdD returns the configured or default hung session threshold.
+func (z *ZombieConfig) HungThresholdD() time.Duration {
+	if z != nil {
+		return ParseDurationOrDefault(z.HungThreshold, DefaultZombieHungThreshold)
+	}
+	return DefaultZombieHungThreshold
+}
+
+// IsProtected reports whether name is exempt from automatic zombie cleanup.
+func (z *ZombieConfig) IsProtected(name string) bool {
+	if z == nil || name == "" {
+		return false
+	}
+	for _, protected := range z.Protected {
+		if strings.EqualFold(strings.TrimSpace(protected), name) {
+			return true
+		}
+	}
+	return false
 }
 
 // StartupStallThresholdD returns the configured or default startup stall threshold.

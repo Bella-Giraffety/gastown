@@ -627,6 +627,13 @@ Supported keys:
   scheduler.max_polecats      Dispatch mode: -1 = direct (default), N > 0 = deferred
   scheduler.batch_size        Beads per heartbeat (default: 1)
   scheduler.spawn_delay       Delay between spawns (default: 0s)
+
+  Zombie cleanup:
+  zombie.auto_cleanup         Auto-nuke clean idle polecats (true/false)
+  zombie.idle_threshold       Idle duration before cleanup (e.g., 2h)
+  zombie.hung_threshold       Inactivity duration before restart (e.g., 30m)
+  zombie.protected            Comma-separated polecat names exempt from auto-nuke
+
   maintenance.window          Maintenance window start time in HH:MM (e.g., "03:00")
   maintenance.interval        How often: "daily", "weekly", "monthly", or duration
   maintenance.threshold       Commit count threshold (default: 1000)
@@ -649,6 +656,8 @@ Examples:
   gt config set default_agent claude
   gt config set dolt.port 3308
   gt config set scheduler.max_polecats 5
+  gt config set zombie.auto_cleanup true
+  gt config set zombie.idle_threshold 2h
   gt config set maintenance.window 03:00
   gt config set maintenance.interval daily
   gt config set lifecycle.reaper.delete_age 336h
@@ -671,6 +680,13 @@ Supported keys:
   scheduler.max_polecats      Dispatch mode (-1 = direct, N > 0 = deferred)
   scheduler.batch_size        Beads per heartbeat
   scheduler.spawn_delay       Delay between spawns
+
+  Zombie cleanup:
+  zombie.auto_cleanup         Auto-nuke clean idle polecats (true/false)
+  zombie.idle_threshold       Idle duration before cleanup (e.g., 2h)
+  zombie.hung_threshold       Inactivity duration before restart (e.g., 30m)
+  zombie.protected            Comma-separated polecat names exempt from auto-nuke
+
   maintenance.window          Maintenance window start time (HH:MM)
   maintenance.interval        How often: daily, weekly, monthly, or duration
   maintenance.threshold       Commit count threshold
@@ -767,6 +783,32 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		}
 		townSettings.Scheduler.SpawnDelay = value
 
+	case "zombie.auto_cleanup":
+		b, err := parseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid value for %s: %w (expected true/false)", key, err)
+		}
+		zombieCfg := ensureZombieConfig(townSettings)
+		zombieCfg.AutoCleanup = &b
+
+	case "zombie.idle_threshold":
+		if _, err := time.ParseDuration(value); err != nil {
+			return fmt.Errorf("invalid value for %s: %w (expected Go duration, e.g. 2h, 30m)", key, err)
+		}
+		zombieCfg := ensureZombieConfig(townSettings)
+		zombieCfg.IdleThreshold = value
+
+	case "zombie.hung_threshold":
+		if _, err := time.ParseDuration(value); err != nil {
+			return fmt.Errorf("invalid value for %s: %w (expected Go duration, e.g. 30m, 1h)", key, err)
+		}
+		zombieCfg := ensureZombieConfig(townSettings)
+		zombieCfg.HungThreshold = value
+
+	case "zombie.protected":
+		zombieCfg := ensureZombieConfig(townSettings)
+		zombieCfg.Protected = splitCommaList(value)
+
 	case "maintenance.window", "maintenance.interval", "maintenance.threshold":
 		return setMaintenanceConfig(townRoot, key, value)
 
@@ -794,7 +836,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		if strings.HasPrefix(key, "lifecycle.") {
 			return setLifecycleConfig(townRoot, key, value)
 		}
-		return fmt.Errorf("unknown config key: %q\n\nSupported keys:\n  convoy.notify_on_complete\n  cli_theme\n  default_agent\n  dolt.port\n  scheduler.max_polecats\n  scheduler.batch_size\n  scheduler.spawn_delay\n  maintenance.window\n  maintenance.interval\n  maintenance.threshold\n  lifecycle.reaper.*\n  lifecycle.compactor.*\n  lifecycle.doctor.*\n  lifecycle.backup.*", key)
+		return fmt.Errorf("unknown config key: %q\n\nSupported keys:\n  convoy.notify_on_complete\n  cli_theme\n  default_agent\n  dolt.port\n  scheduler.max_polecats\n  scheduler.batch_size\n  scheduler.spawn_delay\n  zombie.auto_cleanup\n  zombie.idle_threshold\n  zombie.hung_threshold\n  zombie.protected\n  maintenance.window\n  maintenance.interval\n  maintenance.threshold\n  lifecycle.reaper.*\n  lifecycle.compactor.*\n  lifecycle.doctor.*\n  lifecycle.backup.*", key)
 	}
 
 	if err := config.SaveTownSettings(settingsPath, townSettings); err != nil {
@@ -861,6 +903,22 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 		}
 		value = scfg.GetSpawnDelay().String()
 
+	case "zombie.auto_cleanup":
+		zombieCfg := getZombieConfig(townSettings)
+		value = strconv.FormatBool(zombieCfg.AutoCleanupV())
+
+	case "zombie.idle_threshold":
+		zombieCfg := getZombieConfig(townSettings)
+		value = zombieCfg.IdleThresholdD().String()
+
+	case "zombie.hung_threshold":
+		zombieCfg := getZombieConfig(townSettings)
+		value = zombieCfg.HungThresholdD().String()
+
+	case "zombie.protected":
+		zombieCfg := getZombieConfig(townSettings)
+		value = strings.Join(zombieCfg.Protected, ",")
+
 	case "maintenance.window", "maintenance.interval", "maintenance.threshold":
 		return getMaintenanceConfig(townRoot, key)
 
@@ -879,11 +937,40 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 		if strings.HasPrefix(key, "lifecycle.") {
 			return getLifecycleConfig(townRoot, key)
 		}
-		return fmt.Errorf("unknown config key: %q\n\nSupported keys:\n  convoy.notify_on_complete\n  cli_theme\n  default_agent\n  dolt.port\n  scheduler.max_polecats\n  scheduler.batch_size\n  scheduler.spawn_delay\n  maintenance.window\n  maintenance.interval\n  maintenance.threshold\n  lifecycle.reaper.*\n  lifecycle.compactor.*\n  lifecycle.doctor.*\n  lifecycle.backup.*", key)
+		return fmt.Errorf("unknown config key: %q\n\nSupported keys:\n  convoy.notify_on_complete\n  cli_theme\n  default_agent\n  dolt.port\n  scheduler.max_polecats\n  scheduler.batch_size\n  scheduler.spawn_delay\n  zombie.auto_cleanup\n  zombie.idle_threshold\n  zombie.hung_threshold\n  zombie.protected\n  maintenance.window\n  maintenance.interval\n  maintenance.threshold\n  lifecycle.reaper.*\n  lifecycle.compactor.*\n  lifecycle.doctor.*\n  lifecycle.backup.*", key)
 	}
 
 	fmt.Println(value)
 	return nil
+}
+
+func ensureZombieConfig(townSettings *config.TownSettings) *config.ZombieConfig {
+	if townSettings.Operational == nil {
+		townSettings.Operational = &config.OperationalConfig{}
+	}
+	if townSettings.Operational.Zombie == nil {
+		townSettings.Operational.Zombie = &config.ZombieConfig{}
+	}
+	return townSettings.Operational.Zombie
+}
+
+func getZombieConfig(townSettings *config.TownSettings) *config.ZombieConfig {
+	if townSettings.Operational == nil {
+		return (&config.OperationalConfig{}).GetZombieConfig()
+	}
+	return townSettings.Operational.GetZombieConfig()
+}
+
+func splitCommaList(value string) []string {
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 // setMaintenanceConfig sets a maintenance.* key in daemon.json (patrol config).

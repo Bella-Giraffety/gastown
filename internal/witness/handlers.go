@@ -1070,6 +1070,10 @@ const (
 	ZombieDoneIntentDead ZombieClassification = "done-intent-dead"
 	// ZombieIdleDirtySandbox: idle polecat with uncommitted changes.
 	ZombieIdleDirtySandbox ZombieClassification = "idle-dirty-sandbox"
+	// ZombieIdleCleanSandbox: idle polecat with clean sandbox auto-cleaned after threshold.
+	ZombieIdleCleanSandbox ZombieClassification = "idle-clean-sandbox"
+	// ZombieHungSession: tmux session and agent are live, but inactive past threshold.
+	ZombieHungSession ZombieClassification = "hung-session"
 	// ZombieSessionDeadActive: session dead but agent state indicates active work.
 	ZombieSessionDeadActive ZombieClassification = "session-dead-active"
 	// ZombieAgentSelfReportedStuck: agent self-reported stuck via heartbeat v2 (gt-3vr5).
@@ -1090,7 +1094,7 @@ func (c ZombieClassification) ImpliesActiveWork() bool {
 	switch c {
 	case ZombieStuckInDone, ZombieAgentDeadInSession, ZombieBeadClosedStillRunning,
 		ZombieDoneIntentDead, ZombieSessionDeadActive, ZombieAgentSelfReportedStuck,
-		ZombieNeverHeartbeated:
+		ZombieNeverHeartbeated, ZombieHungSession:
 		return true
 	default:
 		return false
@@ -1136,9 +1140,11 @@ type DetectZombiePolecatsResult struct {
 // Dedup: Checks for existing cleanup wisps before escalating, preventing
 // infinite escalation loops on subsequent patrol cycles.
 //
-// gt-dsgp: Restart-first policy. For each zombie found, we RESTART the session
-// instead of nuking. This preserves the polecat's worktree and branch, preventing
-// work loss. Nuking only happens via explicit `gt polecat nuke` command.
+// gt-dsgp: Restart-first policy. For each active-work zombie found, we RESTART
+// the session instead of nuking. This preserves the polecat's worktree and
+// branch, preventing work loss. Clean idle polecats can only be auto-nuked when
+// zombie.auto_cleanup is enabled and their idle age exceeds the configured
+// threshold.
 //
 // For each zombie found:
 //   - If polecat has a pending MR: skip (not a zombie, waiting for refinery)
@@ -1156,8 +1162,10 @@ func DetectZombiePolecats(bd *BdCli, workDir, rigName string, router *mail.Route
 	}
 	initRegistryFromTownRoot(townRoot)
 
-	// Load witness thresholds from config (fallback to compiled-in defaults).
-	witCfg := config.LoadOperationalConfig(townRoot).GetWitnessConfig()
+	// Load witness and zombie thresholds from config (fallback to compiled-in defaults).
+	opCfg := config.LoadOperationalConfig(townRoot)
+	witCfg := opCfg.GetWitnessConfig()
+	zombieCfg := opCfg.GetZombieConfig()
 
 	polecatsDir := filepath.Join(townRoot, rigName, "polecats")
 	entries, err := os.ReadDir(polecatsDir)
@@ -1200,33 +1208,22 @@ func DetectZombiePolecats(bd *BdCli, workDir, rigName string, router *mail.Route
 
 		if sessionAlive {
 			// gt-s8bq: Idle Polecat Heresy fix. Idle polecats are HEALTHY — they
-			// have no hook_bead, agent_state="idle", and their sandbox is preserved
-			// for reuse. Skip them entirely during patrol. Only report if the
-			// sandbox is dirty (uncommitted changes in idle state).
+			// have no hook_bead and agent_state="idle". Preserve them by default;
+			// auto-clean only when explicitly enabled and safely past threshold.
+			// Always report dirty idle sandboxes for witness review.
 			agentState := ""
 			if snap != nil {
 				agentState = snap.AgentState
 			}
 			if beads.AgentState(agentState) == AgentStateIdle {
-				cleanupStatus := snap.cleanupStatus()
-				if cleanupStatus != "" && cleanupStatus != "clean" {
-					// ZFC (gt-5rne): Report data, don't escalate. The witness agent
-					// decides whether dirty idle state warrants escalation.
-					zombie := ZombieResult{
-						PolecatName:    polecatName,
-						AgentState:     agentState,
-						Classification: ZombieIdleDirtySandbox,
-						CleanupStatus:  cleanupStatus,
-						WasActive:      false,
-						Action:         "detected-dirty-idle-polecat",
-					}
+				if zombie, found := handleIdlePolecatCleanup(bd, workDir, rigName, polecatName, agentState, snap, zombieCfg, router); found {
 					result.Zombies = append(result.Zombies, zombie)
 				}
-				// Clean idle polecat — healthy, skip entirely.
+				// Clean idle polecat below threshold, disabled, or protected — healthy, skip entirely.
 				continue
 			}
 
-			if zombie, found := detectZombieLiveSession(bd, workDir, townRoot, rigName, polecatName, sessionName, t, doneIntent, witCfg, snap); found {
+			if zombie, found := detectZombieLiveSession(bd, workDir, townRoot, rigName, polecatName, sessionName, t, doneIntent, witCfg, zombieCfg, snap); found {
 				result.Zombies = append(result.Zombies, zombie)
 			}
 			continue // Either handled or not a zombie
@@ -1245,12 +1242,78 @@ func DetectZombiePolecats(bd *BdCli, workDir, rigName string, router *mail.Route
 	return result
 }
 
+func handleIdlePolecatCleanup(bd *BdCli, workDir, rigName, polecatName, agentState string, snap *agentBeadSnapshot, zombieCfg *config.ZombieConfig, router *mail.Router) (ZombieResult, bool) {
+	cleanupStatus := snap.cleanupStatus()
+	if cleanupStatus != "" && cleanupStatus != "clean" {
+		// ZFC (gt-5rne): Report data, don't escalate. The witness agent
+		// decides whether dirty idle state warrants escalation.
+		return ZombieResult{
+			PolecatName:    polecatName,
+			AgentState:     agentState,
+			Classification: ZombieIdleDirtySandbox,
+			CleanupStatus:  cleanupStatus,
+			WasActive:      false,
+			Action:         "detected-dirty-idle-polecat",
+		}, true
+	}
+
+	if !shouldAutoCleanupIdlePolecat(polecatName, snap, zombieCfg) {
+		return ZombieResult{}, false
+	}
+
+	idleAge := snap.age()
+	idleThreshold := zombieCfg.IdleThresholdD()
+	if idleThreshold <= 0 || idleAge < idleThreshold {
+		return ZombieResult{}, false
+	}
+
+	zombie := ZombieResult{
+		PolecatName:    polecatName,
+		AgentState:     agentState,
+		Classification: ZombieIdleCleanSandbox,
+		CleanupStatus:  "clean",
+		WasActive:      false,
+		Action:         fmt.Sprintf("auto-nuked (idle-age=%v, threshold=%v)", idleAge.Round(time.Second), idleThreshold),
+	}
+	if err := NukePolecat(bd, workDir, rigName, polecatName); err != nil {
+		zombie.Error = err
+		zombie.Action = fmt.Sprintf("auto-nuke-failed (idle-age=%v, threshold=%v): %v", idleAge.Round(time.Second), idleThreshold, err)
+		return zombie, true
+	}
+	sendZombieCleanupNotification(router, rigName, zombie)
+	return zombie, true
+}
+
+func shouldAutoCleanupIdlePolecat(polecatName string, snap *agentBeadSnapshot, zombieCfg *config.ZombieConfig) bool {
+	if !zombieCfg.AutoCleanupV() || snap == nil || snap.HookBead != "" || zombieCfg.IsProtected(polecatName) {
+		return false
+	}
+	idleThreshold := zombieCfg.IdleThresholdD()
+	return idleThreshold > 0 && snap.age() >= idleThreshold
+}
+
+func sendZombieCleanupNotification(router *mail.Router, rigName string, zombie ZombieResult) {
+	if router == nil || zombie.Action == "" || !strings.HasPrefix(zombie.Action, "auto-nuked") {
+		return
+	}
+
+	from := fmt.Sprintf("%s/witness", rigName)
+	msg := &mail.Message{
+		From:    from,
+		To:      from,
+		Subject: fmt.Sprintf("ZOMBIE_CLEANED: %s/%s", rigName, zombie.PolecatName),
+		Body: fmt.Sprintf("Auto-cleaned idle zombie polecat: %s/%s\nClassification: %s\nCleanup status: %s\nAction: %s",
+			rigName, zombie.PolecatName, zombie.Classification, zombie.CleanupStatus, zombie.Action),
+	}
+	_ = router.Send(msg)
+}
+
 // detectZombieLiveSession checks a polecat with a live tmux session for zombie indicators:
 // stuck done-intent, dead agent process, or closed bead while still running.
 //
 // gt-dsgp: Uses restart-first policy. Instead of nuking polecats, restarts their
 // sessions to preserve worktrees and branches.
-func detectZombieLiveSession(bd *BdCli, workDir, townRoot, rigName, polecatName, sessionName string, t *tmux.Tmux, doneIntent *DoneIntent, witCfg *config.WitnessThresholds, snap *agentBeadSnapshot) (ZombieResult, bool) {
+func detectZombieLiveSession(bd *BdCli, workDir, townRoot, rigName, polecatName, sessionName string, t *tmux.Tmux, doneIntent *DoneIntent, witCfg *config.WitnessThresholds, zombieCfg *config.ZombieConfig, snap *agentBeadSnapshot) (ZombieResult, bool) {
 	// gt-2gra: Agent state and hook bead are read from the pre-fetched snapshot
 	// instead of calling getAgentBeadState multiple times per code path.
 	snapState, snapHook := "", ""
@@ -1337,6 +1400,32 @@ func detectZombieLiveSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 			zombie.Action = fmt.Sprintf("restart-agent-dead-session-failed: %v", err)
 		}
 		return zombie, true
+	}
+
+	// Agent and session are alive but inactive beyond threshold — likely hung.
+	if hungThreshold := zombieCfg.HungThresholdD(); hungThreshold > 0 {
+		if lastActivity, err := t.GetSessionActivity(sessionName); err == nil && !lastActivity.IsZero() {
+			inactiveFor := time.Since(lastActivity)
+			if inactiveFor > hungThreshold {
+				zombie := ZombieResult{
+					PolecatName:    polecatName,
+					AgentState:     snapState,
+					Classification: ZombieHungSession,
+					HookBead:       snapHook,
+					WasActive:      snapHook != "" || beads.AgentState(snapState).IsActive(),
+					Action:         fmt.Sprintf("restarted-hung-session (inactive=%v, threshold=%v)", inactiveFor.Round(time.Second), hungThreshold),
+				}
+				// TOCTOU guard (gt-0pst): Re-check session liveness before restarting.
+				if alive, _ := t.HasSession(sessionName); !alive {
+					return ZombieResult{}, false
+				}
+				if err := RestartPolecatSession(workDir, rigName, polecatName); err != nil {
+					zombie.Error = err
+					zombie.Action = fmt.Sprintf("restart-hung-session-failed: %v", err)
+				}
+				return zombie, true
+			}
+		}
 	}
 
 	// Agent alive but hooked bead closed — occupying slot without work (gt-h1l6i).
@@ -1792,7 +1881,7 @@ type CompletionDiscovery struct {
 	MRID           string
 	Branch         string
 	MRFailed       bool
-	PushFailed     bool   // True when branch push to origin failed (gas-556)
+	PushFailed     bool // True when branch push to origin failed (gas-556)
 	CompletionTime string
 	Action         string // What was done: "merge-ready-sent", "acknowledged-idle", "phase-complete"
 	WispCreated    string // ID of cleanup wisp if created
@@ -1970,12 +2059,12 @@ func processDiscoveredCompletion(bd *BdCli, workDir, rigName string, payload *Po
 // Used to avoid redundant subprocess invocations during zombie detection, where the same
 // agent bead was previously queried 3-5 times per polecat per patrol cycle. (gt-2gra)
 type agentBeadSnapshot struct {
-	AgentState  string
-	HookBead    string
-	Labels      []string
-	UpdatedAt   string
-	ActiveMR    string
-	Fields      *beads.AgentFields // parsed from description
+	AgentState string
+	HookBead   string
+	Labels     []string
+	UpdatedAt  string
+	ActiveMR   string
+	Fields     *beads.AgentFields // parsed from description
 }
 
 // fetchAgentBeadSnapshot fetches all agent bead data in a single bd show call.
@@ -2158,13 +2247,13 @@ func getBeadStatus(bd *BdCli, workDir, beadID string) (string, bool) {
 
 // resetAbandonedBead resets a dead polecat's hooked bead so it can be re-dispatched.
 // If the bead is in "hooked" or "in_progress" status, it:
-// 0. Checks if the polecat's work is already on main — if so, closes
-//    the bead instead of resetting (prevents re-dispatch of completed work)
-// 1. Records the respawn in the witness spawn-count ledger
-// 2. Resets status to open
-// 3. Clears assignee
-// 4. Sends mail to deacon for re-dispatch (includes respawn count; SPAWN_STORM
-//    prefix and Urgent priority when count exceeds max bead respawns config)
+//  0. Checks if the polecat's work is already on main — if so, closes
+//     the bead instead of resetting (prevents re-dispatch of completed work)
+//  1. Records the respawn in the witness spawn-count ledger
+//  2. Resets status to open
+//  3. Clears assignee
+//  4. Sends mail to deacon for re-dispatch (includes respawn count; SPAWN_STORM
+//     prefix and Urgent priority when count exceeds max bead respawns config)
 //
 // Returns true if the bead was recovered.
 func resetAbandonedBead(bd *BdCli, workDir, rigName, hookBead, polecatName string, router *mail.Router) bool {

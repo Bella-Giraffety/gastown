@@ -106,9 +106,9 @@ type PatrolScanStallItem struct {
 
 // PatrolScanCompleteOutput holds completion discovery results.
 type PatrolScanCompleteOutput struct {
-	Checked   int                       `json:"checked"`
-	Found     int                       `json:"found"`
-	Completed []PatrolScanCompleteItem  `json:"completed,omitempty"`
+	Checked   int                      `json:"checked"`
+	Found     int                      `json:"found"`
+	Completed []PatrolScanCompleteItem `json:"completed,omitempty"`
 }
 
 // PatrolScanCompleteItem is a single completion discovery in scan output.
@@ -149,9 +149,8 @@ func runPatrolScan(cmd *cobra.Command, args []string) error {
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 
 	// Run all three detection passes.
-	// Note: DetectZombiePolecats takes a router param but does NOT send mail
-	// internally — it only uses the router for workspace context. Notifications
-	// are sent exclusively below via --notify, avoiding double-send.
+	// DetectZombiePolecats sends best-effort mail only for completed auto-cleanups;
+	// active-work zombie detection notifications are sent below.
 	zombieResult := witness.DetectZombiePolecats(bd, workDir, rigName, router)
 	stallResult := witness.DetectStalledPolecats(workDir, rigName)
 	completionResult := witness.DiscoverCompletions(bd, workDir, rigName, router)

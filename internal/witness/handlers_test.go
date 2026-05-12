@@ -700,6 +700,41 @@ func TestDetectZombie_AgentDeadInLiveSession(t *testing.T) {
 	}
 }
 
+func TestShouldAutoCleanupIdlePolecat(t *testing.T) {
+	t.Parallel()
+
+	autoCleanup := true
+	cfg := &config.ZombieConfig{
+		AutoCleanup:   &autoCleanup,
+		IdleThreshold: "2h",
+		Protected:     []string{"protected"},
+	}
+	oldIdleSnap := &agentBeadSnapshot{UpdatedAt: time.Now().Add(-3 * time.Hour).Format(time.RFC3339)}
+
+	if !shouldAutoCleanupIdlePolecat("nitro", oldIdleSnap, cfg) {
+		t.Error("expected clean idle polecat past threshold to be eligible for auto-cleanup")
+	}
+
+	if shouldAutoCleanupIdlePolecat("protected", oldIdleSnap, cfg) {
+		t.Error("protected polecat should not be eligible for auto-cleanup")
+	}
+
+	withHook := &agentBeadSnapshot{HookBead: "gt-work", UpdatedAt: time.Now().Add(-3 * time.Hour).Format(time.RFC3339)}
+	if shouldAutoCleanupIdlePolecat("nitro", withHook, cfg) {
+		t.Error("polecat with hooked work should not be eligible for idle auto-cleanup")
+	}
+
+	recentSnap := &agentBeadSnapshot{UpdatedAt: time.Now().Add(-30 * time.Minute).Format(time.RFC3339)}
+	if shouldAutoCleanupIdlePolecat("nitro", recentSnap, cfg) {
+		t.Error("recently idle polecat should not be eligible before threshold")
+	}
+
+	autoCleanup = false
+	if shouldAutoCleanupIdlePolecat("nitro", oldIdleSnap, cfg) {
+		t.Error("disabled auto-cleanup should prevent eligibility")
+	}
+}
+
 func TestGetAgentBeadLabels_NoBdAvailable(t *testing.T) {
 	t.Parallel()
 	// When bd is not available, should return nil without panicking
@@ -1704,7 +1739,6 @@ func TestClearCompletionMetadata_NoBd(t *testing.T) {
 		t.Error("expected error when bd unavailable")
 	}
 }
-
 
 // --- Heartbeat v2 tests (gt-3vr5) ---
 
