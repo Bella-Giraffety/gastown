@@ -84,7 +84,7 @@ func TestFreshInstallRigPolecatHookIntegration(t *testing.T) {
 	runFreshSetupCmd(t, polecatWorktree, env, "bd", "list")
 	runFreshSetupCmd(t, polecatWorktree, env, "bd", "show", issue.ID)
 
-	hookJSON := runFreshSetupCmd(t, polecatWorktree, env, gtBinary, "hook", "--json")
+	hookJSON := runFreshSetupOutputCmd(t, polecatWorktree, env, gtBinary, "hook", "--json")
 	var hookStatus MoleculeStatusInfo
 	if err := json.Unmarshal([]byte(hookJSON), &hookStatus); err != nil {
 		t.Fatalf("parse gt hook --json output: %v\n%s", err, hookJSON)
@@ -164,7 +164,7 @@ func createFreshSetupSourceRepo(t *testing.T, tmpDir string) string {
 
 func createFreshSetupIssue(t *testing.T, dir string, env []string, title string) freshSetupIssue {
 	t.Helper()
-	out := runFreshSetupCmd(t, dir, env, "bd", "create", "--json", "--title", title, "--type", "task", "--priority", "2", "--description", "Fresh setup integration test issue")
+	out := runFreshSetupOutputCmd(t, dir, env, "bd", "create", "--json", "--title", title, "--type", "task", "--priority", "2", "--description", "Fresh setup integration test issue")
 	var issue freshSetupIssue
 	if err := json.Unmarshal([]byte(out), &issue); err != nil {
 		t.Fatalf("parse bd create output: %v\n%s", err, out)
@@ -177,7 +177,7 @@ func createFreshSetupIssue(t *testing.T, dir string, env []string, title string)
 
 func showFreshSetupIssue(t *testing.T, dir string, env []string, id string) freshSetupIssue {
 	t.Helper()
-	out := runFreshSetupCmd(t, dir, env, "bd", "show", id, "--json")
+	out := runFreshSetupOutputCmd(t, dir, env, "bd", "show", id, "--json")
 	var issue freshSetupIssue
 	if err := json.Unmarshal([]byte(out), &issue); err != nil {
 		t.Fatalf("parse bd show output: %v\n%s", err, out)
@@ -323,6 +323,30 @@ func runFreshSetupCmd(t *testing.T, dir string, env []string, name string, args 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s %v failed: %v\n%s", name, args, err, out)
+	}
+	return string(out)
+}
+
+func runFreshSetupOutputCmd(t *testing.T, dir string, env []string, name string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if env != nil {
+		cmd.Env = env
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		debugCmd := exec.Command(name, args...)
+		if dir != "" {
+			debugCmd.Dir = dir
+		}
+		if env != nil {
+			debugCmd.Env = env
+		}
+		debugOut, _ := debugCmd.CombinedOutput()
+		t.Fatalf("%s %v failed: %v\n%s", name, args, err, debugOut)
 	}
 	return string(out)
 }
