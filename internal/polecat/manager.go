@@ -2475,6 +2475,7 @@ func (m *Manager) runSetupCommand(worktreePath string) error {
 
 	shell, args := setupShellCommand(setupCmd)
 	cmd := exec.CommandContext(ctx, shell, args...) //nolint:gosec // setup_command is operator-controlled rig configuration.
+	util.SetProcessGroup(cmd)
 	cmd.Dir = worktreePath
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
