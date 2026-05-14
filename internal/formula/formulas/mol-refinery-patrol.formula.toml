@@ -1145,8 +1145,8 @@ This command:
    - ...capped at 15 minutes max
 4. Tracks `idle:N` label on refinery agent bead for backoff state
 5. Returns `reason: context-yield` after 5m if no event arrived (see below)
-5. `--cleanup` auto-deletes processed event files
-6. Outputs `EFFORT: reduced` or `EFFORT: full` directive for next cycle
+6. `--cleanup` auto-deletes processed event files
+7. Outputs `EFFORT: reduced` or `EFFORT: full` directive for next cycle
 
 **Supported events:**
 - `MERGE_READY` — from witness when polecat branch is pushed and ready to merge
