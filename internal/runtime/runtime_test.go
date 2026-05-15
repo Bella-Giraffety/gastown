@@ -861,14 +861,9 @@ func TestRuntimeConfigWithMinDelay_ZeroMin(t *testing.T) {
 	}
 }
 
-// makeTownRoot creates a minimal town root directory structure for testing:
-// a .git marker and mayor/town.json so workspace.IsWorkspace returns true.
 func makeTownRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.MkdirAll(root+"/.git", 0755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.MkdirAll(root+"/mayor", 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -878,9 +873,18 @@ func makeTownRoot(t *testing.T) string {
 	return root
 }
 
+func makeTownRootWithGit(t *testing.T) string {
+	t.Helper()
+	root := makeTownRoot(t)
+	if err := os.MkdirAll(root+"/.git", 0755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func TestCommandsInherited_WorkDirIsNestedInTownRoot(t *testing.T) {
 	// workDir is a subdirectory of the town root (same git repo) → inherited
-	root := makeTownRoot(t)
+	root := makeTownRootWithGit(t)
 	mayorDir := root + "/mayor"
 
 	if !commandsInherited(mayorDir) {
@@ -890,10 +894,35 @@ func TestCommandsInherited_WorkDirIsNestedInTownRoot(t *testing.T) {
 
 func TestCommandsInherited_WorkDirIsTownRoot(t *testing.T) {
 	// workDir == git root → not inherited (we're provisioning at the root itself)
-	root := makeTownRoot(t)
+	root := makeTownRootWithGit(t)
 
 	if commandsInherited(root) {
 		t.Error("commandsInherited() = true, want false when workDir equals the git root")
+	}
+}
+
+func TestCommandsInherited_WorkDirNestedInTownRootBeforeGitInit(t *testing.T) {
+	// gt install creates mayor/deacon settings before it initializes town .git.
+	// Those role dirs still inherit town-level commands once install provisions them.
+	root := makeTownRoot(t)
+	mayorDir := root + "/mayor"
+
+	if !commandsInherited(mayorDir) {
+		t.Error("commandsInherited() = false, want true for town role dir before .git exists")
+	}
+}
+
+func TestCommandsInherited_NestedGitRepoInsideTownRoot(t *testing.T) {
+	// Crew/polecat workdirs live in nested git repos under the town root. Claude
+	// Code stops at that repo boundary, so they need explicit command provisioning.
+	root := makeTownRootWithGit(t)
+	workDir := root + "/rig/polecats/chrome/repo"
+	if err := os.MkdirAll(workDir+"/.git", 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if commandsInherited(workDir) {
+		t.Error("commandsInherited() = true, want false for nested git repo inside town root")
 	}
 }
 
@@ -927,7 +956,7 @@ func TestEnsureSettingsForRole_SkipsCommandsWhenInheritedFromTownRoot(t *testing
 	// Mayor/deacon run inside the town root git repo. Commands provisioned at the
 	// town root are inherited by Claude Code's path-hierarchy traversal, so
 	// EnsureSettingsForRole must NOT provision a duplicate copy in the role dir.
-	root := makeTownRoot(t)
+	root := makeTownRootWithGit(t)
 	mayorDir := root + "/mayor"
 	if err := os.MkdirAll(mayorDir, 0755); err != nil {
 		t.Fatal(err)
