@@ -335,6 +335,11 @@ func TestExtractBeadID(t *testing.T) {
 			want:  "my-rig-abc123",
 		},
 		{
+			name:  "long hyphenated prefix",
+			input: "document-intelligence-0sa\n",
+			want:  "document-intelligence-0sa",
+		},
+		{
 			name:    "no id present",
 			input:   "warning: something broke\n",
 			wantErr: true,

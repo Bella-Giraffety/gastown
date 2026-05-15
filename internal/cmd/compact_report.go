@@ -23,7 +23,7 @@ import (
 //
 // IDs look like `hq-1a2b`, `co-rln`, `h25-mrd`, `my-rig-abc`: a rig prefix,
 // dash, then a short alphanumeric token.
-var beadIDLine = regexp.MustCompile(`(?m)^\s*([a-z][a-z0-9-]{0,19}-[a-z0-9]+)\s*$`)
+var beadIDLine = regexp.MustCompile(`(?m)^\s*([a-z][a-z0-9-]*-[a-z0-9]+)\s*$`)
 
 // extractBeadID returns the last line of `output` that is a bare bead ID.
 // Returns an error if no bead-ID-shaped line is found.
