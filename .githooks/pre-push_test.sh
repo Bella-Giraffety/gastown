@@ -82,15 +82,15 @@ assert_block() {
 echo "=== Pre-push hook test suite ==="
 echo ""
 
-# Test 1: Normal push to default branch (no integration content)
-echo "Test 1: Normal push to default branch (no integration content)"
+# Test 1: Normal push to default branch without fork workflow (no integration content)
+echo "Test 1: Normal push to default branch without fork workflow (no integration content)"
 setup_repos
 cd "$TMPDIR/local"
 remote_sha=$(get_sha HEAD)
 echo "change1" >> file.txt
 git add file.txt && git commit -m "normal change" >/dev/null 2>&1
 local_sha=$(get_sha HEAD)
-assert_pass "Normal push allowed" run_hook "refs/heads/$DEFAULT_BRANCH" "$local_sha" "refs/heads/$DEFAULT_BRANCH" "$remote_sha"
+assert_pass "Normal direct push allowed without fork workflow" run_hook "refs/heads/$DEFAULT_BRANCH" "$local_sha" "refs/heads/$DEFAULT_BRANCH" "$remote_sha"
 cleanup
 
 # Test 2: Push to polecat/* branch
@@ -136,6 +136,30 @@ echo "feature" >> file.txt
 git add file.txt && git commit -m "feature" >/dev/null 2>&1
 local_sha=$(get_sha HEAD)
 assert_pass "Feature branch allowed (upstream exists)" run_hook "refs/heads/feature/thing" "$local_sha" "refs/heads/feature/thing" "0000000000000000000000000000000000000000"
+cleanup
+
+# Test 5b: Push to feature/* with fork remote (allowed)
+echo "Test 5b: Push to feature/* with fork remote"
+setup_repos
+cd "$TMPDIR/local"
+git remote add fork "$TMPDIR/remote.git" >/dev/null 2>&1
+git checkout -b feature/fork-thing >/dev/null 2>&1
+echo "feature" >> file.txt
+git add file.txt && git commit -m "feature" >/dev/null 2>&1
+local_sha=$(get_sha HEAD)
+assert_pass "Feature branch allowed (fork exists)" run_hook "refs/heads/feature/fork-thing" "$local_sha" "refs/heads/feature/fork-thing" "0000000000000000000000000000000000000000"
+cleanup
+
+# Test 5c: Push to default branch with fork remote (blocked)
+echo "Test 5c: Push to default branch with fork remote"
+setup_repos
+cd "$TMPDIR/local"
+git remote add fork "$TMPDIR/remote.git" >/dev/null 2>&1
+remote_sha=$(get_sha HEAD)
+echo "change fork main" >> file.txt
+git add file.txt && git commit -m "fork main change" >/dev/null 2>&1
+local_sha=$(get_sha HEAD)
+assert_block "Default branch blocked in fork workflow" run_hook "refs/heads/$DEFAULT_BRANCH" "$local_sha" "refs/heads/$DEFAULT_BRANCH" "$remote_sha"
 cleanup
 
 # Test 6: Push to default branch with integration merge (no env var) — BLOCKED
