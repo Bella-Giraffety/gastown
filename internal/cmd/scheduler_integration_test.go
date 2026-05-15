@@ -1035,10 +1035,11 @@ func TestSchedulerConfigSetZero(t *testing.T) {
 		t.Errorf("max_polecats=0 should be accepted, got:\n%s", out)
 	}
 
-	// Read it back — should return 0
+	// Read it back -- disabled mode should be visible in the annotated output.
 	out = runGTCmdOutput(t, gtBinary, hqPath, env, "config", "get", "scheduler.max_polecats")
-	if strings.TrimSpace(out) != "0" {
-		t.Errorf("max_polecats = %q, want %q", strings.TrimSpace(out), "0")
+	got := strings.TrimSpace(out)
+	if !strings.HasPrefix(got, "0") || !strings.Contains(got, "[deferred dispatch: OFF]") {
+		t.Errorf("max_polecats = %q, want 0 with disabled dispatch annotation", got)
 	}
 }
 
