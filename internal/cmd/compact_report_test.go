@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -322,6 +325,16 @@ func TestExtractBeadID(t *testing.T) {
 			want:  "co-rln",
 		},
 		{
+			name:  "prefix with digit",
+			input: "h25-mrd\n",
+			want:  "h25-mrd",
+		},
+		{
+			name:  "hyphenated prefix",
+			input: "my-rig-abc123\n",
+			want:  "my-rig-abc123",
+		},
+		{
 			name:    "no id present",
 			input:   "warning: something broke\n",
 			wantErr: true,
@@ -348,5 +361,124 @@ func TestExtractBeadID(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRunDailyDigestStopsBeforeMailWhenAuditCloseFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script command stubs not supported on Windows")
+	}
+	mailLog := setupCompactReportCommandStubs(t)
+	resetCompactReportFlags(t)
+	compactReportDate = "2026-05-15"
+
+	err := runDailyDigest()
+	if err == nil {
+		t.Fatal("want audit bead close error, got nil")
+	}
+	if !strings.Contains(err.Error(), "auto-closing report bead h25-mrd") {
+		t.Fatalf("error = %v, want auto-close failure", err)
+	}
+	assertNoMailSent(t, mailLog)
+}
+
+func TestRunWeeklyRollupStopsBeforeMailWhenAuditCloseFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script command stubs not supported on Windows")
+	}
+	mailLog := setupCompactReportCommandStubs(t)
+	resetCompactReportFlags(t)
+
+	err := runWeeklyRollup()
+	if err == nil {
+		t.Fatal("want audit bead close error, got nil")
+	}
+	if !strings.Contains(err.Error(), "auto-closing rollup bead h25-mrd") {
+		t.Fatalf("error = %v, want auto-close failure", err)
+	}
+	assertNoMailSent(t, mailLog)
+}
+
+func resetCompactReportFlags(t *testing.T) {
+	oldDryRun := compactReportDryRun
+	oldWeekly := compactReportWeekly
+	oldVerbose := compactReportVerbose
+	oldDate := compactReportDate
+	oldJSON := compactReportJSON
+
+	compactReportDryRun = false
+	compactReportWeekly = false
+	compactReportVerbose = false
+	compactReportDate = ""
+	compactReportJSON = false
+
+	t.Cleanup(func() {
+		compactReportDryRun = oldDryRun
+		compactReportWeekly = oldWeekly
+		compactReportVerbose = oldVerbose
+		compactReportDate = oldDate
+		compactReportJSON = oldJSON
+	})
+}
+
+func setupCompactReportCommandStubs(t *testing.T) string {
+	t.Helper()
+	binDir := t.TempDir()
+	mailLog := filepath.Join(t.TempDir(), "mail.log")
+
+	bdScript := `#!/bin/sh
+case "$1" in
+  list)
+    printf '[]\n'
+    ;;
+  create)
+    printf 'warning: beads.role not configured (GH#2950).\n  Fix: git config beads.role maintainer\n  Or:  git config beads.role contributor\nh25-mrd\n'
+    ;;
+  close)
+    echo 'close failed' >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected bd command: $*" >&2
+    exit 1
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+
+	gtScript := `#!/bin/sh
+if [ "$1" = "compact" ]; then
+  printf '{"promoted":[],"deleted":[],"skipped":0}\n'
+  exit 0
+fi
+if [ "$1" = "mail" ]; then
+  echo "$*" >> "$MAIL_LOG"
+  exit 0
+fi
+echo "unexpected gt command: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(binDir, "gt"), []byte(gtScript), 0755); err != nil {
+		t.Fatalf("write fake gt: %v", err)
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MAIL_LOG", mailLog)
+	return mailLog
+}
+
+func assertNoMailSent(t *testing.T, mailLog string) {
+	t.Helper()
+	data, err := os.ReadFile(mailLog)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("read mail log: %v", err)
+	}
+	if len(data) > 0 {
+		t.Fatalf("mail was sent unexpectedly: %s", string(data))
 	}
 }
