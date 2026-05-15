@@ -1766,6 +1766,12 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		return nil, fmt.Errorf("branch mismatch after checkout: expected %s, got %s", branchName, actual)
 	}
 
+	if err := m.runSetupCommand(clonePath); err != nil {
+		_ = polecatGit.ResetHard(startPoint)
+		_ = polecatGit.CleanForce()
+		return nil, err
+	}
+
 	// Reset agent bead for reuse
 	agentID := m.agentBeadID(name)
 	if err := m.beads.ResetAgentBeadForReuse(agentID, "idle polecat reuse"); err != nil {

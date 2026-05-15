@@ -1221,6 +1221,54 @@ func TestAddWithOptions_SetupCommandFailureRollsBack(t *testing.T) {
 	}
 }
 
+func TestReuseIdlePolecat_RunsSetupCommand(t *testing.T) {
+	mgr, _ := setupCanonicalBranchManagerTest(t)
+
+	polecat, err := mgr.AddWithOptions("toast", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	writeWispSetupCommand(t, mgr, setupCommandWriteMarker("reuse-setup-marker"))
+
+	reused, err := mgr.ReuseIdlePolecat("toast", AddOptions{HookBead: "gt-next"})
+	if err != nil {
+		t.Fatalf("ReuseIdlePolecat: %v", err)
+	}
+	if reused.ClonePath != polecat.ClonePath {
+		t.Fatalf("reused clone path = %q, want %q", reused.ClonePath, polecat.ClonePath)
+	}
+
+	data, err := os.ReadFile(filepath.Join(reused.ClonePath, "reuse-setup-marker"))
+	if err != nil {
+		t.Fatalf("reuse setup command marker was not created: %v", err)
+	}
+	if got := strings.TrimSpace(string(data)); got != "setup" {
+		t.Fatalf("reuse setup marker = %q, want setup", got)
+	}
+}
+
+func TestReuseIdlePolecat_SetupCommandFailureCleansWorktree(t *testing.T) {
+	mgr, _ := setupCanonicalBranchManagerTest(t)
+
+	if _, err := mgr.AddWithOptions("toast", AddOptions{}); err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	writeWispSetupCommand(t, mgr, setupCommandWriteMarkerAndFail("dirty-setup-marker"))
+
+	_, err := mgr.ReuseIdlePolecat("toast", AddOptions{HookBead: "gt-next"})
+	if err == nil {
+		t.Fatal("ReuseIdlePolecat should fail when setup_command fails")
+	}
+	if !strings.Contains(err.Error(), "setup_command failed") {
+		t.Fatalf("error = %q, want setup_command failure", err.Error())
+	}
+
+	dirtyPath := filepath.Join(mgr.clonePath("toast"), "dirty-setup-marker")
+	if _, statErr := os.Stat(dirtyPath); !os.IsNotExist(statErr) {
+		t.Fatalf("dirty setup marker %s still exists after setup_command cleanup", dirtyPath)
+	}
+}
+
 func writeWispSetupCommand(t *testing.T, mgr *Manager, command string) {
 	t.Helper()
 
@@ -1247,6 +1295,13 @@ func setupCommandFail() string {
 		return "exit /b 7"
 	}
 	return "exit 7"
+}
+
+func setupCommandWriteMarkerAndFail(marker string) string {
+	if os.PathSeparator == '\\' {
+		return "echo dirty> " + marker + " & exit /b 7"
+	}
+	return "printf dirty > " + marker + "; exit 7"
 }
 
 func TestReuseIdlePolecat_UsesCanonicalOriginDefaultBranch(t *testing.T) {
