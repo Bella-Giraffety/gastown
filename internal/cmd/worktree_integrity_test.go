@@ -49,3 +49,31 @@ func TestEnsureRoleWorktreeIntegrityRejectsMalformedOptionalMetadata(t *testing.
 		t.Fatalf("ensureRoleWorktreeIntegrity() error = %v, want ErrIntegrityViolation", err)
 	}
 }
+
+func TestRunMoleculeStatusExplicitTargetValidatesCallerWorktree(t *testing.T) {
+	t.Setenv(EnvGTRole, "")
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cwd := filepath.Join(townRoot, "gastown", "polecats", "deathclaw")
+	if err := os.MkdirAll(cwd, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+
+	err = runMoleculeStatus(nil, []string{"gastown/polecats/toast"})
+	if !errors.Is(err, worktreeintegrity.ErrIntegrityViolation) {
+		t.Fatalf("runMoleculeStatus() error = %v, want ErrIntegrityViolation", err)
+	}
+}
