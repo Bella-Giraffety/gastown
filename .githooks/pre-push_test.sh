@@ -48,7 +48,7 @@ setup_repos() {
 run_hook() {
   # Simulate pre-push stdin: local_ref local_sha remote_ref remote_sha
   local local_ref=$1 local_sha=$2 remote_ref=$3 remote_sha=$4
-  echo "$local_ref $local_sha $remote_ref $remote_sha" | bash "$HOOK" "origin" 2>&1
+  echo "$local_ref $local_sha $remote_ref $remote_sha" | bash "$HOOK" "${PUSH_REMOTE:-origin}" 2>&1
 }
 
 get_sha() {
@@ -130,7 +130,9 @@ cleanup
 echo "Test 5: Push to feature/* with upstream remote"
 setup_repos
 cd "$TMPDIR/local"
-git remote add upstream "$TMPDIR/remote.git" >/dev/null 2>&1
+git init --bare "$TMPDIR/upstream.git" >/dev/null 2>&1
+git remote set-url origin "$TMPDIR/fork.git" >/dev/null 2>&1
+git remote add upstream "$TMPDIR/upstream.git" >/dev/null 2>&1
 git checkout -b feature/thing >/dev/null 2>&1
 echo "feature" >> file.txt
 git add file.txt && git commit -m "feature" >/dev/null 2>&1
@@ -147,11 +149,23 @@ git checkout -b feature/fork-thing >/dev/null 2>&1
 echo "feature" >> file.txt
 git add file.txt && git commit -m "feature" >/dev/null 2>&1
 local_sha=$(get_sha HEAD)
-assert_pass "Feature branch allowed (fork exists)" run_hook "refs/heads/feature/fork-thing" "$local_sha" "refs/heads/feature/fork-thing" "0000000000000000000000000000000000000000"
+PUSH_REMOTE=fork assert_pass "Feature branch allowed (push to fork)" run_hook "refs/heads/feature/fork-thing" "$local_sha" "refs/heads/feature/fork-thing" "0000000000000000000000000000000000000000"
 cleanup
 
-# Test 5c: Push to default branch with fork remote (blocked)
-echo "Test 5c: Push to default branch with fork remote"
+# Test 5c: Push to feature/* to origin while fork remote exists (blocked)
+echo "Test 5c: Push to feature/* to origin while fork remote exists"
+setup_repos
+cd "$TMPDIR/local"
+git remote add fork "$TMPDIR/remote.git" >/dev/null 2>&1
+git checkout -b feature/origin-thing >/dev/null 2>&1
+echo "feature" >> file.txt
+git add file.txt && git commit -m "feature" >/dev/null 2>&1
+local_sha=$(get_sha HEAD)
+assert_block "Feature branch to origin blocked when fork exists" run_hook "refs/heads/feature/origin-thing" "$local_sha" "refs/heads/feature/origin-thing" "0000000000000000000000000000000000000000"
+cleanup
+
+# Test 5d: Push to default branch with fork remote (blocked)
+echo "Test 5d: Push to default branch with fork remote"
 setup_repos
 cd "$TMPDIR/local"
 git remote add fork "$TMPDIR/remote.git" >/dev/null 2>&1
