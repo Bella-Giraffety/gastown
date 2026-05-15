@@ -71,7 +71,10 @@ func runBdCommand(ctx context.Context, args []string, workDir, beadsDir string, 
 
 	cmd := exec.CommandContext(ctx, "bd", args...) //nolint:gosec // G204: bd is a trusted internal tool
 	cmd.Dir = workDir
-	util.SetDetachedProcessGroup(cmd)
+	// Mail owns these bd subprocesses, so context cancellation must clean up
+	// any child Dolt server that bd may have started.
+	util.SetProcessGroup(cmd)
+	cmd.WaitDelay = 5 * time.Second
 
 	env := append(cmd.Environ(), "BEADS_DIR="+beadsDir)
 	if dbEnv := beads.DatabaseEnv(beadsDir); dbEnv != "" {
@@ -100,7 +103,8 @@ func runBdCommand(ctx context.Context, args []string, workDir, beadsDir string, 
 		stderr.Reset()
 		retryCmd := exec.CommandContext(ctx, "bd", retryArgs...) //nolint:gosec // G204: bd is a trusted internal tool
 		retryCmd.Dir = workDir
-		util.SetDetachedProcessGroup(retryCmd)
+		util.SetProcessGroup(retryCmd)
+		retryCmd.WaitDelay = 5 * time.Second
 		retryCmd.Env = env
 		retryCmd.Stdout = &stdout
 		retryCmd.Stderr = &stderr
