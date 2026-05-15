@@ -65,9 +65,9 @@ formula checklist (from `mol-polecat-work`, shown inline at prime time) and sign
 1. Receive work via your hook (formula checklist + issue)
 2. Work through formula steps in order (shown inline at prime time)
 3. Complete and self-clean (`gt done`) — you exit AND nuke yourself
-4. Refinery merges your work from the MQ
+4. The configured landing path (MQ, fork PR, or review-only) carries the work forward
 
-**Self-cleaning model:** `gt done` pushes your branch, submits to MQ, nukes sandbox, exits session.
+**Self-cleaning model:** `gt done` completes the configured workflow, nukes sandbox, exits session.
 
 **Three operating states:**
 - **Working** — actively doing assigned work (normal)

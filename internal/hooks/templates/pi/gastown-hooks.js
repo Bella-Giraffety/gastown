@@ -101,14 +101,14 @@ export default (pi) => {
     }
   });
 
-  // PreToolUse equivalent — guard dangerous git operations
+  // PreToolUse equivalent — guard PR workflow operations
   pi.on("tool_call", async (event, context) => {
     if (event.toolName === "bash" && event.input?.command) {
       const cmd = event.input.command;
       if (
-        cmd.includes("git push") ||
         cmd.includes("gh pr create") ||
-        cmd.includes("git checkout -b")
+        cmd.includes("git checkout -b") ||
+        cmd.includes("git switch -c")
       ) {
         try {
           const result = await pi.exec("gt", ["tap", "guard", "pr-workflow"]);

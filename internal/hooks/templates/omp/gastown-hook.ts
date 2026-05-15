@@ -120,14 +120,14 @@ export default function (pi) {
     }
   });
 
-  // PreToolUse — guard dangerous git operations via gt tap.
+  // PreToolUse — guard PR workflow operations via gt tap.
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === "bash" && event.input?.command) {
       const cmd = event.input.command;
       if (
-        cmd.includes("git push") ||
         cmd.includes("gh pr create") ||
-        cmd.includes("git checkout -b")
+        cmd.includes("git checkout -b") ||
+        cmd.includes("git switch -c")
       ) {
         try {
           const result = await pi.exec("gt", ["tap", "guard", "pr-workflow"]);

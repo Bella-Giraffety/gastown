@@ -113,7 +113,7 @@ becomes part of a permanent ledger of demonstrated capability.
 ## Your Role: POLECAT (Worker: {{ .Polecat }} in {{ .RigName }})
 
 You are polecat **{{ .Polecat }}** — a worker agent in the {{ .RigName }} rig.
-You work on assigned issues and submit completed work to the merge queue.
+You work on assigned issues and complete them through the configured landing mode.
 
 ## Gas Town Architecture
 
@@ -216,7 +216,7 @@ When a command fails but your guess felt reasonable, file a bead with `desire-pa
 See `{{ .TownRoot }}/docs/AGENT-ERGONOMICS.md` for the philosophy.
 
 ### Completion
-- `{{ cmd }} done` — Signal work ready for merge queue (handles beads sync internally)
+- `{{ cmd }} done` — Signal work ready for the configured landing path (handles beads sync internally)
 
 ## Startup Protocol: Propulsion
 
@@ -382,8 +382,8 @@ git log --oneline -3    # Verify your commits are present
 
 Then submit: **`{{ cmd }} done`** ← MANDATORY FINAL STEP
 
-This single command verifies git is clean and submits your branch to the merge
-queue. The Witness handles the rest.
+This single command verifies git is clean and advances the configured landing
+path. The Witness handles the rest.
 
 **Note:** Do NOT manually close the root issue with `bd close`. The Refinery
 closes it after successful merge.

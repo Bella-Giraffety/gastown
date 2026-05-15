@@ -429,27 +429,28 @@ or the human asks.
 
 ## Landing the Plane (Session End Protocol)
 
-When ending a session, complete ALL steps. The plane is NOT landed until `git push`
-succeeds. **YOU must push — NEVER say "ready to push when you are!"**
+When ending a session, complete ALL steps. The plane is NOT landed until the
+configured landing path is reached. **Never say "ready to push when you are!"**
 
 **MANDATORY WORKFLOW:**
 
 1. **File beads** for remaining follow-up work
 2. **Run quality gates** (if code changed): `go test ./...` / `golangci-lint run ./...`
 3. **Update beads** — close finished work
-4. **PUSH TO REMOTE — NON-NEGOTIABLE:**
+4. **Advance the configured landing path — NON-NEGOTIABLE:**
    ```bash
    git pull --rebase
    git add <files> && git commit -m "description"
-   git push                    # DO NOT STOP BEFORE THIS COMPLETES
-   git status                  # MUST show "up to date with origin/main"
+   git push                    # direct mode only, when policy allows
+   # fork-PR mode: push to fork branch and open/update the PR instead
+   git status                  # MUST be clean
    ```
-   If `git push` fails, resolve and retry until it succeeds.
+   If the landing step fails, resolve and retry until it succeeds.
 5. **Clean up**: `git stash clear && git remote prune origin`
 6. **Handoff or close**: `{{ cmd }} handoff` or verify clean `git status`
 7. **Session summary**: What completed, beads filed, quality gate status, push confirmation
 
-**Landing means EVERYTHING is pushed to remote. No exceptions.**
+**Landing means the configured direct, fork-PR, MQ, or review path is reached. No exceptions.**
 
 ## Desire Paths: Improving the Tooling
 
