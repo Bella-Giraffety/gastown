@@ -1195,6 +1195,8 @@ func hookBeadWithRetry(beadID, targetAgent, hookDir string) error {
 	return nil
 }
 
+var hookBeadWithRetryFn = hookBeadWithRetry
+
 // slingBackoff calculates exponential backoff with ±25% jitter for a given attempt (1-indexed).
 // Formula: base * 2^(attempt-1) * (1 ± 25% random), capped at max.
 func slingBackoff(attempt int, base, max time.Duration) time.Duration { //nolint:unparam // base is parameterized for testability
