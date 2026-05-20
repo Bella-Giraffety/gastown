@@ -28,6 +28,26 @@ func TestTapGuardPRWorkflowBlocksAgentWithoutForkRemote(t *testing.T) {
 	}
 }
 
+func TestTapGuardPRWorkflowBlocksMaintainerOriginWithoutFork(t *testing.T) {
+	dir := initTapGuardGitRepo(t, "https://github.com/gastownhall/gastown.git")
+	withTapGuardCwd(t, dir)
+	clearTapGuardAgentEnv(t)
+
+	if err := runTapGuardPRWorkflow(nil, nil); err == nil {
+		t.Fatal("runTapGuardPRWorkflow() = nil, want block for maintainer origin without fork/upstream workflow")
+	}
+}
+
+func TestTapGuardPRWorkflowAllowsNonMaintainerOriginWithoutFork(t *testing.T) {
+	dir := initTapGuardGitRepo(t, "https://github.com/example/gastown.git")
+	withTapGuardCwd(t, dir)
+	clearTapGuardAgentEnv(t)
+
+	if err := runTapGuardPRWorkflow(nil, nil); err != nil {
+		t.Fatalf("runTapGuardPRWorkflow() = %v, want allowed for non-maintainer origin", err)
+	}
+}
+
 func TestTapGuardPRWorkflowAllowsSplitOriginPushURL(t *testing.T) {
 	dir := initTapGuardGitRepo(t, "https://github.com/gastownhall/gastown.git")
 	runGit(t, dir, "remote", "set-url", "--push", "origin", "https://github.com/example/gastown.git")
@@ -36,6 +56,17 @@ func TestTapGuardPRWorkflowAllowsSplitOriginPushURL(t *testing.T) {
 
 	if err := runTapGuardPRWorkflow(nil, nil); err != nil {
 		t.Fatalf("runTapGuardPRWorkflow() = %v, want allowed with split pushurl", err)
+	}
+}
+
+func TestTapGuardPRWorkflowAllowsUpstreamRemote(t *testing.T) {
+	dir := initTapGuardGitRepo(t, "https://github.com/gastownhall/gastown.git")
+	runGit(t, dir, "remote", "add", "upstream", "https://github.com/gastownhall/gastown.git")
+	withTapGuardCwd(t, dir)
+	t.Setenv("GT_POLECAT", "toast")
+
+	if err := runTapGuardPRWorkflow(nil, nil); err != nil {
+		t.Fatalf("runTapGuardPRWorkflow() = %v, want allowed with upstream remote", err)
 	}
 }
 
@@ -68,4 +99,11 @@ func withTapGuardCwd(t *testing.T, dir string) {
 	t.Cleanup(func() {
 		_ = os.Chdir(old)
 	})
+}
+
+func clearTapGuardAgentEnv(t *testing.T) {
+	t.Helper()
+	for _, env := range []string{"GT_POLECAT", "GT_CREW", "GT_WITNESS", "GT_REFINERY", "GT_MAYOR", "GT_DEACON"} {
+		t.Setenv(env, "")
+	}
 }
