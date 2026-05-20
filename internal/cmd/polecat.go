@@ -1166,6 +1166,9 @@ func isActiveMRTerminal(bd issueShower, mrID string) bool {
 		return false
 	}
 	mr, err := bd.Show(mrID)
+	if errors.Is(err, beads.ErrNotFound) {
+		return true
+	}
 	if err != nil || mr == nil {
 		return false
 	}
