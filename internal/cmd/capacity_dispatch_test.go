@@ -5,6 +5,54 @@ import (
 	"time"
 )
 
+func TestCountCapacityOccupiedSlots(t *testing.T) {
+	tests := []struct {
+		name  string
+		slots []polecatCapacitySlot
+		want  int
+	}{
+		{
+			name: "six idle recovery needed slots occupy capacity",
+			slots: []polecatCapacitySlot{
+				{HasAgent: true, AgentState: "idle", CleanupStatus: "has_unpushed"},
+				{HasAgent: true, AgentState: "idle", CleanupStatus: "has_uncommitted"},
+				{HasAgent: true, AgentState: "idle", CleanupStatus: "has_stash"},
+				{HasAgent: true, AgentState: "idle", CleanupStatus: "unknown"},
+				{HasAgent: true, AgentState: "idle"},
+				{HasAgent: false},
+			},
+			want: 6,
+		},
+		{
+			name: "clean reusable idle slots do not occupy capacity",
+			slots: []polecatCapacitySlot{
+				{HasAgent: true, AgentState: "idle", CleanupStatus: "clean"},
+				{HasAgent: true, AgentState: "nuked", CleanupStatus: "clean"},
+			},
+			want: 0,
+		},
+		{
+			name: "working and failed slots occupy capacity",
+			slots: []polecatCapacitySlot{
+				{HasAgent: true, AgentState: "working", CleanupStatus: "clean"},
+				{HasAgent: true, AgentState: "spawning", CleanupStatus: "clean"},
+				{HasAgent: true, AgentState: "idle", CleanupStatus: "clean", HookBead: "gt-work"},
+				{HasAgent: true, AgentState: "idle", CleanupStatus: "clean", PushFailed: true},
+				{HasAgent: true, AgentState: "idle", CleanupStatus: "clean", MRFailed: true},
+			},
+			want: 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := countCapacityOccupiedSlots(tt.slots); got != tt.want {
+				t.Fatalf("countCapacityOccupiedSlots() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldFireCrossRigEscalation_Debounces(t *testing.T) {
 	resetCrossRigEscalationStateForTest()
 	t.Cleanup(resetCrossRigEscalationStateForTest)
