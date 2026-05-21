@@ -392,9 +392,11 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 
 	// Track cleanup on failure, but only if this invocation still owns the path.
 	cleanup := func() { removeRigPathIfOwned(rigPath, ownershipStamp) }
+	routeRollback := func() {}
 	success := false
 	defer func() {
 		if !success {
+			routeRollback()
 			cleanup()
 		}
 	}()
@@ -865,17 +867,20 @@ Use crew for your own workspace. Polecats are for batch work dispatch.
 		if _, err := os.Stat(mayorRigBeads); err == nil {
 			routePath = opts.Name + "/mayor/rig"
 		}
-		route := beads.Route{
-			Prefix: opts.BeadsPrefix + "-",
-			Path:   routePath,
+			route := beads.Route{
+				Prefix: opts.BeadsPrefix + "-",
+				Path:   routePath,
+			}
+			previousRoute, err := beads.AppendRouteIfPrefixAvailable(m.townRoot, route)
+			if err != nil {
+				return nil, fmt.Errorf("registering rig route: %w", err)
+			}
+			routeRollback = func() {
+				if err := beads.RestoreRouteIfCurrent(m.townRoot, route, previousRoute); err != nil {
+					fmt.Fprintf(os.Stderr, "  Warning: Could not roll back route %s -> %s: %v\n", route.Prefix, route.Path, err)
+				}
+			}
 		}
-		if err := beads.CheckPrefixAvailable(m.townRoot, route.Prefix, route.Path); err != nil {
-			return nil, fmt.Errorf("prefix collision before route registration: %w", err)
-		}
-		if err := beads.AppendRoute(m.townRoot, route); err != nil {
-			fmt.Printf("  Warning: Could not update routes.jsonl: %v\n", err)
-		}
-	}
 
 	// Create rig-level settings directory (used by gt config for rig overrides)
 	rigSettingsPath := filepath.Join(rigPath, constants.DirSettings)

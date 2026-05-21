@@ -65,6 +65,71 @@ func AppendRoute(townRoot string, route Route) error {
 	return AppendRouteToDir(beadsDir, route)
 }
 
+// AppendRouteIfPrefixAvailable appends or updates a route only when the prefix
+// is unused or already belongs to the same rig. It returns the previous route
+// for rollback, or nil when this call added a new route.
+func AppendRouteIfPrefixAvailable(townRoot string, route Route) (*Route, error) {
+	beadsDir := filepath.Join(townRoot, ".beads")
+	return AppendRouteToDirIfPrefixAvailable(beadsDir, route)
+}
+
+// AppendRouteToDirIfPrefixAvailable is AppendRouteToDir with a same-rig guard.
+func AppendRouteToDirIfPrefixAvailable(beadsDir string, route Route) (*Route, error) {
+	routes, err := LoadRoutes(beadsDir)
+	if err != nil {
+		return nil, fmt.Errorf("loading routes: %w", err)
+	}
+
+	newRig := strings.SplitN(route.Path, "/", 2)[0]
+	for i, r := range routes {
+		if r.Prefix != route.Prefix {
+			continue
+		}
+		previous := r
+		existingRig := strings.SplitN(r.Path, "/", 2)[0]
+		if existingRig != newRig {
+			return nil, fmt.Errorf("prefix %q is already used by %s (path: %s); use --prefix to specify a different prefix", route.Prefix, existingRig, r.Path)
+		}
+		routes[i].Path = route.Path
+		return &previous, WriteRoutes(beadsDir, routes)
+	}
+
+	routes = append(routes, route)
+	return nil, WriteRoutes(beadsDir, routes)
+}
+
+// RestoreRouteIfCurrent restores or removes a route only if it still matches
+// the route written by this caller. This avoids clobbering another add/repair.
+func RestoreRouteIfCurrent(townRoot string, route Route, previous *Route) error {
+	beadsDir := filepath.Join(townRoot, ".beads")
+	return RestoreRouteInDirIfCurrent(beadsDir, route, previous)
+}
+
+// RestoreRouteInDirIfCurrent restores or removes a route only if it still matches.
+func RestoreRouteInDirIfCurrent(beadsDir string, route Route, previous *Route) error {
+	routes, err := LoadRoutes(beadsDir)
+	if err != nil {
+		return fmt.Errorf("loading routes: %w", err)
+	}
+
+	for i, r := range routes {
+		if r.Prefix != route.Prefix {
+			continue
+		}
+		if r.Path != route.Path {
+			return nil
+		}
+		if previous == nil {
+			routes = append(routes[:i], routes[i+1:]...)
+		} else {
+			routes[i] = *previous
+		}
+		return WriteRoutes(beadsDir, routes)
+	}
+
+	return nil
+}
+
 // AppendRouteToDir appends a route to routes.jsonl in the given beads directory.
 // If the prefix already exists, it updates the path.
 func AppendRouteToDir(beadsDir string, route Route) error {
