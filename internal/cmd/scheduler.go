@@ -544,6 +544,7 @@ func countWorkingPolecats() int {
 
 type polecatCapacitySlot struct {
 	HasAgent      bool
+	ActiveWork    bool
 	AgentState    string
 	HookBead      string
 	CleanupStatus string
@@ -565,9 +566,12 @@ func polecatSlotOccupiesCapacity(slot polecatCapacitySlot) bool {
 	if !slot.HasAgent {
 		return true
 	}
+	if slot.ActiveWork {
+		return true
+	}
 	state := strings.ToLower(strings.TrimSpace(slot.AgentState))
 	switch state {
-	case "", "idle", "nuked":
+	case "idle", "nuked":
 		// Idle/nuked slots are free only when cleanup metadata proves they are reusable.
 	default:
 		return true
@@ -601,6 +605,10 @@ func countCapacityOccupyingPolecats() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	activeWork, err := activePolecatAssignees(rigDirs)
+	if err != nil {
+		return 0, err
+	}
 
 	var slots []polecatCapacitySlot
 	known := make(map[string]bool)
@@ -615,7 +623,8 @@ func countCapacityOccupyingPolecats() (int, error) {
 				continue
 			}
 			name := entry.Name()
-			known[rigName+"/"+name] = true
+			key := rigName + "/" + name
+			known[key] = true
 			prefix := session.PrefixFor(rigName)
 			agentID := beads.PolecatBeadIDWithPrefix(prefix, rigName, name)
 			issue := agents[agentID]
@@ -627,6 +636,7 @@ func countCapacityOccupyingPolecats() (int, error) {
 			fields.AgentState = beads.ResolveAgentState(issue.Description, issue.AgentState)
 			slots = append(slots, polecatCapacitySlot{
 				HasAgent:      true,
+				ActiveWork:    activeWork[key],
 				AgentState:    fields.AgentState,
 				HookBead:      fields.HookBead,
 				CleanupStatus: fields.CleanupStatus,
@@ -655,6 +665,31 @@ func capacityRigDirs(townRoot string) ([]string, error) {
 		}
 	}
 	return dirs, nil
+}
+
+func activePolecatAssignees(rigDirs []string) (map[string]bool, error) {
+	active := make(map[string]bool)
+	for _, rigDir := range rigDirs {
+		rigName := filepath.Base(rigDir)
+		bd := beads.New(rigDir)
+		for _, status := range []string{"open", "in_progress", beads.StatusHooked} {
+			issues, err := bd.List(beads.ListOptions{Status: status, Priority: -1, Limit: 0})
+			if err != nil {
+				return nil, err
+			}
+			for _, issue := range issues {
+				prefix := rigName + "/polecats/"
+				if !strings.HasPrefix(issue.Assignee, prefix) {
+					continue
+				}
+				name := strings.TrimPrefix(issue.Assignee, prefix)
+				if name != "" {
+					active[rigName+"/"+name] = true
+				}
+			}
+		}
+	}
+	return active, nil
 }
 
 func countOrphanPolecatSessions(known map[string]bool) int {

@@ -34,13 +34,15 @@ func TestCountCapacityOccupiedSlots(t *testing.T) {
 		{
 			name: "working and failed slots occupy capacity",
 			slots: []polecatCapacitySlot{
+				{HasAgent: true, CleanupStatus: "clean"},
+				{HasAgent: true, ActiveWork: true, AgentState: "idle", CleanupStatus: "clean"},
 				{HasAgent: true, AgentState: "working", CleanupStatus: "clean"},
 				{HasAgent: true, AgentState: "spawning", CleanupStatus: "clean"},
 				{HasAgent: true, AgentState: "idle", CleanupStatus: "clean", HookBead: "gt-work"},
 				{HasAgent: true, AgentState: "idle", CleanupStatus: "clean", PushFailed: true},
 				{HasAgent: true, AgentState: "idle", CleanupStatus: "clean", MRFailed: true},
 			},
-			want: 5,
+			want: 7,
 		},
 	}
 
