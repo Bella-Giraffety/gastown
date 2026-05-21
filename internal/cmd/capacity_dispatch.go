@@ -149,8 +149,11 @@ func dispatchScheduledWork(townRoot, actor string, batchOverride int, dryRun boo
 	polecatNames := make(map[string]string)
 	cycle := &capacity.DispatchCycle{
 		AvailableCapacity: func() (int, error) {
-			active := countWorkingPolecats()
-			cap := maxPolecats - active
+			occupied, err := countCapacityOccupyingPolecats()
+			if err != nil {
+				return 0, nil // Fail closed: do not dispatch when capacity cannot be proven.
+			}
+			cap := maxPolecats - occupied
 			if cap <= 0 {
 				return 0, nil // No free slots — PlanDispatch treats <= 0 as no capacity
 			}
@@ -269,8 +272,8 @@ func dispatchScheduledWork(townRoot, actor string, batchOverride int, dryRun boo
 		fmt.Printf("\n%s Dispatched %d, failed %d (reason: %s)\n",
 			style.Bold.Render("✓"), report.Dispatched, report.Failed, report.Reason)
 	} else if report.Skipped > 0 {
-		fmt.Printf("\n%s Skipped %d bead(s) — zero capacity (working: %d)\n",
-			style.Dim.Render("○"), report.Skipped, countWorkingPolecats())
+		fmt.Printf("\n%s Skipped %d bead(s) — zero capacity (occupied: %d)\n",
+			style.Dim.Render("○"), report.Skipped, countCapacityOccupyingPolecatsForDisplay())
 	}
 
 	return report.Dispatched, nil
@@ -283,7 +286,7 @@ func printDryRunPlan(plan capacity.DispatchPlan, maxPolecats, batchSize int) {
 		return
 	}
 
-	activePolecats := countActivePolecats()
+	activePolecats := countCapacityOccupyingPolecatsForDisplay()
 	capStr := "unlimited"
 	if maxPolecats > 0 {
 		cap := maxPolecats - activePolecats

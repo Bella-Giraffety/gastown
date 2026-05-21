@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/scheduler/capacity"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/style"
@@ -139,7 +140,7 @@ func runSchedulerStatus(cmd *cobra.Command, args []string) error {
 
 	scheduled := listScheduledBeads(townRoot)
 
-	activePolecats := countActivePolecats()
+	activePolecats := countCapacityOccupyingPolecatsForDisplay()
 
 	if schedulerStatusJSON {
 		out := struct {
@@ -537,6 +538,144 @@ func countWorkingPolecats() int {
 			continue // Idle — don't count toward cap
 		}
 		count++
+	}
+	return count
+}
+
+type polecatCapacitySlot struct {
+	HasAgent      bool
+	AgentState    string
+	HookBead      string
+	CleanupStatus string
+	PushFailed    bool
+	MRFailed      bool
+}
+
+func countCapacityOccupiedSlots(slots []polecatCapacitySlot) int {
+	occupied := 0
+	for _, slot := range slots {
+		if polecatSlotOccupiesCapacity(slot) {
+			occupied++
+		}
+	}
+	return occupied
+}
+
+func polecatSlotOccupiesCapacity(slot polecatCapacitySlot) bool {
+	if !slot.HasAgent {
+		return true
+	}
+	state := strings.ToLower(strings.TrimSpace(slot.AgentState))
+	switch state {
+	case "", "idle", "nuked":
+		// Idle/nuked slots are free only when cleanup metadata proves they are reusable.
+	default:
+		return true
+	}
+	if slot.HookBead != "" || slot.PushFailed || slot.MRFailed {
+		return true
+	}
+	return !polecat.CleanupStatus(slot.CleanupStatus).IsSafe()
+}
+
+func countCapacityOccupyingPolecatsForDisplay() int {
+	count, err := countCapacityOccupyingPolecats()
+	if err != nil {
+		return countActivePolecats()
+	}
+	return count
+}
+
+func countCapacityOccupyingPolecats() (int, error) {
+	townRoot, err := workspace.FindFromCwd()
+	if err != nil {
+		return 0, err
+	}
+
+	rigDirs, err := capacityRigDirs(townRoot)
+	if err != nil {
+		return 0, err
+	}
+
+	agents, err := beads.New(townRoot).ForAgentBead().ListAgentBeads()
+	if err != nil {
+		return 0, err
+	}
+
+	var slots []polecatCapacitySlot
+	known := make(map[string]bool)
+	for _, rigDir := range rigDirs {
+		rigName := filepath.Base(rigDir)
+		entries, err := os.ReadDir(filepath.Join(rigDir, "polecats"))
+		if err != nil {
+			return 0, err
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			name := entry.Name()
+			known[rigName+"/"+name] = true
+			prefix := session.PrefixFor(rigName)
+			agentID := beads.PolecatBeadIDWithPrefix(prefix, rigName, name)
+			issue := agents[agentID]
+			if issue == nil {
+				slots = append(slots, polecatCapacitySlot{})
+				continue
+			}
+			fields := beads.ParseAgentFields(issue.Description)
+			fields.AgentState = beads.ResolveAgentState(issue.Description, issue.AgentState)
+			slots = append(slots, polecatCapacitySlot{
+				HasAgent:      true,
+				AgentState:    fields.AgentState,
+				HookBead:      fields.HookBead,
+				CleanupStatus: fields.CleanupStatus,
+				PushFailed:    fields.PushFailed,
+				MRFailed:      fields.MRFailed,
+			})
+		}
+	}
+
+	return countCapacityOccupiedSlots(slots) + countOrphanPolecatSessions(known), nil
+}
+
+func capacityRigDirs(townRoot string) ([]string, error) {
+	entries, err := os.ReadDir(townRoot)
+	if err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "mayor" || entry.Name() == "settings" {
+			continue
+		}
+		rigDir := filepath.Join(townRoot, entry.Name())
+		if info, err := os.Stat(filepath.Join(rigDir, "polecats")); err == nil && info.IsDir() {
+			dirs = append(dirs, rigDir)
+		}
+	}
+	return dirs, nil
+}
+
+func countOrphanPolecatSessions(known map[string]bool) int {
+	listCmd := tmux.BuildCommand("list-sessions", "-F", "#{session_name}")
+	out, err := listCmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		identity, err := session.ParseSessionName(line)
+		if err != nil || identity.Role != session.RolePolecat {
+			continue
+		}
+		if !known[identity.Rig+"/"+identity.Name] {
+			count++
+		}
 	}
 	return count
 }
