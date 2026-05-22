@@ -165,17 +165,6 @@ func activeMRState(bd activeMRFinder, mrID string) (terminal bool, submitted boo
 	return false, true
 }
 
-func (s *PolecatWorkState) legacyFinalizeDerivedFlags(polecatState State) {
-	if s.Verdict != WorkVerdictSafeToNuke {
-		state.Reusable = false
-		state.SlotOpenEligible = false
-		if state.Reason == "" || state.Reason == "reusable" {
-			state.setBlockReason(state.Verdict)
-		} else {
-			state.addReason(state.Verdict)
-		}
-}
-
 func (m *Manager) slotReuseInputForPolecat(name string, state State, ws *PolecatWorkState) SlotReuseInput {
 	input := SlotReuseInput{State: state, CleanupStatus: CleanupUnknown}
 	agentID := m.agentBeadID(name)
@@ -262,11 +251,13 @@ func (m *Manager) populateRecoveryVerdict(name string, p *Polecat, ws *PolecatWo
 			terminal, submitted := m.activeMRState(fields.ActiveMR)
 			ws.activeMRSubmitted = submitted
 			if ws.Verdict == WorkVerdictSafeToNuke && submitted {
-				ws.NeedsRecovery = false
+				ws.NeedsRecovery = true
 				ws.Verdict = WorkVerdictNeedsRecovery
+				ws.addReason("active-mr-submitted")
 			} else if ws.Verdict == WorkVerdictSafeToNuke && !terminal {
 				ws.NeedsRecovery = true
 				ws.Verdict = WorkVerdictNeedsRecovery
+				ws.addReason("active-mr-unresolved")
 			}
 		} else if !input.GitCheckFailed && !input.GitDirty && input.StashCount == 0 && input.UnpushedCommits == 0 && m.isActiveMRTerminal(fields.ActiveMR) {
 			ws.CleanupStatus = cleanupStatus
@@ -289,6 +280,9 @@ func (m *Manager) populateRecoveryVerdict(name string, p *Polecat, ws *PolecatWo
 			} else {
 				ws.NeedsRecovery = true
 				ws.Verdict = WorkVerdictNeedsRecovery
+				if fields.ActiveMR != "" {
+					ws.addReason("active-mr-unresolved")
+				}
 			}
 		} else {
 			ws.CleanupStatus = cleanupStatus
@@ -357,23 +351,6 @@ func (m *Manager) hasSubmittableWork(name string, input SlotReuseInput) bool {
 func (m *Manager) isActiveMRTerminal(mrID string) bool {
 	terminal, _ := m.activeMRState(mrID)
 	return terminal
-}
-
-func (m *Manager) activeMRState(mrID string) (terminal bool, submitted bool) {
-	if mrID == "" {
-		return true, false
-	}
-	mr, err := m.beads.Show(mrID)
-	if errors.Is(err, beads.ErrNotFound) {
-		return true, false
-	}
-	if err != nil || mr == nil {
-		return false, false
-	}
-	if beads.IssueStatus(mr.Status).IsTerminal() {
-		return true, false
-	}
-	return false, true
 }
 
 func (m *Manager) isAssignedBeadTerminal(issueID string) bool {

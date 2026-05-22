@@ -16,6 +16,15 @@ func (f fakeWorkstateMRFinder) FindMRForBranchAny(branch string) (*beads.Issue, 
 	return f.issue, f.err
 }
 
+type fakeActiveMRFinder struct {
+	issue *beads.Issue
+	err   error
+}
+
+func (f fakeActiveMRFinder) Show(id string) (*beads.Issue, error) {
+	return f.issue, f.err
+}
+
 func TestPopulateGitFallbackVerdict(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -165,5 +174,103 @@ func TestApplyMQWorkStateMatrix(t *testing.T) {
 				t.Fatalf("NeedsRecovery = %v, want %v", state.NeedsRecovery, tt.wantNeeds)
 			}
 		})
+	}
+}
+
+func TestActiveMRState(t *testing.T) {
+	tests := []struct {
+		name          string
+		mrID          string
+		finder        activeMRFinder
+		wantTerminal  bool
+		wantSubmitted bool
+	}{
+		{
+			name:         "empty active mr is terminal",
+			wantTerminal: true,
+		},
+		{
+			name:         "closed active mr is terminal",
+			mrID:         "gt-mr",
+			finder:       fakeActiveMRFinder{issue: &beads.Issue{ID: "gt-mr", Status: string(beads.StatusClosed)}},
+			wantTerminal: true,
+		},
+		{
+			name:          "open active mr is submitted",
+			mrID:          "gt-mr",
+			finder:        fakeActiveMRFinder{issue: &beads.Issue{ID: "gt-mr", Status: string(beads.StatusOpen)}},
+			wantSubmitted: true,
+		},
+		{
+			name:   "missing active mr fails closed",
+			mrID:   "gt-mr",
+			finder: fakeActiveMRFinder{err: beads.ErrNotFound},
+		},
+		{
+			name:   "lookup error fails closed",
+			mrID:   "gt-mr",
+			finder: fakeActiveMRFinder{err: errors.New("bd unavailable")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTerminal, gotSubmitted := activeMRState(tt.finder, tt.mrID)
+			if gotTerminal != tt.wantTerminal {
+				t.Fatalf("terminal = %v, want %v", gotTerminal, tt.wantTerminal)
+			}
+			if gotSubmitted != tt.wantSubmitted {
+				t.Fatalf("submitted = %v, want %v", gotSubmitted, tt.wantSubmitted)
+			}
+		})
+	}
+}
+
+func TestFinalizeDerivedFlagsBlocksNonTerminalActiveMR(t *testing.T) {
+	state := &PolecatWorkState{
+		ActiveMR:          "gt-mr",
+		Verdict:           WorkVerdictNeedsRecovery,
+		Reusable:          true,
+		SlotOpenEligible:  true,
+		activeMRSubmitted: true,
+	}
+
+	state.finalizeDerivedFlags(StateIdle)
+
+	if state.Reusable {
+		t.Fatal("Reusable = true, want false for non-terminal active MR")
+	}
+	if state.SlotOpenEligible {
+		t.Fatal("SlotOpenEligible = true, want false for non-terminal active MR")
+	}
+	if !state.CountsTowardCapacity {
+		t.Fatal("CountsTowardCapacity = false, want true while active MR blocks reuse")
+	}
+	if !state.NeedsRecovery || state.SafeToNuke {
+		t.Fatalf("NeedsRecovery/SafeToNuke = %v/%v, want true/false", state.NeedsRecovery, state.SafeToNuke)
+	}
+}
+
+func TestFinalizeDerivedFlagsAllowsTerminalActiveMR(t *testing.T) {
+	state := &PolecatWorkState{
+		ActiveMR:         "gt-mr",
+		Verdict:          WorkVerdictSafeToNuke,
+		Reusable:         true,
+		SlotOpenEligible: true,
+	}
+
+	state.finalizeDerivedFlags(StateIdle)
+
+	if !state.Reusable {
+		t.Fatal("Reusable = false, want true for terminal active MR")
+	}
+	if !state.SlotOpenEligible {
+		t.Fatal("SlotOpenEligible = false, want true for terminal active MR")
+	}
+	if state.CountsTowardCapacity {
+		t.Fatal("CountsTowardCapacity = true, want false for reusable terminal active MR")
+	}
+	if state.NeedsRecovery || !state.SafeToNuke {
+		t.Fatalf("NeedsRecovery/SafeToNuke = %v/%v, want false/true", state.NeedsRecovery, state.SafeToNuke)
 	}
 }
