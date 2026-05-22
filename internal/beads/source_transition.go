@@ -49,6 +49,9 @@ func (b *Beads) TransitionSourceIssue(opts SourceTransitionOptions) (*SourceTran
 	if opts.SourceIssueID == "" {
 		return result, nil
 	}
+	if opts.Transition == SourceTransitionSlingAssign {
+		return result, b.updateSourceState(result, opts.SourceIssueID, string(IssueStatusHooked), opts.Assignee)
+	}
 
 	issue, err := b.Show(opts.SourceIssueID)
 	if err != nil {
@@ -69,8 +72,6 @@ func (b *Beads) TransitionSourceIssue(opts SourceTransitionOptions) (*SourceTran
 	}
 
 	switch opts.Transition {
-	case SourceTransitionSlingAssign:
-		return result, b.updateSourceState(result, opts.SourceIssueID, string(IssueStatusHooked), opts.Assignee)
 	case SourceTransitionDoneSubmittedMR:
 		return result, b.updateSourceState(result, opts.SourceIssueID, string(StatusInProgress), "")
 	case SourceTransitionDoneDeferred:
@@ -102,6 +103,14 @@ func (b *Beads) TransitionSourceIssue(opts SourceTransitionOptions) (*SourceTran
 }
 
 func (b *Beads) updateSourceState(result *SourceTransitionResult, sourceIssueID, status, assignee string) error {
+	if b.store == nil {
+		_, err := b.runMutation("update", sourceIssueID, "--status="+status, "--assignee="+assignee)
+		if err != nil {
+			return err
+		}
+		result.SourceUpdated = true
+		return nil
+	}
 	if err := b.Update(sourceIssueID, UpdateOptions{Status: &status, Assignee: &assignee}); err != nil {
 		return err
 	}
