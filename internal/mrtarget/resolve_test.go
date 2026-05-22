@@ -82,6 +82,19 @@ func TestResolveRejectsConflictingDuplicateBaseBranch(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsConflictingContinuationBaseBranch(t *testing.T) {
+	_, err := Resolve(Options{
+		DefaultBranch: "main",
+		SourceIssue: &beads.Issue{Description: `attached_formula: mol-polecat-work
+formula_vars: base_branch=integration/a
+merge_strategy=pr
+base_branch=integration/b`},
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicting") {
+		t.Fatalf("Resolve() error = %v, want conflicting continuation base_branch", err)
+	}
+}
+
 func TestResolveRejectsStaleRCATarget(t *testing.T) {
 	_, err := Resolve(Options{
 		DefaultBranch:  "main",
