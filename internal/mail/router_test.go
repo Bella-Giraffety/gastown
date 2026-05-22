@@ -2014,6 +2014,7 @@ func TestClearSatisfiedNotifications_MailReadClearsMailAndReplyReminder(t *testi
 
 	queued := []nudge.QueuedNudge{
 		{Sender: "mayor/", Message: "mail", Kind: "mail", ThreadID: "thread-1"},
+		{Sender: "mayor/", Message: "mail-duplicate", Kind: "mail", ThreadID: "thread-1"},
 		{Sender: "system", Message: "reply", Kind: "reply-reminder", ThreadID: "thread-1"},
 		{Sender: "system", Message: "keep-escalation", Kind: "escalation", ThreadID: "thread-2"},
 		{Sender: "system", Message: "keep-other-thread", Kind: "reply-reminder", ThreadID: "thread-2"},
@@ -2051,6 +2052,7 @@ func TestClearSatisfiedNotifications_EscalationAckClearsEscalation(t *testing.T)
 
 	queued := []nudge.QueuedNudge{
 		{Sender: "witness", Message: "escalation", Kind: "escalation", ThreadID: "hq-esc123"},
+		{Sender: "witness", Message: "escalation-duplicate", Kind: "escalation", ThreadID: "hq-esc123"},
 		{Sender: "system", Message: "legacy-reply", Kind: "reply-reminder", ThreadID: "hq-esc123"},
 		{Sender: "system", Message: "keep-other-escalation", Kind: "escalation", ThreadID: "hq-esc456"},
 	}

@@ -42,6 +42,7 @@ func TestClearSatisfiedEscalationNudgesClearsAckedThread(t *testing.T) {
 
 	queued := []nudge.QueuedNudge{
 		{Sender: "witness", Message: "acked-escalation", Kind: "escalation", ThreadID: "hq-esc123"},
+		{Sender: "witness", Message: "acked-escalation-duplicate", Kind: "escalation", ThreadID: "hq-esc123"},
 		{Sender: "system", Message: "legacy-reply-reminder", Kind: "reply-reminder", ThreadID: "hq-esc123"},
 		{Sender: "witness", Message: "unrelated-escalation", Kind: "escalation", ThreadID: "hq-esc456"},
 	}
