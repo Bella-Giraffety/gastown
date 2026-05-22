@@ -115,14 +115,58 @@ func (m *Manager) evaluateWorkStateForPolecat(name string, p *Polecat) (*Polecat
 	}
 
 	m.populateRecoveryVerdict(name, p, state, input)
+	state.finalizeDerivedFlags(p.State)
 
-	// Reuse/slot-open are distinct from destructive cleanup. A clean polecat with
-	// an open, submitted MR can be reused because its branch is in the merge
-	// pipeline, even though it is not necessarily safe to nuke.
-	if decision.Reusable && state.ActiveMR != "" && state.activeMRSubmitted {
-		state.Reusable = true
-		state.SlotOpenEligible = true
-	} else if state.Verdict != WorkVerdictSafeToNuke {
+	return state, nil
+}
+
+func (s *PolecatWorkState) finalizeDerivedFlags(polecatState State) {
+	if s.Verdict != WorkVerdictSafeToNuke {
+		// Active non-terminal MRs are preserved work. They block both destructive
+		// cleanup and capacity reuse until the MR reaches an explicit terminal state.
+		// Reuse decisions are point-in-time hints; recovery verdicts are authoritative.
+		s.Reusable = false
+		s.SlotOpenEligible = false
+		if s.Reason == "" || s.Reason == "reusable" {
+			s.setBlockReason(s.Verdict)
+		} else {
+			s.addReason(s.Verdict)
+		}
+	}
+
+	s.NeedsMQSubmit = s.Verdict == WorkVerdictNeedsMQSubmit
+	s.NeedsRecovery = s.Verdict != WorkVerdictSafeToNuke
+	s.SafeToNuke = s.Verdict == WorkVerdictSafeToNuke
+	s.CountsTowardCapacity = !s.Reusable && polecatState != StateDone
+}
+
+func (m *Manager) activeMRState(mrID string) (terminal bool, submitted bool) {
+	return activeMRState(m.beads, mrID)
+}
+
+type activeMRFinder interface {
+	Show(id string) (*beads.Issue, error)
+}
+
+func activeMRState(bd activeMRFinder, mrID string) (terminal bool, submitted bool) {
+	if mrID == "" {
+		return true, false
+	}
+	if bd == nil {
+		return false, false
+	}
+	mr, err := bd.Show(mrID)
+	if err != nil || mr == nil {
+		return false, false
+	}
+	if beads.IssueStatus(mr.Status).IsTerminal() {
+		return true, false
+	}
+	return false, true
+}
+
+func (s *PolecatWorkState) legacyFinalizeDerivedFlags(polecatState State) {
+	if s.Verdict != WorkVerdictSafeToNuke {
 		state.Reusable = false
 		state.SlotOpenEligible = false
 		if state.Reason == "" || state.Reason == "reusable" {
@@ -130,14 +174,6 @@ func (m *Manager) evaluateWorkStateForPolecat(name string, p *Polecat) (*Polecat
 		} else {
 			state.addReason(state.Verdict)
 		}
-	}
-
-	state.NeedsMQSubmit = state.Verdict == WorkVerdictNeedsMQSubmit
-	state.NeedsRecovery = state.Verdict != WorkVerdictSafeToNuke
-	state.SafeToNuke = state.Verdict == WorkVerdictSafeToNuke
-	state.CountsTowardCapacity = !state.Reusable && p.State != StateDone
-
-	return state, nil
 }
 
 func (m *Manager) slotReuseInputForPolecat(name string, state State, ws *PolecatWorkState) SlotReuseInput {
