@@ -63,6 +63,11 @@ func (e *Engineer) AssembleBatch(readyMRs []*MRInfo, config *BatchConfig) []*MRI
 	if maxSize <= 0 {
 		maxSize = 5
 	}
+	for _, mr := range readyMRs {
+		if mr.MergeCommit != "" {
+			return []*MRInfo{mr}
+		}
+	}
 
 	batch := make([]*MRInfo, 0, maxSize)
 	for _, mr := range readyMRs {

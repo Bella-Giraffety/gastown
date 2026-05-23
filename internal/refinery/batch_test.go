@@ -175,6 +175,22 @@ func TestAssembleBatch_CapsAtMax(t *testing.T) {
 	}
 }
 
+func TestAssembleBatch_ProcessesMergeCommitResumeAlone(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+
+	mrs := []*MRInfo{
+		makeMR("mr-1", "branch-1", "main"),
+		{ID: "mr-resume", Branch: "branch-resume", Target: "main", MergeCommit: "abc123"},
+		makeMR("mr-2", "branch-2", "main"),
+	}
+
+	batch := e.AssembleBatch(mrs, &BatchConfig{MaxBatchSize: 5})
+	if len(batch) != 1 || batch[0].ID != "mr-resume" {
+		t.Fatalf("expected only resume MR, got %+v", batch)
+	}
+}
+
 func TestAssembleBatch_SkipsBlockedMRs(t *testing.T) {
 	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
 	e := NewEngineer(r)
