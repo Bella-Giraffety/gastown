@@ -1283,6 +1283,55 @@ func TestReuseIdlePolecat_SetupCommandFailureCleansWorktree(t *testing.T) {
 	}
 }
 
+func TestRemoveRechecksGitStateDespiteCleanAgentBead(t *testing.T) {
+	mgr, _ := setupCanonicalBranchManagerTest(t)
+
+	p, err := mgr.AddWithOptions("toast", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	marker := filepath.Join(p.ClonePath, "local-work.txt")
+	if err := os.WriteFile(marker, []byte("do not delete\n"), 0644); err != nil {
+		t.Fatalf("write local marker: %v", err)
+	}
+
+	err = mgr.Remove("toast", false)
+	if !errors.Is(err, ErrHasUncommittedWork) {
+		t.Fatalf("Remove error = %v, want ErrHasUncommittedWork", err)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("failed remove should preserve worktree marker: %v", statErr)
+	}
+}
+
+func TestRemoveRechecksUnpushedCommitsDespiteCleanAgentBead(t *testing.T) {
+	mgr, _ := setupCanonicalBranchManagerTest(t)
+
+	p, err := mgr.AddWithOptions("toast", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	marker := filepath.Join(p.ClonePath, "committed-local-work.txt")
+	if err := os.WriteFile(marker, []byte("do not delete\n"), 0644); err != nil {
+		t.Fatalf("write local marker: %v", err)
+	}
+	worktreeGit := git.NewGit(p.ClonePath)
+	if err := worktreeGit.Add("committed-local-work.txt"); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := worktreeGit.Commit("Local work"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	err = mgr.Remove("toast", false)
+	if !errors.Is(err, ErrHasUncommittedWork) {
+		t.Fatalf("Remove error = %v, want ErrHasUncommittedWork", err)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("failed remove should preserve committed work marker: %v", statErr)
+	}
+}
+
 func writeWispSetupCommand(t *testing.T, mgr *Manager, command string) {
 	t.Helper()
 

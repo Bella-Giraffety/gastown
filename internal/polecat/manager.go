@@ -456,6 +456,75 @@ func (m *Manager) checkCleanupStatus(name string, status CleanupStatus, force bo
 	}
 }
 
+func (m *Manager) recheckDestructivePolecatAction(name, clonePath string, force bool) error {
+	polecatGit := git.NewGit(clonePath)
+	status, err := polecatGit.CheckUncommittedWork()
+	if err != nil {
+		return fmt.Errorf("cannot recheck polecat %s git state under lock: %w", name, err)
+	}
+	if status.HasUncommittedChanges || status.StashCount > 0 {
+		if !force || status.StashCount > 0 {
+			return &UncommittedWorkError{PolecatName: name, Status: status}
+		}
+	}
+	if force {
+		return nil
+	}
+
+	branch, err := polecatGit.CurrentBranch()
+	if err != nil {
+		return fmt.Errorf("cannot recheck polecat %s branch under lock: %w", name, err)
+	}
+	if branch != "" {
+		pushed, unpushedCount, err := polecatGit.BranchPushedToRemote(branch, "origin")
+		if err != nil {
+			return fmt.Errorf("cannot recheck polecat %s push state under lock: %w", name, err)
+		}
+		if !pushed && unpushedCount > 0 && !force {
+			return &UncommittedWorkError{PolecatName: name, Status: &git.UncommittedWorkStatus{UnpushedCommits: unpushedCount}}
+		}
+
+		mr, err := m.beads.FindMRForBranch(branch)
+		if err != nil {
+			return fmt.Errorf("cannot recheck polecat %s merge-request state under lock: %w", name, err)
+		}
+		if mr != nil && beads.IssueStatus(mr.Status).BlocksRemoval() {
+			return fmt.Errorf("cannot remove polecat %s: MR %s is still open in merge queue\nRefinery will process the MR and clean up after merge\nUse --force to override (risks data loss)", name, mr.ID)
+		}
+	}
+
+	agentID := m.agentBeadID(name)
+	_, fields, err := m.agentBeads().GetAgentBead(agentID)
+	if err == nil && fields != nil && fields.ActiveMR != "" {
+		mrBead, mrErr := m.beads.Show(fields.ActiveMR)
+		if mrErr != nil && !errors.Is(mrErr, beads.ErrNotFound) {
+			return fmt.Errorf("cannot recheck polecat %s active MR %s under lock: %w", name, fields.ActiveMR, mrErr)
+		}
+		if mrBead != nil && beads.IssueStatus(mrBead.Status).BlocksRemoval() {
+			return fmt.Errorf("cannot remove polecat %s: MR %s is still open in merge queue\nRefinery will process the MR and clean up after merge\nUse --force to override (risks data loss)", name, fields.ActiveMR)
+		}
+	}
+
+	return nil
+}
+
+// CheckDestructiveActionLease verifies current state under the per-polecat lock
+// without mutating anything. Callers that need to take non-filesystem actions
+// before RemoveWithOptions use this as a fail-closed preflight; RemoveWithOptions
+// performs the same check again at the final delete point.
+func (m *Manager) CheckDestructiveActionLease(name string, force bool) error {
+	fl, err := m.lockPolecat(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	if !m.exists(name) {
+		return ErrPolecatNotFound
+	}
+	return m.recheckDestructivePolecatAction(name, m.clonePath(name), force)
+}
+
 // repoBase returns the git directory and Git object to use for worktree operations.
 // Prefers the shared bare repo (.repo.git) if it exists, otherwise falls back to mayor/rig.
 // The bare repo architecture allows all worktrees (refinery, polecats) to share branch visibility.
@@ -1139,6 +1208,15 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 	// Polecat dir is the parent directory (polecats/<name>/)
 	polecatDir := m.polecatDir(name)
 
+	// Lease semantics: the per-polecat file lock is the lease, and this is the
+	// compare-and-set point before destructive mutation. Stale cleanup_status or
+	// active_mr metadata must not be able to delete current local/MR work.
+	if !nuclear {
+		if err := m.recheckDestructivePolecatAction(name, clonePath, force); err != nil {
+			return err
+		}
+	}
+
 	// Check for uncommitted work unless bypassed
 	if !nuclear {
 		// ZFC #10: First try to read cleanup_status from agent bead
@@ -1173,12 +1251,21 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 	// but MR status is a higher-level concern that should always be checked.
 	if !force {
 		agentID := m.agentBeadID(name)
+		activeMR := ""
 		_, fields, aErr := m.agentBeads().GetAgentBead(agentID)
-		if aErr == nil && fields != nil && fields.ActiveMR != "" {
-			mrBead, mrErr := m.beads.Show(fields.ActiveMR)
-			if mrErr == nil && mrBead != nil && beads.IssueStatus(mrBead.Status).BlocksRemoval() {
-				return fmt.Errorf("cannot remove polecat %s: MR %s is still open in merge queue\nRefinery will process the MR and clean up after merge\nUse --force to override (risks data loss)", name, fields.ActiveMR)
-			}
+		if aErr == nil && fields != nil {
+			activeMR = fields.ActiveMR
+		}
+		branch := ""
+		if currentBranch, branchErr := git.NewGit(clonePath).CurrentBranch(); branchErr == nil {
+			branch = currentBranch
+		}
+		mrBead, mrErr := beads.PendingMRForActiveOrOwnership(m.beads, activeMR, agentID, branch)
+		if mrErr != nil {
+			return fmt.Errorf("cannot remove polecat %s: cannot verify MR ownership: %w", name, mrErr)
+		}
+		if mrBead != nil && !beads.IssueStatus(mrBead.Status).IsTerminal() {
+			return fmt.Errorf("cannot remove polecat %s: MR %s is still open in merge queue\nRefinery will process the MR and clean up after merge\nUse --force to override (risks data loss)", name, mrBead.ID)
 		}
 	}
 
@@ -2168,6 +2255,7 @@ func (m *Manager) reuseDecisionForPolecat(name string, state State) SlotReuseDec
 	}
 	if err == nil && fields != nil {
 		input.HookBead = fields.HookBead
+		input.ActiveMR = fields.ActiveMR
 		input.PushFailed = fields.PushFailed
 		input.MRFailed = fields.MRFailed
 		if fields.CleanupStatus != "" {
@@ -2198,6 +2286,12 @@ func (m *Manager) reuseDecisionForPolecat(name string, state State) SlotReuseDec
 		} else {
 			input.GitCheckFailed = true
 		}
+	}
+	if mr, err := beads.PendingMRForActiveOrOwnership(m.beads, input.ActiveMR, agentID, input.Branch); err != nil {
+		input.GitCheckFailed = true
+	} else if mr != nil {
+		input.ActiveMR = mr.ID
+		input.ActiveMRBlocks = true
 	}
 	// Legacy/test polecats can lack agent cleanup metadata. If git proves there is
 	// no local work at risk, treat the missing cleanup_status as clean; otherwise
