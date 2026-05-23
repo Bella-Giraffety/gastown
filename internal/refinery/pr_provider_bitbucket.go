@@ -38,6 +38,10 @@ func (p *bitbucketPRProvider) IsPRApproved(prNumber int) (bool, error) {
 	return p.git.IsBitbucketPRApproved(p.workspace, p.repoSlug, prNumber)
 }
 
+func (p *bitbucketPRProvider) PRBaseBranch(prNumber int) (string, error) {
+	return p.git.BitbucketPRBaseBranch(p.workspace, p.repoSlug, prNumber)
+}
+
 func (p *bitbucketPRProvider) MergePR(prNumber int, method string) (string, error) {
 	// Map generic merge methods to Bitbucket strategy names.
 	bbStrategy := method

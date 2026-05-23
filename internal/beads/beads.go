@@ -539,6 +539,51 @@ func (b *Beads) run(args ...string) ([]byte, error) {
 	return b.runWithStdin(nil, args...)
 }
 
+// runMutation executes a mutating bd command with auto-commit forced on.
+// Source transitions are recovery-critical and must not inherit read-only or
+// batch mode from status-line or daemon subprocess environments.
+func (b *Beads) runMutation(args ...string) (_ []byte, retErr error) {
+	start := time.Now()
+	var stdout, stderr bytes.Buffer
+	defer func() {
+		telemetry.RecordBDCall(context.Background(), args, float64(time.Since(start).Milliseconds()), retErr, stdout.Bytes(), stderr.String())
+	}()
+
+	beadsDir := b.getResolvedBeadsDir()
+	runEnv := append(b.buildMutationRunEnv(beadsDir), "BEADS_DIR="+beadsDir)
+	fullArgs := MaybePrependAllowStaleWithEnv(runEnv, args)
+
+	ctx, cancel := context.WithTimeout(context.Background(), resolveBdSubprocessTimeout())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bd", fullArgs...) //nolint:gosec // G204: bd is a trusted internal tool
+	util.SetDetachedProcessGroup(cmd)
+	cmd.Dir = b.workDir
+	cmd.Env = append(runEnv, telemetry.OTELEnvForSubprocess()...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, b.wrapError(err, stderr.String(), args)
+	}
+	if stdout.Len() == 0 && stderr.Len() > 0 {
+		return nil, b.wrapError(fmt.Errorf("command produced no output"), stderr.String(), args)
+	}
+	return stripStdoutWarnings(stdout.Bytes()), nil
+}
+
+func (b *Beads) buildMutationRunEnv(beadsDir string) []string {
+	if b.isolated {
+		env := filterBeadsEnv(os.Environ())
+		if b.serverPort > 0 {
+			env = append(env, fmt.Sprintf("GT_DOLT_PORT=%d", b.serverPort))
+			env = append(env, fmt.Sprintf("BEADS_DOLT_PORT=%d", b.serverPort))
+		}
+		return forceBDMutation(SuppressBDSideEffects(env))
+	}
+	return BuildMutationPinnedBDEnv(os.Environ(), beadsDir)
+}
+
 // runWithStdin executes a bd command, optionally piping stdinData to bd's stdin.
 // When stdinData is nil, behaves identically to run. Use this for flags like
 // --body-file=- that read multi-line content from stdin (avoids embedding

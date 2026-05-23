@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,24 @@ import (
 	gitpkg "github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/rig"
 )
+
+type fakePRProvider struct {
+	prNumber    int
+	baseBranch  string
+	mergeCommit string
+	mergeCalled bool
+}
+
+func (p *fakePRProvider) FindPRNumber(string) (int, error) { return p.prNumber, nil }
+
+func (p *fakePRProvider) IsPRApproved(int) (bool, error) { return true, nil }
+
+func (p *fakePRProvider) PRBaseBranch(int) (string, error) { return p.baseBranch, nil }
+
+func (p *fakePRProvider) MergePR(int, string) (string, error) {
+	p.mergeCalled = true
+	return p.mergeCommit, nil
+}
 
 func TestEngineer_LoadConfig_MergeStrategyPR(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -51,9 +70,9 @@ func TestEngineer_LoadConfig_MergeStrategyDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := map[string]interface{}{
-		"type":    "rig",
-		"version": 1,
-		"name":    "test-rig",
+		"type":        "rig",
+		"version":     1,
+		"name":        "test-rig",
 		"merge_queue": map[string]interface{}{},
 	}
 
@@ -135,6 +154,57 @@ func TestDoMergePR_NoPR_ReturnsError(t *testing.T) {
 	// The error should mention finding a PR
 	if !strings.Contains(result.Error, "PR") && !strings.Contains(result.Error, "pr") {
 		t.Errorf("expected PR-related error, got: %s", result.Error)
+	}
+}
+
+func TestDoMergePR_RefusesBaseMismatch(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	e := newTestEngineer(t, workDir, g)
+	provider := &fakePRProvider{prNumber: 42, baseBranch: "main"}
+	e.prProvider = provider
+
+	result := e.doMergePR(context.Background(), "feat/wrong-base", "integration/target")
+
+	if result.Success {
+		t.Fatal("expected PR base mismatch to fail")
+	}
+	if provider.mergeCalled {
+		t.Fatal("base mismatch must be rejected before MergePR")
+	}
+	if !strings.Contains(result.Error, "base \"main\" does not match MR target \"integration/target\"") {
+		t.Fatalf("error = %q, want base mismatch", result.Error)
+	}
+}
+
+func TestDoMergePR_MatchingBaseUsesMRTarget(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	run(t, workDir, "git", "checkout", "-b", "integration/target", "main")
+	writeFile(t, workDir, "target.txt", "target branch\n")
+	run(t, workDir, "git", "add", ".")
+	run(t, workDir, "git", "commit", "-m", "chore: target branch")
+	run(t, workDir, "git", "push", "-u", "origin", "integration/target")
+	targetSHA := run(t, workDir, "git", "rev-parse", "HEAD")
+	run(t, workDir, "git", "checkout", "main")
+
+	e := newTestEngineer(t, workDir, g)
+	provider := &fakePRProvider{prNumber: 42, baseBranch: "integration/target", mergeCommit: targetSHA}
+	e.prProvider = provider
+
+	result := e.doMergePR(context.Background(), "feat/right-base", "integration/target")
+
+	if !result.Success {
+		t.Fatalf("expected success with matching PR base, got: %s", result.Error)
+	}
+	if !provider.mergeCalled {
+		t.Fatal("matching PR base should call MergePR")
+	}
+	current := run(t, workDir, "git", "branch", "--show-current")
+	if current != "integration/target" {
+		t.Fatalf("current branch = %q, want integration/target", current)
+	}
+	mainSHA := run(t, workDir, "git", "rev-parse", "main")
+	if mainSHA == targetSHA {
+		t.Fatalf("test setup invalid: main and target point at same SHA %s", fmt.Sprintf("%.8s", targetSHA))
 	}
 }
 

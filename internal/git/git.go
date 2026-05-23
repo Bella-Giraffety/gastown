@@ -1038,6 +1038,23 @@ func (g *Git) IsPRApproved(prNumber int) (bool, error) {
 	return result.ReviewDecision == "APPROVED", nil
 }
 
+// PRBaseBranch returns the GitHub PR base branch name.
+func (g *Git) PRBaseBranch(prNumber int) (string, error) {
+	cmd := exec.Command("gh", "pr", "view", fmt.Sprintf("%d", prNumber), "--json", "baseRefName")
+	cmd.Dir = g.workDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("gh pr view failed: %w", err)
+	}
+	var result struct {
+		BaseRefName string `json:"baseRefName"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out), &result); err != nil {
+		return "", fmt.Errorf("failed to parse gh pr view output: %w", err)
+	}
+	return result.BaseRefName, nil
+}
+
 // GhPrMerge merges a GitHub PR using the gh CLI, respecting branch protection rules.
 // The method parameter should be "merge", "squash", or "rebase".
 // Returns the merge commit SHA on success.
@@ -1123,6 +1140,33 @@ func (g *Git) IsBitbucketPRApproved(workspace, repoSlug string, prID int) (bool,
 		}
 	}
 	return false, nil
+}
+
+// BitbucketPRBaseBranch returns the Bitbucket PR destination branch name.
+func (g *Git) BitbucketPRBaseBranch(workspace, repoSlug string, prID int) (string, error) {
+	token := os.Getenv("BITBUCKET_TOKEN")
+	if token == "" {
+		return "", fmt.Errorf("BITBUCKET_TOKEN is required for Bitbucket PR operations")
+	}
+	url := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%d",
+		workspace, repoSlug, prID)
+	cmd := exec.Command("curl", "-s", "-H", "Authorization: Bearer "+token, url)
+	cmd.Dir = g.workDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("bitbucket API request failed: %w", err)
+	}
+	var pr struct {
+		Destination struct {
+			Branch struct {
+				Name string `json:"name"`
+			} `json:"branch"`
+		} `json:"destination"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out), &pr); err != nil {
+		return "", fmt.Errorf("failed to parse Bitbucket response: %w", err)
+	}
+	return pr.Destination.Branch.Name, nil
 }
 
 // BitbucketPRMerge merges a Bitbucket PR via the REST API.

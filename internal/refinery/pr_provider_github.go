@@ -19,6 +19,10 @@ func (p *githubPRProvider) IsPRApproved(prNumber int) (bool, error) {
 	return p.git.IsPRApproved(prNumber)
 }
 
+func (p *githubPRProvider) PRBaseBranch(prNumber int) (string, error) {
+	return p.git.PRBaseBranch(prNumber)
+}
+
 func (p *githubPRProvider) MergePR(prNumber int, method string) (string, error) {
 	return p.git.GhPrMerge(prNumber, method)
 }

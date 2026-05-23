@@ -9,6 +9,9 @@ type PRProvider interface {
 	// IsPRApproved checks whether a PR has at least one approving review.
 	IsPRApproved(prNumber int) (bool, error)
 
+	// PRBaseBranch returns the target/base branch configured on the PR.
+	PRBaseBranch(prNumber int) (string, error)
+
 	// MergePR merges a PR using the specified method (e.g., "squash", "merge", "rebase").
 	// Returns the merge commit SHA on success (if available).
 	MergePR(prNumber int, method string) (string, error)

@@ -172,6 +172,13 @@ func HandlePolecatDone(bd *BdCli, workDir, rigName string, msg *mail.Message, ro
 		return result
 	}
 
+	if payload.PushFailed || payload.MRFailed {
+		result.Handled = true
+		result.Action = fmt.Sprintf("submission-failed-recovery-needed for %s (branch=%s issue=%s push_failed=%t mr_failed=%t)",
+			payload.PolecatName, payload.Branch, payload.IssueID, payload.PushFailed, payload.MRFailed)
+		return result
+	}
+
 	hasPendingMR := payload.MRID != ""
 
 	// When Exit==COMPLETED but MRID is empty and MR creation didn't explicitly
@@ -239,15 +246,15 @@ func HandlePolecatDoneFromBead(bd *BdCli, workDir, rigName, polecatName string, 
 		return result
 	}
 
-	// Push failed: branch never reached origin (gas-556). Report recovery needed.
-	if payload.PushFailed {
+	// Submission failed: branch or MR never reached the merge queue. Report recovery needed.
+	if payload.PushFailed || payload.MRFailed {
 		result.Handled = true
-		result.Action = fmt.Sprintf("push-failed-recovery-needed for %s (branch=%s issue=%s) — branch not on origin, worktree may be at risk",
-			polecatName, payload.Branch, payload.IssueID)
+		result.Action = fmt.Sprintf("submission-failed-recovery-needed for %s (branch=%s issue=%s push_failed=%t mr_failed=%t)",
+			polecatName, payload.Branch, payload.IssueID, payload.PushFailed, payload.MRFailed)
 		townRoot, _ := workspace.Find(workDir)
 		if townRoot != "" {
-			mayorMsg := fmt.Sprintf("PUSH_FAILED: polecat=%s branch=%s issue=%s — branch not on origin, possible work loss",
-				polecatName, payload.Branch, payload.IssueID)
+			mayorMsg := fmt.Sprintf("SUBMISSION_FAILED: polecat=%s branch=%s issue=%s push_failed=%t mr_failed=%t",
+				polecatName, payload.Branch, payload.IssueID, payload.PushFailed, payload.MRFailed)
 			mayorSession := session.MayorSessionName()
 			t := tmux.NewTmux()
 			if running, err := t.HasSession(mayorSession); err == nil && running {
@@ -295,22 +302,23 @@ func TransitionPolecatToIdle(workDir, agentBeadID string) error {
 // handlePolecatDonePendingMR handles a POLECAT_DONE when there's a pending MR.
 // Creates a cleanup wisp, sends MERGE_READY to the Refinery, and nudges it.
 func handlePolecatDonePendingMR(bd *BdCli, workDir, rigName string, payload *PolecatDonePayload, result *HandlerResult) *HandlerResult {
-	wispID, err := createCleanupWisp(bd, workDir, payload.PolecatName, payload.IssueID, payload.Branch)
+	wispID, created, err := createOrFindMergeCleanupWisp(bd, workDir, payload)
 	if err != nil {
 		result.Error = fmt.Errorf("creating cleanup wisp: %w", err)
 		return result
 	}
 
-	if err := UpdateCleanupWispState(bd, workDir, wispID, "merge-requested"); err != nil {
-		result.Error = fmt.Errorf("updating wisp state: %w", err)
-		return result
+	if created {
+		notifyRefineryMergeReady(workDir, rigName, result)
 	}
-
-	notifyRefineryMergeReady(workDir, rigName, result)
 
 	result.Handled = true
 	result.WispCreated = wispID
-	result.Action = fmt.Sprintf("deferred cleanup for %s (pending MR=%s, nudged refinery)", payload.PolecatName, payload.MRID)
+	if created {
+		result.Action = fmt.Sprintf("deferred cleanup for %s (pending MR=%s, nudged refinery)", payload.PolecatName, payload.MRID)
+	} else {
+		result.Action = fmt.Sprintf("deferred cleanup for %s already tracked (pending MR=%s, wisp=%s)", payload.PolecatName, payload.MRID, wispID)
+	}
 	return result
 }
 
@@ -565,6 +573,121 @@ func createCleanupWisp(bd *BdCli, workDir, polecatName, issueID, branch string) 
 		return "", fmt.Errorf("bd create --json returned empty ID")
 	}
 	return created.ID, nil
+}
+
+func createOrFindMergeCleanupWisp(bd *BdCli, workDir string, payload *PolecatDonePayload) (string, bool, error) {
+	existing, err := findMergeCleanupWisps(bd, workDir, payload)
+	if err != nil {
+		return "", false, err
+	}
+	if len(existing) > 0 {
+		sort.Strings(existing)
+		return existing[0], false, nil
+	}
+
+	title := fmt.Sprintf("cleanup:%s", payload.PolecatName)
+	description := fmt.Sprintf("Verify and cleanup polecat %s", payload.PolecatName)
+	if payload.MRID != "" {
+		description += fmt.Sprintf("\nMR: %s", payload.MRID)
+	}
+	if payload.IssueID != "" {
+		description += fmt.Sprintf("\nIssue: %s", payload.IssueID)
+	}
+	if payload.Branch != "" {
+		description += fmt.Sprintf("\nBranch: %s", payload.Branch)
+	}
+
+	labels := strings.Join(mergeCleanupWispLabels(payload), ",")
+	output, err := bd.Exec(workDir, "create",
+		"--ephemeral",
+		"--json",
+		"--title", title,
+		"--description", description,
+		"--labels", labels,
+	)
+	if err != nil {
+		return "", false, err
+	}
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(output), &created); err != nil {
+		return "", false, fmt.Errorf("could not parse bead ID from bd create output: %w", err)
+	}
+	if created.ID == "" {
+		return "", false, fmt.Errorf("bd create --json returned empty ID")
+	}
+
+	all, err := findMergeCleanupWisps(bd, workDir, payload)
+	if err != nil {
+		return created.ID, true, nil
+	}
+	if len(all) <= 1 {
+		return created.ID, true, nil
+	}
+	sort.Strings(all)
+	winner := all[0]
+	for _, wispID := range all[1:] {
+		_, _ = bd.Exec(workDir, "close", wispID, "--reason=duplicate: completion cleanup already tracked")
+	}
+	return winner, winner == created.ID, nil
+}
+
+func mergeCleanupWispLabels(payload *PolecatDonePayload) []string {
+	labels := CleanupWispLabels(payload.PolecatName, "merge-requested")
+	if payload.MRID != "" {
+		labels = append(labels, "mr:"+payload.MRID)
+	}
+	if payload.IssueID != "" {
+		labels = append(labels, "source:"+payload.IssueID)
+	}
+	if payload.Branch != "" {
+		labels = append(labels, "branch:"+payload.Branch)
+	}
+	return labels
+}
+
+func mergeCleanupWispLookupLabels(payload *PolecatDonePayload) []string {
+	labels := []string{"cleanup", fmt.Sprintf("polecat:%s", payload.PolecatName)}
+	if payload.MRID != "" {
+		return append(labels, "mr:"+payload.MRID)
+	}
+	if payload.Branch != "" {
+		return append(labels, "branch:"+payload.Branch)
+	}
+	if payload.IssueID != "" {
+		return append(labels, "source:"+payload.IssueID)
+	}
+	return labels
+}
+
+func findMergeCleanupWisps(bd *BdCli, workDir string, payload *PolecatDonePayload) ([]string, error) {
+	output, err := bd.Exec(workDir, "list",
+		"--label", strings.Join(mergeCleanupWispLookupLabels(payload), ","),
+		"--status", "open",
+		"--json",
+	)
+	if err != nil {
+		return nil, err
+	}
+	if output == "" || output == "[]" || output == "null" {
+		return nil, nil
+	}
+
+	var items []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(output), &items); err != nil {
+		return nil, fmt.Errorf("parsing cleanup wisp response: %w", err)
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.ID != "" {
+			ids = append(ids, item.ID)
+		}
+	}
+	return ids, nil
 }
 
 // createSwarmWisp creates a wisp to track swarm (batch) work.
@@ -2078,17 +2201,16 @@ func processDiscoveredCompletion(bd *BdCli, workDir, rigName string, payload *Po
 		return
 	}
 
-	// Push failed: branch never reached origin. Work is committed locally only.
-	// The polecat's worktree may be in /tmp and lost on reboot. Escalate so the
-	// witness agent can investigate and trigger recovery (gas-556).
-	if payload.PushFailed {
-		discovery.Action = fmt.Sprintf("push-failed-recovery-needed (branch=%s issue=%s) — branch not on origin, worktree may be at risk",
-			payload.Branch, payload.IssueID)
+	// Submission failed: branch or MR never reached the merge queue. Escalate so
+	// witness/mayor can recover without treating the slot as normally open.
+	if payload.PushFailed || payload.MRFailed {
+		discovery.Action = fmt.Sprintf("submission-failed-recovery-needed (branch=%s issue=%s push_failed=%t mr_failed=%t)",
+			payload.Branch, payload.IssueID, payload.PushFailed, payload.MRFailed)
 		// Notify mayor so a new polecat can be dispatched if work is lost.
 		townRoot, _ := workspace.Find(workDir)
 		if townRoot != "" {
-			mayorMsg := fmt.Sprintf("PUSH_FAILED: polecat=%s branch=%s issue=%s — branch not on origin, possible work loss",
-				payload.PolecatName, payload.Branch, payload.IssueID)
+			mayorMsg := fmt.Sprintf("SUBMISSION_FAILED: polecat=%s branch=%s issue=%s push_failed=%t mr_failed=%t",
+				payload.PolecatName, payload.Branch, payload.IssueID, payload.PushFailed, payload.MRFailed)
 			mayorSession := session.MayorSessionName()
 			t := tmux.NewTmux()
 			if running, err := t.HasSession(mayorSession); err == nil && running {
@@ -2110,26 +2232,26 @@ func processDiscoveredCompletion(bd *BdCli, workDir, rigName string, payload *Po
 	}
 
 	if hasMR {
-		wispID, err := createCleanupWisp(bd, workDir, payload.PolecatName, payload.IssueID, payload.Branch)
+		wispID, created, err := createOrFindMergeCleanupWisp(bd, workDir, payload)
 		if err != nil {
 			discovery.Error = fmt.Errorf("creating cleanup wisp: %w", err)
 			return
 		}
 		discovery.WispCreated = wispID
 
-		if err := UpdateCleanupWispState(bd, workDir, wispID, "merge-requested"); err != nil {
-			discovery.Error = fmt.Errorf("updating wisp state: %w", err)
-		}
-
-		// Nudge refinery to check merge queue (no permanent mail needed).
-		townRoot, _ := workspace.Find(workDir)
-		if nudgeErr := nudgeRefinery(townRoot, rigName); nudgeErr != nil {
-			if discovery.Error == nil {
-				discovery.Error = fmt.Errorf("nudging refinery: %w (non-fatal)", nudgeErr)
+		if created {
+			result := &HandlerResult{}
+			notifyRefineryMergeReady(workDir, rigName, result)
+			if result.Error != nil {
+				discovery.Error = result.Error
 			}
 		}
 
-		discovery.Action = fmt.Sprintf("merge-ready-nudged (MR=%s, wisp=%s)", payload.MRID, wispID)
+		if created {
+			discovery.Action = fmt.Sprintf("merge-ready-nudged (MR=%s, wisp=%s)", payload.MRID, wispID)
+		} else {
+			discovery.Action = fmt.Sprintf("merge-ready-already-tracked (MR=%s, wisp=%s)", payload.MRID, wispID)
+		}
 
 		// Notify Mayor that a slot is open even with pending MR — polecat is idle. (GH#2727)
 		notifyMayorSlotOpen(workDir, rigName, payload.PolecatName, payload.Exit)
@@ -2976,7 +3098,13 @@ func hasPendingMR(bd *BdCli, workDir, _, polecatName, agentBeadID string) bool {
 
 	// Check 2: active_mr on agent bead (set by gt done when MR is created)
 	activeMR := getAgentActiveMR(bd, workDir, agentBeadID)
-	return activeMR != ""
+	if activeMR != "" {
+		return true
+	}
+
+	// Check 3: durable open MR ownership. active_mr is a cache on the agent bead;
+	// an open MR bead with matching agent_bead/worker still protects the branch.
+	return findOpenMRForAgent(bd, workDir, polecatName, agentBeadID) != ""
 }
 
 // hasPendingMRFromSnapshot checks for a pending MR using a pre-fetched ActiveMR
@@ -2989,7 +3117,45 @@ func hasPendingMRFromSnapshot(bd *BdCli, workDir, polecatName, activeMR string) 
 	}
 
 	// Check 2: active_mr from pre-fetched snapshot
-	return activeMR != ""
+	if activeMR != "" {
+		return true
+	}
+
+	// Check 3: durable open MR ownership by worker name when the cached active_mr
+	// field was not populated or was lost.
+	return findOpenMRForAgent(bd, workDir, polecatName, "") != ""
+}
+
+func findOpenMRForAgent(bd *BdCli, workDir, polecatName, agentBeadID string) string {
+	output, err := bd.Exec(workDir, "query",
+		"ephemeral=true AND label=gt:merge-request AND status=open",
+		"--json")
+	if err != nil || output == "" || output == "[]" || output == "null" {
+		return ""
+	}
+
+	var items []struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(output), &items); err != nil {
+		return ""
+	}
+
+	worker := "polecats/" + polecatName
+	for _, item := range items {
+		fields := beads.ParseMRFields(&beads.Issue{Description: item.Description})
+		if fields == nil {
+			continue
+		}
+		if agentBeadID != "" && fields.AgentBead == agentBeadID {
+			return item.ID
+		}
+		if fields.Worker == worker || fields.Worker == polecatName {
+			return item.ID
+		}
+	}
+	return ""
 }
 
 // getAgentActiveMR retrieves the active_mr field from a polecat's agent bead.

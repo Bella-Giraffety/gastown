@@ -18,6 +18,7 @@ import (
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/mrtarget"
 	"github.com/steveyegge/gastown/internal/nudge"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/runtime"
@@ -445,16 +446,16 @@ func (m *Manager) issueToMR(issue *beads.Issue) *MergeRequest {
 		return &MergeRequest{
 			ID:           issue.ID,
 			IssueID:      issue.ID,
-			Status:       MROpen,
+			Status:       mrStatusFromIssue(issue),
 			CreatedAt:    parseTime(issue.CreatedAt),
 			TargetBranch: defaultBranch,
 		}
 	}
 
-	// Default target to rig's default branch if not specified
-	target := fields.Target
-	if target == "" {
-		target = defaultBranch
+	targetResult, err := mrtarget.ValidateReadback(fields.Target, defaultBranch, nil, false)
+	if err != nil {
+		_, _ = fmt.Fprintf(m.output, "Warning: skipping MR %s with invalid target: %v\n", issue.ID, err)
+		return nil
 	}
 
 	return &MergeRequest{
@@ -462,11 +463,22 @@ func (m *Manager) issueToMR(issue *beads.Issue) *MergeRequest {
 		Branch:       fields.Branch,
 		Worker:       fields.Worker,
 		IssueID:      fields.SourceIssue,
-		TargetBranch: target,
+		TargetBranch: targetResult.Branch,
 		MergeCommit:  fields.MergeCommit,
-		Status:       MROpen,
+		Status:       mrStatusFromIssue(issue),
+		CloseReason:  CloseReason(fields.CloseReason),
 		CreatedAt:    parseTime(issue.CreatedAt),
 	}
+}
+
+func mrStatusFromIssue(issue *beads.Issue) MRStatus {
+	if issue != nil && issue.Status == string(MRClosed) {
+		return MRClosed
+	}
+	if issue != nil && issue.Status == string(MRInProgress) {
+		return MRInProgress
+	}
+	return MROpen
 }
 
 // parseTime parses a time string, returning zero time on error.
@@ -537,6 +549,34 @@ func (m *Manager) FindMR(idOrBranch string) (*MergeRequest, error) {
 	return nil, ErrMRNotFound
 }
 
+func (m *Manager) FindMRIncludingClosed(idOrBranch string) (*MergeRequest, error) {
+	b := beads.New(m.rig.BeadsPath())
+	issues, err := b.ListMergeRequests(beads.ListOptions{
+		Label:    "gt:merge-request",
+		Status:   "all",
+		Priority: -1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("querying merge requests from beads: %w", err)
+	}
+
+	for _, issue := range issues {
+		fields := beads.ParseMRFields(issue)
+		if fields != nil && fields.Rig != "" && !strings.EqualFold(fields.Rig, m.rig.Name) {
+			continue
+		}
+		mr := m.issueToMR(issue)
+		if mr == nil {
+			continue
+		}
+		if mr.ID == idOrBranch || mr.Branch == idOrBranch || constants.BranchPolecatPrefix+idOrBranch == mr.Branch || strings.HasPrefix(mr.ID, idOrBranch) {
+			return mr, nil
+		}
+	}
+
+	return nil, ErrMRNotFound
+}
+
 // Retry is deprecated - the Refinery agent handles retry logic autonomously.
 // ZFC-compliant: no state file, agent uses beads issue status.
 // The agent will automatically retry failed MRs in its patrol cycle.
@@ -600,7 +640,7 @@ type PostMergeResult struct {
 // It closes the MR bead and its source issue. Branch deletion is handled
 // by the caller since the Manager doesn't have git access.
 func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
-	mr, err := m.FindMR(idOrBranch)
+	mr, err := m.FindMRIncludingClosed(idOrBranch)
 	if err != nil {
 		return nil, err
 	}
@@ -626,24 +666,23 @@ func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
 		result.MRClosed = true
 	}
 
-	// Close the source issue with reason and --force to bypass dependency checks.
-	// The source issue may have an attached molecule (wisp) whose open steps
-	// would block a normal bd close. ForceCloseWithReason bypasses this,
-	// matching how gt done handles closures for the no-MR path.
+	// Close the source issue through the shared idempotent transition helper.
 	if mr.IssueID != "" {
-		closeReason := fmt.Sprintf("Merged in %s", mr.ID)
-		if mr.MergeCommit != "" {
-			closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, mr.TargetBranch, mr.MergeCommit)
-		}
-		if err := b.ForceCloseWithReason(closeReason, mr.IssueID); err != nil {
-			// Check if already closed (by polecat's gt done) — that's fine
-			if issue, showErr := b.Show(mr.IssueID); showErr == nil && beads.IssueStatus(issue.Status).IsTerminal() {
-				_, _ = fmt.Fprintf(m.output, "  %s source issue already closed: %s\n", style.Dim.Render("○"), mr.IssueID)
-				result.SourceIssueClosed = true
-			} else {
-				_, _ = fmt.Fprintf(m.output, "  %s source issue close: %v\n", style.Dim.Render("○"), err)
-				result.SourceIssueNotFound = true
-			}
+		transition, err := b.TransitionSourceIssue(beads.SourceTransitionOptions{
+			Transition:    beads.SourceTransitionMergeSucceeded,
+			SourceIssueID: mr.IssueID,
+			MRID:          mr.ID,
+			TargetBranch:  mr.TargetBranch,
+			CommitSHA:     mr.MergeCommit,
+		})
+		if err != nil {
+			_, _ = fmt.Fprintf(m.output, "  %s source issue close: %v\n", style.Dim.Render("○"), err)
+			result.SourceIssueNotFound = true
+		} else if transition != nil && transition.SourceAlreadyTerminal {
+			_, _ = fmt.Fprintf(m.output, "  %s source issue already closed: %s\n", style.Dim.Render("○"), mr.IssueID)
+			result.SourceIssueClosed = true
+		} else if transition != nil && transition.SourceNotFound {
+			result.SourceIssueNotFound = true
 		} else {
 			result.SourceIssueClosed = true
 		}

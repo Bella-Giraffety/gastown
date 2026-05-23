@@ -901,6 +901,44 @@ func TestResolve_MonorepoTDD(t *testing.T) {
 	}
 }
 
+func TestMonorepoPolecatFormulaCreatesPRAgainstBaseBranch(t *testing.T) {
+	data, err := GetEmbeddedFormulaContent("mol-polecat-work-monorepo")
+	if err != nil {
+		t.Fatalf("GetEmbeddedFormulaContent: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "gh pr create") {
+		t.Fatal("monorepo formula missing gh pr create step")
+	}
+	if !strings.Contains(content, "--base {{base_branch}}") {
+		t.Fatal("monorepo formula gh pr create must pass --base {{base_branch}}")
+	}
+}
+
+func TestMonorepoTDDFormulaInheritsPRBaseBranch(t *testing.T) {
+	data, err := GetEmbeddedFormulaContent("mol-polecat-work-monorepo-tdd")
+	if err != nil {
+		t.Fatalf("GetEmbeddedFormulaContent: %v", err)
+	}
+	f, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	resolved, err := Resolve(f, nil)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	submit := resolved.GetStep("push-and-create-pr")
+	if submit == nil {
+		t.Fatal("resolved TDD formula missing push-and-create-pr step")
+	}
+	if !strings.Contains(submit.Description, "--base {{base_branch}}") {
+		t.Fatal("resolved TDD formula gh pr create must pass --base {{base_branch}}")
+	}
+}
+
 // stepIDs returns the IDs of all steps in a formula for test diagnostics.
 func stepIDs(f *Formula) []string {
 	ids := make([]string, len(f.Steps))

@@ -22,6 +22,7 @@ import (
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/mail"
+	"github.com/steveyegge/gastown/internal/mrtarget"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/util"
 )
@@ -784,6 +785,26 @@ func (e *Engineer) doMergePR(ctx context.Context, branch, target string) Process
 	}
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Found PR #%d for branch %s\n", prNumber, branch)
 
+	// Step PR.1.5: Ensure the external PR will land on the MR target branch.
+	// GitHub defaults PRs to the repository default branch when --base is omitted;
+	// without this check the PR merge API could merge work to main while the MR
+	// target says integration/feature.
+	prBase, err := e.prProvider.PRBaseBranch(prNumber)
+	if err != nil {
+		return ProcessResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to check PR #%d base branch: %v", prNumber, err),
+		}
+	}
+	prBase = strings.TrimSpace(prBase)
+	if prBase != target {
+		return ProcessResult{
+			Success: false,
+			Error:   fmt.Sprintf("PR #%d base %q does not match MR target %q", prNumber, prBase, target),
+		}
+	}
+	_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d base matches target: %s\n", prNumber, target)
+
 	// Step PR.2: Check approval status if require_review is enabled
 	requireReview := e.config.RequireReview != nil && *e.config.RequireReview
 	if requireReview {
@@ -1133,6 +1154,12 @@ func (e *Engineer) syncCrewWorkspaces() {
 
 // ProcessMRInfo processes a merge request from MRInfo.
 func (e *Engineer) ProcessMRInfo(ctx context.Context, mr *MRInfo) ProcessResult {
+	targetResult, targetErr := mrtarget.ValidateReadback(mr.Target, e.rig.DefaultBranch(), e.git, true)
+	if targetErr != nil {
+		return ProcessResult{Error: fmt.Sprintf("invalid MR target: %v", targetErr)}
+	}
+	mr.Target = targetResult.Branch
+
 	// MR fields are directly on the struct
 	_, _ = fmt.Fprintln(e.output, "[Engineer] Processing MR:")
 	_, _ = fmt.Fprintf(e.output, "  Branch: %s\n", mr.Branch)
@@ -1178,48 +1205,53 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 
 	// Update and close the MR bead
 	if mr.ID != "" {
+		mrAlreadyClosed := false
 		// Fetch the MR bead to update its fields
 		mrBead, err := e.beads.Show(mr.ID)
 		if err != nil {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to fetch MR bead %s: %v\n", mr.ID, err)
 		} else {
+			mrAlreadyClosed = mrBead.Status == "closed"
 			// Update MR with merge_commit SHA and close_reason
 			mrFields := beads.ParseMRFields(mrBead)
 			if mrFields == nil {
 				mrFields = &beads.MRFields{}
 			}
-			mrFields.MergeCommit = result.MergeCommit
-			mrFields.CloseReason = "merged"
-			newDesc := beads.SetMRFields(mrBead, mrFields)
-			if err := e.beads.Update(mr.ID, beads.UpdateOptions{Description: &newDesc}); err != nil {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to update MR %s with merge commit: %v\n", mr.ID, err)
+			if mrAlreadyClosed {
+				_, _ = fmt.Fprintf(e.output, "[Engineer] MR bead already closed: %s\n", mr.ID)
+			} else {
+				mrFields.MergeCommit = result.MergeCommit
+				mrFields.CloseReason = "merged"
+				newDesc := beads.SetMRFields(mrBead, mrFields)
+				if err := e.beads.Update(mr.ID, beads.UpdateOptions{Description: &newDesc}); err != nil {
+					_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to update MR %s with merge commit: %v\n", mr.ID, err)
+				}
 			}
 		}
 
 		// Close MR bead with reason 'merged'
-		if err := e.beads.CloseWithReason("merged", mr.ID); err != nil {
+		if mrAlreadyClosed {
+			// Already terminal: post-merge cleanup may be re-run after a crash.
+		} else if err := e.beads.CloseWithReason("merged", mr.ID); err != nil {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close MR %s: %v\n", mr.ID, err)
 		} else {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Closed MR bead: %s\n", mr.ID)
 		}
 	}
 
-	// 1. Close source issue with reference to MR.
-	// Use ForceCloseWithReason to bypass dependency checks — the source issue
-	// may have an attached molecule (wisp) whose open steps would block a
-	// normal close. This matches how gt done handles closures.
+	// 1. Close source issue with reference to MR through the shared transition helper.
 	if mr.SourceIssue != "" {
-		closeReason := fmt.Sprintf("Merged in %s", mr.ID)
-		if result.MergeCommit != "" {
-			closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, mr.Target, result.MergeCommit)
-		}
-		if err := e.beads.ForceCloseWithReason(closeReason, mr.SourceIssue); err != nil {
-			// Check if already closed (by polecat's gt done) — that's fine
-			if issue, showErr := e.beads.Show(mr.SourceIssue); showErr == nil && beads.IssueStatus(issue.Status).IsTerminal() {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Source issue already closed: %s\n", mr.SourceIssue)
-			} else {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close source issue %s: %v\n", mr.SourceIssue, err)
-			}
+		transition, err := e.beads.TransitionSourceIssue(beads.SourceTransitionOptions{
+			Transition:    beads.SourceTransitionMergeSucceeded,
+			SourceIssueID: mr.SourceIssue,
+			MRID:          mr.ID,
+			TargetBranch:  mr.Target,
+			CommitSHA:     result.MergeCommit,
+		})
+		if err != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close source issue %s: %v\n", mr.SourceIssue, err)
+		} else if transition != nil && transition.SourceAlreadyTerminal {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Source issue already closed: %s\n", mr.SourceIssue)
 		} else {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Closed source issue: %s\n", mr.SourceIssue)
 		}
@@ -1227,7 +1259,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 
 	// 1.5. Clear agent bead's active_mr reference (traceability cleanup)
 	if mr.AgentBead != "" {
-		if err := e.clearAgentActiveMR(mr.AgentBead); err != nil {
+		if err := e.clearAgentActiveMR(mr.AgentBead, mr.ID); err != nil {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to clear agent bead %s active_mr: %v\n", mr.AgentBead, err)
 		}
 	}
@@ -1281,8 +1313,29 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 	_, _ = fmt.Fprintf(e.output, "[Engineer] ✓ Merged: %s (commit: %s)\n", mr.ID, result.MergeCommit)
 }
 
-func (e *Engineer) clearAgentActiveMR(agentBeadID string) error {
-	return e.beads.ForAgentBead().UpdateAgentActiveMR(agentBeadID, "")
+func (e *Engineer) clearAgentActiveMR(agentBeadID, mrID string) error {
+	cleared, err := e.beads.ForAgentBead().CompareAndClearAgentActiveMR(agentBeadID, mrID)
+	if err != nil {
+		return err
+	}
+	if !cleared {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Skipped active_mr clear for %s: current owner changed from %s\n", agentBeadID, mrID)
+	}
+	return nil
+}
+
+func (e *Engineer) shouldNudgeMRFailureOwner(mr *MRInfo) (bool, string) {
+	if mr == nil || mr.AgentBead == "" || mr.ID == "" {
+		return true, ""
+	}
+	activeMR, err := e.beads.ForAgentBead().GetAgentActiveMR(mr.AgentBead)
+	if err != nil || activeMR == "" {
+		return true, ""
+	}
+	if activeMR != mr.ID {
+		return false, fmt.Sprintf("agent bead %s now owns active_mr %s", mr.AgentBead, activeMR)
+	}
+	return true, ""
 }
 
 // HandleMRInfoFailure handles a failed merge from MRInfo.
@@ -1341,16 +1394,20 @@ func (e *Engineer) HandleMRInfoFailure(mr *MRInfo, result ProcessResult) {
 		failureType = "tests"
 	}
 	polecatName := strings.TrimPrefix(mr.Worker, "polecats/")
-	nudgeTarget := fmt.Sprintf("%s/%s", e.rig.Name, polecatName)
-	nudgeMsg := fmt.Sprintf("MERGE_FAILED: branch=%s issue=%s type=%s error=%s — fix and resubmit with 'gt done'",
-		mr.Branch, mr.SourceIssue, failureType, result.Error)
-	nudgeCmd := exec.Command("gt", "nudge", nudgeTarget, nudgeMsg)
-	util.SetDetachedProcessGroup(nudgeCmd)
-	nudgeCmd.Dir = e.workDir
-	if err := nudgeCmd.Run(); err != nil {
-		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to nudge %s about merge failure: %v\n", polecatName, err)
+	if shouldNudge, reason := e.shouldNudgeMRFailureOwner(mr); !shouldNudge {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping direct failure nudge for %s: %s\n", mr.ID, reason)
 	} else {
-		_, _ = fmt.Fprintf(e.output, "[Engineer] Nudged %s about merge failure (%s)\n", polecatName, failureType)
+		nudgeTarget := fmt.Sprintf("%s/%s", e.rig.Name, polecatName)
+		nudgeMsg := fmt.Sprintf("MERGE_FAILED: branch=%s issue=%s type=%s error=%s — fix and resubmit with 'gt done'",
+			mr.Branch, mr.SourceIssue, failureType, result.Error)
+		nudgeCmd := exec.Command("gt", "nudge", nudgeTarget, nudgeMsg)
+		util.SetDetachedProcessGroup(nudgeCmd)
+		nudgeCmd.Dir = e.workDir
+		if err := nudgeCmd.Run(); err != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to nudge %s about merge failure: %v\n", polecatName, err)
+		} else {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Nudged %s about merge failure (%s)\n", polecatName, failureType)
+		}
 	}
 
 	// Nudge mayor about merge failure so dispatcher can unblock or reassign
@@ -1533,7 +1590,12 @@ func (e *Engineer) IsBeadOpen(beadID string) (bool, error) {
 
 // issueToMRInfo converts a beads issue (with parsed MR fields) into an MRInfo.
 // Shared by ListReadyMRs, ListBlockedMRs, and ListAllOpenMRs.
-func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
+func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields, defaultBranch string) (*MRInfo, error) {
+	targetResult, err := mrtarget.ValidateReadback(fields.Target, defaultBranch, nil, false)
+	if err != nil {
+		return nil, err
+	}
+
 	// Parse convoy created_at if present
 	var convoyCreatedAt *time.Time
 	if fields.ConvoyCreatedAt != "" {
@@ -1566,7 +1628,7 @@ func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
 	return &MRInfo{
 		ID:              issue.ID,
 		Branch:          fields.Branch,
-		Target:          fields.Target,
+		Target:          targetResult.Branch,
 		SourceIssue:     fields.SourceIssue,
 		Worker:          fields.Worker,
 		Rig:             fields.Rig,
@@ -1582,7 +1644,7 @@ func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
 		CreatedAt:       createdAt,
 		UpdatedAt:       updatedAt,
 		Assignee:        issue.Assignee,
-	}
+	}, nil
 }
 
 // firstOpenBlocker returns the ID of the first open blocker for an issue,
@@ -1665,7 +1727,12 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 				issue.ID, issue.Assignee, issue.UpdatedAt)
 		}
 
-		mrs = append(mrs, issueToMRInfo(issue, fields))
+		mr, targetErr := issueToMRInfo(issue, fields, e.rig.DefaultBranch())
+		if targetErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s with invalid target: %v\n", issue.ID, targetErr)
+			continue
+		}
+		mrs = append(mrs, mr)
 	}
 
 	return mrs, nil
@@ -1710,7 +1777,11 @@ func (e *Engineer) ListBlockedMRs() ([]*MRInfo, error) {
 			continue
 		}
 
-		mr := issueToMRInfo(issue, fields)
+		mr, targetErr := issueToMRInfo(issue, fields, e.rig.DefaultBranch())
+		if targetErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping blocked MR %s with invalid target: %v\n", issue.ID, targetErr)
+			continue
+		}
 		mr.BlockedBy = blockedBy
 		mrs = append(mrs, mr)
 	}
@@ -1749,7 +1820,11 @@ func (e *Engineer) ListAllOpenMRs() ([]*MRInfo, error) {
 			continue
 		}
 
-		mr := issueToMRInfo(issue, fields)
+		mr, targetErr := issueToMRInfo(issue, fields, e.rig.DefaultBranch())
+		if targetErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s with invalid target: %v\n", issue.ID, targetErr)
+			continue
+		}
 
 		// Check branch existence (local + remote tracking refs)
 		mr.BranchExistsLocal, _ = e.git.BranchExists(fields.Branch)
