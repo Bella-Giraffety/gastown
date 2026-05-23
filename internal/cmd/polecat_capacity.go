@@ -180,15 +180,7 @@ func polecatCapacitySnapshotForTownNoCleanup(townRoot string) (polecatCapacitySn
 		}
 		for _, p := range polecats {
 			decision := mgr.ReuseDecisionForPolecat(p.Name, p.State)
-			if decision.Reusable {
-				snapshot.ReusableIdle++
-				continue
-			}
-			if p.State == polecat.StateWorking {
-				snapshot.Working++
-			} else {
-				snapshot.RecoveryBlocked++
-			}
+			snapshot.addPolecatSlot(p.State, decision)
 		}
 	}
 
@@ -204,6 +196,18 @@ func polecatCapacitySnapshotForTownNoCleanup(townRoot string) (polecatCapacitySn
 		}
 	}
 	return snapshot, nil
+}
+
+func (s *polecatCapacitySnapshot) addPolecatSlot(state polecat.State, decision polecat.SlotReuseDecision) {
+	if decision.Reusable {
+		s.ReusableIdle++
+		return
+	}
+	if state == polecat.StateWorking {
+		s.Working++
+		return
+	}
+	s.RecoveryBlocked++
 }
 
 func acquirePolecatAdmissionLock(townRoot string) (*flock.Flock, error) {

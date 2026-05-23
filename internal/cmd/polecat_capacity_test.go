@@ -13,6 +13,7 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/scheduler/capacity"
 )
 
@@ -50,6 +51,47 @@ func setupPolecatCapacityRig(t *testing.T, maxPolecats int) string {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 	return townRoot
+}
+
+func TestCapacitySnapshotCountsRecoveryBlockedSlots(t *testing.T) {
+	snapshot := polecatCapacitySnapshot{Max: 6}
+	for _, input := range []polecat.SlotReuseInput{
+		{State: polecat.StateIdle, CleanupStatus: polecat.CleanupUnpushed},
+		{State: polecat.StateIdle, CleanupStatus: polecat.CleanupUncommitted},
+		{State: polecat.StateIdle, CleanupStatus: polecat.CleanupStash},
+		{State: polecat.StateIdle, CleanupStatus: polecat.CleanupUnknown},
+		{State: polecat.StateIdle},
+		{State: polecat.StateReviewNeeded, CleanupStatus: polecat.CleanupUnpushed},
+	} {
+		snapshot.addPolecatSlot(input.State, polecat.DecideSlotReuse(input))
+	}
+
+	if snapshot.RecoveryBlocked != 6 || snapshot.occupied() != 6 {
+		t.Fatalf("snapshot = %+v, want recovery_blocked=6 occupied=6", snapshot)
+	}
+}
+
+func TestCapacitySnapshotExcludesReusableIdleSlots(t *testing.T) {
+	snapshot := polecatCapacitySnapshot{Max: 2}
+	for i := 0; i < 2; i++ {
+		input := polecat.SlotReuseInput{State: polecat.StateIdle, CleanupStatus: polecat.CleanupClean}
+		snapshot.addPolecatSlot(input.State, polecat.DecideSlotReuse(input))
+	}
+
+	if snapshot.ReusableIdle != 2 || snapshot.occupied() != 0 {
+		t.Fatalf("snapshot = %+v, want reusable_idle=2 occupied=0", snapshot)
+	}
+}
+
+func TestCapacitySnapshotCountsActiveAssignedOrHookedWork(t *testing.T) {
+	snapshot := polecatCapacitySnapshot{Max: 3}
+	for _, state := range []polecat.State{polecat.StateWorking, polecat.StateWorking, polecat.StateStalled} {
+		snapshot.addPolecatSlot(state, polecat.DecideSlotReuse(polecat.SlotReuseInput{State: state, CleanupStatus: polecat.CleanupClean}))
+	}
+
+	if snapshot.Working != 2 || snapshot.RecoveryBlocked != 1 || snapshot.occupied() != 3 {
+		t.Fatalf("snapshot = %+v, want working=2 recovery_blocked=1 occupied=3", snapshot)
+	}
 }
 
 func TestCapacitySnapshotCleansStaleReservations(t *testing.T) {
