@@ -1,6 +1,10 @@
 package polecat
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/steveyegge/gastown/internal/beads"
+)
 
 // ErrPolecatNeedsRecovery marks an idle-looking polecat that must not be reset
 // or advertised as reusable until its preserved work is recovered or submitted.
@@ -12,6 +16,7 @@ type SlotReuseInput struct {
 	State           State
 	HookBead        string
 	CleanupStatus   CleanupStatus
+	ActiveMRBlocks  bool
 	PushFailed      bool
 	MRFailed        bool
 	Branch          string
@@ -42,6 +47,9 @@ func DecideSlotReuse(in SlotReuseInput) SlotReuseDecision {
 	if in.MRFailed {
 		return SlotReuseDecision{Reason: "mr-failed"}
 	}
+	if in.ActiveMRBlocks {
+		return SlotReuseDecision{Reason: "active-mr"}
+	}
 	if !in.CleanupStatus.IsSafe() {
 		if in.CleanupStatus == "" {
 			return SlotReuseDecision{Reason: "cleanup-unknown"}
@@ -61,4 +69,22 @@ func DecideSlotReuse(in SlotReuseInput) SlotReuseDecision {
 		return SlotReuseDecision{Reason: "git-unpushed"}
 	}
 	return SlotReuseDecision{Reusable: true, Reason: "reusable"}
+}
+
+type MRStatusReader interface {
+	Show(issueID string) (*beads.Issue, error)
+}
+
+func ActiveMRBlocksReuse(bd MRStatusReader, mrID string) bool {
+	if mrID == "" {
+		return false
+	}
+	if bd == nil {
+		return true
+	}
+	mr, err := bd.Show(mrID)
+	if err != nil || mr == nil {
+		return true
+	}
+	return !beads.IssueStatus(mr.Status).IsTerminal()
 }

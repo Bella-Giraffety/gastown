@@ -257,7 +257,8 @@ func (t *Tmux) wrapError(err error, stderr string, args []string) error {
 		return ErrSessionExists
 	}
 	if strings.Contains(stderr, "session not found") ||
-		strings.Contains(stderr, "can't find session") {
+		strings.Contains(stderr, "can't find session") ||
+		strings.Contains(stderr, "no such window") {
 		return ErrSessionNotFound
 	}
 
@@ -454,11 +455,17 @@ func (t *Tmux) NewSessionWithCommandAndEnv(name, workDir, command string, env ma
 // Only returns an error for non-zero exits (command failures), not clean exits (status 0).
 func (t *Tmux) checkSessionAfterCreate(name, command string) error {
 	checkPaneDead := func() (bool, error) {
-		paneDead, _ := t.run("display-message", "-p", "-t", name, "#{pane_dead}")
+		paneDead, err := t.run("display-message", "-p", "-t", name, "#{pane_dead}")
+		if err != nil {
+			return true, fmt.Errorf("checking session %q after create: %w", name, err)
+		}
 		if strings.TrimSpace(paneDead) != "1" {
 			return false, nil
 		}
-		exitStatus, _ := t.run("display-message", "-p", "-t", name, "#{pane_dead_status}")
+		exitStatus, err := t.run("display-message", "-p", "-t", name, "#{pane_dead_status}")
+		if err != nil {
+			return true, fmt.Errorf("checking session %q exit status after create: %w", name, err)
+		}
 		status := strings.TrimSpace(exitStatus)
 		if status != "" && status != "0" {
 			_ = t.KillSession(name)
@@ -484,7 +491,9 @@ func (t *Tmux) checkSessionAfterCreate(name, command string) error {
 	}
 
 	// Pane is alive — restore default (no need to keep dead sessions around)
-	_, _ = t.run("set-option", "-t", name, "remain-on-exit", "off")
+	if _, err := t.run("set-option", "-t", name, "remain-on-exit", "off"); err != nil {
+		return fmt.Errorf("finalizing session %q after create: %w", name, err)
+	}
 	return nil
 }
 

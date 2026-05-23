@@ -415,24 +415,6 @@ func effectivePolecatState(item PolecatListItem) polecat.State {
 	return state
 }
 
-type reuseMRShower interface {
-	Show(issueID string) (*beads.Issue, error)
-}
-
-func activeMRBlocksReuse(bd reuseMRShower, mrID string) bool {
-	if mrID == "" {
-		return false
-	}
-	if bd == nil {
-		return true
-	}
-	mr, err := bd.Show(mrID)
-	if err != nil || mr == nil {
-		return true
-	}
-	return !beads.IssueStatus(mr.Status).IsTerminal()
-}
-
 func polecatReuseStatus(state polecat.State, cleanupStatus, activeMR, branch string, activeMRBlocks bool) string {
 	if state != polecat.StateIdle {
 		return ""
@@ -526,7 +508,7 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 				CleanupStatus:  cleanupStatus,
 				ActiveMR:       activeMR,
 				Branch:         p.Branch,
-				ReuseStatus:    polecatReuseStatus(state, cleanupStatus, activeMR, p.Branch, activeMRBlocksReuse(bd, activeMR)),
+				ReuseStatus:    polecatReuseStatus(state, cleanupStatus, activeMR, p.Branch, polecat.ActiveMRBlocksReuse(bd, activeMR)),
 				SessionRunning: running,
 			})
 			knownNames[p.Name] = true

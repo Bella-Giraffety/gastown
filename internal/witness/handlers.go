@@ -820,12 +820,14 @@ func slotOpenDecision(workDir, townRoot, rigName, polecatName, exitType string) 
 	}
 	prefix := beads.GetPrefixForRig(townRoot, rigName)
 	agentID := beads.PolecatBeadIDWithPrefix(prefix, rigName, polecatName)
-	_, fields, err := beads.New(beads.ResolveBeadsDir(workDir)).ForAgentBead().GetAgentBead(agentID)
+	bd := beads.New(beads.ResolveBeadsDir(workDir))
+	_, fields, err := bd.ForAgentBead().GetAgentBead(agentID)
 	input := polecat.SlotReuseInput{State: polecat.StateIdle, CleanupStatus: polecat.CleanupUnknown, GitCheckFailed: err != nil || fields == nil}
 	if fields != nil {
 		input.HookBead = fields.HookBead
 		input.PushFailed = fields.PushFailed
 		input.MRFailed = fields.MRFailed
+		input.ActiveMRBlocks = polecat.ActiveMRBlocksReuse(bd, fields.ActiveMR)
 		if fields.CleanupStatus != "" {
 			input.CleanupStatus = polecat.CleanupStatus(fields.CleanupStatus)
 		}

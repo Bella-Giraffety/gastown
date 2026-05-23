@@ -1,6 +1,8 @@
 package tmux
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +55,22 @@ func TestNewSessionWithCommand_ExecEnvBadBinary(t *testing.T) {
 	}
 }
 
+func TestNewSessionWithCommand_SessionDiesDuringStartup(t *testing.T) {
+	tm := newTestTmux(t)
+	session := "gt-test-dies-startup-" + t.Name()
+	_ = tm.KillSession(session)
+	defer func() { _ = tm.KillSession(session) }()
+
+	cmd := fmt.Sprintf("sh -c 'env -u TMUX tmux -u -L %s kill-session -t %s'", tm.socketName, session)
+	err := tm.NewSessionWithCommand(session, "", cmd)
+	if err == nil {
+		t.Fatal("NewSessionWithCommand should return error when session disappears during startup")
+	}
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("NewSessionWithCommand error = %v, want ErrSessionNotFound", err)
+	}
+}
+
 // TestNewSessionWithCommand_Success verifies a valid command runs and produces output.
 func TestNewSessionWithCommand_Success(t *testing.T) {
 	tm := newTestTmux(t)
@@ -88,7 +106,7 @@ func TestNewSessionWithCommand_ExecEnvSuccess(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 	paneCmd, _ := tm.GetPaneCommand(session)
-	if paneCmd != "sleep" {
+	if !isSleepPaneCommand(paneCmd) {
 		t.Errorf("expected pane command 'sleep' (exec replaced shell), got %q", paneCmd)
 	}
 }
