@@ -331,7 +331,7 @@ func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) err
 		Stderr(io.Discard).
 		Output()
 	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-		return fmt.Errorf("bead %s is not present in target rig %q beads database; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
+		return fmt.Errorf("bead %s is not present in target rig %q beads database; refusing to sling before creating hooks or molecule side effects\n%s", beadID, targetRig, offPrefixPlacementHint(beadID, targetRig))
 	}
 
 	var infos []beadInfo
@@ -339,10 +339,14 @@ func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) err
 		return fmt.Errorf("checking target rig %q database for bead %s: %w", targetRig, beadID, err)
 	}
 	if len(infos) == 0 {
-		return fmt.Errorf("bead %s is not present in target rig %q beads database; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
+		return fmt.Errorf("bead %s is not present in target rig %q beads database; refusing to sling before creating hooks or molecule side effects\n%s", beadID, targetRig, offPrefixPlacementHint(beadID, targetRig))
 	}
 
 	return nil
+}
+
+func offPrefixPlacementHint(beadID, targetRig string) string {
+	return fmt.Sprintf("Check whether %s was created in the wrong physical DB: run BD_DEBUG_ROUTING=1 bd show %s, then inspect the target rig DB directly. Avoid bd create --force --id %s from HQ/town; create it from %s or use gt-managed creation to prevent duplicate off-prefix rows.", beadID, beadID, beadID, targetRig)
 }
 
 // getBeadInfo returns status and assignee for a bead.

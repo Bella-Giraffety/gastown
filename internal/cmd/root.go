@@ -37,7 +37,13 @@ func init() {
 	rootCmd.Long = fmt.Sprintf(`Gas Town (%s) manages multi-agent workspaces called rigs.
 
 It coordinates agent spawning, work distribution, and communication
-across distributed teams of AI agents working on shared codebases.`, cmdName)
+across distributed teams of AI agents working on shared codebases.
+
+Routing safety:
+  Bead prefixes route to physical databases. Avoid creating routed IDs with
+  bd create --force --id from the wrong context; for example, creating gt-* from
+  HQ/town can store the bead in HQ while gt sling expects it in gastown. Create
+  rig-prefixed beads from that rig's context or use gt-managed creation.`, cmdName)
 }
 
 // Commands that don't require beads to be installed/checked.

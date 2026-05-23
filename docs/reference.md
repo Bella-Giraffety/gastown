@@ -26,6 +26,20 @@ prefix maps to its beads location (the mayor's clone in that rig).
 
 Debug routing: `BD_DEBUG_ROUTING=1 bd show <id>`
 
+### Off-Prefix Explicit IDs
+
+`bd create --force --id <rig-prefix>-...` can bypass normal ID generation while
+still writing to the physical database selected by your current context. If you
+run it from HQ/town for a `gt-*` ID, the row can land in the HQ database even
+though `routes.jsonl` says `gt-*` belongs to gastown. The result is confusing:
+`bd show` and `gt sling` can disagree, and duplicate `hq`/`gastown` rows with the
+same `gt-*` ID can exist.
+
+Mitigation: create rig-prefixed beads from that rig's context, or use gt-managed
+creation paths. For `gt-*`, create from gastown; do not use
+`bd create --force --id gt-*` from HQ/town. If routing looks wrong, run
+`BD_DEBUG_ROUTING=1 bd show <id>` and inspect the target rig database directly.
+
 ## Configuration
 
 ### Rig Config (`config.json`)

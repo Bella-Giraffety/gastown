@@ -304,10 +304,13 @@ func resolveRigFromBeadIDs(beadIDs []string, townRoot string) (string, error) {
 				"    1. Specify the rig explicitly:\n"+
 				"         gt sling %s <rig>\n"+
 				"    2. Check the bead's route mapping:\n"+
-				"         cat .beads/routes.jsonl | grep %s\n"+
+				"         BD_DEBUG_ROUTING=1 bd show %s\n"+
 				"    3. Create the bead from the target rig directory instead:\n"+
-				"         cd <rig> && bd create --title=...\n",
-				beadID, prefix, strings.Join(beadIDs, " "), prefix)
+				"         cd <rig> && bd create --title=...\n"+
+				"\n"+
+				"  Avoid bd create --force --id %s from HQ/town; it can store the explicit ID\n"+
+				"  in the wrong physical database and create duplicate off-prefix rows.\n",
+				beadID, prefix, strings.Join(beadIDs, " "), beadID, beadID)
 		}
 
 		if resolvedRig == "" {
@@ -323,7 +326,10 @@ func resolveRigFromBeadIDs(beadIDs []string, townRoot string) (string, error) {
 				"         gt sling <bead1> <bead2> ...   (beads for %s)\n"+
 				"         gt sling <bead3> <bead4> ...   (beads for %s)\n"+
 				"    2. Specify the target rig explicitly:\n"+
-				"         gt sling %s <rig>\n",
+				"         gt sling %s <rig>\n"+
+				"\n"+
+				"  If a bead ID looks correct but resolves from the wrong place, check physical DB\n"+
+				"  placement with BD_DEBUG_ROUTING=1 bd show <id> and inspect the owning rig DB.\n",
 				strings.Join(mismatches, "\n"),
 				resolvedRig, rigName,
 				strings.Join(beadIDs, " "))

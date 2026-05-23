@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -317,5 +319,214 @@ func TestAttachmentFormulaVarsPrefersAttachedVars(t *testing.T) {
 	want := []string{"problem=First\n\nSecond"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("attachmentFormulaVars() = %#v, want %#v", got, want)
+	}
+}
+
+func TestFormulaConvoyIDUsesTownConvoyPrefix(t *testing.T) {
+	t.Parallel()
+
+	got := formulaConvoyID("abc123")
+	want := "hq-cv-abc123"
+	if got != want {
+		t.Fatalf("formulaConvoyID() = %q, want %q", got, want)
+	}
+}
+
+func TestExecuteConvoyFormulaCreatesTownConvoyAndRigLegs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell stubs are unix-only")
+	}
+
+	townRoot := t.TempDir()
+	townBeads := filepath.Join(townRoot, ".beads")
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	rigBeads := filepath.Join(rigDir, ".beads")
+	for _, dir := range []string{filepath.Join(townRoot, "mayor", "rig"), townBeads, rigDir, rigBeads} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	routes := strings.Join([]string{
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
+		`{"prefix":"hq-cv-","path":"."}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(townBeads, "routes.jsonl"), []byte(routes), 0o644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd.log")
+	bdScript := `#!/bin/sh
+set -e
+printf '%s|%s|%s\n' "$(pwd)" "${BEADS_DIR:-}" "$*" >> "${BD_LOG}"
+exit 0
+`
+	_ = writeBDStub(t, binDir, bdScript, "")
+	gtPath := filepath.Join(binDir, "gt")
+	gtScript := `#!/bin/sh
+set -e
+printf 'gt|%s|%s\n' "$(pwd)" "$*" >> "${GT_LOG}"
+exit 0
+`
+	if err := os.WriteFile(gtPath, []byte(gtScript), 0o755); err != nil {
+		t.Fatalf("write gt stub: %v", err)
+	}
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("GT_LOG", filepath.Join(townRoot, "gt.log"))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BEADS_DIR", filepath.Join(townRoot, "wrong", ".beads"))
+
+	oldAddTracking := addTrackingRelationFn
+	oldPR := formulaRunPR
+	oldSet := formulaRunSet
+	oldFiles := formulaRunFiles
+	oldAgent := formulaRunAgent
+	t.Cleanup(func() {
+		addTrackingRelationFn = oldAddTracking
+		formulaRunPR = oldPR
+		formulaRunSet = oldSet
+		formulaRunFiles = oldFiles
+		formulaRunAgent = oldAgent
+	})
+	type trackingCall struct {
+		townRoot string
+		convoyID string
+		issueID  string
+	}
+	var trackingCalls []trackingCall
+	addTrackingRelationFn = func(townRootArg, convoyID, issueID string) error {
+		trackingCalls = append(trackingCalls, trackingCall{townRoot: townRootArg, convoyID: convoyID, issueID: issueID})
+		return nil
+	}
+	formulaRunPR = 0
+	formulaRunSet = nil
+	formulaRunFiles = nil
+	formulaRunAgent = ""
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	f := &formula.Formula{
+		Description: "routing convoy",
+		Legs: []formula.Leg{
+			{
+				ID:          "one",
+				Title:       "Leg one",
+				Description: "Do one thing",
+			},
+			{
+				ID:          "two",
+				Title:       "Leg two",
+				Description: "Do another thing",
+			},
+		},
+		Synthesis: &formula.Synthesis{
+			Title:       "Synthesize routing findings",
+			Description: "Combine leg findings",
+		},
+	}
+	if err := executeConvoyFormula(f, "routing-fan", "gastown"); err != nil {
+		t.Fatalf("executeConvoyFormula: %v", err)
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	logText := string(logBytes)
+	if strings.Contains(logText, "--force") {
+		t.Fatalf("formula creates should not use --force for multi-hyphen IDs:\n%s", logText)
+	}
+	poisonedBeadsDir := filepath.Join(townRoot, "wrong", ".beads")
+	for _, line := range strings.Split(strings.TrimSpace(logText), "\n") {
+		if strings.Contains(line, "--allow-stale version") {
+			continue
+		}
+		if strings.Contains(line, poisonedBeadsDir) {
+			t.Fatalf("formula command leaked poisoned ambient BEADS_DIR:\n%s", logText)
+		}
+	}
+	if strings.Contains(logText, "--id=gt-cv-") {
+		t.Fatalf("formula convoy created rig-prefixed convoy in town log:\n%s", logText)
+	}
+	if !strings.Contains(logText, townBeads+"|"+townBeads+"|create ") || !strings.Contains(logText, "--id=hq-cv-") {
+		t.Fatalf("formula convoy create did not target town beads with hq-cv id:\n%s", logText)
+	}
+	if strings.Count(logText, rigBeads+"|"+rigBeads+"|create ") != 3 {
+		t.Fatalf("formula should create two legs plus synthesis in rig beads:\n%s", logText)
+	}
+	if strings.Count(logText, "--id=gt-leg-") != 2 {
+		t.Fatalf("formula did not create two gt-leg beads in rig beads:\n%s", logText)
+	}
+	if !strings.Contains(logText, "--id=gt-syn-") {
+		t.Fatalf("formula did not create gt-syn synthesis bead in rig beads:\n%s", logText)
+	}
+
+	var synthesisID string
+	legIDs := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(logText), "\n") {
+		_, args, ok := strings.Cut(line, "|")
+		if !ok {
+			continue
+		}
+		_, args, ok = strings.Cut(args, "|")
+		if !ok {
+			continue
+		}
+		for _, field := range strings.Fields(args) {
+			id, ok := strings.CutPrefix(field, "--id=")
+			if !ok {
+				continue
+			}
+			if strings.HasPrefix(id, "gt-leg-") {
+				legIDs[id] = true
+			}
+			if strings.HasPrefix(id, "gt-syn-") {
+				synthesisID = id
+			}
+		}
+	}
+	if len(legIDs) != 2 || synthesisID == "" {
+		t.Fatalf("failed to extract created leg/synthesis IDs from log:\n%s", logText)
+	}
+
+	for legID := range legIDs {
+		want := fmt.Sprintf("%s|%s|dep add %s %s", rigBeads, rigBeads, synthesisID, legID)
+		if !strings.Contains(logText, want) {
+			t.Fatalf("synthesis dependency missing %q in log:\n%s", want, logText)
+		}
+	}
+
+	if len(trackingCalls) != 3 {
+		t.Fatalf("tracking calls = %d, want 3: %#v", len(trackingCalls), trackingCalls)
+	}
+	trackedIDs := make(map[string]bool)
+	for _, call := range trackingCalls {
+		if call.townRoot != townRoot {
+			t.Fatalf("tracking townRoot = %q, want %q", call.townRoot, townRoot)
+		}
+		if !strings.HasPrefix(call.convoyID, "hq-cv-") {
+			t.Fatalf("tracking convoyID = %q, want hq-cv-*", call.convoyID)
+		}
+		trackedIDs[call.issueID] = true
+	}
+	for legID := range legIDs {
+		if !trackedIDs[legID] {
+			t.Fatalf("missing tracking relation for leg %s in %#v", legID, trackingCalls)
+		}
+	}
+	if !trackedIDs[synthesisID] {
+		t.Fatalf("missing tracking relation for synthesis %s in %#v", synthesisID, trackingCalls)
 	}
 }

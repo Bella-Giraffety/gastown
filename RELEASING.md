@@ -63,6 +63,19 @@ The `release.yml` workflow triggers automatically:
 
 Manual dispatch is only for rerunning a release from a `v*` tag. Publishing jobs are guarded to skip branch refs.
 
+## Release-Gate Routing Safety
+
+Before cutting a release that changes routing behavior, verify that release-gate
+beads were created in their owning rig database. Do not create `gt-*` release or
+gate beads from HQ/town with `bd create --force --id gt-*`; `--force` can store
+the explicit ID in the wrong physical database, causing `bd show`/`gt sling`
+mismatches and duplicate HQ/gastown `gt-*` rows.
+
+Mitigation: create `gt-*` beads from the gastown context or use gt-managed
+creation commands. When diagnosing an existing ID, run
+`BD_DEBUG_ROUTING=1 bd show <id>` and inspect the target rig database directly
+before slinging or closing release-gate work.
+
 ### Running the tag/version check locally
 
 ```bash

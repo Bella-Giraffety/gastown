@@ -60,6 +60,13 @@ Target Resolution:
   gt sling gt-abc deacon/dogs           # Auto-dispatch to idle dog
   gt sling gt-abc deacon/dogs/alpha     # Specific dog
 
+Routing Safety:
+  gt routes bead IDs by prefix to the physical beads database for that rig.
+  Avoid bd create --force --id gt-* from HQ/town or another rig: --force can
+  store the explicit ID in the wrong database, producing bd show vs gt sling
+  mismatches or duplicate hq/gastown gt-* rows. Create gt-* beads from the
+  gastown context or use gt-managed creation.
+
 Spawning Options (when target is a rig):
   gt sling gp-abc greenplace --create               # Create polecat if missing
   gt sling gp-abc greenplace --force                # Ignore unread mail
@@ -1132,7 +1139,9 @@ func checkCrossRigGuard(beadID, targetAgent, townRoot string) error {
 				// Unknown prefix — no route exists, can't resolve rig.
 				return fmt.Errorf("bead %s (prefix %q) is not in rig %q — prefix not in routes\n"+
 					"Create the task from the rig directory: cd %s && bd create --title=...\n"+
-					"Use --force to override", beadID, strings.TrimSuffix(beadPrefix, "-"), targetRig, targetRig)
+					"Check physical DB placement with BD_DEBUG_ROUTING=1 bd show %s\n"+
+					"Avoid bd create --force --id %s from HQ/town; it can create duplicate off-prefix rows\n"+
+					"Use gt sling --force only after verifying DB placement", beadID, strings.TrimSuffix(beadPrefix, "-"), targetRig, targetRig, beadID, beadID)
 			}
 			// Known town-root prefix — warn but allow. A crew member may have a
 			// broken redirect chain causing rig beads to land in the town DB with
@@ -1145,7 +1154,9 @@ func checkCrossRigGuard(beadID, targetAgent, townRoot string) error {
 		}
 		return fmt.Errorf("cross-rig mismatch: bead %s (prefix %q) belongs to rig %q, but target is rig %q\n"+
 			"Create the task from the target rig: cd %s && bd create --title=...\n"+
-			"Use --force to override", beadID, strings.TrimSuffix(beadPrefix, "-"), beadRig, targetRig, targetRig)
+			"Check physical DB placement with BD_DEBUG_ROUTING=1 bd show %s\n"+
+			"Avoid bd create --force --id %s from HQ/town; it can create duplicate off-prefix rows\n"+
+			"Use gt sling --force only after verifying DB placement", beadID, strings.TrimSuffix(beadPrefix, "-"), beadRig, targetRig, targetRig, beadID, beadID)
 	}
 
 	return nil
