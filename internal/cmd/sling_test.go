@@ -941,6 +941,63 @@ func TestTargetRigDatabaseLookupFailsClosedWithoutTownRoot(t *testing.T) {
 	}
 }
 
+func TestTargetRigDatabaseLookupUsesCanonicalRoute(t *testing.T) {
+	townRoot := t.TempDir()
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	rigBeadsDir := filepath.Join(rigDir, ".beads")
+	for _, dir := range []string{townBeadsDir, rigBeadsDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	routes := strings.Join([]string{
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(townBeadsDir, "routes.jsonl"), []byte(routes), 0o644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd.log")
+	bdScript := `#!/bin/sh
+printf '%s|%s\n' "$(pwd)" "$*" >> "$BD_LOG"
+if [ "$1" = "--db" ] && [ "$2" = "$RIG_BEADS" ] && [ "$3" = "show" ]; then
+  echo '[{"title":"Target issue","status":"open","assignee":"","description":""}]'
+  exit 0
+fi
+exit 1
+`
+	bdScriptWindows := `@echo off
+echo %CD%^|%*>>"%BD_LOG%"
+if "%1"=="--db" if "%2"=="%RIG_BEADS%" if "%3"=="show" (
+  echo [{"title":"Target issue","status":"open","assignee":"","description":""}]
+  exit /b 0
+)
+exit /b 1
+`
+	writeBDStub(t, binDir, bdScript, bdScriptWindows)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("RIG_BEADS", rigBeadsDir)
+
+	if err := verifyBeadExistsInTargetRigDatabase("gt-new", "gastown", townRoot); err != nil {
+		t.Fatalf("verifyBeadExistsInTargetRigDatabase: %v", err)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(logBytes), "--db "+rigBeadsDir+" show gt-new") {
+		t.Fatalf("bd lookup did not use target rig DB: %s", string(logBytes))
+	}
+}
+
 func TestRollbackSlingArtifactsBurnsAttachedMolecules(t *testing.T) {
 	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
 	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
