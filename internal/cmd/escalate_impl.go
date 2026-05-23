@@ -103,7 +103,7 @@ func runEscalate(cmd *cobra.Command, args []string) error {
 	targets := extractMailTargetsFromActions(actions)
 
 	// Send mail to each target (actions with "mail:" prefix)
-	router := mail.NewRouter(townRoot)
+	router := mail.NewRouterWithTownRoot(townRoot, townRoot)
 	defer router.WaitPendingNotifications()
 	statuses := []deliveryStatus{{Channel: "bead", Created: true, Severity: severity}}
 	for _, target := range targets {
@@ -328,6 +328,7 @@ func runEscalateAck(cmd *cobra.Command, args []string) error {
 	if err := bd.AckEscalation(escalationID, ackedBy); err != nil {
 		return fmt.Errorf("acknowledging escalation: %w", err)
 	}
+	clearSatisfiedEscalationNudges(townRoot, ackedBy, escalationID)
 
 	// Log to activity feed
 	_ = events.LogFeed(events.TypeEscalationAcked, ackedBy, map[string]interface{}{
@@ -357,6 +358,7 @@ func runEscalateClose(cmd *cobra.Command, args []string) error {
 	if err := bd.CloseEscalation(escalationID, closedBy, escalateCloseReason); err != nil {
 		return fmt.Errorf("closing escalation: %w", err)
 	}
+	clearSatisfiedEscalationNudges(townRoot, closedBy, escalationID)
 
 	// Log to activity feed
 	_ = events.LogFeed(events.TypeEscalationClosed, closedBy, map[string]interface{}{
@@ -368,6 +370,16 @@ func runEscalateClose(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s Escalation closed: %s\n", style.Bold.Render("✓"), escalationID)
 	fmt.Printf("  Reason: %s\n", escalateCloseReason)
 	return nil
+}
+
+func clearSatisfiedEscalationNudges(townRoot, address, escalationID string) {
+	if escalationID == "" {
+		return
+	}
+	router := mail.NewRouterWithTownRoot(townRoot, townRoot)
+	if err := router.ClearSatisfiedNotifications(address, escalationID); err != nil {
+		style.PrintWarning("could not clear satisfied escalation reminders: %v", err)
+	}
 }
 
 func runEscalateStale(cmd *cobra.Command, args []string) error {

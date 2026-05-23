@@ -1643,6 +1643,7 @@ func TestNotifyRecipient_IdleAgent(t *testing.T) {
 		From:    "gastown/crew/sender",
 		To:      "gastown/crew/idletest",
 		Subject: "test idle delivery",
+		Type:    TypeTask,
 	}
 
 	err := r.notifyRecipient(msg)
@@ -1689,6 +1690,7 @@ func TestNotifyRecipient_BusyAgent(t *testing.T) {
 		From:    "gastown/crew/sender",
 		To:      "gastown/crew/busytest",
 		Subject: "test busy delivery",
+		Type:    TypeTask,
 	}
 
 	err := r.notifyRecipient(msg)
@@ -1720,6 +1722,77 @@ func TestNotifyRecipient_BusyAgent(t *testing.T) {
 	remaining, _ := nudge.Pending(townRoot, sessionName)
 	if remaining != 1 {
 		t.Errorf("expected 1 deferred reply-reminder still in queue, got %d", remaining)
+	}
+}
+
+func TestNotifyRecipient_BusyAgentNotificationActionabilityMatrix(t *testing.T) {
+	socket := requireNotifyTestSocket(t)
+
+	tests := []struct {
+		name          string
+		subject       string
+		priority      Priority
+		wantRemaining int
+		wantPriority  string
+	}{
+		{name: "ack", subject: "ACK: convoy status hq-cv123", wantPriority: nudge.PriorityNormal},
+		{name: "convoy status", subject: "Convoy status hq-cv123", wantPriority: nudge.PriorityNormal},
+		{name: "convoy complete", subject: "CONVOY_COMPLETE hq-cv123", wantPriority: nudge.PriorityNormal},
+		{name: "merged", subject: "MERGED polecat/radrat", wantPriority: nudge.PriorityNormal},
+		{name: "slot open", subject: "SLOT_OPEN: gastown/polecats/radrat completed", wantPriority: nudge.PriorityNormal},
+		{name: "slot blocked", subject: "SLOT_BLOCKED: gastown/polecats/radrat blocked", wantPriority: nudge.PriorityNormal},
+		{name: "mass agent death critical alert", subject: "MASS_DEATH: 4 sessions died in 5s", priority: PriorityUrgent, wantRemaining: 1, wantPriority: nudge.PriorityUrgent},
+		{name: "dolt high alert", subject: "ALERT: Dolt server unhealthy", priority: PriorityHigh, wantRemaining: 1, wantPriority: nudge.PriorityUrgent},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sessionName := fmt.Sprintf("gt-crew-policy-%d", i)
+			createNotifyTestSession(t, socket, sessionName, "sleep 300")
+
+			townRoot := t.TempDir()
+			r := &Router{
+				workDir:           t.TempDir(),
+				townRoot:          townRoot,
+				tmux:              tmux.NewTmuxWithSocket(socket),
+				IdleNotifyTimeout: time.Millisecond,
+			}
+
+			msg := &Message{
+				From:     "gastown/witness",
+				To:       fmt.Sprintf("gastown/crew/policy-%d", i),
+				Subject:  tt.subject,
+				Type:     TypeTask,
+				Priority: tt.priority,
+				ThreadID: fmt.Sprintf("thread-%d", i),
+			}
+
+			if err := r.notifyRecipient(msg); err != nil {
+				t.Fatalf("notifyRecipient returned error: %v", err)
+			}
+
+			nudges, err := nudge.Drain(townRoot, sessionName)
+			if err != nil {
+				t.Fatalf("Drain: %v", err)
+			}
+			if len(nudges) != 1 {
+				t.Fatalf("Drain returned %d immediate nudges, want 1", len(nudges))
+			}
+			if nudges[0].Kind != "mail" {
+				t.Fatalf("immediate nudge kind = %q, want mail", nudges[0].Kind)
+			}
+			if nudges[0].Priority != tt.wantPriority {
+				t.Fatalf("immediate nudge priority = %q, want %q", nudges[0].Priority, tt.wantPriority)
+			}
+
+			remaining, err := nudge.Pending(townRoot, sessionName)
+			if err != nil {
+				t.Fatalf("Pending: %v", err)
+			}
+			if remaining != tt.wantRemaining {
+				t.Fatalf("remaining deferred nudges = %d, want %d", remaining, tt.wantRemaining)
+			}
+		})
 	}
 }
 
@@ -1766,8 +1839,8 @@ func TestNotifyRecipient_BusyAgentEscalationUsesUrgentQueuedNudge(t *testing.T) 
 	}
 
 	remaining, _ := nudge.Pending(townRoot, sessionName)
-	if remaining != 1 {
-		t.Fatalf("expected 1 deferred reply-reminder after draining escalation nudge, got %d", remaining)
+	if remaining != 0 {
+		t.Fatalf("expected no deferred reply-reminder for escalation mail, got %d", remaining)
 	}
 }
 
@@ -1810,6 +1883,46 @@ func containsLabel(labels []string, want string) bool {
 
 // --- enqueueReplyReminder tests ---
 
+func TestShouldEnqueueReplyReminder(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *Message
+		want bool
+	}{
+		{"nil", nil, false},
+		{"task", &Message{Type: TypeTask}, true},
+		{"scavenge", &Message{Type: TypeScavenge}, true},
+		{"notification", &Message{Type: TypeNotification}, false},
+		{"escalation", &Message{Type: TypeEscalation}, false},
+		{"reply", &Message{Type: TypeReply}, false},
+		{"unset", &Message{}, false},
+		{"ack task", &Message{Type: TypeTask, Subject: "ACK convoy status"}, false},
+		{"ack colon task", &Message{Type: TypeTask, Subject: "ACK: convoy status"}, false},
+		{"convoy status task", &Message{Type: TypeTask, Subject: "Convoy status hq-cv123"}, false},
+		{"convoy complete task", &Message{Type: TypeTask, Subject: "CONVOY_COMPLETE hq-cv123"}, false},
+		{"convoy completed prose task", &Message{Type: TypeTask, Subject: "Convoy completed hq-cv123"}, false},
+		{"merged task", &Message{Type: TypeTask, Subject: "MERGED nux"}, false},
+		{"slot open task", &Message{Type: TypeTask, Subject: "SLOT_OPEN: gastown/thunder completed"}, false},
+		{"slot blocked task", &Message{Type: TypeTask, Subject: "SLOT_BLOCKED: gastown/thunder blocked"}, false},
+		{"routine status task", &Message{Type: TypeTask, Subject: "Status update: all quiet"}, false},
+		{"no reply subject task", &Message{Type: TypeTask, Subject: "[no-reply] daily digest"}, false},
+		{"no reply body task", &Message{Type: TypeTask, Subject: "Daily digest", Body: "Automated notice. Do not reply."}, false},
+		{"status check remains actionable", &Message{Type: TypeTask, Subject: "status check"}, true},
+		{"recovery needed remains actionable", &Message{Type: TypeTask, Subject: "RECOVERY_NEEDED: cleanup required", Priority: PriorityHigh}, true},
+		{"critical task remains actionable", &Message{Type: TypeTask, Subject: "[CRITICAL] Disk full", Priority: PriorityUrgent}, true},
+		{"mass agent death alert remains actionable", &Message{Type: TypeTask, Subject: "MASS_DEATH: 4 sessions died in 5s", Priority: PriorityUrgent}, true},
+		{"dolt unhealthy alert remains actionable", &Message{Type: TypeTask, Subject: "ALERT: Dolt server unhealthy", Priority: PriorityHigh}, true},
+		{"dolt capacity alert remains actionable", &Message{Type: TypeTask, Subject: "Dolt capacity alert: 95 active connections", Priority: PriorityHigh}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ShouldEnqueueReplyReminder(tt.msg); got != tt.want {
+				t.Fatalf("ShouldEnqueueReplyReminder() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestEnqueueReplyReminder_Basic verifies that a deferred reply-reminder nudge is
 // enqueued with the correct sender, message content, and DeliverAfter timestamp.
 func TestEnqueueReplyReminder_Basic(t *testing.T) {
@@ -1822,7 +1935,7 @@ func TestEnqueueReplyReminder_Basic(t *testing.T) {
 		From:    "gastown/witness",
 		To:      "gastown/crew/alice",
 		Subject: "status check",
-		Type:    TypeNotification,
+		Type:    TypeTask,
 	}
 	sessionID := "gt-gastown-crew-alice"
 
@@ -1886,6 +1999,55 @@ func TestEnqueueReplyReminder_Basic(t *testing.T) {
 	}
 }
 
+func TestEnqueueReplyReminder_SkipsGenericNotification(t *testing.T) {
+	townRoot := t.TempDir()
+	r := &Router{workDir: t.TempDir(), townRoot: townRoot}
+	msg := &Message{
+		From:    "gastown/witness",
+		To:      "gastown/crew/alice",
+		Subject: "status update",
+		Type:    TypeNotification,
+	}
+	r.enqueueReplyReminder(msg, "gt-gastown-crew-alice")
+
+	pending, _ := nudge.Pending(townRoot, "gt-gastown-crew-alice")
+	if pending != 0 {
+		t.Errorf("TypeNotification should not enqueue a reminder, got %d", pending)
+	}
+}
+
+func TestEnqueueReplyReminder_SkipsNonActionableTaskSubjects(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *Message
+	}{
+		{"ack", &Message{From: "gastown/witness", Subject: "ACK convoy status", Type: TypeTask}},
+		{"convoy status", &Message{From: "gastown/witness", Subject: "Convoy status hq-cv123", Type: TypeTask}},
+		{"convoy complete", &Message{From: "gastown/witness", Subject: "CONVOY_COMPLETE hq-cv123", Type: TypeTask}},
+		{"merged", &Message{From: "gastown/refinery", Subject: "MERGED thunder", Type: TypeTask}},
+		{"slot open", &Message{From: "gastown/witness", Subject: "SLOT_OPEN: gastown/thunder completed", Type: TypeTask}},
+		{"slot blocked", &Message{From: "gastown/witness", Subject: "SLOT_BLOCKED: gastown/thunder blocked", Type: TypeTask}},
+		{"routine status", &Message{From: "gastown/witness", Subject: "Status: all quiet", Type: TypeTask}},
+		{"no reply", &Message{From: "gastown/witness", Subject: "Daily digest", Body: "No response needed.", Type: TypeTask}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			townRoot := t.TempDir()
+			r := &Router{workDir: t.TempDir(), townRoot: townRoot}
+			r.enqueueReplyReminder(tt.msg, "gt-gastown-crew-alice")
+
+			pending, err := nudge.Pending(townRoot, "gt-gastown-crew-alice")
+			if err != nil {
+				t.Fatalf("Pending: %v", err)
+			}
+			if pending != 0 {
+				t.Fatalf("expected no reply reminder for %q, got %d", tt.msg.Subject, pending)
+			}
+		})
+	}
+}
+
 func TestClearReplyReminders(t *testing.T) {
 	townRoot := t.TempDir()
 	r := &Router{workDir: t.TempDir(), townRoot: townRoot}
@@ -1918,6 +2080,78 @@ func TestClearReplyReminders(t *testing.T) {
 	}
 	if nudges[1].Message != "keep-other-thread" {
 		t.Fatalf("nudges[1].Message = %q, want %q", nudges[1].Message, "keep-other-thread")
+	}
+}
+
+func TestClearSatisfiedNotifications_MailReadClearsMailAndReplyReminder(t *testing.T) {
+	townRoot := t.TempDir()
+	r := &Router{workDir: t.TempDir(), townRoot: townRoot}
+	sessionID := session.CrewSessionName(session.PrefixFor("gastown"), "bob")
+
+	queued := []nudge.QueuedNudge{
+		{Sender: "mayor/", Message: "mail", Kind: "mail", ThreadID: "thread-1"},
+		{Sender: "mayor/", Message: "mail-duplicate", Kind: "mail", ThreadID: "thread-1"},
+		{Sender: "system", Message: "reply", Kind: "reply-reminder", ThreadID: "thread-1"},
+		{Sender: "system", Message: "keep-escalation", Kind: "escalation", ThreadID: "thread-2"},
+		{Sender: "system", Message: "keep-other-thread", Kind: "reply-reminder", ThreadID: "thread-2"},
+	}
+	for _, n := range queued {
+		if err := nudge.Enqueue(townRoot, sessionID, n); err != nil {
+			t.Fatalf("Enqueue(%q): %v", n.Message, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	if err := r.ClearSatisfiedNotifications("gastown/crew/bob", "thread-1"); err != nil {
+		t.Fatalf("ClearSatisfiedNotifications: %v", err)
+	}
+
+	nudges, err := nudge.Drain(townRoot, sessionID)
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if len(nudges) != 2 {
+		t.Fatalf("Drain returned %d nudges, want 2", len(nudges))
+	}
+	if nudges[0].Message != "keep-escalation" {
+		t.Fatalf("nudges[0].Message = %q, want %q", nudges[0].Message, "keep-escalation")
+	}
+	if nudges[1].Message != "keep-other-thread" {
+		t.Fatalf("nudges[1].Message = %q, want %q", nudges[1].Message, "keep-other-thread")
+	}
+}
+
+func TestClearSatisfiedNotifications_EscalationAckClearsEscalation(t *testing.T) {
+	townRoot := t.TempDir()
+	r := &Router{workDir: t.TempDir(), townRoot: townRoot}
+	sessionID := session.CrewSessionName(session.PrefixFor("gastown"), "bob")
+
+	queued := []nudge.QueuedNudge{
+		{Sender: "witness", Message: "escalation", Kind: "escalation", ThreadID: "hq-esc123"},
+		{Sender: "witness", Message: "escalation-duplicate", Kind: "escalation", ThreadID: "hq-esc123"},
+		{Sender: "system", Message: "legacy-reply", Kind: "reply-reminder", ThreadID: "hq-esc123"},
+		{Sender: "system", Message: "keep-other-escalation", Kind: "escalation", ThreadID: "hq-esc456"},
+	}
+	for _, n := range queued {
+		if err := nudge.Enqueue(townRoot, sessionID, n); err != nil {
+			t.Fatalf("Enqueue(%q): %v", n.Message, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	if err := r.ClearSatisfiedNotifications("gastown/crew/bob", "hq-esc123"); err != nil {
+		t.Fatalf("ClearSatisfiedNotifications: %v", err)
+	}
+
+	nudges, err := nudge.Drain(townRoot, sessionID)
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if len(nudges) != 1 {
+		t.Fatalf("Drain returned %d nudges, want 1", len(nudges))
+	}
+	if nudges[0].Message != "keep-other-escalation" {
+		t.Fatalf("nudges[0].Message = %q, want %q", nudges[0].Message, "keep-other-escalation")
 	}
 }
 
