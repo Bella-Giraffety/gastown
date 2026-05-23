@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -857,6 +856,8 @@ type GitState struct {
 	UncommittedFiles []string `json:"uncommitted_files"`
 	UnpushedCommits  int      `json:"unpushed_commits"`
 	StashCount       int      `json:"stash_count"`
+	HasBranchWork    bool     `json:"has_branch_work"`
+	NeedsReconcile   bool     `json:"needs_reconcile"`
 }
 
 func runPolecatGitState(cmd *cobra.Command, args []string) error {
@@ -935,73 +936,45 @@ func getGitState(worktreePath string) (*GitState, error) {
 		UncommittedFiles: []string{},
 	}
 
-	// Check for uncommitted changes (git status --porcelain)
-	statusCmd := exec.Command("git", "status", "--porcelain")
-	statusCmd.Dir = worktreePath
-	output, err := statusCmd.Output()
+	worktreeGit := git.NewGit(worktreePath)
+
+	// Check for uncommitted changes.
+	gitStatus, err := worktreeGit.Status()
 	if err != nil {
 		return nil, fmt.Errorf("git status: %w", err)
 	}
-	if len(output) > 0 {
-		lines := splitLines(string(output))
-		for _, line := range lines {
-			if line != "" {
-				// Extract filename (skip the status prefix)
-				if len(line) > 3 {
-					state.UncommittedFiles = append(state.UncommittedFiles, line[3:])
-				} else {
-					state.UncommittedFiles = append(state.UncommittedFiles, line)
+	if !gitStatus.Clean {
+		for _, files := range [][]string{gitStatus.Modified, gitStatus.Added, gitStatus.Deleted, gitStatus.Untracked} {
+			for _, file := range files {
+				if git.IsGasTownRuntimePath(file) {
+					continue
 				}
+				state.UncommittedFiles = append(state.UncommittedFiles, file)
 			}
 		}
-		state.Clean = false
+		if len(state.UncommittedFiles) > 0 {
+			state.Clean = false
+		}
 	}
 
-	// Check for unpushed commits (git log origin/main..HEAD)
-	// We check commits first, then verify if content differs.
-	// After squash merge, commits may differ but content may be identical.
-	mainRef := "origin/main"
-	logCmd := exec.Command("git", "log", mainRef+"..HEAD", "--oneline")
-	logCmd.Dir = worktreePath
-	output, err = logCmd.Output()
-	if err != nil {
-		// origin/main might not exist - try origin/master
-		mainRef = "origin/master"
-		logCmd = exec.Command("git", "log", mainRef+"..HEAD", "--oneline")
-		logCmd.Dir = worktreePath
-		output, _ = logCmd.Output() // non-fatal: might be a new repo without remote tracking
-	}
-	if len(output) > 0 {
-		lines := splitLines(string(output))
-		count := 0
-		for _, line := range lines {
-			if line != "" {
-				count++
-			}
+	// Check branch push evidence against the actual push target instead of
+	// assuming origin/main is the only safe landing branch.
+	if branch, branchErr := worktreeGit.CurrentBranch(); branchErr == nil && branch != "" && branch != "HEAD" {
+		evidence, evidenceErr := worktreeGit.BranchPushEvidence(branch, "origin", "")
+		if evidenceErr != nil {
+			return nil, fmt.Errorf("branch push evidence: %w", evidenceErr)
 		}
-		if count > 0 {
-			// Commits exist that aren't on main. But after squash merge,
-			// the content may actually be on main with different commit SHAs.
-			// Check if there's any actual diff between HEAD and main.
-			diffCmd := exec.Command("git", "diff", mainRef, "HEAD", "--quiet")
-			diffCmd.Dir = worktreePath
-			diffErr := diffCmd.Run()
-			if diffErr == nil {
-				// Exit code 0 means no diff - content IS on main (squash merged)
-				// Don't count these as unpushed
-				state.UnpushedCommits = 0
-			} else {
-				// Exit code 1 means there's a diff - truly unpushed work
-				state.UnpushedCommits = count
-				state.Clean = false
-			}
+		state.UnpushedCommits = evidence.UnpushedCommits
+		state.HasBranchWork = evidence.HasBranchWork
+		state.NeedsReconcile = evidence.NeedsReconcile
+		if state.UnpushedCommits > 0 || state.NeedsReconcile {
+			state.Clean = false
 		}
 	}
 
 	// Check for stashes using Git.StashCount() which filters by current branch.
 	// Without branch filtering, worktrees see repo-wide stashes and produce
 	// false "NEEDS_RECOVERY" verdicts for worktrees with zero stashes of their own.
-	worktreeGit := git.NewGit(worktreePath)
 	if stashCount, stashErr := worktreeGit.StashCount(); stashErr == nil {
 		state.StashCount = stashCount
 		if stashCount > 0 {
@@ -1020,8 +993,11 @@ type RecoveryStatus struct {
 	NeedsRecovery bool                  `json:"needs_recovery"`
 	Verdict       string                `json:"verdict"` // SAFE_TO_NUKE, NEEDS_RECOVERY, or NEEDS_MQ_SUBMIT
 	Branch        string                `json:"branch,omitempty"`
+	ActiveMR      string                `json:"active_mr"`
+	GitState      *GitState             `json:"git_state,omitempty"`
 	Issue         string                `json:"issue,omitempty"`
 	MQStatus      string                `json:"mq_status,omitempty"` // "submitted", "not_submitted", "not_required", "unknown"
+	Reason        string                `json:"reason,omitempty"`
 }
 
 func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
@@ -1052,45 +1028,40 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 		Rig:     rigName,
 		Polecat: polecatName,
 		Branch:  p.Branch,
-		Issue:   p.Issue,
+		Issue:   recoveryIssueID(p.Issue, p.Branch),
 	}
 
-	if err != nil || fields == nil {
-		// No agent bead or no cleanup_status - fall back to git check
-		// This handles polecats that haven't self-reported yet
-		gitState, gitErr := getGitState(p.ClonePath)
-		if gitErr != nil {
-			status.CleanupStatus = polecat.CleanupUnknown
-			status.NeedsRecovery = true
-			status.Verdict = "NEEDS_RECOVERY"
-		} else if gitState.Clean {
-			status.CleanupStatus = polecat.CleanupClean
-			status.NeedsRecovery = false
-			status.Verdict = "SAFE_TO_NUKE"
-		} else if gitState.UnpushedCommits > 0 {
-			status.CleanupStatus = polecat.CleanupUnpushed
-			status.NeedsRecovery = true
-			status.Verdict = "NEEDS_RECOVERY"
-		} else if gitState.StashCount > 0 {
-			status.CleanupStatus = polecat.CleanupStash
-			status.NeedsRecovery = true
-			status.Verdict = "NEEDS_RECOVERY"
-		} else {
-			status.CleanupStatus = polecat.CleanupUncommitted
-			status.NeedsRecovery = true
-			status.Verdict = "NEEDS_RECOVERY"
-		}
+	gitState, gitErr := getGitState(p.ClonePath)
+	if gitErr != nil {
+		status.CleanupStatus = polecat.CleanupUnknown
+		status.NeedsRecovery = true
+		status.Verdict = "NEEDS_RECOVERY"
+		status.Reason = fmt.Sprintf("cannot verify direct git evidence: %v", gitErr)
 	} else {
-		// Use cleanup_status from agent bead
-		status.CleanupStatus = polecat.CleanupStatus(fields.CleanupStatus)
-		if status.CleanupStatus.IsSafe() && isActiveMRTerminal(bd, fields.ActiveMR) {
-			status.NeedsRecovery = false
-			status.Verdict = "SAFE_TO_NUKE"
+		status.GitState = gitState
+		status.CleanupStatus = cleanupStatusFromGitState(gitState)
+		status.NeedsRecovery = !status.CleanupStatus.IsSafe()
+		if status.NeedsRecovery {
+			status.Verdict = "NEEDS_RECOVERY"
 		} else {
-			// RequiresRecovery covers uncommitted, stash, unpushed
-			// Unknown/empty also treated conservatively
+			status.Verdict = "SAFE_TO_NUKE"
+		}
+		if err == nil && fields != nil && fields.CleanupStatus != string(status.CleanupStatus) {
+			_ = bd.ForAgentBead().UpdateAgentCleanupStatus(agentBeadID, string(status.CleanupStatus))
+		}
+	}
+
+	if err == nil && fields != nil && fields.ActiveMR != "" {
+		status.ActiveMR = fields.ActiveMR
+		activeMRPending, activeMRErr := resolveActiveMRForRecovery(bd, agentBeadID, fields.ActiveMR)
+		if activeMRErr != nil {
 			status.NeedsRecovery = true
 			status.Verdict = "NEEDS_RECOVERY"
+			status.Reason = activeMRErr.Error()
+		} else if activeMRPending {
+			status.NeedsRecovery = true
+			status.Verdict = "NEEDS_RECOVERY"
+			status.Reason = fmt.Sprintf("active_mr %s is still open", fields.ActiveMR)
 		}
 	}
 
@@ -1108,7 +1079,7 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 		mqBd := beads.New(r.Path)
 		beadTerminal := isAssignedBeadTerminal(mqBd, status.Issue)
 		gitState, gitErr := getGitState(p.ClonePath)
-		hasSubmittableWork := gitErr != nil || gitState.UnpushedCommits > 0
+		hasSubmittableWork := gitErr != nil || gitState.UnpushedCommits > 0 || gitState.HasBranchWork
 		applyMQCheck(&status, mqBd, beadTerminal, hasSubmittableWork)
 	}
 
@@ -1127,6 +1098,9 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 	}
 	if status.Issue != "" {
 		fmt.Printf("  Issue:           %s\n", status.Issue)
+	}
+	if status.Reason != "" {
+		fmt.Printf("  Reason:          %s\n", status.Reason)
 	}
 	fmt.Println()
 
@@ -1158,21 +1132,55 @@ type issueShower interface {
 	Show(issueID string) (*beads.Issue, error)
 }
 
-func isActiveMRTerminal(bd issueShower, mrID string) bool {
+func cleanupStatusFromGitState(state *GitState) polecat.CleanupStatus {
+	if state == nil {
+		return polecat.CleanupUnknown
+	}
+	if state.StashCount > 0 {
+		return polecat.CleanupStash
+	}
+	if state.UnpushedCommits > 0 || state.NeedsReconcile {
+		return polecat.CleanupUnpushed
+	}
+	if len(state.UncommittedFiles) > 0 {
+		return polecat.CleanupUncommitted
+	}
+	return polecat.CleanupClean
+}
+
+func resolveActiveMRForRecovery(bd *beads.Beads, agentBeadID, mrID string) (bool, error) {
+	pending, err := activeMRPending(bd, mrID)
+	if err != nil || pending {
+		return pending, err
+	}
+	if mrID != "" && agentBeadID != "" {
+		if clearErr := bd.ForAgentBead().UpdateAgentActiveMR(agentBeadID, ""); clearErr != nil {
+			return false, fmt.Errorf("clearing stale active_mr %s: %w", mrID, clearErr)
+		}
+	}
+	return false, nil
+}
+
+func activeMRPending(bd issueShower, mrID string) (bool, error) {
 	if mrID == "" {
-		return true
+		return false, nil
 	}
 	if bd == nil {
-		return false
+		return true, fmt.Errorf("cannot verify active_mr %s: bead reader unavailable", mrID)
 	}
 	mr, err := bd.Show(mrID)
-	if errors.Is(err, beads.ErrNotFound) {
-		return true
+	if errors.Is(err, beads.ErrNotFound) || (err == nil && mr == nil) {
+		return false, nil
 	}
-	if err != nil || mr == nil {
-		return false
+	if err != nil {
+		return true, fmt.Errorf("cannot verify active_mr %s: %w", mrID, err)
 	}
-	return beads.IssueStatus(mr.Status).IsTerminal()
+	return !beads.IssueStatus(mr.Status).IsTerminal(), nil
+}
+
+func isActiveMRTerminal(bd issueShower, mrID string) bool {
+	pending, err := activeMRPending(bd, mrID)
+	return err == nil && !pending
 }
 
 // mrFinder is the subset of *beads.Beads that applyMQCheck needs. It lets us
@@ -1182,10 +1190,17 @@ type mrFinder interface {
 }
 
 // isAssignedBeadTerminal reports whether the polecat's assigned bead (if any)
-// is in a terminal status (closed/tombstone). Returns false on any lookup
-// failure — callers must only use this to *skip* further escalation, never to
+// no longer requires merge-queue submission. Returns false on any lookup failure
+// because callers must only use this to *skip* further escalation, never to
 // escalate, so a false negative is safe.
-func isAssignedBeadTerminal(bd *beads.Beads, issueID string) bool {
+func recoveryIssueID(assignedIssue, branch string) string {
+	if assignedIssue != "" {
+		return assignedIssue
+	}
+	return parseBranchName(branch).Issue
+}
+
+func isAssignedBeadTerminal(bd issueShower, issueID string) bool {
 	if issueID == "" || bd == nil {
 		return false
 	}
@@ -1193,7 +1208,21 @@ func isAssignedBeadTerminal(bd *beads.Beads, issueID string) bool {
 	if err != nil || issue == nil {
 		return false
 	}
-	return beads.IssueStatus(issue.Status).IsTerminal()
+	return recoverySourceDoesNotRequireMQ(issue)
+}
+
+func recoverySourceDoesNotRequireMQ(issue *beads.Issue) bool {
+	if issue == nil {
+		return false
+	}
+	status := beads.IssueStatus(issue.Status)
+	if status.IsTerminal() || issue.Status == "deferred" || issue.Status == "escalated" {
+		return true
+	}
+	if fields := beads.ParseAttachmentFields(issue); fields != nil {
+		return fields.NoMerge || fields.ReviewOnly
+	}
+	return false
 }
 
 // applyMQCheck mutates status based on merge-queue state for the polecat's
@@ -1218,8 +1247,11 @@ func applyMQCheck(status *RecoveryStatus, bd mrFinder, beadTerminal, hasSubmitta
 	}
 	mr, mrErr := bd.FindMRForBranchAny(status.Branch)
 	if mrErr != nil {
-		// Can't verify MQ — be conservative
+		// Can't verify MQ — fail closed rather than nuking unverifiable work.
 		status.MQStatus = "unknown"
+		status.NeedsRecovery = true
+		status.Verdict = "NEEDS_RECOVERY"
+		status.Reason = fmt.Sprintf("cannot verify merge queue for branch %s: %v", status.Branch, mrErr)
 		return
 	}
 	if mr != nil {
