@@ -1725,6 +1725,77 @@ func TestNotifyRecipient_BusyAgent(t *testing.T) {
 	}
 }
 
+func TestNotifyRecipient_BusyAgentNotificationActionabilityMatrix(t *testing.T) {
+	socket := requireNotifyTestSocket(t)
+
+	tests := []struct {
+		name          string
+		subject       string
+		priority      Priority
+		wantRemaining int
+		wantPriority  string
+	}{
+		{name: "ack", subject: "ACK: convoy status hq-cv123", wantPriority: nudge.PriorityNormal},
+		{name: "convoy status", subject: "Convoy status hq-cv123", wantPriority: nudge.PriorityNormal},
+		{name: "convoy complete", subject: "CONVOY_COMPLETE hq-cv123", wantPriority: nudge.PriorityNormal},
+		{name: "merged", subject: "MERGED polecat/radrat", wantPriority: nudge.PriorityNormal},
+		{name: "slot open", subject: "SLOT_OPEN: gastown/polecats/radrat completed", wantPriority: nudge.PriorityNormal},
+		{name: "slot blocked", subject: "SLOT_BLOCKED: gastown/polecats/radrat blocked", wantPriority: nudge.PriorityNormal},
+		{name: "mass agent death critical alert", subject: "MASS_DEATH: 4 sessions died in 5s", priority: PriorityUrgent, wantRemaining: 1, wantPriority: nudge.PriorityUrgent},
+		{name: "dolt high alert", subject: "ALERT: Dolt server unhealthy", priority: PriorityHigh, wantRemaining: 1, wantPriority: nudge.PriorityUrgent},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sessionName := fmt.Sprintf("gt-crew-policy-%d", i)
+			createNotifyTestSession(t, socket, sessionName, "sleep 300")
+
+			townRoot := t.TempDir()
+			r := &Router{
+				workDir:           t.TempDir(),
+				townRoot:          townRoot,
+				tmux:              tmux.NewTmuxWithSocket(socket),
+				IdleNotifyTimeout: time.Millisecond,
+			}
+
+			msg := &Message{
+				From:     "gastown/witness",
+				To:       fmt.Sprintf("gastown/crew/policy-%d", i),
+				Subject:  tt.subject,
+				Type:     TypeTask,
+				Priority: tt.priority,
+				ThreadID: fmt.Sprintf("thread-%d", i),
+			}
+
+			if err := r.notifyRecipient(msg); err != nil {
+				t.Fatalf("notifyRecipient returned error: %v", err)
+			}
+
+			nudges, err := nudge.Drain(townRoot, sessionName)
+			if err != nil {
+				t.Fatalf("Drain: %v", err)
+			}
+			if len(nudges) != 1 {
+				t.Fatalf("Drain returned %d immediate nudges, want 1", len(nudges))
+			}
+			if nudges[0].Kind != "mail" {
+				t.Fatalf("immediate nudge kind = %q, want mail", nudges[0].Kind)
+			}
+			if nudges[0].Priority != tt.wantPriority {
+				t.Fatalf("immediate nudge priority = %q, want %q", nudges[0].Priority, tt.wantPriority)
+			}
+
+			remaining, err := nudge.Pending(townRoot, sessionName)
+			if err != nil {
+				t.Fatalf("Pending: %v", err)
+			}
+			if remaining != tt.wantRemaining {
+				t.Fatalf("remaining deferred nudges = %d, want %d", remaining, tt.wantRemaining)
+			}
+		})
+	}
+}
+
 func TestNotifyRecipient_BusyAgentEscalationUsesUrgentQueuedNudge(t *testing.T) {
 	socket := requireNotifyTestSocket(t)
 	sessionName := "gt-crew-busy-escalation"
@@ -1826,8 +1897,10 @@ func TestShouldEnqueueReplyReminder(t *testing.T) {
 		{"reply", &Message{Type: TypeReply}, false},
 		{"unset", &Message{}, false},
 		{"ack task", &Message{Type: TypeTask, Subject: "ACK convoy status"}, false},
+		{"ack colon task", &Message{Type: TypeTask, Subject: "ACK: convoy status"}, false},
 		{"convoy status task", &Message{Type: TypeTask, Subject: "Convoy status hq-cv123"}, false},
 		{"convoy complete task", &Message{Type: TypeTask, Subject: "CONVOY_COMPLETE hq-cv123"}, false},
+		{"convoy completed prose task", &Message{Type: TypeTask, Subject: "Convoy completed hq-cv123"}, false},
 		{"merged task", &Message{Type: TypeTask, Subject: "MERGED nux"}, false},
 		{"slot open task", &Message{Type: TypeTask, Subject: "SLOT_OPEN: gastown/thunder completed"}, false},
 		{"slot blocked task", &Message{Type: TypeTask, Subject: "SLOT_BLOCKED: gastown/thunder blocked"}, false},
@@ -1837,6 +1910,9 @@ func TestShouldEnqueueReplyReminder(t *testing.T) {
 		{"status check remains actionable", &Message{Type: TypeTask, Subject: "status check"}, true},
 		{"recovery needed remains actionable", &Message{Type: TypeTask, Subject: "RECOVERY_NEEDED: cleanup required", Priority: PriorityHigh}, true},
 		{"critical task remains actionable", &Message{Type: TypeTask, Subject: "[CRITICAL] Disk full", Priority: PriorityUrgent}, true},
+		{"mass agent death alert remains actionable", &Message{Type: TypeTask, Subject: "MASS_DEATH: 4 sessions died in 5s", Priority: PriorityUrgent}, true},
+		{"dolt unhealthy alert remains actionable", &Message{Type: TypeTask, Subject: "ALERT: Dolt server unhealthy", Priority: PriorityHigh}, true},
+		{"dolt capacity alert remains actionable", &Message{Type: TypeTask, Subject: "Dolt capacity alert: 95 active connections", Priority: PriorityHigh}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
