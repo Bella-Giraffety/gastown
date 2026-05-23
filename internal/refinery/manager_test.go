@@ -110,14 +110,14 @@ func TestManager_Queue_FiltersClosedMergeRequests(t *testing.T) {
 	}
 
 	openIssue, err := b.Create(beads.CreateOptions{
-		Title: "Open MR",
+		Title:  "Open MR",
 		Labels: []string{"gt:merge-request"},
 	})
 	if err != nil {
 		t.Fatalf("create open merge-request issue: %v", err)
 	}
 	closedIssue, err := b.Create(beads.CreateOptions{
-		Title: "Closed MR",
+		Title:  "Closed MR",
 		Labels: []string{"gt:merge-request"},
 	})
 	if err != nil {
@@ -226,7 +226,7 @@ func TestManager_PostMerge_ClosesMRAndSourceIssue(t *testing.T) {
 
 	// Create a source issue
 	srcIssue, err := b.Create(beads.CreateOptions{
-		Title: "Implement feature X",
+		Title:  "Implement feature X",
 		Labels: []string{"gt:task"},
 	})
 	if err != nil {
@@ -291,6 +291,44 @@ func TestManager_PostMerge_AlreadyClosedMR(t *testing.T) {
 	_, err = mgr.PostMerge(mrIssue.ID)
 	if err == nil {
 		t.Error("PostMerge() expected error for already-closed MR")
+	}
+}
+
+func TestManager_PostMerge_ResumesAlreadyClosedMR(t *testing.T) {
+	mgr, rigPath := setupTestManager(t)
+	testutil.RequireDoltContainer(t)
+	port, _ := strconv.Atoi(testutil.DoltContainerPort())
+	b := beads.NewIsolatedWithPort(rigPath, port)
+	if err := b.Init("gt"); err != nil {
+		t.Skipf("bd init unavailable: %v", err)
+	}
+
+	srcIssue, err := b.Create(beads.CreateOptions{Title: "Implement feature Y"})
+	if err != nil {
+		t.Fatalf("create source issue: %v", err)
+	}
+	mrDesc := "branch: polecat/test/gt-resume\ntarget: main\nsource_issue: " + srcIssue.ID + "\nworker: test"
+	mrIssue, err := b.Create(beads.CreateOptions{
+		Title:       "MR for feature Y",
+		Labels:      []string{"gt:merge-request"},
+		Description: mrDesc,
+	})
+	if err != nil {
+		t.Fatalf("create MR issue: %v", err)
+	}
+	if err := b.CloseWithReason("merged", mrIssue.ID); err != nil {
+		t.Fatalf("close MR issue: %v", err)
+	}
+
+	result, err := mgr.PostMerge(mrIssue.ID)
+	if err != nil {
+		t.Fatalf("PostMerge() resume error: %v", err)
+	}
+	if !result.MRClosed {
+		t.Fatal("PostMerge() MRClosed = false, want true")
+	}
+	if !result.SourceIssueClosed || result.SourceIssueID != srcIssue.ID {
+		t.Fatalf("PostMerge() source closed=%v id=%q, want true %q", result.SourceIssueClosed, result.SourceIssueID, srcIssue.ID)
 	}
 }
 

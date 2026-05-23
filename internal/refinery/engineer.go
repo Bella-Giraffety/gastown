@@ -222,6 +222,7 @@ type MRInfo struct {
 	PreVerified     bool      // Polecat ran full gates after rebasing onto target
 	PreVerifiedAt   time.Time // When verification completed
 	PreVerifiedBase string    // Target branch SHA at verification time
+	MergeCommit     string    // Existing merge commit checkpoint for cleanup resume
 
 	// Raw data for agent-side queue health analysis (ZFC: agent decides, Go transports)
 	UpdatedAt          time.Time // When the MR was last updated
@@ -1139,6 +1140,10 @@ func (e *Engineer) ProcessMRInfo(ctx context.Context, mr *MRInfo) ProcessResult 
 	_, _ = fmt.Fprintf(e.output, "  Target: %s\n", mr.Target)
 	_, _ = fmt.Fprintf(e.output, "  Worker: %s\n", mr.Worker)
 	_, _ = fmt.Fprintf(e.output, "  Source: %s\n", mr.SourceIssue)
+	if mr.MergeCommit != "" {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] MR %s already has merge_commit=%s — resuming post-merge cleanup\n", mr.ID, shortSHA(mr.MergeCommit))
+		return ProcessResult{Success: true, MergeCommit: mr.MergeCommit}
+	}
 
 	// Phase 3: Check pre-verification fast-path.
 	// If the polecat already rebased onto the target and ran gates, and the target
@@ -1176,7 +1181,9 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Released merge slot\n")
 	}
 
-	// Update and close the MR bead
+	// Checkpoint the pushed merge commit before side-effecting cleanup. If this
+	// function is interrupted, the next patrol can resume cleanup without merging
+	// the source branch a second time.
 	if mr.ID != "" {
 		// Fetch the MR bead to update its fields
 		mrBead, err := e.beads.Show(mr.ID)
@@ -1195,13 +1202,6 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to update MR %s with merge commit: %v\n", mr.ID, err)
 			}
 		}
-
-		// Close MR bead with reason 'merged'
-		if err := e.beads.CloseWithReason("merged", mr.ID); err != nil {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close MR %s: %v\n", mr.ID, err)
-		} else {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Closed MR bead: %s\n", mr.ID)
-		}
 	}
 
 	// 1. Close source issue with reference to MR.
@@ -1219,6 +1219,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Source issue already closed: %s\n", mr.SourceIssue)
 			} else {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close source issue %s: %v\n", mr.SourceIssue, err)
+				return
 			}
 		} else {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Closed source issue: %s\n", mr.SourceIssue)
@@ -1227,8 +1228,13 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 
 	// 1.5. Clear agent bead's active_mr reference (traceability cleanup)
 	if mr.AgentBead != "" {
-		if err := e.clearAgentActiveMR(mr.AgentBead); err != nil {
+		cleared, err := e.clearAgentActiveMR(mr.AgentBead, mr.ID)
+		if err != nil {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to clear agent bead %s active_mr: %v\n", mr.AgentBead, err)
+			return
+		}
+		if !cleared {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Agent bead %s active_mr no longer points at %s; leaving it unchanged\n", mr.AgentBead, mr.ID)
 		}
 	}
 
@@ -1269,6 +1275,22 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 	// Run convoy check to auto-close and notify subscribers.
 	e.postMergeConvoyCheck(mr)
 
+	// Close MR bead only after source cleanup, active_mr cleanup, and branch cleanup
+	// have succeeded or proved idempotent. Keeping it open is the retry marker for
+	// interrupted post-merge cleanup.
+	if mr.ID != "" {
+		if err := e.beads.CloseWithReason("merged", mr.ID); err != nil {
+			if mrBead, showErr := e.beads.Show(mr.ID); showErr == nil && beads.IssueStatus(mrBead.Status).IsTerminal() {
+				_, _ = fmt.Fprintf(e.output, "[Engineer] MR bead already closed: %s\n", mr.ID)
+			} else {
+				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close MR %s: %v\n", mr.ID, err)
+				return
+			}
+		} else {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Closed MR bead: %s\n", mr.ID)
+		}
+	}
+
 	// 4. Nudge mayor about successful merge so dispatcher can unblock
 	// dependent work. Without this, mayor only discovers completion by polling.
 	// Uses nudge (not mail) to avoid permanent Dolt commits for routine signals (GH#2434).
@@ -1284,8 +1306,8 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 	_, _ = fmt.Fprintf(e.output, "[Engineer] ✓ Merged: %s (commit: %s)\n", mr.ID, result.MergeCommit)
 }
 
-func (e *Engineer) clearAgentActiveMR(agentBeadID string) error {
-	return e.beads.ForAgentBead().UpdateAgentActiveMR(agentBeadID, "")
+func (e *Engineer) clearAgentActiveMR(agentBeadID, expectedMR string) (bool, error) {
+	return e.beads.ForAgentBead().ClearAgentActiveMRIfMatches(agentBeadID, expectedMR)
 }
 
 // HandleMRInfoFailure handles a failed merge from MRInfo.
@@ -1582,6 +1604,7 @@ func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
 		PreVerified:     fields.PreVerified,
 		PreVerifiedAt:   preVerifiedAt,
 		PreVerifiedBase: fields.PreVerifiedBase,
+		MergeCommit:     fields.MergeCommit,
 		CreatedAt:       createdAt,
 		UpdatedAt:       updatedAt,
 		Assignee:        issue.Assignee,
@@ -1646,6 +1669,10 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 		if fields == nil {
 			continue // Skip issues without MR fields
 		}
+		if err := validateMRFieldsForProcessing(issue.ID, fields); err != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s: %v\n", issue.ID, err)
+			continue
+		}
 
 		// Filter by rig — wisps are shared across all rigs (GH#2718).
 		if fields.Rig != "" && !strings.EqualFold(fields.Rig, e.rig.Name) {
@@ -1705,6 +1732,10 @@ func (e *Engineer) ListBlockedMRs() ([]*MRInfo, error) {
 
 		fields := beads.ParseMRFields(issue)
 		if fields == nil {
+			continue
+		}
+		if err := validateMRFieldsForProcessing(issue.ID, fields); err != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping blocked MR %s: %v\n", issue.ID, err)
 			continue
 		}
 

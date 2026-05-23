@@ -436,37 +436,47 @@ func (m *Manager) issueToMR(issue *beads.Issue) *MergeRequest {
 		return nil
 	}
 
-	// Get configured default branch for this rig
-	defaultBranch := m.rig.DefaultBranch()
-
 	fields := beads.ParseMRFields(issue)
-	if fields == nil {
-		// No MR fields in description, construct from title/ID
-		return &MergeRequest{
-			ID:           issue.ID,
-			IssueID:      issue.ID,
-			Status:       MROpen,
-			CreatedAt:    parseTime(issue.CreatedAt),
-			TargetBranch: defaultBranch,
-		}
+	if err := validateMRFieldsForProcessing(issue.ID, fields); err != nil {
+		_, _ = fmt.Fprintf(m.output, "  %s Skipping MR %s: %v\n", style.Dim.Render("○"), issue.ID, err)
+		return nil
 	}
 
-	// Default target to rig's default branch if not specified
-	target := fields.Target
-	if target == "" {
-		target = defaultBranch
+	status := MROpen
+	if beads.IssueStatus(issue.Status).IsTerminal() {
+		status = MRClosed
 	}
-
 	return &MergeRequest{
 		ID:           issue.ID,
 		Branch:       fields.Branch,
 		Worker:       fields.Worker,
 		IssueID:      fields.SourceIssue,
-		TargetBranch: target,
+		TargetBranch: fields.Target,
 		MergeCommit:  fields.MergeCommit,
-		Status:       MROpen,
+		Status:       status,
 		CreatedAt:    parseTime(issue.CreatedAt),
 	}
+}
+
+func (m *Manager) findMRForPostMerge(idOrBranch string) (*MergeRequest, error) {
+	if mr, err := m.FindMR(idOrBranch); err == nil {
+		return mr, nil
+	}
+
+	b := beads.New(m.rig.BeadsPath())
+	if issue, err := b.Show(idOrBranch); err == nil && issue != nil {
+		if mr := m.issueToMR(issue); mr != nil {
+			return mr, nil
+		}
+	}
+
+	if issue, err := b.FindMRForBranchAny(idOrBranch); err == nil && issue != nil {
+		if mr := m.issueToMR(issue); mr != nil {
+			return mr, nil
+		}
+	}
+
+	return nil, ErrMRNotFound
 }
 
 // parseTime parses a time string, returning zero time on error.
@@ -600,7 +610,7 @@ type PostMergeResult struct {
 // It closes the MR bead and its source issue. Branch deletion is handled
 // by the caller since the Manager doesn't have git access.
 func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
-	mr, err := m.FindMR(idOrBranch)
+	mr, err := m.findMRForPostMerge(idOrBranch)
 	if err != nil {
 		return nil, err
 	}
@@ -611,20 +621,6 @@ func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
 	}
 
 	b := beads.New(m.rig.BeadsPath())
-
-	// Close the MR bead
-	if mr.IsClosed() {
-		_, _ = fmt.Fprintf(m.output, "  %s MR already closed\n", style.Dim.Render("—"))
-		result.MRClosed = true
-	} else {
-		if err := b.CloseWithReason("merged", mr.ID); err != nil {
-			return result, fmt.Errorf("closing MR bead: %w", err)
-		}
-		if closeErr := mr.Close(CloseReasonMerged); closeErr != nil {
-			_, _ = fmt.Fprintf(m.output, "Warning: failed to update MR state: %v\n", closeErr)
-		}
-		result.MRClosed = true
-	}
 
 	// Close the source issue with reason and --force to bypass dependency checks.
 	// The source issue may have an attached molecule (wisp) whose open steps
@@ -643,10 +639,29 @@ func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
 			} else {
 				_, _ = fmt.Fprintf(m.output, "  %s source issue close: %v\n", style.Dim.Render("○"), err)
 				result.SourceIssueNotFound = true
+				return result, fmt.Errorf("closing source issue %s: %w", mr.IssueID, err)
 			}
 		} else {
 			result.SourceIssueClosed = true
 		}
+	}
+
+	// Close the MR bead after source cleanup so an interrupted post-merge can be retried.
+	if mr.IsClosed() {
+		_, _ = fmt.Fprintf(m.output, "  %s MR already closed\n", style.Dim.Render("—"))
+		result.MRClosed = true
+	} else {
+		if err := b.CloseWithReason("merged", mr.ID); err != nil {
+			if issue, showErr := b.Show(mr.ID); showErr == nil && beads.IssueStatus(issue.Status).IsTerminal() {
+				result.MRClosed = true
+			} else {
+				return result, fmt.Errorf("closing MR bead: %w", err)
+			}
+		}
+		if closeErr := mr.Close(CloseReasonMerged); closeErr != nil {
+			_, _ = fmt.Fprintf(m.output, "Warning: failed to update MR state: %v\n", closeErr)
+		}
+		result.MRClosed = true
 	}
 
 	return result, nil

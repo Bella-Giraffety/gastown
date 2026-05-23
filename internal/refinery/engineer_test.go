@@ -111,8 +111,12 @@ esac
 		beads:  beads.NewWithBeadsDir(mayorRig, rigBeadsDir),
 		output: io.Discard,
 	}
-	if err := e.clearAgentActiveMR("gt-gastown-polecat-rust"); err != nil {
+	cleared, err := e.clearAgentActiveMR("gt-gastown-polecat-rust", "gt-mr")
+	if err != nil {
 		t.Fatalf("clearAgentActiveMR: %v", err)
+	}
+	if !cleared {
+		t.Fatal("clearAgentActiveMR cleared = false, want true")
 	}
 
 	logBytes, err := os.ReadFile(logPath)
@@ -125,6 +129,85 @@ esac
 	}
 	if !strings.Contains(logOutput, "env="+townBeadsDir+" args=") || !strings.Contains(logOutput, " show") || !strings.Contains(logOutput, " update") {
 		t.Fatalf("refinery active_mr cleanup did not use town BEADS_DIR; log:\n%s", logOutput)
+	}
+}
+
+func TestEngineerClearAgentActiveMRSkipsStaleMR(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+
+	townRoot := t.TempDir()
+	rigName := "gastown"
+	rigPath := filepath.Join(townRoot, rigName)
+	mayorRig := filepath.Join(rigPath, "mayor", "rig")
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	rigBeadsDir := filepath.Join(mayorRig, ".beads")
+
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), townBeadsDir, rigBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte("{}"), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := beads.WriteRoutes(townBeadsDir, []beads.Route{{Prefix: "hq-", Path: "."}, {Prefix: "gt-", Path: filepath.Join(rigName, "mayor", "rig")}}); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "bd.log")
+	script := fmt.Sprintf(`#!/bin/sh
+LOG=%q
+printf 'args=%%s\n' "$*" >> "$LOG"
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+case "$cmd" in
+  version)
+    exit 0
+    ;;
+  show)
+    printf '%%s\n' '[{"id":"gt-gastown-polecat-rust","title":"gt-gastown-polecat-rust","issue_type":"task","labels":["gt:agent"],"status":"open","description":"role_type: polecat\nrig: gastown\nagent_state: working\nactive_mr: gt-new"}]'
+    exit 0
+    ;;
+  update)
+    exit 7
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`, logPath)
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	e := &Engineer{
+		rig:    &rig.Rig{Name: rigName, Path: rigPath},
+		beads:  beads.NewWithBeadsDir(mayorRig, rigBeadsDir),
+		output: io.Discard,
+	}
+	cleared, err := e.clearAgentActiveMR("gt-gastown-polecat-rust", "gt-old")
+	if err != nil {
+		t.Fatalf("clearAgentActiveMR: %v", err)
+	}
+	if cleared {
+		t.Fatal("clearAgentActiveMR cleared stale active_mr")
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read mock log: %v", err)
+	}
+	if strings.Contains(string(logBytes), " update") {
+		t.Fatalf("stale active_mr cleanup should not update bead; log:\n%s", string(logBytes))
 	}
 }
 

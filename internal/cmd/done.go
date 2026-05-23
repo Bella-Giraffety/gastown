@@ -98,6 +98,34 @@ func shouldUseDirectMergeStrategy(roleIsPolecat bool, mergeStrategy string) bool
 	return mergeStrategy == "direct" && !roleIsPolecat
 }
 
+func resolveDoneMRTarget(defaultBranch, explicitTarget string, sourceIssue *beads.Issue, issueID string, detectIntegration func() (string, error)) (string, bool, error) {
+	if explicitTarget != "" {
+		return explicitTarget, true, nil
+	}
+
+	if sourceIssue == nil {
+		return "", false, fmt.Errorf("cannot determine MR target: source issue %s could not be loaded; rerun with --target <branch> or retry after beads recovers", issueID)
+	}
+
+	if af := beads.ParseAttachmentFields(sourceIssue); af != nil {
+		if baseBranch := extractFormulaVar(af.FormulaVars, "base_branch"); baseBranch != "" {
+			return baseBranch, false, nil
+		}
+	}
+
+	if detectIntegration != nil {
+		target, err := detectIntegration()
+		if err != nil {
+			return "", false, fmt.Errorf("cannot determine MR target for %s: %w; rerun with --target <branch> to override", issueID, err)
+		}
+		if target != "" {
+			return target, false, nil
+		}
+	}
+
+	return defaultBranch, false, nil
+}
+
 func init() {
 	doneCmd.Flags().StringVar(&doneIssue, "issue", "", "Source issue ID (default: parse from branch name)")
 	doneCmd.Flags().IntVarP(&donePriority, "priority", "p", -1, "Override priority (0-4, default: inherit from issue)")
@@ -1059,49 +1087,25 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 		// Determine target branch for the MR.
 		// Priority: explicit --target flag > formula_vars base_branch > integration branch auto-detect > rig default.
-		target := defaultBranch
-		explicitTarget := false
-
-		// 1. Explicit --target flag (highest priority — polecat knows its base branch).
-		// This is the most reliable path: the formula passes {{base_branch}} directly,
-		// avoiding any dependency on bd.Show() or Dolt availability.
-		if doneTarget != "" {
-			target = doneTarget
-			explicitTarget = true
+		// The default branch is only used after source metadata has been read successfully.
+		refineryEnabled := true
+		settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
+		if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
+			refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
+		}
+		target, explicitTarget, targetErr := resolveDoneMRTarget(defaultBranch, doneTarget, sourceIssueForNoMerge, issueID, func() (string, error) {
+			if !refineryEnabled {
+				return "", nil
+			}
+			return beads.DetectIntegrationBranch(bd, g, issueID)
+		})
+		if targetErr != nil {
+			return targetErr
+		}
+		if explicitTarget {
 			fmt.Printf("  Target branch: %s (from --target flag)\n", target)
-		}
-
-		// 2. Check for --base-branch override in formula vars (stored on bead at sling time).
-		// Fallback for polecats dispatched before --target flag existed, or when
-		// the formula doesn't pass --target explicitly.
-		if !explicitTarget && target == defaultBranch && sourceIssueForNoMerge != nil {
-			if af := beads.ParseAttachmentFields(sourceIssueForNoMerge); af != nil {
-				if bb := extractFormulaVar(af.FormulaVars, "base_branch"); bb != "" && bb != defaultBranch {
-					target = bb
-					fmt.Printf("  Target branch override: %s (from formula_vars)\n", target)
-				}
-			}
-		} else if !explicitTarget && target == defaultBranch && sourceIssueForNoMerge == nil && issueID != "" {
-			// sourceIssueForNoMerge is nil — bd.Show(issueID) failed earlier.
-			// This is the silent failure path that caused 150+ procedure beads to
-			// target main instead of feat/contract-review-procedure.
-			style.PrintWarning("could not load source issue %s for target branch detection (Dolt/beads lookup failed) — using default branch %s", issueID, defaultBranch)
-		}
-
-		// 3. Auto-detect integration branch from epic hierarchy (if enabled).
-		// Only overrides if no explicit target was set above.
-		if !explicitTarget && target == defaultBranch {
-			refineryEnabled := true
-			settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
-			if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
-				refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
-			}
-			if refineryEnabled {
-				autoTarget, err := beads.DetectIntegrationBranch(bd, g, issueID)
-				if err == nil && autoTarget != "" {
-					target = autoTarget
-				}
-			}
+		} else if target != defaultBranch {
+			fmt.Printf("  Target branch: %s\n", target)
 		}
 
 		// Get source issue for priority inheritance

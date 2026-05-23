@@ -508,6 +508,38 @@ func (b *Beads) UpdateAgentActiveMR(id string, activeMR string) error {
 	return b.UpdateAgentDescriptionFields(id, AgentFieldUpdates{ActiveMR: &activeMR})
 }
 
+// ClearAgentActiveMRIfMatches clears active_mr only when it still references
+// the expected MR. This prevents old post-merge cleanup from clearing a newer
+// MR after a polecat identity has been reused.
+func (b *Beads) ClearAgentActiveMRIfMatches(id string, expectedMR string) (bool, error) {
+	if target := b.agentBeadTarget(); target != b {
+		return target.ClearAgentActiveMRIfMatches(id, expectedMR)
+	}
+
+	fl, lockErr := b.lockAgentBead(id)
+	if lockErr != nil {
+		return false, fmt.Errorf("locking agent bead %s: %w", id, lockErr)
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	issue, err := b.Show(id)
+	if err != nil {
+		return false, err
+	}
+
+	fields := ParseAgentFields(issue.Description)
+	if fields.ActiveMR != expectedMR {
+		return false, nil
+	}
+
+	fields.ActiveMR = ""
+	description := FormatAgentDescription(issue.Title, fields)
+	if err := b.Update(id, UpdateOptions{Description: &description}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // UpdateAgentNotificationLevel updates the notification_level field in an agent bead.
 // Valid levels: verbose, normal, muted (DND mode).
 // Pass empty string to reset to default (normal).
