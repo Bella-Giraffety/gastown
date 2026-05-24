@@ -302,6 +302,50 @@ func TestFindIdleMonitorProcessesFromPS(t *testing.T) {
 	}
 }
 
+func TestFindOwnedDoltTestServerCandidatesFromPS(t *testing.T) {
+	townRoot := "/tmp/gt"
+	dataDir := "/tmp/gt/.dolt-data"
+	output := strings.Join([]string{
+		"101 dolt sql-server --config /tmp/gt/.dolt-data/config.yaml",
+		"102 dolt sql-server --config /tmp/gt-old/.dolt-data/config.yaml",
+		"103 grep dolt sql-server /tmp/gt/.dolt-data/config.yaml",
+		"104 dolt sql-server --data-dir /tmp/gt/.dolt-data",
+		"105 /usr/bin/dolt sql-server --config=/tmp/gt/.dolt-data/config.yaml",
+		"106 dolt status /tmp/gt/.dolt-data",
+	}, "\n")
+
+	got := findOwnedDoltTestServerCandidatesFromPS(output, townRoot, dataDir)
+	want := []int{101, 104, 105}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestIsDoltSQLServerArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "plain dolt", args: []string{"dolt", "sql-server", "--config", "/tmp/gt/.dolt-data/config.yaml"}, want: true},
+		{name: "absolute dolt", args: []string{"/usr/bin/dolt", "sql-server"}, want: true},
+		{name: "not sql server", args: []string{"dolt", "status"}, want: false},
+		{name: "grep", args: []string{"grep", "dolt", "sql-server"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDoltSQLServerArgs(tt.args); got != tt.want {
+				t.Fatalf("isDoltSQLServerArgs(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDoltProcessOwnerPathFromEvidence(t *testing.T) {
 	tests := []struct {
 		name             string

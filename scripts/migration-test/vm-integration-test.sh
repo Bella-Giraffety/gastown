@@ -30,6 +30,7 @@ fail_check() { echo -e "  ${RED}[FAIL]${NC} $1"; FAILURES=$((FAILURES + 1)); FAI
 TOWN_ROOT="${1:?Usage: vm-integration-test.sh <town_root>}"
 TOWN_ROOT=$(cd "$TOWN_ROOT" && pwd)  # Absolute path
 DOLT_DATA_DIR="/workspace/dolt-server"
+DOLT_PID_FILE="$DOLT_DATA_DIR/server.pid"
 REPORT_FILE="/tmp/vm-integration-results.txt"
 MASTER_BACKUP="/tmp/migration-master-backup"
 FAILURES=0
@@ -74,15 +75,59 @@ create_master_backup() {
     log "Master backup created ($(du -sh "$MASTER_BACKUP" | cut -f1))"
 }
 
-# Kill all bd/dolt user processes, stop dolt server cleanly
+is_owned_dolt_pid() {
+    local pid="$1"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    [[ -r "/proc/$pid/cmdline" ]] || return 1
+
+    local cmdline
+    cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+    [[ "$cmdline" == *"dolt sql-server"* && "$cmdline" == *"$DOLT_DATA_DIR"* ]]
+}
+
+is_dolt_server_running() {
+    [[ -f "$DOLT_PID_FILE" ]] || return 1
+    local pid
+    pid=$(cat "$DOLT_PID_FILE" 2>/dev/null || true)
+    is_owned_dolt_pid "$pid"
+}
+
+stop_dolt_server() {
+    log "Stopping owned Dolt server..."
+    if [[ ! -f "$DOLT_PID_FILE" ]]; then
+        warn "No Dolt PID file at $DOLT_PID_FILE"
+        return 0
+    fi
+
+    local pid
+    pid=$(cat "$DOLT_PID_FILE" 2>/dev/null || true)
+    if ! is_owned_dolt_pid "$pid"; then
+        warn "Refusing to stop unverified Dolt PID '$pid'"
+        rm -f "$DOLT_PID_FILE"
+        return 0
+    fi
+
+    sudo kill "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$DOLT_PID_FILE"
+            return 0
+        fi
+        sleep 0.1
+    done
+    if is_owned_dolt_pid "$pid"; then
+        sudo kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$DOLT_PID_FILE"
+}
+
+# Kill bd user processes, stop only the Dolt server owned by this test.
 kill_all_processes() {
     log "Killing bd daemons..."
     sudo killall -9 bd 2>/dev/null || true
     sleep 0.5
 
-    log "Stopping Dolt server..."
-    sudo killall dolt 2>/dev/null || true
-    sleep 2
+    stop_dolt_server
 
     # Verify no processes remain
     if pgrep -f "bd daemon" >/dev/null 2>&1; then
@@ -93,14 +138,13 @@ kill_all_processes() {
 # Start dolt server
 start_dolt_server() {
     log "Starting Dolt server..."
-    sudo -u ubuntu nohup dolt sql-server \
-        --host 127.0.0.1 --port 3307 \
-        --data-dir "$DOLT_DATA_DIR" \
-        > "$DOLT_DATA_DIR/server.log" 2>&1 &
+    local pid
+    pid=$(sudo -u ubuntu bash -c "nohup dolt sql-server --host 127.0.0.1 --port 3307 --data-dir '$DOLT_DATA_DIR' > '$DOLT_DATA_DIR/server.log' 2>&1 & echo \\$!")
+    echo "$pid" > "$DOLT_PID_FILE"
     sleep 3
 
-    if pgrep -f "dolt sql-server" >/dev/null 2>&1; then
-        log "Dolt server started (PID $(pgrep -f 'dolt sql-server'))"
+    if is_dolt_server_running; then
+        log "Dolt server started (PID $(cat "$DOLT_PID_FILE"))"
     else
         warn "Dolt server failed to start"
     fi
@@ -214,8 +258,7 @@ run_full_migration() {
 
     # Stop dolt server before consolidation (gt dolt migrate requires it stopped)
     log "Stopping Dolt server for consolidation..."
-    sudo killall dolt 2>/dev/null || true
-    sleep 2
+    stop_dolt_server
 
     # Consolidate dolt databases
     cd "$TOWN_ROOT"
@@ -282,7 +325,7 @@ verify_zero_artifacts() {
     fi
 
     # Check 5: Dolt server is running
-    if pgrep -f "dolt sql-server" >/dev/null 2>&1; then
+    if is_dolt_server_running; then
         pass "$test_name: Dolt server running"
     else
         fail_check "$test_name: Dolt server not running"
@@ -463,8 +506,7 @@ if [[ ${#RIGS[@]} -ge 2 ]]; then
     echo y | sudo -u ubuntu bd migrate dolt 2>&1 || warn "$SECOND_RIG: migrate returned non-zero"
 
     # Consolidate (stop server first)
-    sudo killall dolt 2>/dev/null || true
-    sleep 2
+    stop_dolt_server
     cd "$TOWN_ROOT"
     sudo -u ubuntu gt dolt migrate 2>&1 || warn "gt dolt migrate returned non-zero"
     start_dolt_server
@@ -525,8 +567,7 @@ for rig_dir in "$TOWN_ROOT"/*/; do
 done
 
 # Run gt dolt migrate again (stop server first, as required)
-sudo killall dolt 2>/dev/null || true
-sleep 2
+stop_dolt_server
 cd "$TOWN_ROOT"
 output=$(sudo -u ubuntu gt dolt migrate 2>&1) || true
 if echo "$output" | grep -qi "fatal\|panic\|corrupt"; then

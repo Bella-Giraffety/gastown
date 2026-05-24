@@ -1415,6 +1415,130 @@ func StopIdleMonitors(townRoot string) int {
 	return stopped
 }
 
+// ReapOwnedTestServers terminates dolt sql-server processes that are provably
+// owned by townRoot. This is intentionally narrower than operational cleanup:
+// tests must never kill production Dolt by port or broad process pattern.
+func ReapOwnedTestServers(townRoot string) (int, error) {
+	absRoot, err := filepath.Abs(townRoot)
+	if err != nil {
+		return 0, fmt.Errorf("resolving town root: %w", err)
+	}
+	absTemp, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return 0, fmt.Errorf("resolving temp dir: %w", err)
+	}
+	rel, err := filepath.Rel(absTemp, absRoot)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return 0, fmt.Errorf("refusing to reap Dolt outside temp dir: %s", absRoot)
+	}
+
+	config := DefaultConfig(absRoot)
+	candidates := ownedDoltTestServerCandidates(absRoot, config)
+	stopped := 0
+	for _, pid := range candidates {
+		if pid <= 0 || pid == os.Getpid() || !processIsAlive(pid) {
+			continue
+		}
+		if !isDoltSQLServerProcess(pid) {
+			continue
+		}
+		if !doltProcessMatchesTown(absRoot, pid, config) {
+			continue
+		}
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			continue
+		}
+		if err := gracefulTerminate(proc); err != nil {
+			return stopped, fmt.Errorf("terminating owned Dolt PID %d: %w", pid, err)
+		}
+		for i := 0; i < 20; i++ {
+			time.Sleep(100 * time.Millisecond)
+			if !processIsAlive(pid) {
+				stopped++
+				break
+			}
+		}
+		if processIsAlive(pid) {
+			_ = proc.Kill()
+			time.Sleep(100 * time.Millisecond)
+			stopped++
+		}
+	}
+
+	return stopped, nil
+}
+
+func ownedDoltTestServerCandidates(townRoot string, config *Config) []int {
+	seen := map[int]bool{}
+	var pids []int
+	add := func(pid int) {
+		if pid <= 0 || seen[pid] {
+			return
+		}
+		seen[pid] = true
+		pids = append(pids, pid)
+	}
+
+	if data, err := os.ReadFile(config.PidFile); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			add(pid)
+		}
+	}
+	if info, err := readSQLServerInfo(config); err == nil {
+		add(info.PID)
+	}
+	for _, pid := range findOwnedDoltTestServerCandidatesFromPS(processList(), townRoot, config.DataDir) {
+		add(pid)
+	}
+	return pids
+}
+
+func processList() string {
+	cmd := exec.Command("ps", "-eo", "pid,args")
+	setProcessGroup(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+func findOwnedDoltTestServerCandidatesFromPS(output, townRoot, dataDir string) []int {
+	absRoot, _ := filepath.Abs(townRoot)
+	absDataDir, _ := filepath.Abs(dataDir)
+	var pids []int
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, "sql-server") || !strings.Contains(line, "dolt") {
+			continue
+		}
+		if !containsPathBoundary(line, absRoot) && !containsPathBoundary(line, absDataDir) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		if isDoltSQLServerArgs(fields[1:]) {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+func isDoltSQLServerProcess(pid int) bool {
+	return isDoltSQLServerArgs(getProcessArgs(pid))
+}
+
+func isDoltSQLServerArgs(args []string) bool {
+	return len(args) >= 2 && filepath.Base(args[0]) == "dolt" && args[1] == "sql-server"
+}
+
 // CheckPortAvailable verifies that a TCP port is free for use as a Dolt server.
 // Returns a user-friendly error if the port is already in use.
 func CheckPortAvailable(port int) error {

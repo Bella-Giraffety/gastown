@@ -542,6 +542,16 @@ func TestHandoffPolecatEnvCheck(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			_ = writeBDStub(t, binDir, "#!/bin/sh\nexit 0\n", "@echo off\r\nexit /b 0\r\n")
+			if err := os.WriteFile(filepath.Join(binDir, "gt"), []byte("#!/bin/sh\nprintf 'stub gt %s\\n' \"$*\"\nexit 0\n"), 0755); err != nil {
+				t.Fatalf("write gt stub: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(binDir, "gt.cmd"), []byte("@echo off\r\necho stub gt %*\r\nexit /b 0\r\n"), 0644); err != nil {
+				t.Fatalf("write gt.cmd stub: %v", err)
+			}
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Chdir(t.TempDir())
 			t.Setenv("GT_ROLE", tt.role)
 			t.Setenv("GT_POLECAT", tt.polecat)
 			// Ensure deterministic non-tmux execution so the non-polecat
