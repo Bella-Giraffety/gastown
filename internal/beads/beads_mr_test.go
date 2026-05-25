@@ -46,10 +46,10 @@ func TestMatchesMRSourceIssue(t *testing.T) {
 			want:        true,
 		},
 		{
-			name:        "source_issue at end without trailing newline — no match",
+			name:        "source_issue at end without trailing newline",
 			description: "branch: fix/thing\nsource_issue: gt-99",
 			issueID:     "gt-99",
-			want:        false,
+			want:        true,
 		},
 		{
 			name:        "empty description",

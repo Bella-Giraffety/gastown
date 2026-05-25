@@ -119,3 +119,47 @@ func TestValidateMoleculePrereqs(t *testing.T) {
 		})
 	}
 }
+
+func TestNewMergeRequestFieldsIncludesBranchCustody(t *testing.T) {
+	fields := newMergeRequestFields(nil, mergeRequestFieldsOptions{
+		Branch:        "polecat/fury/gt-12-branch-custody-model@mpkjsi2s",
+		Target:        "integration/test-beaddolt-hardenning",
+		SourceIssue:   "gt-12-branch-custody-model",
+		Rig:           "gastown",
+		Worker:        "fury",
+		CommitSHA:     "abc123",
+		AgentBead:     "agent-fury",
+		SkipVerify:    true,
+		PreVerified:   true,
+		CleanupPolicy: custodyCleanupPolicy("fury", false),
+	})
+
+	if fields.Branch != fields.SourceRef {
+		t.Fatalf("legacy branch alias = %q, source_ref = %q", fields.Branch, fields.SourceRef)
+	}
+	if fields.CommitSHA != fields.SourceCommitSHA {
+		t.Fatalf("legacy commit alias = %q, source_commit_sha = %q", fields.CommitSHA, fields.SourceCommitSHA)
+	}
+	if fields.Target != fields.TargetRef {
+		t.Fatalf("legacy target alias = %q, target_ref = %q", fields.Target, fields.TargetRef)
+	}
+	if fields.Phase != "submitted" || fields.CleanupOwner != "fury" || fields.CleanupPolicy != "witness-after-merge" {
+		t.Fatalf("custody fields not populated: %+v", fields.Custody())
+	}
+
+	desc := beads.FormatMRFields(fields)
+	for _, want := range []string{
+		"branch: polecat/fury/gt-12-branch-custody-model@mpkjsi2s",
+		"source_ref: polecat/fury/gt-12-branch-custody-model@mpkjsi2s",
+		"target_ref: integration/test-beaddolt-hardenning",
+		"source_commit_sha: abc123",
+		"agent_bead: agent-fury",
+		"skip_verify: true",
+		"phase: submitted",
+		"cleanup_policy: witness-after-merge",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("description missing %q:\n%s", want, desc)
+		}
+	}
+}

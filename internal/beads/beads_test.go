@@ -1321,6 +1321,82 @@ func TestMRFieldsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBranchCustodyLegacyFallback(t *testing.T) {
+	issue := &Issue{Description: `branch: polecat/fury/gt-12-branch-custody-model@mpkjsi2s
+target: integration/test-beaddolt-hardenning
+source_issue: gt-12-branch-custody-model
+commit_sha: abc123`}
+
+	fields := ParseMRFields(issue)
+	if fields == nil {
+		t.Fatal("ParseMRFields returned nil")
+	}
+
+	custody := fields.Custody()
+	if custody.SourceRef != "polecat/fury/gt-12-branch-custody-model@mpkjsi2s" {
+		t.Errorf("SourceRef = %q", custody.SourceRef)
+	}
+	if custody.TargetRef != "integration/test-beaddolt-hardenning" {
+		t.Errorf("TargetRef = %q", custody.TargetRef)
+	}
+	if custody.SourceCommitSHA != "abc123" {
+		t.Errorf("SourceCommitSHA = %q", custody.SourceCommitSHA)
+	}
+}
+
+func TestBranchCustodyCanonicalFields(t *testing.T) {
+	fields := NewMRFieldsFromCustody(BranchCustody{
+		SourceRef:       "polecat/fury/gt-12-branch-custody-model@mpkjsi2s",
+		SourceCommitSHA: "abc123",
+		SourceRemote:    "origin",
+		SourceFetchRef:  "https://github.com/gastownhall/gastown",
+		SourcePushRef:   "https://github.com/Bella-Giraffety/gastown.git",
+		TargetRef:       "integration/test-beaddolt-hardenning",
+		TargetBase:      "def456",
+		SourceIssue:     "gt-12-branch-custody-model",
+		Worker:          "fury",
+		AgentBead:       "agent-fury",
+		Phase:           "submitted",
+		CleanupOwner:    "fury",
+		CleanupPolicy:   "witness-after-merge",
+		Rig:             "gastown",
+	})
+	formatted := FormatMRFields(fields)
+	parsed := ParseMRFields(&Issue{Description: formatted})
+	if parsed == nil {
+		t.Fatal("ParseMRFields returned nil")
+	}
+
+	custody := parsed.Custody()
+	if custody.SourceRef != "polecat/fury/gt-12-branch-custody-model@mpkjsi2s" {
+		t.Errorf("SourceRef = %q", custody.SourceRef)
+	}
+	if custody.SourcePushRef != "https://github.com/Bella-Giraffety/gastown.git" {
+		t.Errorf("SourcePushRef = %q", custody.SourcePushRef)
+	}
+	if custody.TargetBase != "def456" {
+		t.Errorf("TargetBase = %q", custody.TargetBase)
+	}
+	if custody.CleanupPolicy != "witness-after-merge" {
+		t.Errorf("CleanupPolicy = %q", custody.CleanupPolicy)
+	}
+
+	for _, want := range []string{
+		"branch: polecat/fury/gt-12-branch-custody-model@mpkjsi2s",
+		"source_ref: polecat/fury/gt-12-branch-custody-model@mpkjsi2s",
+		"target_ref: integration/test-beaddolt-hardenning",
+		"source_commit_sha: abc123",
+		"source_fetch_ref: https://github.com/gastownhall/gastown",
+		"source_push_ref: https://github.com/Bella-Giraffety/gastown.git",
+		"phase: submitted",
+		"cleanup_owner: fury",
+	} {
+		if !strings.Contains(formatted, want) {
+			t.Fatalf("formatted custody missing %q:\n%s", want, formatted)
+		}
+	}
+}
+
 // TestParseMRFieldsFromDesignDoc tests the example from the design doc.
 func TestParseMRFieldsFromDesignDoc(t *testing.T) {
 	// Example from docs/merge-queue-design.md

@@ -35,20 +35,19 @@ func (b *Beads) FindMRForBranchAndSHA(branch, commitSHA string) (*Issue, error) 
 		return nil, err
 	}
 
-	branchPrefix := "branch: " + branch + "\n"
 	for _, issue := range issues {
 		if issue.Status == "closed" {
 			continue
 		}
-		if !strings.HasPrefix(issue.Description, branchPrefix) {
+		fields := ParseMRFields(issue)
+		if fields == nil || fields.Custody().SourceRef != branch {
 			continue
 		}
 		// Branch matches — check commit SHA.
 		// If the MR has no commit_sha field (legacy), fall back to branch-only
 		// match for backward compatibility.
-		fields := ParseMRFields(issue)
-		if fields != nil && fields.CommitSHA != "" && commitSHA != "" {
-			if fields.CommitSHA != commitSHA {
+		if sourceSHA := fields.Custody().SourceCommitSHA; sourceSHA != "" && commitSHA != "" {
+			if sourceSHA != commitSHA {
 				// Same branch but different SHA — this is a stale MR.
 				// Don't return it; caller will create a new MR and supersede.
 				continue
@@ -66,8 +65,6 @@ func (b *Beads) FindMRForBranchAndSHA(branch, commitSHA string) (*Issue, error) 
 // Ephemeral=true routes to the wisps table where MR beads live (GH#2446).
 // When skipClosed is true, closed beads are excluded (for open-MR checks).
 func (b *Beads) findMRForBranch(branch string, skipClosed bool) (*Issue, error) {
-	branchPrefix := "branch: " + branch + "\n"
-
 	issues, err := b.ListMergeRequests(ListOptions{
 		Status: "all",
 		Label:  "gt:merge-request",
@@ -79,7 +76,8 @@ func (b *Beads) findMRForBranch(branch string, skipClosed bool) (*Issue, error) 
 		if skipClosed && issue.Status == "closed" {
 			continue
 		}
-		if strings.HasPrefix(issue.Description, branchPrefix) {
+		fields := ParseMRFields(issue)
+		if fields != nil && fields.Custody().SourceRef == branch {
 			return issue, nil
 		}
 	}
@@ -113,6 +111,9 @@ func (b *Beads) FindOpenMRsForIssue(issueID string) ([]*Issue, error) {
 // newline in the needle prevents partial ID matches (e.g., "gt-abc"
 // must not match "gt-abcdef").
 func MatchesMRSourceIssue(description, issueID string) bool {
+	if fields := ParseMRFields(&Issue{Description: description}); fields != nil {
+		return fields.SourceIssue == issueID
+	}
 	needle := "source_issue: " + issueID + "\n"
-	return strings.Contains(description, needle)
+	return strings.Contains(description, needle) || strings.HasSuffix(description, strings.TrimSuffix(needle, "\n"))
 }

@@ -13,19 +13,19 @@ import (
 // AttachmentFields holds the attachment info for pinned beads.
 // These fields track which molecule is attached to a handoff/pinned bead.
 type AttachmentFields struct {
-	AttachedMolecule string // Root issue ID of the attached molecule
-	AttachedFormula  string // Formula name (e.g., "mol-polecat-work") for inline step display
-	AttachedAt       string // ISO 8601 timestamp when attached
-	AttachedArgs     string // Natural language args passed via gt sling --args (no-tmux mode)
+	AttachedMolecule string   // Root issue ID of the attached molecule
+	AttachedFormula  string   // Formula name (e.g., "mol-polecat-work") for inline step display
+	AttachedAt       string   // ISO 8601 timestamp when attached
+	AttachedArgs     string   // Natural language args passed via gt sling --args (no-tmux mode)
 	AttachedVars     []string // Formula variables passed via gt sling --var
-	DispatchedBy     string // Agent ID that dispatched this work (for completion notification)
-	NoMerge          bool   // If true, gt done skips merge queue (for upstream PRs/human review)
-	ReviewOnly       bool   // If true, assignee must evaluate and report back — no merge/commit/push
-	Mode             string // Execution mode: "" (normal) or "ralph" (Ralph Wiggum loop)
-	ConvoyID         string // Convoy bead ID tracking this issue (e.g., "hq-cv-abc")
-	MergeStrategy    string // Convoy merge strategy: "direct", "mr", "local", or "" (default = mr)
-	ConvoyOwned      bool   // If true, convoy has gt:owned label (caller-managed lifecycle)
-	FormulaVars      string // Newline-separated key=value pairs for formula template substitution
+	DispatchedBy     string   // Agent ID that dispatched this work (for completion notification)
+	NoMerge          bool     // If true, gt done skips merge queue (for upstream PRs/human review)
+	ReviewOnly       bool     // If true, assignee must evaluate and report back — no merge/commit/push
+	Mode             string   // Execution mode: "" (normal) or "ralph" (Ralph Wiggum loop)
+	ConvoyID         string   // Convoy bead ID tracking this issue (e.g., "hq-cv-abc")
+	MergeStrategy    string   // Convoy merge strategy: "direct", "mr", "local", or "" (default = mr)
+	ConvoyOwned      bool     // If true, convoy has gt:owned label (caller-managed lifecycle)
+	FormulaVars      string   // Newline-separated key=value pairs for formula template substitution
 }
 
 // ParseAttachmentFields extracts attachment fields from an issue's description.
@@ -187,7 +187,7 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 		"nomerge":           true,
 		"review_only":       true,
 		"review-only":       true,
-		"reviewonly":         true,
+		"reviewonly":        true,
 		"mode":              true,
 		"convoy_id":         true,
 		"convoy-id":         true,
@@ -508,17 +508,17 @@ func SetConvoyFields(issue *Issue, fields *ConvoyFields) string {
 
 	// Known convoy field keys (lowercase)
 	convoyKeys := map[string]bool{
-		"owner":           true,
-		"notify":          true,
-		"merge":           true,
-		"molecule":        true,
-		"base_branch":     true,
-		"base-branch":     true,
-		"basebranch":      true,
-		"watchers":        true,
-		"nudge_watchers":  true,
-		"nudge-watchers":  true,
-		"nudgewatchers":   true,
+		"owner":          true,
+		"notify":         true,
+		"merge":          true,
+		"molecule":       true,
+		"base_branch":    true,
+		"base-branch":    true,
+		"basebranch":     true,
+		"watchers":       true,
+		"nudge_watchers": true,
+		"nudge-watchers": true,
+		"nudgewatchers":  true,
 	}
 
 	// Collect non-convoy lines from existing description
@@ -566,9 +566,31 @@ func SetConvoyFields(issue *Issue, fields *ConvoyFields) string {
 	return strings.Join(otherLines, "\n") + "\n" + formatted
 }
 
+// BranchCustody is the durable source of truth for a merge request's branch
+// ownership. Legacy MR fields still parse, but new writers should populate
+// custody fields so recovery, cleanup, and refinery processing read one model.
+type BranchCustody struct {
+	SourceRef       string // Source branch/ref to fetch and merge
+	SourceCommitSHA string // HEAD SHA at submission time
+	SourceRemote    string // Logical source remote name (usually origin)
+	SourceFetchRef  string // Fetch URL/ref custody for the source remote
+	SourcePushRef   string // Push URL/ref custody for the source remote
+	TargetRef       string // Target branch/ref
+	TargetBase      string // Target branch SHA at submission time
+	SourceIssue     string // Work item being merged
+	Worker          string // Polecat/worker that produced the branch
+	AgentBead       string // Agent bead that submitted the MR
+	Phase           string // Current MR phase, e.g. submitted/merging/merged
+	CleanupOwner    string // Actor responsible for cleanup decisions
+	CleanupPolicy   string // Cleanup policy, e.g. witness-after-merge/manual
+	Rig             string // Owning rig
+}
+
 // MRFields holds the structured fields for a merge-request issue.
 // These fields are stored as key: value lines in the issue description.
 type MRFields struct {
+	// Legacy aliases retained for migration/readability. SourceRef, TargetRef,
+	// and SourceCommitSHA are canonical for new custody-aware MRs.
 	Branch      string // Source branch name (e.g., "polecat/Nux/gt-xyz")
 	Target      string // Target branch (e.g., "main" or "integration/gt-epic")
 	SourceIssue string // The work item being merged (e.g., "gt-xyz")
@@ -578,6 +600,19 @@ type MRFields struct {
 	MergeCommit string // SHA of merge commit (set on close)
 	CloseReason string // Reason for closing: merged, rejected, conflict, superseded
 	AgentBead   string // Agent bead ID that created this MR (for traceability)
+	SkipVerify  bool   // Audit/test-only completion that skipped verified push checks
+
+	// Canonical branch custody fields.
+	SourceRef       string // Source branch/ref to fetch and merge
+	SourceCommitSHA string // HEAD SHA at submission time
+	SourceRemote    string // Logical source remote name (usually origin)
+	SourceFetchRef  string // Fetch URL/ref custody for source remote
+	SourcePushRef   string // Push URL/ref custody for source remote
+	TargetRef       string // Target branch/ref
+	TargetBase      string // Target branch SHA at submission time
+	Phase           string // Current MR phase
+	CleanupOwner    string // Actor responsible for cleanup decisions
+	CleanupPolicy   string // Cleanup policy for source branch/worktree
 
 	// Conflict resolution fields (for priority scoring)
 	RetryCount      int    // Number of conflict-resolution cycles
@@ -594,6 +629,62 @@ type MRFields struct {
 	PreVerified     bool   // Polecat ran full gates after rebasing onto target
 	PreVerifiedAt   string // ISO 8601 timestamp when verification completed
 	PreVerifiedBase string // Target branch SHA at verification time
+}
+
+// NewMRFieldsFromCustody converts canonical branch custody into MR fields while
+// preserving legacy aliases for older readers during migration.
+func NewMRFieldsFromCustody(c BranchCustody) *MRFields {
+	return &MRFields{
+		Branch:          c.SourceRef,
+		Target:          c.TargetRef,
+		SourceIssue:     c.SourceIssue,
+		Worker:          c.Worker,
+		Rig:             c.Rig,
+		CommitSHA:       c.SourceCommitSHA,
+		AgentBead:       c.AgentBead,
+		SourceRef:       c.SourceRef,
+		SourceCommitSHA: c.SourceCommitSHA,
+		SourceRemote:    c.SourceRemote,
+		SourceFetchRef:  c.SourceFetchRef,
+		SourcePushRef:   c.SourcePushRef,
+		TargetRef:       c.TargetRef,
+		TargetBase:      c.TargetBase,
+		Phase:           c.Phase,
+		CleanupOwner:    c.CleanupOwner,
+		CleanupPolicy:   c.CleanupPolicy,
+	}
+}
+
+// Custody returns canonical custody, falling back to legacy aliases when needed.
+func (f *MRFields) Custody() BranchCustody {
+	if f == nil {
+		return BranchCustody{}
+	}
+	return BranchCustody{
+		SourceRef:       firstNonEmpty(f.SourceRef, f.Branch),
+		SourceCommitSHA: firstNonEmpty(f.SourceCommitSHA, f.CommitSHA),
+		SourceRemote:    f.SourceRemote,
+		SourceFetchRef:  f.SourceFetchRef,
+		SourcePushRef:   f.SourcePushRef,
+		TargetRef:       firstNonEmpty(f.TargetRef, f.Target),
+		TargetBase:      f.TargetBase,
+		SourceIssue:     f.SourceIssue,
+		Worker:          f.Worker,
+		AgentBead:       f.AgentBead,
+		Phase:           f.Phase,
+		CleanupOwner:    f.CleanupOwner,
+		CleanupPolicy:   f.CleanupPolicy,
+		Rig:             f.Rig,
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // ParseMRFields extracts structured merge-request fields from an issue's description.
@@ -644,6 +735,39 @@ func ParseMRFields(issue *Issue) *MRFields {
 			hasFields = true
 		case "commit_sha", "commit-sha", "commitsha":
 			fields.CommitSHA = value
+			hasFields = true
+		case "skip_verify", "skip-verify", "skipverify":
+			fields.SkipVerify = strings.ToLower(value) == "true"
+			hasFields = true
+		case "source_ref", "source-ref", "sourceref":
+			fields.SourceRef = value
+			hasFields = true
+		case "source_commit_sha", "source-commit-sha", "sourcecommitsha":
+			fields.SourceCommitSHA = value
+			hasFields = true
+		case "source_remote", "source-remote", "sourceremote":
+			fields.SourceRemote = value
+			hasFields = true
+		case "source_fetch_ref", "source-fetch-ref", "sourcefetchref", "source_fetch_remote", "source-fetch-remote", "sourcefetchremote":
+			fields.SourceFetchRef = value
+			hasFields = true
+		case "source_push_ref", "source-push-ref", "sourcepushref", "source_push_remote", "source-push-remote", "sourcepushremote":
+			fields.SourcePushRef = value
+			hasFields = true
+		case "target_ref", "target-ref", "targetref":
+			fields.TargetRef = value
+			hasFields = true
+		case "target_base", "target-base", "targetbase":
+			fields.TargetBase = value
+			hasFields = true
+		case "phase":
+			fields.Phase = value
+			hasFields = true
+		case "cleanup_owner", "cleanup-owner", "cleanupowner":
+			fields.CleanupOwner = value
+			hasFields = true
+		case "cleanup_policy", "cleanup-policy", "cleanuppolicy":
+			fields.CleanupPolicy = value
 			hasFields = true
 		case "merge_commit", "merge-commit", "mergecommit":
 			fields.MergeCommit = value
@@ -708,8 +832,14 @@ func FormatMRFields(fields *MRFields) string {
 	if fields.Branch != "" {
 		lines = append(lines, "branch: "+fields.Branch)
 	}
+	if fields.SourceRef != "" {
+		lines = append(lines, "source_ref: "+fields.SourceRef)
+	}
 	if fields.Target != "" {
 		lines = append(lines, "target: "+fields.Target)
+	}
+	if fields.TargetRef != "" {
+		lines = append(lines, "target_ref: "+fields.TargetRef)
 	}
 	if fields.SourceIssue != "" {
 		lines = append(lines, "source_issue: "+fields.SourceIssue)
@@ -723,6 +853,21 @@ func FormatMRFields(fields *MRFields) string {
 	if fields.CommitSHA != "" {
 		lines = append(lines, "commit_sha: "+fields.CommitSHA)
 	}
+	if fields.SourceCommitSHA != "" {
+		lines = append(lines, "source_commit_sha: "+fields.SourceCommitSHA)
+	}
+	if fields.SourceRemote != "" {
+		lines = append(lines, "source_remote: "+fields.SourceRemote)
+	}
+	if fields.SourceFetchRef != "" {
+		lines = append(lines, "source_fetch_ref: "+fields.SourceFetchRef)
+	}
+	if fields.SourcePushRef != "" {
+		lines = append(lines, "source_push_ref: "+fields.SourcePushRef)
+	}
+	if fields.TargetBase != "" {
+		lines = append(lines, "target_base: "+fields.TargetBase)
+	}
 	if fields.MergeCommit != "" {
 		lines = append(lines, "merge_commit: "+fields.MergeCommit)
 	}
@@ -731,6 +876,18 @@ func FormatMRFields(fields *MRFields) string {
 	}
 	if fields.AgentBead != "" {
 		lines = append(lines, "agent_bead: "+fields.AgentBead)
+	}
+	if fields.SkipVerify {
+		lines = append(lines, "skip_verify: true")
+	}
+	if fields.Phase != "" {
+		lines = append(lines, "phase: "+fields.Phase)
+	}
+	if fields.CleanupOwner != "" {
+		lines = append(lines, "cleanup_owner: "+fields.CleanupOwner)
+	}
+	if fields.CleanupPolicy != "" {
+		lines = append(lines, "cleanup_policy: "+fields.CleanupPolicy)
 	}
 	if fields.RetryCount > 0 {
 		lines = append(lines, fmt.Sprintf("retry_count: %d", fields.RetryCount))
@@ -770,47 +927,87 @@ func SetMRFields(issue *Issue, fields *MRFields) string {
 
 	// Known MR field keys (lowercase)
 	mrKeys := map[string]bool{
-		"branch":             true,
-		"target":             true,
-		"source_issue":       true,
-		"source-issue":       true,
-		"sourceissue":        true,
-		"worker":             true,
-		"rig":                true,
-		"merge_commit":       true,
-		"merge-commit":       true,
-		"mergecommit":        true,
-		"close_reason":       true,
-		"close-reason":       true,
-		"closereason":        true,
-		"agent_bead":         true,
-		"agent-bead":         true,
-		"agentbead":          true,
-		"retry_count":        true,
-		"retry-count":        true,
-		"retrycount":         true,
-		"last_conflict_sha":  true,
-		"last-conflict-sha":  true,
-		"lastconflictsha":    true,
-		"conflict_task_id":   true,
-		"conflict-task-id":   true,
-		"conflicttaskid":     true,
-		"convoy_id":          true,
-		"convoy-id":          true,
-		"convoyid":           true,
-		"convoy":             true,
-		"convoy_created_at":  true,
-		"convoy-created-at":  true,
-		"convoycreatedat":    true,
-		"pre_verified":       true,
-		"pre-verified":       true,
-		"preverified":        true,
-		"pre_verified_at":    true,
-		"pre-verified-at":    true,
-		"preverifiedat":      true,
-		"pre_verified_base":  true,
-		"pre-verified-base":  true,
-		"preverifiedbase":    true,
+		"branch":              true,
+		"target":              true,
+		"source_issue":        true,
+		"source-issue":        true,
+		"sourceissue":         true,
+		"worker":              true,
+		"rig":                 true,
+		"commit_sha":          true,
+		"commit-sha":          true,
+		"commitsha":           true,
+		"skip_verify":         true,
+		"skip-verify":         true,
+		"skipverify":          true,
+		"source_ref":          true,
+		"source-ref":          true,
+		"sourceref":           true,
+		"source_commit_sha":   true,
+		"source-commit-sha":   true,
+		"sourcecommitsha":     true,
+		"source_remote":       true,
+		"source-remote":       true,
+		"sourceremote":        true,
+		"source_fetch_ref":    true,
+		"source-fetch-ref":    true,
+		"sourcefetchref":      true,
+		"source_fetch_remote": true,
+		"source-fetch-remote": true,
+		"sourcefetchremote":   true,
+		"source_push_ref":     true,
+		"source-push-ref":     true,
+		"sourcepushref":       true,
+		"source_push_remote":  true,
+		"source-push-remote":  true,
+		"sourcepushremote":    true,
+		"target_ref":          true,
+		"target-ref":          true,
+		"targetref":           true,
+		"target_base":         true,
+		"target-base":         true,
+		"targetbase":          true,
+		"phase":               true,
+		"cleanup_owner":       true,
+		"cleanup-owner":       true,
+		"cleanupowner":        true,
+		"cleanup_policy":      true,
+		"cleanup-policy":      true,
+		"cleanuppolicy":       true,
+		"merge_commit":        true,
+		"merge-commit":        true,
+		"mergecommit":         true,
+		"close_reason":        true,
+		"close-reason":        true,
+		"closereason":         true,
+		"agent_bead":          true,
+		"agent-bead":          true,
+		"agentbead":           true,
+		"retry_count":         true,
+		"retry-count":         true,
+		"retrycount":          true,
+		"last_conflict_sha":   true,
+		"last-conflict-sha":   true,
+		"lastconflictsha":     true,
+		"conflict_task_id":    true,
+		"conflict-task-id":    true,
+		"conflicttaskid":      true,
+		"convoy_id":           true,
+		"convoy-id":           true,
+		"convoyid":            true,
+		"convoy":              true,
+		"convoy_created_at":   true,
+		"convoy-created-at":   true,
+		"convoycreatedat":     true,
+		"pre_verified":        true,
+		"pre-verified":        true,
+		"preverified":         true,
+		"pre_verified_at":     true,
+		"pre-verified-at":     true,
+		"preverifiedat":       true,
+		"pre_verified_base":   true,
+		"pre-verified-base":   true,
+		"preverifiedbase":     true,
 	}
 
 	// Collect non-MR lines from existing description

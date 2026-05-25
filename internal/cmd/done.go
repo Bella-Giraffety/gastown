@@ -1140,6 +1140,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// Pre-declare for checkpoint goto (gt-aufru)
 		var existingMR *beads.Issue
 		var commitSHA string
+		var mrFields *beads.MRFields
 
 		// GH#3032: Resolve HEAD commit SHA for MR dedup.
 		// Branch name alone is not a valid dedup key — a polecat may push new
@@ -1178,47 +1179,34 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			// Continue with creation attempt - Create will fail if duplicate
 		}
 
+		mrFields = newMergeRequestFields(g, mergeRequestFieldsOptions{
+			Branch:        branch,
+			Target:        target,
+			SourceIssue:   issueID,
+			Rig:           rigName,
+			Worker:        worker,
+			CommitSHA:     commitSHA,
+			AgentBead:     agentBeadID,
+			SkipVerify:    doneSkipVerify,
+			PreVerified:   donePreVerified,
+			CleanupPolicy: custodyCleanupPolicy(worker, false),
+		})
+		if donePreVerified && mrFields.PreVerifiedBase == "" {
+			style.PrintWarning("could not resolve origin/%s for pre-verified base (pre-verification data incomplete)", target)
+		}
+
 		if existingMR != nil {
 			// MR already exists with same branch AND commit — true idempotent retry
 			mrID = existingMR.ID
+			if err := updateMergeRequestFields(bd, existingMR, mrFields); err != nil {
+				style.PrintWarning("could not update existing MR custody: %v", err)
+			}
 			fmt.Printf("%s MR already exists (idempotent)\n", style.Bold.Render("✓"))
 			fmt.Printf("  MR ID: %s\n", style.Bold.Render(mrID))
 		} else {
-			// Build MR bead title and description
+			// Build MR bead title and custody description
 			title := fmt.Sprintf("Merge: %s", issueID)
-			description := fmt.Sprintf("branch: %s\ntarget: %s\nsource_issue: %s\nrig: %s",
-				branch, target, issueID, rigName)
-			if commitSHA != "" {
-				description += fmt.Sprintf("\ncommit_sha: %s", commitSHA)
-			}
-			if doneSkipVerify {
-				description += "\nskip_verify: true"
-			}
-			if worker != "" {
-				description += fmt.Sprintf("\nworker: %s", worker)
-			}
-			if agentBeadID != "" {
-				description += fmt.Sprintf("\nagent_bead: %s", agentBeadID)
-			}
-
-			// Add conflict resolution tracking fields (initialized, updated by Refinery)
-			description += "\nretry_count: 0"
-			description += "\nlast_conflict_sha: null"
-			description += "\nconflict_task_id: null"
-
-			// Phase 3: Add pre-verification metadata if polecat ran gates after rebasing.
-			// The refinery uses these fields to fast-path merge without re-running gates.
-			if donePreVerified {
-				description += "\npre_verified: true"
-				description += fmt.Sprintf("\npre_verified_at: %s", time.Now().UTC().Format(time.RFC3339))
-				// Capture current origin/target HEAD as the verified base.
-				// The polecat rebased onto this SHA before running gates.
-				if verifiedBase, baseErr := g.Rev("origin/" + target); baseErr == nil {
-					description += fmt.Sprintf("\npre_verified_base: %s", verifiedBase)
-				} else {
-					style.PrintWarning("could not resolve origin/%s for pre-verified base: %v (pre-verification data incomplete)", target, baseErr)
-				}
-			}
+			description := beads.FormatMRFields(mrFields)
 
 			mrIssue, err := bd.Create(beads.CreateOptions{
 				Title:       title,

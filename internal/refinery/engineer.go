@@ -208,6 +208,16 @@ type MRInfo struct {
 	SourceIssue     string     // The work item being merged
 	Worker          string     // Who did the work
 	Rig             string     // Which rig
+	SourceRef       string     // Canonical source branch/ref from MR custody
+	SourceCommitSHA string     // Canonical source commit SHA from MR custody
+	SourceRemote    string     // Logical source remote name
+	SourceFetchRef  string     // Source fetch custody URL/ref
+	SourcePushRef   string     // Source push custody URL/ref
+	TargetRef       string     // Canonical target branch/ref from MR custody
+	TargetBase      string     // Target branch SHA at submission time
+	Phase           string     // MR custody phase
+	CleanupOwner    string     // Actor responsible for cleanup decisions
+	CleanupPolicy   string     // Cleanup policy for source branch/worktree
 	Title           string     // MR title
 	Priority        int        // Priority (lower = higher priority)
 	AgentBead       string     // Agent bead ID that created this MR
@@ -1534,6 +1544,8 @@ func (e *Engineer) IsBeadOpen(beadID string) (bool, error) {
 // issueToMRInfo converts a beads issue (with parsed MR fields) into an MRInfo.
 // Shared by ListReadyMRs, ListBlockedMRs, and ListAllOpenMRs.
 func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
+	custody := fields.Custody()
+
 	// Parse convoy created_at if present
 	var convoyCreatedAt *time.Time
 	if fields.ConvoyCreatedAt != "" {
@@ -1565,11 +1577,21 @@ func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
 
 	return &MRInfo{
 		ID:              issue.ID,
-		Branch:          fields.Branch,
-		Target:          fields.Target,
+		Branch:          custody.SourceRef,
+		Target:          custody.TargetRef,
 		SourceIssue:     fields.SourceIssue,
 		Worker:          fields.Worker,
 		Rig:             fields.Rig,
+		SourceRef:       custody.SourceRef,
+		SourceCommitSHA: custody.SourceCommitSHA,
+		SourceRemote:    custody.SourceRemote,
+		SourceFetchRef:  custody.SourceFetchRef,
+		SourcePushRef:   custody.SourcePushRef,
+		TargetRef:       custody.TargetRef,
+		TargetBase:      custody.TargetBase,
+		Phase:           custody.Phase,
+		CleanupOwner:    custody.CleanupOwner,
+		CleanupPolicy:   custody.CleanupPolicy,
 		Title:           issue.Title,
 		Priority:        issue.Priority,
 		AgentBead:       fields.AgentBead,

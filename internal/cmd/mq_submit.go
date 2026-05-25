@@ -238,16 +238,18 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		style.PrintWarning("could not resolve HEAD SHA: %v (falling back to branch-only dedup)", shaErr)
 	}
 
-	// Build MR bead title and description
+	// Build MR bead title and custody description
 	title := fmt.Sprintf("Merge: %s", issueID)
-	description := fmt.Sprintf("branch: %s\ntarget: %s\nsource_issue: %s\nrig: %s",
-		branch, target, issueID, rigName)
-	if commitSHA != "" {
-		description += fmt.Sprintf("\ncommit_sha: %s", commitSHA)
-	}
-	if worker != "" {
-		description += fmt.Sprintf("\nworker: %s", worker)
-	}
+	mrFields := newMergeRequestFields(g, mergeRequestFieldsOptions{
+		Branch:        branch,
+		Target:        target,
+		SourceIssue:   issueID,
+		Rig:           rigName,
+		Worker:        worker,
+		CommitSHA:     commitSHA,
+		CleanupPolicy: custodyCleanupPolicy(worker, mqSubmitNoCleanup),
+	})
+	description := beads.FormatMRFields(mrFields)
 
 	// Check if MR bead already exists for this branch+SHA (idempotency)
 	var mrIssue *beads.Issue
@@ -264,6 +266,9 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 
 	if existingMR != nil {
 		mrIssue = existingMR
+		if err := updateMergeRequestFields(bd, existingMR, mrFields); err != nil {
+			style.PrintWarning("could not update existing MR custody: %v", err)
+		}
 		fmt.Printf("%s MR already exists (idempotent)\n", style.Bold.Render("✓"))
 	} else {
 		// Create MR bead (ephemeral wisp - will be cleaned up after merge)
