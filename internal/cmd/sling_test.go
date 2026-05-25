@@ -122,6 +122,8 @@ func TestSlingNewlyCreatedRigBeadRoutesBDCommandsToTargetRig(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping on windows: shell stub redacts multiline descriptions")
 	}
+	beads.ResetBdAllowStaleCacheForTest()
+	t.Cleanup(beads.ResetBdAllowStaleCacheForTest)
 
 	townRoot := t.TempDir()
 	newBeadID := "gt-new123"
@@ -458,11 +460,15 @@ func TestSlingRollsBackSpawnedPolecatOnInstantiateFailure(t *testing.T) {
 	}
 	bdScript := `#!/bin/sh
 set -e
-if [ "$1" = "--db" ]; then
-  shift 2
-fi
 cmd="$1"
 shift || true
+while [ "$cmd" = "--db" ] || [ "$cmd" = "--allow-stale" ]; do
+  if [ "$cmd" = "--db" ]; then
+    shift || true
+  fi
+  cmd="$1"
+  shift || true
+done
 case "$cmd" in
   show)
     echo '[{"title":"Test issue","status":"open","assignee":"","description":""}]'
@@ -738,6 +744,10 @@ if [ "$1" = "--db" ]; then
 fi
 cmd="$1"
 shift || true
+if [ "$cmd" = "--allow-stale" ]; then
+  cmd="$1"
+  shift || true
+fi
 case "$cmd" in
   show)
     echo '[{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]'
