@@ -2183,6 +2183,8 @@ func (m *Manager) reuseDecisionForPolecat(name string, state State) SlotReuseDec
 func (m *Manager) workstateInputForPolecat(name string, state State, issue string) WorkstateInput {
 	input := WorkstateInput{State: state, CleanupStatus: CleanupUnknown}
 	agentID := m.agentBeadID(name)
+	activeMR := ""
+	sourceHint := ""
 	_, fields, err := m.agentBeads().GetAgentBead(agentID)
 	if err != nil {
 		input.GitCheckFailed = true
@@ -2191,8 +2193,16 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 		input.HookBead = fields.HookBead
 		input.PushFailed = fields.PushFailed
 		input.MRFailed = fields.MRFailed
+<<<<<<< HEAD
 		input.ActiveMR = fields.ActiveMR
 		input.ActiveMRBlocker = m.activeMRBlocker(fields.ActiveMR)
+=======
+		activeMR = fields.ActiveMR
+		sourceHint = fields.LastSourceIssue
+		if sourceHint == "" {
+			sourceHint = fields.HookBead
+		}
+>>>>>>> origin/integration/test-beaddolt-hardenning
 		if fields.CleanupStatus != "" {
 			input.CleanupStatus = CleanupStatus(fields.CleanupStatus)
 		}
@@ -2227,6 +2237,7 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 	if input.CleanupStatus == CleanupUnknown && !input.GitCheckFailed && !input.GitDirty && input.StashCount == 0 && input.UnpushedCommits == 0 {
 		input.CleanupStatus = CleanupClean
 	}
+<<<<<<< HEAD
 	input.MQCheckRequired = input.Branch != ""
 	input.HasSubmittableWork = hasSubmittableWorkForWorkstate(clonePath)
 	input.AssignedBeadTerminal = m.assignedBeadTerminal(issue)
@@ -2329,6 +2340,19 @@ func countPatchUniqueCommitsForWorkstate(worktreePath, baseRef string) (int, err
 		}
 	}
 	return count, nil
+=======
+	if activeMR != "" {
+		gitSafe := !input.GitCheckFailed && !input.GitDirty && input.StashCount == 0 && input.UnpushedCommits == 0
+		assessment := AssessActiveMR(m.agentBeads(), ActiveMRInput{ActiveMR: activeMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: gitSafe})
+		if assessment.Pending {
+			input.ActiveMRPending = true
+			input.ActiveMRReason = assessment.Reason
+		} else if input.CleanupStatus == CleanupUnpushed {
+			input.StaleCleanupSafe = true
+		}
+	}
+	return DecideSlotReuse(input)
+>>>>>>> origin/integration/test-beaddolt-hardenning
 }
 
 func (m *Manager) reuseTargetRefs(fields *beads.AgentFields) []string {

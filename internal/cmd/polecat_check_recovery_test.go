@@ -46,6 +46,22 @@ func (f *fakeCleanupUpdater) UpdateAgentCleanupStatus(id string, cleanupStatus s
 	return f.err
 }
 
+type fakeIssueMapShower struct {
+	issues map[string]*beads.Issue
+	errs   map[string]error
+}
+
+func (f fakeIssueMapShower) Show(issueID string) (*beads.Issue, error) {
+	if err := f.errs[issueID]; err != nil {
+		return nil, err
+	}
+	issue, ok := f.issues[issueID]
+	if !ok {
+		return nil, beads.ErrNotFound
+	}
+	return issue, nil
+}
+
 func TestApplyMQCheck(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -113,14 +129,14 @@ func TestApplyMQCheck(t *testing.T) {
 			wantNeedsRecov: false,
 		},
 		{
-			name:           "MR lookup error is conservative (unknown, no escalation)",
+			name:           "MR lookup error fails closed",
 			finder:         fakeMRFinder{issue: nil, err: errors.New("bd exploded")},
 			beadTerminal:   false,
 			hasWork:        true,
 			initialVerdict: "SAFE_TO_NUKE",
-			wantVerdict:    "SAFE_TO_NUKE",
+			wantVerdict:    "NEEDS_RECOVERY",
 			wantMQStatus:   "unknown",
-			wantNeedsRecov: false,
+			wantNeedsRecov: true,
 		},
 	}
 
@@ -241,8 +257,7 @@ func TestStaleCleanupStatusCanBeIgnoredForRecovery(t *testing.T) {
 		workTerminal bool
 		hookSafe     bool
 		activeMRSafe bool
-		gitState     *GitState
-		gitErr       error
+		gitSafe      bool
 		wantCanSkip  bool
 	}{
 		{
@@ -251,7 +266,7 @@ func TestStaleCleanupStatusCanBeIgnoredForRecovery(t *testing.T) {
 			workTerminal: true,
 			hookSafe:     true,
 			activeMRSafe: true,
-			gitState:     &GitState{Clean: true},
+			gitSafe:      true,
 			wantCanSkip:  true,
 		},
 		{
@@ -259,21 +274,21 @@ func TestStaleCleanupStatusCanBeIgnoredForRecovery(t *testing.T) {
 			status:       polecat.CleanupUnpushed,
 			hookSafe:     true,
 			activeMRSafe: true,
-			gitState:     &GitState{Clean: true},
+			gitSafe:      true,
 		},
 		{
 			name:         "hooked work still blocks",
 			status:       polecat.CleanupUnpushed,
 			workTerminal: true,
 			activeMRSafe: true,
-			gitState:     &GitState{Clean: true},
+			gitSafe:      true,
 		},
 		{
 			name:         "active MR still blocks",
 			status:       polecat.CleanupUnpushed,
 			workTerminal: true,
 			hookSafe:     true,
-			gitState:     &GitState{Clean: true},
+			gitSafe:      true,
 		},
 		{
 			name:         "dirty git still blocks",
@@ -281,7 +296,6 @@ func TestStaleCleanupStatusCanBeIgnoredForRecovery(t *testing.T) {
 			workTerminal: true,
 			hookSafe:     true,
 			activeMRSafe: true,
-			gitState:     &GitState{UnpushedCommits: 1},
 		},
 		{
 			name:         "git error still blocks",
@@ -289,7 +303,6 @@ func TestStaleCleanupStatusCanBeIgnoredForRecovery(t *testing.T) {
 			workTerminal: true,
 			hookSafe:     true,
 			activeMRSafe: true,
-			gitErr:       errors.New("git failed"),
 		},
 		{
 			name:         "non-unpushed cleanup still blocks",
@@ -297,7 +310,7 @@ func TestStaleCleanupStatusCanBeIgnoredForRecovery(t *testing.T) {
 			workTerminal: true,
 			hookSafe:     true,
 			activeMRSafe: true,
-			gitState:     &GitState{Clean: true},
+			gitSafe:      true,
 		},
 		{
 			name:         "terminal hook can satisfy work terminal predicate",
@@ -305,14 +318,14 @@ func TestStaleCleanupStatusCanBeIgnoredForRecovery(t *testing.T) {
 			workTerminal: true,
 			hookSafe:     true,
 			activeMRSafe: true,
-			gitState:     &GitState{Clean: true},
+			gitSafe:      true,
 			wantCanSkip:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := staleCleanupStatusCanBeIgnoredForRecovery(tt.status, tt.workTerminal, tt.hookSafe, tt.activeMRSafe, tt.gitState, tt.gitErr)
+			got := staleCleanupStatusCanBeIgnoredForRecovery(tt.status, tt.workTerminal, tt.hookSafe, tt.activeMRSafe, tt.gitSafe)
 			if got != tt.wantCanSkip {
 				t.Fatalf("staleCleanupStatusCanBeIgnoredForRecovery() = %v, want %v", got, tt.wantCanSkip)
 			}
@@ -520,23 +533,26 @@ func TestStaleCleanWithRealUnpushedStillBlocks(t *testing.T) {
 
 func TestActiveMRBlocker(t *testing.T) {
 	tests := []struct {
-		name string
-		mrID string
-		bd   issueShower
-		want string
+		name       string
+		mrID       string
+		sourceHint string
+		bd         issueShower
+		want       string
 	}{
 		{name: "empty", want: ""},
-		{name: "closed", mrID: "mr-1", bd: fakeIssueShower{issue: &beads.Issue{ID: "mr-1", Status: "closed"}}, want: ""},
+		{name: "closed terminal source", mrID: "mr-1", sourceHint: "gt-closed", bd: fakeIssueMapShower{issues: map[string]*beads.Issue{"mr-1": &beads.Issue{ID: "mr-1", Status: "closed"}, "gt-closed": &beads.Issue{ID: "gt-closed", Status: "closed"}}}, want: ""},
+		{name: "closed unknown source", mrID: "mr-1", bd: fakeIssueMapShower{issues: map[string]*beads.Issue{"mr-1": &beads.Issue{ID: "mr-1", Status: "closed"}}}, want: "active_mr=mr-1 status=closed source_issue=<missing>"},
 		{name: "open", mrID: "mr-1", bd: fakeIssueShower{issue: &beads.Issue{ID: "mr-1", Status: "open"}}, want: "active_mr=mr-1 status=open"},
-		{name: "missing", mrID: "mr-1", bd: fakeIssueShower{err: beads.ErrNotFound}, want: ""},
-		{name: "nil issue", mrID: "mr-1", bd: fakeIssueShower{issue: nil}, want: ""},
+		{name: "missing terminal source", mrID: "mr-1", sourceHint: "gt-closed", bd: fakeIssueMapShower{issues: map[string]*beads.Issue{"gt-closed": &beads.Issue{ID: "gt-closed", Status: "closed"}}}, want: ""},
+		{name: "missing unknown source", mrID: "mr-1", bd: fakeIssueMapShower{}, want: "active_mr=mr-1 status=missing source_issue=<missing>"},
+		{name: "nil issue unknown source", mrID: "mr-1", bd: fakeIssueShower{issue: nil}, want: "active_mr=mr-1 status=missing source_issue=<missing>"},
 		{name: "nil reader", mrID: "mr-1", bd: nil, want: "active_mr=mr-1 status=unverified"},
 		{name: "lookup error", mrID: "mr-1", bd: fakeIssueShower{err: errors.New("bd exploded")}, want: "active_mr=mr-1 status=lookup_error: bd exploded"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := activeMRBlocker(tt.bd, tt.mrID)
+			got := activeMRBlocker(tt.bd, tt.mrID, tt.sourceHint, false, false)
 			if got != tt.want {
 				t.Errorf("activeMRBlocker() = %q, want %q", got, tt.want)
 			}

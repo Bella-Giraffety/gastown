@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -509,6 +510,231 @@ func fakeBd() (*BdCli, *mockBdCalls) {
 		},
 		func(args []string) error { return nil },
 	)
+}
+
+func setupActiveMRGitSafeWorkDir(t *testing.T, rigName, polecatName string) string {
+	t.Helper()
+	townRoot := t.TempDir()
+	clonePath := filepath.Join(townRoot, rigName, "polecats", polecatName, rigName)
+	if err := os.MkdirAll(clonePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	runGit(clonePath, "init")
+	runGit(clonePath, "config", "user.email", "test@example.com")
+	runGit(clonePath, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(clonePath, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(clonePath, "add", "README.md")
+	runGit(clonePath, "commit", "-m", "initial")
+	remotePath := filepath.Join(townRoot, "origin.git")
+	runGit(townRoot, "init", "--bare", remotePath)
+	runGit(clonePath, "remote", "add", "origin", remotePath)
+	runGit(clonePath, "push", "-u", "origin", "HEAD")
+	return townRoot
+}
+
+func TestHasPendingMRFromSnapshotAssessesMRStatus(t *testing.T) {
+	issueJSON := func(id, status, desc string) string {
+		b, err := json.Marshal([]map[string]any{{"id": id, "status": status, "description": desc}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	tests := []struct {
+		name string
+		show func(id string) (string, error)
+		want bool
+	}{
+		{
+			name: "open MR is pending",
+			show: func(id string) (string, error) {
+				return issueJSON(id, "open", ""), nil
+			},
+			want: true,
+		},
+		{
+			name: "closed MR with terminal source is not pending",
+			show: func(id string) (string, error) {
+				if id == "gt-mr" {
+					return issueJSON(id, "closed", ""), nil
+				}
+				return issueJSON(id, "closed", ""), nil
+			},
+		},
+		{
+			name: "missing MR with terminal source is not pending",
+			show: func(id string) (string, error) {
+				if id == "gt-mr" {
+					return "", errors.New("not found")
+				}
+				return issueJSON(id, "closed", ""), nil
+			},
+		},
+		{
+			name: "lookup error is pending",
+			show: func(id string) (string, error) { return "", errors.New("bd exploded") },
+			want: true,
+		},
+		{
+			name: "closed MR with open source is pending",
+			show: func(id string) (string, error) {
+				if id == "gt-mr" {
+					return issueJSON(id, "closed", ""), nil
+				}
+				return issueJSON(id, "open", ""), nil
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workDir := setupActiveMRGitSafeWorkDir(t, "gastown", "nux")
+			bd, _ := mockBd(
+				func(args []string) (string, error) {
+					if len(args) == 0 {
+						return "", nil
+					}
+					switch args[0] {
+					case "list":
+						return "[]", nil
+					case "show":
+						return tt.show(args[1])
+					}
+					return "", nil
+				},
+				func(args []string) error { return nil },
+			)
+			snap := &agentBeadSnapshot{ActiveMR: "gt-mr", Fields: &beads.AgentFields{ActiveMR: "gt-mr", LastSourceIssue: "gt-src"}}
+			if got := hasPendingMRFromSnapshot(bd, workDir, "gastown", "nux", snap); got != tt.want {
+				t.Fatalf("hasPendingMRFromSnapshot() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasPendingMRUsesAgentLastSourceIssue(t *testing.T) {
+	workDir := setupActiveMRGitSafeWorkDir(t, "gastown", "nux")
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "list":
+				return "[]", nil
+			case "show":
+				switch args[1] {
+				case "gt-agent":
+					return `[{"active_mr":"gt-mr","description":"active_mr: gt-mr\nlast_source_issue: gt-src\n"}]`, nil
+				case "gt-mr":
+					return "", errors.New("not found")
+				case "gt-src":
+					return `[{"id":"gt-src","status":"closed"}]`, nil
+				}
+			}
+			return "", errors.New("not found")
+		},
+		func(args []string) error { return nil },
+	)
+
+	if got := hasPendingMR(bd, workDir, "gastown", "nux", "gt-agent"); got {
+		t.Fatalf("hasPendingMR() = true, want false for missing MR with terminal source")
+	}
+}
+
+func TestHasPendingMRFromSnapshotRequiresGitSafe(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "list":
+				return "[]", nil
+			case "show":
+				if args[1] == "gt-mr" {
+					return "", errors.New("not found")
+				}
+				return `[{"id":"gt-src","status":"closed"}]`, nil
+			}
+			return "", nil
+		},
+		func(args []string) error { return nil },
+	)
+	snap := &agentBeadSnapshot{ActiveMR: "gt-mr", Fields: &beads.AgentFields{ActiveMR: "gt-mr", LastSourceIssue: "gt-src"}}
+	if got := hasPendingMRFromSnapshot(bd, t.TempDir(), "gastown", "nux", snap); !got {
+		t.Fatalf("hasPendingMRFromSnapshot() = false, want true when git is unsafe")
+	}
+}
+
+func TestHasPendingMRCleanupWispFailsClosed(t *testing.T) {
+	workDir := setupActiveMRGitSafeWorkDir(t, "gastown", "nux")
+	tests := []struct {
+		name string
+		list string
+		err  error
+	}{
+		{name: "cleanup wisp present", list: `[{"id":"gt-cleanup"}]`},
+		{name: "cleanup wisp lookup error", err: errors.New("bd exploded")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bd, _ := mockBd(
+				func(args []string) (string, error) {
+					if len(args) == 0 {
+						return "", nil
+					}
+					if args[0] == "list" {
+						return tt.list, tt.err
+					}
+					if args[0] == "show" && args[1] == "gt-agent" {
+						return `[{"active_mr":"gt-mr","description":"active_mr: gt-mr\nlast_source_issue: gt-src\n"}]`, nil
+					}
+					if args[0] == "show" && args[1] == "gt-mr" {
+						return "", errors.New("not found")
+					}
+					return `[{"id":"gt-src","status":"closed"}]`, nil
+				},
+				func(args []string) error { return nil },
+			)
+			if got := hasPendingMR(bd, workDir, "gastown", "nux", "gt-agent"); !got {
+				t.Fatalf("hasPendingMR() = false, want true")
+			}
+		})
+	}
+}
+
+func TestTerminalSafeDoneSnapshot(t *testing.T) {
+	workDir := setupActiveMRGitSafeWorkDir(t, "gastown", "nux")
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 || args[0] != "show" {
+				return "[]", nil
+			}
+			return `[{"id":"gt-src","status":"closed"}]`, nil
+		},
+		func(args []string) error { return nil },
+	)
+	snap := &agentBeadSnapshot{Fields: &beads.AgentFields{LastSourceIssue: "gt-src"}}
+	if !terminalSafeDoneSnapshot(bd, workDir, "gastown", "nux", snap) {
+		t.Fatalf("terminalSafeDoneSnapshot() = false, want true")
+	}
+	snap.Fields.HookBead = "gt-hook"
+	if terminalSafeDoneSnapshot(bd, workDir, "gastown", "nux", snap) {
+		t.Fatalf("terminalSafeDoneSnapshot() = true with hook set, want false")
+	}
 }
 
 func TestFindCleanupWisp_UsesCorrectBdListFlags(t *testing.T) {

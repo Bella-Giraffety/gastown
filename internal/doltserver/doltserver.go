@@ -47,6 +47,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofrs/flock"
+	beadssdk "github.com/steveyegge/beads"
 	"github.com/steveyegge/gastown/internal/atomicfile"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
@@ -2611,6 +2612,9 @@ func InitRig(townRoot, rigName string) (serverWasRunning bool, created bool, err
 		if err := EnsureMetadata(townRoot, rigName); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: metadata.json update failed for existing database %q: %v\n", rigName, err)
 		}
+		if err := EnsureRigIssuePrefix(townRoot, rigName, running); err != nil {
+			return running, false, fmt.Errorf("ensuring issue_prefix for existing database %q: %w", rigName, err)
+		}
 		return running, false, nil
 	}
 
@@ -2673,8 +2677,129 @@ func InitRig(townRoot, rigName string) (serverWasRunning bool, created bool, err
 		// Non-fatal: init succeeded, metadata update failed
 		fmt.Fprintf(os.Stderr, "Warning: database initialized but metadata.json update failed: %v\n", err)
 	}
+	if err := EnsureRigIssuePrefix(townRoot, rigName, running); err != nil {
+		return running, true, fmt.Errorf("ensuring issue_prefix for database %q: %w", rigName, err)
+	}
 
 	return running, true, nil
+}
+
+// EnsureRigIssuePrefix initializes the beads schema for a rig database and
+// persists config.issue_prefix. This covers direct `gt dolt init-rig` usage,
+// where no later InitBeads call exists to run bd init/config repair.
+func EnsureRigIssuePrefix(townRoot, rigName string, serverMode bool) error {
+	if townRoot == "" {
+		return fmt.Errorf("townRoot cannot be empty")
+	}
+	if rigName == "" {
+		return fmt.Errorf("rig name cannot be empty")
+	}
+
+	prefix := issuePrefixForRigInit(townRoot, rigName)
+	beadsDir, err := FindOrCreateRigBeadsDir(townRoot, rigName)
+	if err != nil {
+		return err
+	}
+	if err := beads.EnsureConfigYAML(beadsDir, prefix); err != nil {
+		return fmt.Errorf("ensuring config.yaml: %w", err)
+	}
+	if err := EnsureMetadataForBeadsDir(townRoot, beadsDir, rigName, rigName); err != nil {
+		return fmt.Errorf("ensuring metadata.json: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if !serverMode {
+		if err := Start(townRoot); err != nil {
+			return fmt.Errorf("starting temporary Dolt server: %w", err)
+		}
+		defer func() {
+			if err := Stop(townRoot); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not stop temporary Dolt server after issue_prefix seed: %v\n", err)
+			}
+		}()
+	}
+
+	store, err := openRigStoreFromConfig(ctx, townRoot, beadsDir, rigName)
+	if err != nil {
+		return fmt.Errorf("opening beads database: %w", err)
+	}
+	defer store.Close()
+
+	if err := store.SetConfig(ctx, "issue_prefix", prefix); err != nil {
+		return fmt.Errorf("setting issue_prefix: %w", err)
+	}
+	return nil
+}
+
+var beadsOpenEnvMu sync.Mutex
+
+func openRigStoreFromConfig(ctx context.Context, townRoot, beadsDir, rigName string) (beadssdk.Storage, error) {
+	// bd's public config loader lets BEADS_DOLT_* env override metadata.json.
+	// Polecat/rig processes often carry those env vars for their current database,
+	// so scope them to the database/server being initialized here.
+	beadsOpenEnvMu.Lock()
+	defer beadsOpenEnvMu.Unlock()
+
+	gtConfig := DefaultConfig(townRoot)
+	overrides := map[string]string{
+		"BEADS_DOLT_SERVER_DATABASE": rigName,
+		"BEADS_DOLT_SERVER_HOST":     gtConfig.EffectiveHost(),
+		"BEADS_DOLT_SERVER_PORT":     strconv.Itoa(gtConfig.Port),
+		"BEADS_DOLT_PORT":            strconv.Itoa(gtConfig.Port),
+	}
+	type oldEnv struct {
+		value string
+		had   bool
+	}
+	old := make(map[string]oldEnv, len(overrides))
+	for key, value := range overrides {
+		oldValue, had := os.LookupEnv(key)
+		old[key] = oldEnv{value: oldValue, had: had}
+		if err := os.Setenv(key, value); err != nil {
+			return nil, err
+		}
+	}
+	defer func() {
+		for key, oldValue := range old {
+			if oldValue.had {
+				_ = os.Setenv(key, oldValue.value)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		}
+	}()
+
+	return beadssdk.OpenFromConfig(ctx, beadsDir)
+}
+
+func issuePrefixForRigInit(townRoot, rigName string) string {
+	beadsDir := filepath.Join(townRoot, ".beads")
+	if routes, err := beads.LoadRoutes(beadsDir); err == nil {
+		for _, route := range routes {
+			parts := strings.SplitN(route.Path, string(filepath.Separator), 2)
+			if len(parts) == 0 || parts[0] != rigName {
+				parts = strings.SplitN(route.Path, "/", 2)
+			}
+			if len(parts) > 0 && parts[0] == rigName {
+				if prefix := strings.TrimSpace(strings.TrimSuffix(route.Prefix, "-")); prefix != "" {
+					return prefix
+				}
+			}
+		}
+	}
+
+	rigsConfigPath := filepath.Join(townRoot, "mayor", "rigs.json")
+	if rigsConfig, err := config.LoadRigsConfig(rigsConfigPath); err == nil {
+		if entry, ok := rigsConfig.Rigs[rigName]; ok && entry.BeadsConfig != nil {
+			if prefix := strings.TrimSpace(strings.TrimSuffix(entry.BeadsConfig.Prefix, "-")); prefix != "" {
+				return prefix
+			}
+		}
+	}
+
+	return strings.TrimSuffix(rigName, "-")
 }
 
 // Migration represents a database migration from old to new location.

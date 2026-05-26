@@ -17,6 +17,22 @@ func (f fakeReuseMRShower) Show(issueID string) (*beads.Issue, error) {
 	return f.issue, f.err
 }
 
+type fakeReuseMapShower struct {
+	issues map[string]*beads.Issue
+	errs   map[string]error
+}
+
+func (f fakeReuseMapShower) Show(issueID string) (*beads.Issue, error) {
+	if err := f.errs[issueID]; err != nil {
+		return nil, err
+	}
+	issue, ok := f.issues[issueID]
+	if !ok {
+		return nil, beads.ErrNotFound
+	}
+	return issue, nil
+}
+
 func TestEffectivePolecatState(t *testing.T) {
 	tests := []struct {
 		name string
@@ -120,10 +136,12 @@ func TestEffectivePolecatState(t *testing.T) {
 
 func TestActiveMRBlocksReuse(t *testing.T) {
 	tests := []struct {
-		name string
-		mrID string
-		bd   reuseMRShower
-		want bool
+		name       string
+		mrID       string
+		sourceHint string
+		gitSafe    bool
+		bd         reuseMRShower
+		want       bool
 	}{
 		{name: "empty active MR does not block"},
 		{
@@ -133,10 +151,25 @@ func TestActiveMRBlocksReuse(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "closed MR does not block reuse",
+			name:       "closed MR with terminal source does not block reuse",
+			mrID:       "mr-1",
+			sourceHint: "gt-closed",
+			gitSafe:    true,
+			bd:         fakeReuseMapShower{issues: map[string]*beads.Issue{"mr-1": &beads.Issue{ID: "mr-1", Status: "closed"}, "gt-closed": &beads.Issue{ID: "gt-closed", Status: "closed"}}},
+			want:       false,
+		},
+		{
+			name:       "closed MR with terminal source blocks when git unsafe",
+			mrID:       "mr-1",
+			sourceHint: "gt-closed",
+			bd:         fakeReuseMapShower{issues: map[string]*beads.Issue{"mr-1": &beads.Issue{ID: "mr-1", Status: "closed"}, "gt-closed": &beads.Issue{ID: "gt-closed", Status: "closed"}}},
+			want:       true,
+		},
+		{
+			name: "closed MR without source blocks conservatively",
 			mrID: "mr-1",
-			bd:   fakeReuseMRShower{issue: &beads.Issue{ID: "mr-1", Status: "closed"}},
-			want: false,
+			bd:   fakeReuseMapShower{issues: map[string]*beads.Issue{"mr-1": &beads.Issue{ID: "mr-1", Status: "closed"}}},
+			want: true,
 		},
 		{
 			name: "lookup error blocks conservatively",
@@ -145,16 +178,28 @@ func TestActiveMRBlocksReuse(t *testing.T) {
 			want: true,
 		},
 		{
+<<<<<<< HEAD
 			name: "missing MR does not block after terminal-aware lookup",
+=======
+			name: "missing MR blocks conservatively without source",
+>>>>>>> origin/integration/test-beaddolt-hardenning
 			mrID: "mr-1",
 			bd:   fakeReuseMRShower{},
 			want: false,
+		},
+		{
+			name:       "missing MR with terminal source does not block reuse",
+			mrID:       "mr-1",
+			sourceHint: "gt-closed",
+			gitSafe:    true,
+			bd:         fakeReuseMapShower{issues: map[string]*beads.Issue{"gt-closed": &beads.Issue{ID: "gt-closed", Status: "closed"}}},
+			want:       false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := activeMRBlocksReuse(tt.bd, tt.mrID); got != tt.want {
+			if got := activeMRBlocksReuse(tt.bd, tt.mrID, tt.sourceHint, true, tt.gitSafe); got != tt.want {
 				t.Fatalf("activeMRBlocksReuse() = %v, want %v", got, tt.want)
 			}
 		})
@@ -231,13 +276,14 @@ func TestWorkstateDispositionProjectionAgreement(t *testing.T) {
 
 func TestPolecatReuseStatus(t *testing.T) {
 	tests := []struct {
-		name           string
-		state          polecat.State
-		cleanupStatus  string
-		activeMR       string
-		branch         string
-		activeMRBlocks bool
-		want           string
+		name             string
+		state            polecat.State
+		cleanupStatus    string
+		activeMR         string
+		branch           string
+		activeMRBlocks   bool
+		staleCleanupSafe bool
+		want             string
 	}{
 		{
 			name:  "working has no reuse status",
@@ -255,6 +301,13 @@ func TestPolecatReuseStatus(t *testing.T) {
 			state:         polecat.StateIdle,
 			cleanupStatus: string(polecat.CleanupUnpushed),
 			want:          "idle-recovery-needed",
+		},
+		{
+			name:             "idle stale dirty cleanup can be clean",
+			state:            polecat.StateIdle,
+			cleanupStatus:    string(polecat.CleanupUnpushed),
+			staleCleanupSafe: true,
+			want:             "idle-clean",
 		},
 		{
 			name:           "idle open MR is pr open",
@@ -282,7 +335,7 @@ func TestPolecatReuseStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := polecatReuseStatus(tt.state, tt.cleanupStatus, tt.activeMR, tt.branch, tt.activeMRBlocks)
+			got := polecatReuseStatus(tt.state, tt.cleanupStatus, tt.activeMR, tt.branch, tt.activeMRBlocks, tt.staleCleanupSafe)
 			if got != tt.want {
 				t.Fatalf("polecatReuseStatus() = %q, want %q", got, tt.want)
 			}
