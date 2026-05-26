@@ -858,13 +858,13 @@ func formatActivityTime(t time.Time) string {
 
 // GitState represents the git state of a polecat's worktree.
 type GitState struct {
-	Clean                   bool     `json:"clean"`
-	UncommittedFiles        []string `json:"uncommitted_files"`
-	UnpushedCommits         int      `json:"unpushed_commits"`
-	ComparisonBase          string   `json:"comparison_base,omitempty"`
-	UnpreservedPatchCount   int      `json:"unpreserved_patch_count"`
-	StashCount              int      `json:"stash_count"`                  // Current-branch stashes: per-polecat risk.
-	SharedStashCount        int      `json:"shared_stash_count,omitempty"` // Other branch stashes visible through the shared repo.
+	Clean                 bool     `json:"clean"`
+	UncommittedFiles      []string `json:"uncommitted_files"`
+	UnpushedCommits       int      `json:"unpushed_commits"`
+	ComparisonBase        string   `json:"comparison_base,omitempty"`
+	UnpreservedPatchCount int      `json:"unpreserved_patch_count"`
+	StashCount            int      `json:"stash_count"`                  // Current-branch stashes: per-polecat risk.
+	SharedStashCount      int      `json:"shared_stash_count,omitempty"` // Other branch stashes visible through the shared repo.
 }
 
 func runPolecatGitState(cmd *cobra.Command, args []string) error {
@@ -1291,7 +1291,7 @@ func activeMRBlocker(bd issueShower, mrID string) string {
 func hasSubmittableWorkForRecovery(worktreePath string, targetRefs []string, gitState *GitState, gitErr error) bool {
 	g := git.NewGit(worktreePath)
 	branch, _ := g.CurrentBranch()
-	if status, err := g.BranchPreservationStatus(branch, "origin", targetRefs); err == nil {
+	if status, err := g.BranchTargetStatus(branch, "origin", targetRefs); err == nil {
 		return status.UnpreservedPatchCount > 0
 	}
 	return gitErr != nil || (gitState != nil && gitState.UnpushedCommits > 0)

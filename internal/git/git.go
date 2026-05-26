@@ -2558,6 +2558,18 @@ type BranchPreservationStatus struct {
 // branch, then explicit target branches, then upstream. It only falls back to the
 // remote default branch when no target/custody/upstream evidence exists.
 func (g *Git) BranchPreservationStatus(localBranch, remote string, targets []string) (BranchPreservationStatus, error) {
+	return g.branchPreservationStatus(localBranch, remote, targets, true)
+}
+
+// BranchTargetStatus checks whether HEAD is already represented on the branch's
+// target/custody refs. Unlike BranchPreservationStatus, the exact pushed source
+// branch is not enough evidence because pushed-but-unsubmitted work still needs
+// merge-queue recovery.
+func (g *Git) BranchTargetStatus(localBranch, remote string, targets []string) (BranchPreservationStatus, error) {
+	return g.branchPreservationStatus(localBranch, remote, targets, false)
+}
+
+func (g *Git) branchPreservationStatus(localBranch, remote string, targets []string, includeExactBranch bool) (BranchPreservationStatus, error) {
 	if remote == "" {
 		remote = "origin"
 	}
@@ -2565,7 +2577,7 @@ func (g *Git) BranchPreservationStatus(localBranch, remote string, targets []str
 	var candidates []string
 	hasEvidence := len(nonEmptyUnique(targets)) > 0
 
-	if localBranch != "" && localBranch != "HEAD" {
+	if includeExactBranch && localBranch != "" && localBranch != "HEAD" {
 		if remoteSHA, err := g.PushRemoteBranchTip(remote, localBranch); err == nil && remoteSHA != "" {
 			hasEvidence = true
 			result.ComparisonBase = remote + "/" + localBranch
@@ -2586,8 +2598,11 @@ func (g *Git) BranchPreservationStatus(localBranch, remote string, targets []str
 	}
 
 	if upstream, err := g.run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil && strings.TrimSpace(upstream) != "" {
-		hasEvidence = true
-		candidates = append(candidates, strings.TrimSpace(upstream))
+		upstream = strings.TrimSpace(upstream)
+		if includeExactBranch || !isPolecatSelfUpstream(localBranch, remote, upstream) {
+			hasEvidence = true
+			candidates = append(candidates, upstream)
+		}
 	}
 
 	if !hasEvidence {
@@ -2628,6 +2643,10 @@ func (g *Git) BranchPreservationStatus(localBranch, remote string, targets []str
 		return result, lastErr
 	}
 	return result, fmt.Errorf("no usable comparison refs")
+}
+
+func isPolecatSelfUpstream(localBranch, remote, upstream string) bool {
+	return strings.HasPrefix(localBranch, "polecat/") && upstream == remote+"/"+localBranch
 }
 
 func (g *Git) refContainsHead(ref string) (bool, error) {

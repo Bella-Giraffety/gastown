@@ -504,6 +504,53 @@ func TestHasSubmittableWorkForRecoveryIgnoresPatchEquivalentBranch(t *testing.T)
 	}
 }
 
+func TestHasSubmittableWorkForRecoveryUsesExplicitTargetAncestor(t *testing.T) {
+	repo := setupRecoveryGitRepo(t)
+	runGit(t, repo, "switch", "-c", "polecat/contained")
+	writeRecoveryFile(t, filepath.Join(repo, "contained.txt"), "contained")
+	runGit(t, repo, "add", "contained.txt")
+	runGit(t, repo, "commit", "-m", "contained")
+	runGit(t, repo, "switch", "integration/test")
+	runGit(t, repo, "merge", "--ff-only", "polecat/contained")
+	runGit(t, repo, "push", "origin", "integration/test")
+	runGit(t, repo, "switch", "polecat/contained")
+
+	if got := hasSubmittableWorkForRecovery(repo, []string{"integration/test"}, &GitState{UnpushedCommits: 99}, nil); got {
+		t.Fatal("branch whose HEAD is contained by explicit target should not require MQ submission")
+	}
+}
+
+func TestHasSubmittableWorkForRecoveryUsesExplicitTargetCherry(t *testing.T) {
+	repo := setupRecoveryGitRepo(t)
+	runGit(t, repo, "switch", "-c", "polecat/cherry")
+	writeRecoveryFile(t, filepath.Join(repo, "cherry.txt"), "cherry")
+	runGit(t, repo, "add", "cherry.txt")
+	runGit(t, repo, "commit", "-m", "cherry")
+	runGit(t, repo, "switch", "integration/test")
+	writeRecoveryFile(t, filepath.Join(repo, "target.txt"), "target")
+	runGit(t, repo, "add", "target.txt")
+	runGit(t, repo, "commit", "-m", "advance target")
+	runGit(t, repo, "cherry-pick", "polecat/cherry")
+	runGit(t, repo, "push", "origin", "integration/test")
+	runGit(t, repo, "switch", "polecat/cherry")
+
+	if got := hasSubmittableWorkForRecovery(repo, []string{"integration/test"}, &GitState{UnpushedCommits: 99}, nil); got {
+		t.Fatal("patch-equivalent branch on advanced explicit target should not require MQ submission")
+	}
+}
+
+func TestHasSubmittableWorkForRecoveryKeepsExplicitTargetUniquePatch(t *testing.T) {
+	repo := setupRecoveryGitRepo(t)
+	runGit(t, repo, "switch", "-c", "polecat/unique")
+	writeRecoveryFile(t, filepath.Join(repo, "unique.txt"), "unique")
+	runGit(t, repo, "add", "unique.txt")
+	runGit(t, repo, "commit", "-m", "unique")
+
+	if got := hasSubmittableWorkForRecovery(repo, []string{"integration/test"}, &GitState{}, nil); !got {
+		t.Fatal("unique patch absent from explicit target should require MQ submission")
+	}
+}
+
 func TestHasSubmittableWorkForRecoveryFallback(t *testing.T) {
 	if got := hasSubmittableWorkForRecovery("/does/not/exist", nil, &GitState{UnpushedCommits: 0}, nil); got {
 		t.Fatal("clean fallback git state should not require MQ submission")
