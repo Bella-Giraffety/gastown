@@ -2503,30 +2503,15 @@ func (g *Git) StashPop(ref string) error {
 // Returns 0 if there is no upstream or exact remote branch configured.
 func (g *Git) UnpushedCommits() (int, error) {
 	branch, branchErr := g.CurrentBranch()
-	hasBranch := branchErr == nil && branch != "" && branch != "HEAD"
-
-	// Get the upstream branch
-	upstream, err := g.run("rev-parse", "--abbrev-ref", "@{u}")
-	if err == nil {
-		if !hasBranch || upstream == "origin/"+branch {
-			return g.countCommitsAhead(upstream)
-		}
-
-		if count, found, remoteErr := g.unpushedFromExactRemoteBranch(branch, "origin"); remoteErr == nil && found {
-			return count, nil
-		}
-		return g.countCommitsAhead(upstream)
+	if branchErr != nil || branch == "" || branch == "HEAD" {
+		branch = ""
 	}
 
-	if hasBranch {
-		if count, found, remoteErr := g.unpushedFromExactRemoteBranch(branch, "origin"); remoteErr == nil && found {
-			return count, nil
-		}
+	status, err := g.BranchPreservationStatus(branch, "origin", nil)
+	if err != nil {
+		return 0, err
 	}
-
-	// No upstream configured - this is common for polecat branches.
-	// If there is no exact remote branch either, return 0 (benefit of the doubt).
-	return 0, nil
+	return status.UnpreservedPatchCount, nil
 }
 
 func (g *Git) countCommitsAhead(base string) (int, error) {
@@ -2552,6 +2537,165 @@ func (g *Git) unpushedFromExactRemoteBranch(localBranch, remote string) (int, bo
 
 	count, err := g.countCommitsAhead(remoteSHA)
 	return count, true, err
+}
+
+// BranchPreservationStatus describes whether HEAD is already preserved on a
+// durable branch, and how many patch-unique commits remain if it is not.
+type BranchPreservationStatus struct {
+	Preserved               bool
+	ComparisonBase          string
+	UnpreservedPatchCount   int
+	Evidence                string
+}
+
+// BranchPreservationStatus checks whether HEAD is safe relative to the actual
+// custody target for the branch. It prefers proof from the exact pushed source
+// branch, then explicit target branches, then upstream. It only falls back to the
+// remote default branch when no target/custody/upstream evidence exists.
+func (g *Git) BranchPreservationStatus(localBranch, remote string, targets []string) (BranchPreservationStatus, error) {
+	if remote == "" {
+		remote = "origin"
+	}
+	var result BranchPreservationStatus
+	var candidates []string
+	hasEvidence := len(nonEmptyUnique(targets)) > 0
+
+	if localBranch != "" && localBranch != "HEAD" {
+		if remoteSHA, err := g.PushRemoteBranchTip(remote, localBranch); err == nil && remoteSHA != "" {
+			hasEvidence = true
+			result.ComparisonBase = remote + "/" + localBranch
+			if contains, containsErr := g.refContainsHead(remoteSHA); containsErr == nil && contains {
+				result.Preserved = true
+				result.UnpreservedPatchCount = 0
+				result.Evidence = "exact_remote_branch"
+				return result, nil
+			}
+			candidates = append(candidates, remoteSHA)
+		}
+	}
+
+	for _, target := range nonEmptyUnique(targets) {
+		if ref, ok := g.resolveComparisonRef(target, remote); ok {
+			candidates = append(candidates, ref)
+		}
+	}
+
+	if upstream, err := g.run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil && strings.TrimSpace(upstream) != "" {
+		hasEvidence = true
+		candidates = append(candidates, strings.TrimSpace(upstream))
+	}
+
+	if !hasEvidence {
+		for _, ref := range []string{remote + "/" + g.RemoteDefaultBranch(), remote + "/main", remote + "/master"} {
+			if resolved, ok := g.resolveComparisonRef(ref, remote); ok {
+				candidates = append(candidates, resolved)
+			}
+		}
+	}
+
+	candidates = nonEmptyUnique(candidates)
+	if len(candidates) == 0 {
+		if hasEvidence {
+			return result, fmt.Errorf("no target/custody refs resolved")
+		}
+		return result, fmt.Errorf("no comparison refs resolved")
+	}
+
+	var lastErr error
+	for _, ref := range candidates {
+		candidate, err := g.preservationAgainstRef(ref)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		candidate.Evidence = "comparison_ref"
+		if candidate.Preserved {
+			return candidate, nil
+		}
+		if result.ComparisonBase == "" {
+			result = candidate
+		}
+	}
+	if result.ComparisonBase != "" {
+		return result, nil
+	}
+	if lastErr != nil {
+		return result, lastErr
+	}
+	return result, fmt.Errorf("no usable comparison refs")
+}
+
+func (g *Git) refContainsHead(ref string) (bool, error) {
+	head, err := g.Rev("HEAD")
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(ref) == strings.TrimSpace(head) {
+		return true, nil
+	}
+	return g.IsAncestor("HEAD", ref)
+}
+
+func (g *Git) resolveComparisonRef(ref, remote string) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", false
+	}
+	for _, candidate := range comparisonRefCandidates(ref, remote) {
+		if ok, err := g.RefExists(candidate); err == nil && ok {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func comparisonRefCandidates(ref, remote string) []string {
+	if strings.HasPrefix(ref, "refs/") || strings.HasPrefix(ref, remote+"/") {
+		return []string{ref}
+	}
+	branch := strings.TrimPrefix(ref, "origin/")
+	return []string{ref, remote + "/" + branch}
+}
+
+func (g *Git) preservationAgainstRef(ref string) (BranchPreservationStatus, error) {
+	status := BranchPreservationStatus{ComparisonBase: ref}
+	if contains, err := g.refContainsHead(ref); err == nil && contains {
+		status.Preserved = true
+		return status, nil
+	}
+	out, err := g.Cherry(ref, "HEAD")
+	if err != nil {
+		return status, err
+	}
+	status.UnpreservedPatchCount = CountCherryUnmergedCommits(out)
+	status.Preserved = status.UnpreservedPatchCount == 0
+	return status, nil
+}
+
+// CountCherryUnmergedCommits counts `git cherry` lines whose patches are not
+// present on the comparison base.
+func CountCherryUnmergedCommits(out string) int {
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "+") {
+			count++
+		}
+	}
+	return count
+}
+
+func nonEmptyUnique(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // UncommittedWorkStatus contains information about uncommitted work in a repo.
@@ -2753,87 +2897,11 @@ func (g *Git) CheckUncommittedWork() (*UncommittedWorkStatus, error) {
 // Returns (pushed bool, unpushedCount int, err).
 // This handles polecat branches that don't have upstream tracking configured.
 func (g *Git) BranchPushedToRemote(localBranch, remote string) (bool, int, error) {
-	remoteBranch := remote + "/" + localBranch
-
-	// Resolve the push URL: with a split fetch/push configuration (e.g.,
-	// polecats pushing to a local bare repo), ls-remote against the remote
-	// name resolves the fetch URL (GitHub) not the push target.
-	lsTarget := remote
-	if fetchURL, ferr := g.RemoteURL(remote); ferr == nil {
-		if pushURL, perr := g.GetPushURL(remote); perr == nil && pushURL != fetchURL {
-			lsTarget = pushURL
-		}
-	}
-
-	// Check if the remote branch exists via ls-remote and save the output.
-	// The output contains the SHA which we reuse in the fallback path below,
-	// avoiding a redundant second ls-remote call.
-	lsOut, err := g.run("ls-remote", "--heads", lsTarget, localBranch)
+	status, err := g.BranchPreservationStatus(localBranch, remote, nil)
 	if err != nil {
-		return false, 0, fmt.Errorf("checking remote branch: %w", err)
+		return false, 0, err
 	}
-
-	if lsOut == "" {
-		// Remote branch doesn't exist - count commits since origin/main (or HEAD if that fails)
-		count, err := g.run("rev-list", "--count", "origin/main..HEAD")
-		if err != nil {
-			// Fallback: just count all commits on HEAD
-			count, err = g.run("rev-list", "--count", "HEAD")
-			if err != nil {
-				return false, 0, fmt.Errorf("counting commits: %w", err)
-			}
-		}
-		var n int
-		_, err = fmt.Sscanf(count, "%d", &n)
-		if err != nil {
-			return false, 0, fmt.Errorf("parsing commit count: %w", err)
-		}
-		// If there are any commits since main, branch is not pushed
-		return n == 0, n, nil
-	}
-
-	// Remote branch exists - fetch to ensure we have the local tracking ref
-	// This handles the case where we just pushed and origin/branch doesn't exist locally yet
-	_, fetchErr := g.run("fetch", remote, localBranch)
-
-	// In worktrees, the fetch may not update refs/remotes/origin/<branch> due to
-	// missing refspecs. If the remote ref doesn't exist locally, create it from FETCH_HEAD.
-	// See: gt-cehl8 (gt done fails in worktrees due to missing origin tracking ref)
-	remoteRef := "refs/remotes/" + remoteBranch
-	if _, err := g.run("rev-parse", "--verify", remoteRef); err != nil {
-		// Remote ref doesn't exist locally - update it from FETCH_HEAD if fetch succeeded.
-		// Best-effort: if this fails, the code below falls back to the saved ls-remote SHA.
-		if fetchErr == nil {
-			_, _ = g.run("update-ref", remoteRef, "FETCH_HEAD")
-		}
-	}
-
-	// Check if local is ahead
-	count, err := g.run("rev-list", "--count", remoteBranch+"..HEAD")
-	if err != nil {
-		// Fallback: If we can't use the tracking ref (possibly missing remote.origin.fetch),
-		// use the SHA from the ls-remote call above instead of hitting the network again.
-		// See: gt-0eh3r (gt done fails in worktree with missing remote.origin.fetch config)
-		parts := strings.Fields(strings.TrimSpace(lsOut))
-		if len(parts) == 0 {
-			return false, 0, fmt.Errorf("counting unpushed commits: %w (invalid ls-remote output)", err)
-		}
-		remoteSHA := parts[0]
-
-		// Count commits from remote SHA to HEAD
-		count, err = g.run("rev-list", "--count", remoteSHA+"..HEAD")
-		if err != nil {
-			return false, 0, fmt.Errorf("counting unpushed commits (fallback): %w", err)
-		}
-	}
-
-	var n int
-	_, err = fmt.Sscanf(count, "%d", &n)
-	if err != nil {
-		return false, 0, fmt.Errorf("parsing unpushed count: %w", err)
-	}
-
-	return n == 0, n, nil
+	return status.Preserved, status.UnpreservedPatchCount, nil
 }
 
 // PrunedBranch represents a local branch that was pruned (or would be pruned in dry-run).

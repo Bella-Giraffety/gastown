@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -859,11 +858,13 @@ func formatActivityTime(t time.Time) string {
 
 // GitState represents the git state of a polecat's worktree.
 type GitState struct {
-	Clean            bool     `json:"clean"`
-	UncommittedFiles []string `json:"uncommitted_files"`
-	UnpushedCommits  int      `json:"unpushed_commits"`
-	StashCount       int      `json:"stash_count"`                  // Current-branch stashes: per-polecat risk.
-	SharedStashCount int      `json:"shared_stash_count,omitempty"` // Other branch stashes visible through the shared repo.
+	Clean                   bool     `json:"clean"`
+	UncommittedFiles        []string `json:"uncommitted_files"`
+	UnpushedCommits         int      `json:"unpushed_commits"`
+	ComparisonBase          string   `json:"comparison_base,omitempty"`
+	UnpreservedPatchCount   int      `json:"unpreserved_patch_count"`
+	StashCount              int      `json:"stash_count"`                  // Current-branch stashes: per-polecat risk.
+	SharedStashCount        int      `json:"shared_stash_count,omitempty"` // Other branch stashes visible through the shared repo.
 }
 
 func runPolecatGitState(cmd *cobra.Command, args []string) error {
@@ -911,6 +912,9 @@ func runPolecatGitState(cmd *cobra.Command, args []string) error {
 	}
 
 	// Unpushed commits
+	if state.ComparisonBase != "" {
+		fmt.Printf("  Comparison:   %s (%d unpreserved patch(es))\n", style.Dim.Render(state.ComparisonBase), state.UnpreservedPatchCount)
+	}
 	if state.UnpushedCommits == 0 {
 		fmt.Printf("  Unpushed:      %s\n", style.Success.Render("0 commits"))
 	} else {
@@ -940,6 +944,10 @@ func runPolecatGitState(cmd *cobra.Command, args []string) error {
 
 // getGitState checks the git state of a worktree.
 func getGitState(worktreePath string) (*GitState, error) {
+	return getGitStateWithTargets(worktreePath, nil)
+}
+
+func getGitStateWithTargets(worktreePath string, targets []string) (*GitState, error) {
 	state := &GitState{
 		Clean:            true,
 		UncommittedFiles: []string{},
@@ -961,12 +969,12 @@ func getGitState(worktreePath string) (*GitState, error) {
 		state.Clean = false
 	}
 
-	// Check for local commits ahead of the worktree's own tracking ref. Polecat
-	// branches may track integration branches or their pushed source branch; using
-	// origin/main here marks clean completed work as unpushed.
-	if comparisonRef, refErr := gitStateComparisonRef(worktreePath); refErr == nil {
-		if count, countErr := countPatchUniqueCommits(worktreePath, comparisonRef); countErr == nil && count > 0 {
-			state.UnpushedCommits = count
+	branch, _ := worktreeGit.CurrentBranch()
+	if preservation, preserveErr := worktreeGit.BranchPreservationStatus(branch, "origin", targets); preserveErr == nil {
+		state.ComparisonBase = preservation.ComparisonBase
+		state.UnpreservedPatchCount = preservation.UnpreservedPatchCount
+		if preservation.UnpreservedPatchCount > 0 {
+			state.UnpushedCommits = preservation.UnpreservedPatchCount
 			state.Clean = false
 		}
 	}
@@ -979,43 +987,6 @@ func getGitState(worktreePath string) (*GitState, error) {
 	}
 
 	return state, nil
-}
-
-func gitStateComparisonRef(worktreePath string) (string, error) {
-	upstreamCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	upstreamCmd.Dir = worktreePath
-	if output, err := upstreamCmd.Output(); err == nil {
-		if upstream := strings.TrimSpace(string(output)); upstream != "" {
-			return upstream, nil
-		}
-	}
-
-	for _, ref := range []string{"origin/main", "origin/master"} {
-		verifyCmd := exec.Command("git", "rev-parse", "--verify", "--quiet", ref)
-		verifyCmd.Dir = worktreePath
-		if err := verifyCmd.Run(); err == nil {
-			return ref, nil
-		}
-	}
-
-	return "", fmt.Errorf("no upstream, origin/main, or origin/master")
-}
-
-func countPatchUniqueCommits(worktreePath, baseRef string) (int, error) {
-	cherryCmd := exec.Command("git", "cherry", baseRef, "HEAD")
-	cherryCmd.Dir = worktreePath
-	output, err := cherryCmd.Output()
-	if err != nil {
-		return 0, err
-	}
-
-	count := 0
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "+") {
-			count++
-		}
-	}
-	return count, nil
 }
 
 // RecoveryStatus represents whether a polecat needs recovery or is safe to nuke.
@@ -1064,11 +1035,12 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 		Issue:   p.Issue,
 	}
 	beadTerminal := isAssignedBeadTerminal(bd, status.Issue)
+	targetRefs := recoveryTargetRefs(bd, status.Issue, status.ActiveMR, status.Branch)
 
 	if err != nil || fields == nil {
 		// No agent bead or no cleanup_status - fall back to git check
 		// This handles polecats that haven't self-reported yet
-		gitState, gitErr := getGitState(p.ClonePath)
+		gitState, gitErr := getGitStateWithTargets(p.ClonePath, targetRefs)
 		if gitErr != nil {
 			status.CleanupStatus = polecat.CleanupUnknown
 			status.NeedsRecovery = true
@@ -1098,6 +1070,7 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 		// Use cleanup_status from agent bead
 		status.CleanupStatus = polecat.CleanupStatus(fields.CleanupStatus)
 		status.ActiveMR = fields.ActiveMR
+		targetRefs = recoveryTargetRefs(bd, status.Issue, status.ActiveMR, status.Branch)
 		hookBead := agentHookBead(agentIssue, fields)
 		var gitState *GitState
 		var gitErr error
@@ -1106,7 +1079,7 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 			if gitStateLoaded {
 				return
 			}
-			gitState, gitErr = getGitState(p.ClonePath)
+			gitState, gitErr = getGitStateWithTargets(p.ClonePath, targetRefs)
 			gitStateLoaded = true
 		}
 		assignee := fmt.Sprintf("%s/polecats/%s", rigName, polecatName)
@@ -1156,8 +1129,9 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 	// done, which just ran `gt done` again and died, over and over.
 	if status.Verdict == "SAFE_TO_NUKE" && status.Branch != "" {
 		mqBd := beads.New(r.Path)
-		gitState, gitErr := getGitState(p.ClonePath)
-		hasSubmittableWork := hasSubmittableWorkForRecovery(p.ClonePath, gitState, gitErr)
+		targetRefs = recoveryTargetRefs(mqBd, status.Issue, status.ActiveMR, status.Branch)
+		gitState, gitErr := getGitStateWithTargets(p.ClonePath, targetRefs)
+		hasSubmittableWork := hasSubmittableWorkForRecovery(p.ClonePath, targetRefs, gitState, gitErr)
 		mqNotRequired := isMQNotRequiredSource(mqBd, status.Issue)
 		applyMQCheck(&status, mqBd, beadTerminal, hasSubmittableWork, mqNotRequired)
 	}
@@ -1314,49 +1288,84 @@ func activeMRBlocker(bd issueShower, mrID string) string {
 	return fmt.Sprintf("active_mr=%s status=%s", mrID, mr.Status)
 }
 
-func hasSubmittableWorkForRecovery(worktreePath string, gitState *GitState, gitErr error) bool {
-	if count, err := commitsAheadOfUpstream(worktreePath); err == nil {
-		return count > 0
+func hasSubmittableWorkForRecovery(worktreePath string, targetRefs []string, gitState *GitState, gitErr error) bool {
+	g := git.NewGit(worktreePath)
+	branch, _ := g.CurrentBranch()
+	if status, err := g.BranchPreservationStatus(branch, "origin", targetRefs); err == nil {
+		return status.UnpreservedPatchCount > 0
 	}
 	return gitErr != nil || (gitState != nil && gitState.UnpushedCommits > 0)
 }
 
-func commitsAheadOfUpstream(worktreePath string) (int, error) {
-	branchCmd := exec.Command("git", "branch", "--show-current")
-	branchCmd.Dir = worktreePath
-	branchOut, err := branchCmd.Output()
-	if err != nil {
-		return 0, err
+func recoveryTargetRefs(bd *beads.Beads, issueID, activeMR, branch string) []string {
+	var refs []string
+	appendMRTarget := func(issue *beads.Issue) {
+		if fields := beads.ParseMRFields(issue); fields != nil && fields.Target != "" {
+			refs = append(refs, fields.Target)
+		}
 	}
-	branch := strings.TrimSpace(string(branchOut))
-	if branch == "" {
-		return 0, fmt.Errorf("empty branch")
+	if bd != nil {
+		if activeMR != "" {
+			if issue, err := bd.Show(activeMR); err == nil {
+				appendMRTarget(issue)
+			}
+		}
+		if branch != "" {
+			if issue, err := bd.FindMRForBranchAny(branch); err == nil {
+				appendMRTarget(issue)
+			}
+		}
+		if issueID != "" {
+			if issue, err := bd.Show(issueID); err == nil {
+				appendAttachmentTargets(&refs, bd, issue)
+			}
+		}
 	}
-
-	upstreamCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "@{u}")
-	upstreamCmd.Dir = worktreePath
-	upstreamOut, err := upstreamCmd.Output()
-	if err != nil {
-		return 0, err
-	}
-	upstream := strings.TrimSpace(string(upstreamOut))
-	if upstream == "" {
-		return 0, fmt.Errorf("empty upstream")
-	}
-	upstreamBranch := strings.TrimPrefix(upstream, "origin/")
-	if !isRecoveryBaseBranch(upstreamBranch) || (upstreamBranch == branch && !isRecoveryBaseBranch(branch)) {
-		return 0, fmt.Errorf("upstream %q is not a recovery base", upstream)
-	}
-
-	count, err := countPatchUniqueCommits(worktreePath, upstream)
-	if err != nil {
-		return 0, err
-	}
-	return count, nil
+	return uniqueStrings(refs)
 }
 
-func isRecoveryBaseBranch(branch string) bool {
-	return branch == "main" || branch == "master" || strings.HasPrefix(branch, "integration/")
+func appendAttachmentTargets(refs *[]string, bd *beads.Beads, issue *beads.Issue) {
+	attachment := beads.ParseAttachmentFields(issue)
+	if attachment == nil {
+		return
+	}
+	appendBaseBranchVars(refs, attachment.FormulaVars)
+	for _, value := range attachment.AttachedVars {
+		appendBaseBranchVars(refs, value)
+	}
+	if attachment.ConvoyID != "" && bd != nil {
+		if convoy, err := bd.Show(attachment.ConvoyID); err == nil {
+			if fields := beads.ParseConvoyFields(convoy); fields != nil && fields.BaseBranch != "" {
+				*refs = append(*refs, fields.BaseBranch)
+			}
+		}
+	}
+}
+
+func appendBaseBranchVars(refs *[]string, vars string) {
+	for _, line := range strings.Split(vars, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || strings.TrimSpace(key) != "base_branch" {
+			continue
+		}
+		if value = strings.TrimSpace(value); value != "" {
+			*refs = append(*refs, value)
+		}
+	}
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // mrFinder is the subset of *beads.Beads that applyMQCheck needs. It lets us
