@@ -178,14 +178,10 @@ func TestActiveMRBlocksReuse(t *testing.T) {
 			want: true,
 		},
 		{
-<<<<<<< HEAD
-			name: "missing MR does not block after terminal-aware lookup",
-=======
 			name: "missing MR blocks conservatively without source",
->>>>>>> origin/integration/test-beaddolt-hardenning
 			mrID: "mr-1",
 			bd:   fakeReuseMRShower{},
-			want: false,
+			want: true,
 		},
 		{
 			name:       "missing MR with terminal source does not block reuse",

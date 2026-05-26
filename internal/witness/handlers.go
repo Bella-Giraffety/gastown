@@ -861,7 +861,6 @@ func slotOpenDecision(workDir, townRoot, rigName, polecatName, exitType string) 
 		input.PushFailed = fields.PushFailed
 		input.MRFailed = fields.MRFailed
 		input.ActiveMR = fields.ActiveMR
-		input.ActiveMRBlocker = witnessActiveMRBlocker(rigBeads, fields.ActiveMR)
 		if fields.CleanupStatus != "" {
 			input.CleanupStatus = polecat.CleanupStatus(fields.CleanupStatus)
 		}
@@ -886,7 +885,19 @@ func slotOpenDecision(workDir, townRoot, rigName, polecatName, exitType string) 
 	} else {
 		input.GitCheckFailed = true
 	}
-<<<<<<< HEAD
+	if fields != nil && fields.ActiveMR != "" {
+		gitSafe := !input.GitCheckFailed && !input.GitDirty && input.StashCount == 0 && input.UnpushedCommits == 0
+		sourceHint := fields.LastSourceIssue
+		if sourceHint == "" {
+			sourceHint = fields.HookBead
+		}
+		assessment := polecat.AssessActiveMR(beads.New(beads.ResolveBeadsDir(workDir)), polecat.ActiveMRInput{ActiveMR: fields.ActiveMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: gitSafe})
+		if assessment.Pending {
+			input.ActiveMRBlocker = assessment.Reason
+		} else if input.CleanupStatus == polecat.CleanupUnpushed {
+			input.IgnoreCleanupStatus = true
+		}
+	}
 	input.MQCheckRequired = input.Branch != ""
 	input.HasSubmittableWork = witnessHasSubmittableWork(clonePath)
 	input.AssignedBeadTerminal = witnessIssueTerminal(rigBeads, issueID)
@@ -897,20 +908,6 @@ func slotOpenDecision(workDir, townRoot, rigName, polecatName, exitType string) 
 			input.MQLookupFailed = true
 		} else {
 			input.MRSubmitted = mr != nil
-=======
-	if fields != nil && fields.ActiveMR != "" {
-		gitSafe := !input.GitCheckFailed && !input.GitDirty && input.StashCount == 0 && input.UnpushedCommits == 0
-		sourceHint := fields.LastSourceIssue
-		if sourceHint == "" {
-			sourceHint = fields.HookBead
-		}
-		assessment := polecat.AssessActiveMR(beads.New(beads.ResolveBeadsDir(workDir)), polecat.ActiveMRInput{ActiveMR: fields.ActiveMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: gitSafe})
-		if assessment.Pending {
-			input.ActiveMRPending = true
-			input.ActiveMRReason = assessment.Reason
-		} else if input.CleanupStatus == polecat.CleanupUnpushed {
-			input.StaleCleanupSafe = true
->>>>>>> origin/integration/test-beaddolt-hardenning
 		}
 	}
 	return polecat.DecideSlotReuse(input)
@@ -3248,14 +3245,9 @@ func hasPendingMR(bd *BdCli, workDir, rigName, polecatName, agentBeadID string) 
 	}
 
 	// Check 2: active_mr on agent bead (set by gt done when MR is created)
-<<<<<<< HEAD
-	activeMR := getAgentActiveMR(bd, workDir, agentBeadID)
-	return activeMRBlockerFromCLI(bd, workDir, activeMR) != ""
-=======
 	activeMR, sourceHint := getAgentMRContext(bd, workDir, agentBeadID)
 	assessment := polecat.AssessActiveMR(beadCLIShower{bd: bd, workDir: workDir}, polecat.ActiveMRInput{ActiveMR: activeMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: activeMRGitSafe(workDir, rigName, polecatName)})
 	return assessment.Pending
->>>>>>> origin/integration/test-beaddolt-hardenning
 }
 
 // hasPendingMRFromSnapshot checks for a pending MR using a pre-fetched ActiveMR
@@ -3268,8 +3260,26 @@ func hasPendingMRFromSnapshot(bd *BdCli, workDir, rigName, polecatName string, s
 	}
 
 	// Check 2: active_mr from pre-fetched snapshot
-<<<<<<< HEAD
-	return activeMRBlockerFromCLI(bd, workDir, activeMR) != ""
+	activeMR := ""
+	sourceHint := ""
+	if snap != nil {
+		activeMR = snap.ActiveMR
+		sourceHint = snap.HookBead
+		if snap.Fields != nil {
+			if activeMR == "" {
+				activeMR = snap.Fields.ActiveMR
+			}
+			sourceHint = snap.Fields.LastSourceIssue
+			if sourceHint == "" {
+				sourceHint = snap.Fields.HookBead
+			}
+			if sourceHint == "" {
+				sourceHint = snap.HookBead
+			}
+		}
+	}
+	assessment := polecat.AssessActiveMR(beadCLIShower{bd: bd, workDir: workDir}, polecat.ActiveMRInput{ActiveMR: activeMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: activeMRGitSafe(workDir, rigName, polecatName)})
+	return assessment.Pending
 }
 
 func activeMRBlockerFromCLI(bd *BdCli, workDir, activeMR string) string {
@@ -3311,28 +3321,6 @@ func issueStatusFromShowJSON(output string) string {
 		return item.Status
 	}
 	return ""
-=======
-	activeMR := ""
-	sourceHint := ""
-	if snap != nil {
-		activeMR = snap.ActiveMR
-		sourceHint = snap.HookBead
-		if snap.Fields != nil {
-			if activeMR == "" {
-				activeMR = snap.Fields.ActiveMR
-			}
-			sourceHint = snap.Fields.LastSourceIssue
-			if sourceHint == "" {
-				sourceHint = snap.Fields.HookBead
-			}
-			if sourceHint == "" {
-				sourceHint = snap.HookBead
-			}
-		}
-	}
-	assessment := polecat.AssessActiveMR(beadCLIShower{bd: bd, workDir: workDir}, polecat.ActiveMRInput{ActiveMR: activeMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: activeMRGitSafe(workDir, rigName, polecatName)})
-	return assessment.Pending
->>>>>>> origin/integration/test-beaddolt-hardenning
 }
 
 func activeMRGitSafe(workDir, rigName, polecatName string) bool {

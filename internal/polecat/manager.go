@@ -2193,16 +2193,15 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 		input.HookBead = fields.HookBead
 		input.PushFailed = fields.PushFailed
 		input.MRFailed = fields.MRFailed
-<<<<<<< HEAD
 		input.ActiveMR = fields.ActiveMR
-		input.ActiveMRBlocker = m.activeMRBlocker(fields.ActiveMR)
-=======
 		activeMR = fields.ActiveMR
-		sourceHint = fields.LastSourceIssue
+		sourceHint = issue
+		if sourceHint == "" {
+			sourceHint = fields.LastSourceIssue
+		}
 		if sourceHint == "" {
 			sourceHint = fields.HookBead
 		}
->>>>>>> origin/integration/test-beaddolt-hardenning
 		if fields.CleanupStatus != "" {
 			input.CleanupStatus = CleanupStatus(fields.CleanupStatus)
 		}
@@ -2234,10 +2233,18 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 	// Legacy/test polecats can lack agent cleanup metadata. If git proves there is
 	// no local work at risk, treat the missing cleanup_status as clean; otherwise
 	// DecideSlotReuse will continue to fail closed on CleanupUnknown.
-	if input.CleanupStatus == CleanupUnknown && !input.GitCheckFailed && !input.GitDirty && input.StashCount == 0 && input.UnpushedCommits == 0 {
+	gitSafe := !input.GitCheckFailed && !input.GitDirty && input.StashCount == 0 && input.UnpushedCommits == 0
+	if input.CleanupStatus == CleanupUnknown && gitSafe {
 		input.CleanupStatus = CleanupClean
 	}
-<<<<<<< HEAD
+	if activeMR != "" {
+		assessment := AssessActiveMR(m.agentBeads(), ActiveMRInput{ActiveMR: activeMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: gitSafe})
+		if assessment.Pending {
+			input.ActiveMRBlocker = assessment.Reason
+		} else if input.CleanupStatus == CleanupUnpushed {
+			input.IgnoreCleanupStatus = true
+		}
+	}
 	input.MQCheckRequired = input.Branch != ""
 	input.HasSubmittableWork = hasSubmittableWorkForWorkstate(clonePath)
 	input.AssignedBeadTerminal = m.assignedBeadTerminal(issue)
@@ -2251,23 +2258,6 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 		}
 	}
 	return input
-}
-
-func (m *Manager) activeMRBlocker(mrID string) string {
-	if mrID == "" {
-		return ""
-	}
-	mr, err := m.beads.Show(mrID)
-	if err != nil {
-		if errors.Is(err, beads.ErrNotFound) {
-			return ""
-		}
-		return fmt.Sprintf("active_mr=%s status=lookup_error: %v", mrID, err)
-	}
-	if mr == nil || beads.IssueStatus(mr.Status).IsTerminal() {
-		return ""
-	}
-	return fmt.Sprintf("active_mr=%s status=%s", mrID, mr.Status)
 }
 
 func (m *Manager) assignedBeadTerminal(issueID string) bool {
@@ -2340,19 +2330,6 @@ func countPatchUniqueCommitsForWorkstate(worktreePath, baseRef string) (int, err
 		}
 	}
 	return count, nil
-=======
-	if activeMR != "" {
-		gitSafe := !input.GitCheckFailed && !input.GitDirty && input.StashCount == 0 && input.UnpushedCommits == 0
-		assessment := AssessActiveMR(m.agentBeads(), ActiveMRInput{ActiveMR: activeMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: gitSafe})
-		if assessment.Pending {
-			input.ActiveMRPending = true
-			input.ActiveMRReason = assessment.Reason
-		} else if input.CleanupStatus == CleanupUnpushed {
-			input.StaleCleanupSafe = true
-		}
-	}
-	return DecideSlotReuse(input)
->>>>>>> origin/integration/test-beaddolt-hardenning
 }
 
 func (m *Manager) reuseTargetRefs(fields *beads.AgentFields) []string {
