@@ -2184,6 +2184,7 @@ func (m *Manager) reuseDecisionForPolecat(name string, state State) SlotReuseDec
 			input.CleanupStatus = CleanupStatus(fields.CleanupStatus)
 		}
 	}
+	targetRefs := m.reuseTargetRefs(fields)
 
 	clonePath := m.clonePath(name)
 	g := git.NewGit(clonePath)
@@ -2201,10 +2202,8 @@ func (m *Manager) reuseDecisionForPolecat(name string, state State) SlotReuseDec
 		input.GitCheckFailed = true
 	}
 	if branch != "" {
-		if pushed, unpushed, err := g.BranchPushedToRemote(branch, "origin"); err == nil {
-			if !pushed && unpushed > input.UnpushedCommits {
-				input.UnpushedCommits = unpushed
-			}
+		if preservation, err := g.BranchPreservationStatus(branch, "origin", targetRefs); err == nil {
+			input.UnpushedCommits = preservation.UnpreservedPatchCount
 		} else {
 			input.GitCheckFailed = true
 		}
@@ -2216,6 +2215,72 @@ func (m *Manager) reuseDecisionForPolecat(name string, state State) SlotReuseDec
 		input.CleanupStatus = CleanupClean
 	}
 	return DecideSlotReuse(input)
+}
+
+func (m *Manager) reuseTargetRefs(fields *beads.AgentFields) []string {
+	if fields == nil {
+		return nil
+	}
+	var refs []string
+	if fields.ActiveMR != "" {
+		if issue, err := m.beads.Show(fields.ActiveMR); err == nil {
+			if mrFields := beads.ParseMRFields(issue); mrFields != nil && mrFields.Target != "" {
+				refs = append(refs, mrFields.Target)
+			}
+		}
+	}
+	if fields.HookBead != "" {
+		if issue, err := m.beads.Show(fields.HookBead); err == nil {
+			refs = append(refs, attachmentTargetRefs(m.beads, issue)...)
+		}
+	}
+	return uniqueRefs(refs)
+}
+
+func attachmentTargetRefs(bd *beads.Beads, issue *beads.Issue) []string {
+	attachment := beads.ParseAttachmentFields(issue)
+	if attachment == nil {
+		return nil
+	}
+	var refs []string
+	appendBaseBranchRefs(&refs, attachment.FormulaVars)
+	for _, value := range attachment.AttachedVars {
+		appendBaseBranchRefs(&refs, value)
+	}
+	if attachment.ConvoyID != "" && bd != nil {
+		if convoy, err := bd.Show(attachment.ConvoyID); err == nil {
+			if fields := beads.ParseConvoyFields(convoy); fields != nil && fields.BaseBranch != "" {
+				refs = append(refs, fields.BaseBranch)
+			}
+		}
+	}
+	return refs
+}
+
+func appendBaseBranchRefs(refs *[]string, vars string) {
+	for _, line := range strings.Split(vars, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || strings.TrimSpace(key) != "base_branch" {
+			continue
+		}
+		if value = strings.TrimSpace(value); value != "" {
+			*refs = append(*refs, value)
+		}
+	}
+}
+
+func uniqueRefs(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // Get returns a specific polecat by name.

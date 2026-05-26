@@ -832,6 +832,7 @@ func slotOpenDecision(workDir, townRoot, rigName, polecatName, exitType string) 
 	}
 	clonePath := filepath.Join(townRoot, rigName, "polecats", polecatName, rigName)
 	g := git.NewGit(clonePath)
+	targetRefs := witnessRecoveryTargetRefs(beads.New(beads.ResolveBeadsDir(workDir)), fields)
 	if branch, err := g.CurrentBranch(); err == nil {
 		input.Branch = branch
 		if status, err := g.CheckUncommittedWork(); err == nil {
@@ -841,10 +842,8 @@ func slotOpenDecision(workDir, townRoot, rigName, polecatName, exitType string) 
 		} else {
 			input.GitCheckFailed = true
 		}
-		if pushed, unpushed, err := g.BranchPushedToRemote(branch, "origin"); err == nil {
-			if !pushed && unpushed > input.UnpushedCommits {
-				input.UnpushedCommits = unpushed
-			}
+		if preservation, err := g.BranchPreservationStatus(branch, "origin", targetRefs); err == nil {
+			input.UnpushedCommits = preservation.UnpreservedPatchCount
 		} else {
 			input.GitCheckFailed = true
 		}
@@ -852,6 +851,72 @@ func slotOpenDecision(workDir, townRoot, rigName, polecatName, exitType string) 
 		input.GitCheckFailed = true
 	}
 	return polecat.DecideSlotReuse(input)
+}
+
+func witnessRecoveryTargetRefs(bd *beads.Beads, fields *beads.AgentFields) []string {
+	if fields == nil || bd == nil {
+		return nil
+	}
+	var refs []string
+	if fields.ActiveMR != "" {
+		if issue, err := bd.Show(fields.ActiveMR); err == nil {
+			if mrFields := beads.ParseMRFields(issue); mrFields != nil && mrFields.Target != "" {
+				refs = append(refs, mrFields.Target)
+			}
+		}
+	}
+	if fields.HookBead != "" {
+		if issue, err := bd.Show(fields.HookBead); err == nil {
+			refs = append(refs, witnessAttachmentTargetRefs(bd, issue)...)
+		}
+	}
+	return witnessUniqueRefs(refs)
+}
+
+func witnessAttachmentTargetRefs(bd *beads.Beads, issue *beads.Issue) []string {
+	attachment := beads.ParseAttachmentFields(issue)
+	if attachment == nil {
+		return nil
+	}
+	var refs []string
+	witnessAppendBaseBranchRefs(&refs, attachment.FormulaVars)
+	for _, value := range attachment.AttachedVars {
+		witnessAppendBaseBranchRefs(&refs, value)
+	}
+	if attachment.ConvoyID != "" && bd != nil {
+		if convoy, err := bd.Show(attachment.ConvoyID); err == nil {
+			if fields := beads.ParseConvoyFields(convoy); fields != nil && fields.BaseBranch != "" {
+				refs = append(refs, fields.BaseBranch)
+			}
+		}
+	}
+	return refs
+}
+
+func witnessAppendBaseBranchRefs(refs *[]string, vars string) {
+	for _, line := range strings.Split(vars, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || strings.TrimSpace(key) != "base_branch" {
+			continue
+		}
+		if value = strings.TrimSpace(value); value != "" {
+			*refs = append(*refs, value)
+		}
+	}
+}
+
+func witnessUniqueRefs(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // RecoveryPayload contains data for RECOVERY_NEEDED escalation.

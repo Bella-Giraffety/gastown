@@ -458,7 +458,7 @@ func TestDryRunNukeSummary(t *testing.T) {
 func TestHasSubmittableWorkForRecoveryUsesUpstream(t *testing.T) {
 	repo := setupRecoveryGitRepo(t)
 
-	if got := hasSubmittableWorkForRecovery(repo, &GitState{UnpushedCommits: 99}, nil); got {
+	if got := hasSubmittableWorkForRecovery(repo, nil, &GitState{UnpushedCommits: 99}, nil); got {
 		t.Fatal("branch with no commits ahead of its upstream should not require MQ submission")
 	}
 
@@ -466,7 +466,7 @@ func TestHasSubmittableWorkForRecoveryUsesUpstream(t *testing.T) {
 	runGit(t, repo, "add", "change.txt")
 	runGit(t, repo, "commit", "-m", "change")
 
-	if got := hasSubmittableWorkForRecovery(repo, &GitState{}, nil); !got {
+	if got := hasSubmittableWorkForRecovery(repo, nil, &GitState{}, nil); !got {
 		t.Fatal("branch with commits ahead of its upstream should require MQ submission")
 	}
 }
@@ -479,7 +479,7 @@ func TestHasSubmittableWorkForRecoveryIgnoresSelfUpstream(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "feature")
 	runGit(t, repo, "push", "-u", "origin", "polecat/test")
 
-	if got := hasSubmittableWorkForRecovery(repo, &GitState{UnpushedCommits: 1}, nil); !got {
+	if got := hasSubmittableWorkForRecovery(repo, nil, &GitState{UnpushedCommits: 1}, nil); !got {
 		t.Fatal("self-upstream feature branch should fall back and preserve MQ requirement")
 	}
 }
@@ -499,19 +499,19 @@ func TestHasSubmittableWorkForRecoveryIgnoresPatchEquivalentBranch(t *testing.T)
 	runGit(t, repo, "switch", "polecat/equivalent")
 	runGit(t, repo, "branch", "--set-upstream-to=origin/integration/test")
 
-	if got := hasSubmittableWorkForRecovery(repo, &GitState{UnpushedCommits: 99}, nil); got {
+	if got := hasSubmittableWorkForRecovery(repo, nil, &GitState{UnpushedCommits: 99}, nil); got {
 		t.Fatal("patch-equivalent branch should not require MQ submission")
 	}
 }
 
 func TestHasSubmittableWorkForRecoveryFallback(t *testing.T) {
-	if got := hasSubmittableWorkForRecovery("/does/not/exist", &GitState{UnpushedCommits: 0}, nil); got {
+	if got := hasSubmittableWorkForRecovery("/does/not/exist", nil, &GitState{UnpushedCommits: 0}, nil); got {
 		t.Fatal("clean fallback git state should not require MQ submission")
 	}
-	if got := hasSubmittableWorkForRecovery("/does/not/exist", &GitState{UnpushedCommits: 1}, nil); !got {
+	if got := hasSubmittableWorkForRecovery("/does/not/exist", nil, &GitState{UnpushedCommits: 1}, nil); !got {
 		t.Fatal("unpushed fallback git state should require MQ submission")
 	}
-	if got := hasSubmittableWorkForRecovery("/does/not/exist", nil, errors.New("git failed")); !got {
+	if got := hasSubmittableWorkForRecovery("/does/not/exist", nil, nil, errors.New("git failed")); !got {
 		t.Fatal("git-state error fallback should remain conservative")
 	}
 }
