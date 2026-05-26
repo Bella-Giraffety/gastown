@@ -406,6 +406,110 @@ exit /b 0
 	}
 }
 
+func TestRoutedBeadReadUsesCanonicalShowWithoutUnsupportedAllowStale(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows: shell stub uses POSIX syntax")
+	}
+	beads.ResetBdAllowStaleCacheForTest()
+	t.Cleanup(beads.ResetBdAllowStaleCacheForTest)
+
+	townRoot := t.TempDir()
+	beadID := "gt-new123"
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	rigBeadsDir := filepath.Join(rigDir, ".beads")
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), filepath.Join(townRoot, ".beads"), rigBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"type":"town","name":"test"}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	routes := strings.Join([]string{
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd.log")
+	bdScript := `#!/bin/sh
+set -eu
+printf '%s|%s|%s\n' "$(pwd)" "${BEADS_DIR:-}" "$*" >> "${BD_LOG}"
+if [ "$1" = "--allow-stale" ]; then
+  echo "Error: unknown flag: --allow-stale" >&2
+  exit 1
+fi
+case "$1" in
+  version)
+    echo "bd 1.0.3"
+    ;;
+  show)
+    if [ "${BEADS_DIR:-}" != "${RIG_BEADS}" ]; then
+      echo "wrong database: ${BEADS_DIR:-}" >&2
+      exit 1
+    fi
+    echo '[{"id":"gt-new123","title":"Routed bead","status":"open","assignee":"","description":"body","issue_type":"bug","labels":["x"],"dependencies":[{"id":"gt-wisp-old","status":"open"}]}]'
+    ;;
+esac
+`
+	_ = writeBDStub(t, binDir, bdScript, "")
+
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("RIG_BEADS", rigBeadsDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BEADS_DIR", filepath.Join(townRoot, ".beads"))
+	t.Setenv("GT_ROOT", townRoot)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	if err := verifyBeadExists(beadID); err != nil {
+		t.Fatalf("verifyBeadExists: %v", err)
+	}
+	info, err := getBeadInfoFromTownRoot(townRoot, beadID)
+	if err != nil {
+		t.Fatalf("getBeadInfoFromTownRoot: %v", err)
+	}
+	if info.Title != "Routed bead" || info.IssueType != "bug" || len(info.Labels) != 1 || len(info.Dependencies) != 1 {
+		t.Fatalf("info = %+v, want routed issue fields preserved", info)
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	showCalls := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(logBytes)), "\n") {
+		parts := strings.SplitN(line, "|", 3)
+		if len(parts) != 3 || !strings.Contains(parts[2], "show "+beadID) {
+			continue
+		}
+		showCalls++
+		if strings.Contains(parts[2], "--allow-stale") {
+			t.Fatalf("bd show used unsupported --allow-stale: %q", line)
+		}
+		if parts[1] != rigBeadsDir {
+			t.Fatalf("bd show BEADS_DIR = %q, want %q (line %q)", parts[1], rigBeadsDir, line)
+		}
+	}
+	if showCalls == 0 {
+		t.Fatalf("no bd show calls logged: %s", logBytes)
+	}
+}
+
 func TestSlingRollsBackSpawnedPolecatOnInstantiateFailure(t *testing.T) {
 	townRoot := t.TempDir()
 

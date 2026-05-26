@@ -1273,6 +1273,63 @@ func TestSchedulerActualDispatchRoutesPollutedEnvToTargetRig(t *testing.T) {
 	}
 }
 
+func TestSchedulerDispatchFailureRecordedInContextSourceDB(t *testing.T) {
+	hqPath, rigPath, _, _ := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Record dispatch failure in source DB")
+	ctxID := createSlingContext(t, hqPath, &capacity.SlingContextFields{
+		Version:     1,
+		WorkBeadID:  beadID,
+		TargetRig:   "testrig",
+		HookRawBead: true,
+		EnqueuedAt:  "2026-01-01T00:00:00Z",
+	})
+
+	prevSpawn := spawnPolecatForSling
+	t.Cleanup(func() { spawnPolecatForSling = prevSpawn })
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		if rigName != "testrig" {
+			t.Fatalf("spawn rig = %q, want testrig", rigName)
+		}
+		return nil, fmt.Errorf("forced spawn failure")
+	}
+
+	dispatched, err := dispatchScheduledWork(hqPath, "test", 1, false)
+	if err != nil {
+		t.Fatalf("dispatchScheduledWork: %v", err)
+	}
+	if dispatched != 0 {
+		t.Fatalf("dispatched = %d, want 0", dispatched)
+	}
+
+	townBeads := beads.NewWithBeadsDir(hqPath, filepath.Join(hqPath, ".beads"))
+	ctx, err := townBeads.Show(ctxID)
+	if err != nil {
+		t.Fatalf("show HQ context after failure: %v", err)
+	}
+	fields := beads.ParseSlingContextFields(ctx.Description)
+	if fields == nil {
+		t.Fatalf("context fields missing after failure: %q", ctx.Description)
+	}
+	if fields.DispatchFailures != 1 {
+		t.Fatalf("dispatch_failures = %d, want 1 (description: %s)", fields.DispatchFailures, ctx.Description)
+	}
+	if !strings.Contains(fields.LastFailure, "forced spawn failure") {
+		t.Fatalf("last_failure = %q, want forced spawn failure", fields.LastFailure)
+	}
+
+	rigBeads := beads.NewWithBeadsDir(rigPath, filepath.Join(rigPath, ".beads"))
+	rigContexts, err := rigBeads.ListOpenSlingContexts()
+	if err != nil {
+		t.Fatalf("rig ListOpenSlingContexts: %v", err)
+	}
+	for _, rigCtx := range rigContexts {
+		if rigCtx.ID == ctxID {
+			t.Fatalf("context %s unexpectedly exists in rig DB; failure should update source HQ DB", ctxID)
+		}
+	}
+}
+
 // TestSchedulerDirectConvoyDispatch verifies that gt sling <convoy-id> --dry-run
 // with max_polecats=-1 (direct mode) routes to the direct dispatch path.
 func TestSchedulerDirectConvoyDispatch(t *testing.T) {
