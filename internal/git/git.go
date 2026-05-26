@@ -17,6 +17,8 @@ import (
 	"github.com/steveyegge/gastown/internal/util"
 )
 
+var errNoComparisonRefs = errors.New("no comparison refs resolved")
+
 // GitError contains raw output from a git command for agent observation.
 // ZFC: Callers observe the raw output and decide what to do.
 // The error interface methods provide human-readable messages, but agents
@@ -2509,6 +2511,9 @@ func (g *Git) UnpushedCommits() (int, error) {
 
 	status, err := g.BranchPreservationStatus(branch, "origin", nil)
 	if err != nil {
+		if errors.Is(err, errNoComparisonRefs) {
+			return 0, nil
+		}
 		return 0, err
 	}
 	return status.UnpreservedPatchCount, nil
@@ -2542,10 +2547,10 @@ func (g *Git) unpushedFromExactRemoteBranch(localBranch, remote string) (int, bo
 // BranchPreservationStatus describes whether HEAD is already preserved on a
 // durable branch, and how many patch-unique commits remain if it is not.
 type BranchPreservationStatus struct {
-	Preserved               bool
-	ComparisonBase          string
-	UnpreservedPatchCount   int
-	Evidence                string
+	Preserved             bool
+	ComparisonBase        string
+	UnpreservedPatchCount int
+	Evidence              string
 }
 
 // BranchPreservationStatus checks whether HEAD is safe relative to the actual
@@ -2598,7 +2603,7 @@ func (g *Git) BranchPreservationStatus(localBranch, remote string, targets []str
 		if hasEvidence {
 			return result, fmt.Errorf("no target/custody refs resolved")
 		}
-		return result, fmt.Errorf("no comparison refs resolved")
+		return result, errNoComparisonRefs
 	}
 
 	var lastErr error
