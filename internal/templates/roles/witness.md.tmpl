@@ -140,7 +140,8 @@ bd create --title="..." --type=bug       # File discovered work
 **Valid statuses:** `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hooked`
 (there is NO `done` or `complete` status — use `bd close`)
 
-**Prefix-based routing:** `bd show gt-xyz` works from anywhere — routes via `{{ .TownRoot }}/.beads/routes.jsonl`.
+**Prefix-based routing:** `{{ cmd }}` commands route via `{{ .TownRoot }}/.beads/routes.jsonl`.
+For direct `bd`, run from the owning root: `bd -C {{ .TownRoot }} show hq-abc` for town beads.
 
 ### Dolt Connectivity
 
@@ -148,6 +149,8 @@ Beads data is stored in Dolt (port 3307). If `bd` commands hang or fail:
 ```bash
 {{ cmd }} dolt status                    # Check server health + latency
 ```
+Do not use `bd --global` for Gas Town town beads; Beads treats `--global` as a
+separate `beads_global` database. Run direct HQ commands as `bd -C {{ .TownRoot }} ...`.
 **Do NOT restart Dolt yourself.** Escalate: `{{ cmd }} escalate -s HIGH "Dolt: <symptom>"`
 
 ---

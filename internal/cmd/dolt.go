@@ -630,6 +630,7 @@ func runDoltStatus(cmd *cobra.Command, args []string) error {
 				}
 			}
 			fmt.Printf("  Connection: %s\n", doltserver.GetConnectionString(townRoot))
+			printBeadsScopeNote(state.Databases)
 		}
 
 		// Resource metrics
@@ -697,11 +698,43 @@ func runDoltStatus(cmd *cobra.Command, args []string) error {
 					fmt.Printf("  - %s\n", db)
 				}
 			}
+			printBeadsScopeNote(databases)
 			fmt.Printf("\nStart with: %s\n", style.Dim.Render("gt dolt start"))
 		}
 	}
 
 	return nil
+}
+
+func printBeadsScopeNote(databases []string) {
+	if note := beadsScopeNote(databases); note != "" {
+		fmt.Print(note)
+	}
+}
+
+func beadsScopeNote(databases []string) string {
+	if !containsDatabase(databases, "hq") {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("\n  ")
+	b.WriteString(style.Bold.Render("Beads scope:"))
+	b.WriteString("\n")
+	b.WriteString("    Gas Town town beads live in database hq; run HQ bd commands from the town root.\n")
+	b.WriteString("    Example: bd -C ~/gt show hq-abc. Direct bd from rig worktrees uses the rig database.\n")
+	b.WriteString("    Do not use bd --global for Gas Town; bd --global targets Beads' beads_global database.\n")
+	b.WriteString("    Use gt dolt status for server health; bd dolt status reports the Beads client runtime.\n")
+	return b.String()
+}
+
+func containsDatabase(databases []string, want string) bool {
+	for _, db := range databases {
+		if db == want {
+			return true
+		}
+	}
+	return false
 }
 
 func runDoltLogs(cmd *cobra.Command, args []string) error {

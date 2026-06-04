@@ -301,8 +301,10 @@ bd create --rig beads "bd CLI bug"                       # File in another rig
 **Valid statuses:** `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hooked`
 (there is NO `done` or `complete` status — use `bd close`)
 
-**Prefix routing:** `bd show {{ .IssuePrefix }}-xyz` routes to {{ .RigName }} beads automatically.
-`bd show hq-abc` routes to town beads. Routes defined in `{{ .TownRoot }}/.beads/routes.jsonl`.
+**Prefix routing:** `{{ cmd }}` commands use `{{ .TownRoot }}/.beads/routes.jsonl` to route bead IDs.
+For direct `bd`, run from the owning root: `bd -C {{ .WorkDir }} show {{ .IssuePrefix }}-xyz` or `bd -C {{ .TownRoot }} show hq-abc`.
+Do not use `bd --global` for Gas Town town beads; Beads treats `--global` as a
+separate `beads_global` database.
 
 ## Dolt Connectivity
 

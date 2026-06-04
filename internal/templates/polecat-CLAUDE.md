@@ -142,6 +142,9 @@ Beads data is stored in **Dolt** (git-for-data) on port 3307. If `bd` commands h
 gt dolt status                     # Check server health + latency
 ```
 
+Do not use `bd --global` for Gas Town town beads; Beads treats `--global` as a
+separate `beads_global` database. Run direct HQ commands as `bd -C ~/gt ...`.
+
 **Do NOT restart Dolt yourself.** Escalate: `gt escalate -s HIGH "Dolt: <symptom>"`
 
 ---
