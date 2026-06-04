@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/doltserver"
@@ -84,5 +85,21 @@ func TestReadBeadsRuntimeConfigIgnoresEmbeddedMetadata(t *testing.T) {
 
 	if _, ok := readBeadsRuntimeConfig(beadsDir, townRoot); ok {
 		t.Fatal("embedded metadata should not be reported as shared-server config")
+	}
+}
+
+func TestBeadsScopeHint_HQWarnsAgainstGlobal(t *testing.T) {
+	hint := beadsScopeHint("hq")
+
+	for _, want := range []string{"database hq", "bd -C ~/gt", "bd --global", "beads_global"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("beadsScopeHint() missing %q in:\n%s", want, hint)
+		}
+	}
+}
+
+func TestBeadsScopeHint_NonHQEmpty(t *testing.T) {
+	if hint := beadsScopeHint("gastown"); hint != "" {
+		t.Fatalf("beadsScopeHint() = %q, want empty", hint)
 	}
 }
