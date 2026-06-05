@@ -235,43 +235,33 @@ func TestParseBdKvListJSONMixedValues(t *testing.T) {
 	}
 }
 
-func TestParseBdKvListJSONEnvelope(t *testing.T) {
-	input := []byte(`{
-		"schema_version": 1,
-		"data": {
-			"memory.feedback.rule": "use envelope data",
-			"memory.project.count": 42,
-			"other": false
-		}
-	}`)
-
-	got, err := parseBdKvListJSON(input)
-	if err != nil {
-		t.Fatalf("parseBdKvListJSON() error = %v", err)
-	}
-
-	want := map[string]string{
-		"memory.feedback.rule": "use envelope data",
-		"memory.project.count": "42",
-		"other":                "false",
-	}
-
-	if len(got) != len(want) {
-		t.Fatalf("parseBdKvListJSON() returned %d keys, want %d: %#v", len(got), len(want), got)
-	}
-	for key, wantValue := range want {
-		if got[key] != wantValue {
-			t.Errorf("parseBdKvListJSON()[%q] = %q, want %q", key, got[key], wantValue)
-		}
-	}
-}
-
 func TestParseBdKvListJSONInvalidJSON(t *testing.T) {
-	_, err := parseBdKvListJSON([]byte(`{"memory.feedback.rule":`))
-	if err == nil {
-		t.Fatal("parseBdKvListJSON() error = nil, want error")
+	tests := []struct {
+		name    string
+		input   string
+		wantErr string
+	}{
+		{
+			name:    "truncated object",
+			input:   `{"memory.feedback.rule":`,
+			wantErr: "unexpected end",
+		},
+		{
+			name:    "top level null",
+			input:   `null`,
+			wantErr: "must be an object",
+		},
 	}
-	if !strings.Contains(err.Error(), "unexpected end") {
-		t.Fatalf("parseBdKvListJSON() error = %q, want unexpected end", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseBdKvListJSON([]byte(tt.input))
+			if err == nil {
+				t.Fatal("parseBdKvListJSON() error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("parseBdKvListJSON() error = %q, want %q", err, tt.wantErr)
+			}
+		})
 	}
 }

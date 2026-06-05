@@ -236,9 +236,8 @@ func parseBdKvListJSON(out []byte) (map[string]string, error) {
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, err
 	}
-
-	if data, ok := bdKvListEnvelopeData(raw); ok {
-		raw = data
+	if raw == nil {
+		return nil, fmt.Errorf("kv list JSON must be an object")
 	}
 
 	kvs := make(map[string]string, len(raw))
@@ -254,26 +253,6 @@ func parseBdKvListJSON(out []byte) (map[string]string, error) {
 		kvs[k] = value
 	}
 	return kvs, nil
-}
-
-func bdKvListEnvelopeData(raw map[string]json.RawMessage) (map[string]json.RawMessage, bool) {
-	if len(raw) != 2 {
-		return nil, false
-	}
-	if _, ok := raw["schema_version"]; !ok {
-		return nil, false
-	}
-
-	dataRaw, ok := raw["data"]
-	if !ok {
-		return nil, false
-	}
-
-	var data map[string]json.RawMessage
-	if err := json.Unmarshal(dataRaw, &data); err != nil {
-		return nil, false
-	}
-	return data, true
 }
 
 func bdKvJSONValueString(raw json.RawMessage) (string, error) {
