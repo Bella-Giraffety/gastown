@@ -89,17 +89,21 @@ func TestReadBeadsRuntimeConfigIgnoresEmbeddedMetadata(t *testing.T) {
 }
 
 func TestBeadsScopeHint_HQWarnsAgainstGlobal(t *testing.T) {
-	hint := beadsScopeHint("hq")
+	townRoot := filepath.Join(string(filepath.Separator), "custom", "town")
+	hint := beadsScopeHint("hq", townRoot)
 
-	for _, want := range []string{"database hq", "bd -C ~/gt", "bd --global", "beads_global"} {
+	for _, want := range []string{"database hq", "bd -C " + townRoot, "bd --global", "beads_global"} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("beadsScopeHint() missing %q in:\n%s", want, hint)
 		}
 	}
+	if strings.Contains(hint, "~/gt") {
+		t.Fatalf("beadsScopeHint() should not hardcode ~/gt:\n%s", hint)
+	}
 }
 
 func TestBeadsScopeHint_NonHQEmpty(t *testing.T) {
-	if hint := beadsScopeHint("gastown"); hint != "" {
+	if hint := beadsScopeHint("gastown", "/custom/town"); hint != "" {
 		t.Fatalf("beadsScopeHint() = %q, want empty", hint)
 	}
 }
