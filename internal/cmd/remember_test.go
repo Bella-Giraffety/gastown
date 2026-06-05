@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -188,5 +189,89 @@ func TestMemTypeRank(t *testing.T) {
 	// unknown types should sort last
 	if memTypeRank("unknown") <= memTypeRank("general") {
 		t.Error("unknown type should rank after general")
+	}
+}
+
+func TestParseBdKvListJSONMixedValues(t *testing.T) {
+	largeNumber := "123456789012345678901234567890"
+	input := []byte(`{
+		"schema_version": 1,
+		"memory.feedback.rule": "keep strings exact\nwith newlines",
+		"memory.project.count": ` + largeNumber + `,
+		"memory.user.enabled": true,
+		"memory.reference.none": null,
+		"memory.general.object": {"b": 2, "a": "x"},
+		"memory.general.array": ["x", 2],
+		"memory.general.json-looking": "{\"still\":\"a string\"}",
+		"data": {"legacy": "kv"}
+	}`)
+
+	got, err := parseBdKvListJSON(input)
+	if err != nil {
+		t.Fatalf("parseBdKvListJSON() error = %v", err)
+	}
+
+	want := map[string]string{
+		"memory.feedback.rule":        "keep strings exact\nwith newlines",
+		"memory.project.count":        largeNumber,
+		"memory.user.enabled":         "true",
+		"memory.reference.none":       "null",
+		"memory.general.object":       `{"b":2,"a":"x"}`,
+		"memory.general.array":        `["x",2]`,
+		"memory.general.json-looking": `{"still":"a string"}`,
+		"data":                        `{"legacy":"kv"}`,
+	}
+
+	if _, ok := got["schema_version"]; ok {
+		t.Fatal("parseBdKvListJSON() returned metadata key schema_version")
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parseBdKvListJSON() returned %d keys, want %d: %#v", len(got), len(want), got)
+	}
+	for key, wantValue := range want {
+		if got[key] != wantValue {
+			t.Errorf("parseBdKvListJSON()[%q] = %q, want %q", key, got[key], wantValue)
+		}
+	}
+}
+
+func TestParseBdKvListJSONEnvelope(t *testing.T) {
+	input := []byte(`{
+		"schema_version": 1,
+		"data": {
+			"memory.feedback.rule": "use envelope data",
+			"memory.project.count": 42,
+			"other": false
+		}
+	}`)
+
+	got, err := parseBdKvListJSON(input)
+	if err != nil {
+		t.Fatalf("parseBdKvListJSON() error = %v", err)
+	}
+
+	want := map[string]string{
+		"memory.feedback.rule": "use envelope data",
+		"memory.project.count": "42",
+		"other":                "false",
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("parseBdKvListJSON() returned %d keys, want %d: %#v", len(got), len(want), got)
+	}
+	for key, wantValue := range want {
+		if got[key] != wantValue {
+			t.Errorf("parseBdKvListJSON()[%q] = %q, want %q", key, got[key], wantValue)
+		}
+	}
+}
+
+func TestParseBdKvListJSONInvalidJSON(t *testing.T) {
+	_, err := parseBdKvListJSON([]byte(`{"memory.feedback.rule":`))
+	if err == nil {
+		t.Fatal("parseBdKvListJSON() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "unexpected end") {
+		t.Fatalf("parseBdKvListJSON() error = %q, want unexpected end", err)
 	}
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -223,9 +224,71 @@ func bdKvListJSON() (map[string]string, error) {
 		return nil, err
 	}
 
-	var kvs map[string]string
-	if err := json.Unmarshal(out, &kvs); err != nil {
+	kvs, err := parseBdKvListJSON(out)
+	if err != nil {
 		return nil, fmt.Errorf("parsing kv list: %w", err)
 	}
 	return kvs, nil
+}
+
+func parseBdKvListJSON(out []byte) (map[string]string, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, err
+	}
+
+	if data, ok := bdKvListEnvelopeData(raw); ok {
+		raw = data
+	}
+
+	kvs := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if k == "schema_version" {
+			continue
+		}
+
+		value, err := bdKvJSONValueString(v)
+		if err != nil {
+			return nil, fmt.Errorf("parsing kv value %q: %w", k, err)
+		}
+		kvs[k] = value
+	}
+	return kvs, nil
+}
+
+func bdKvListEnvelopeData(raw map[string]json.RawMessage) (map[string]json.RawMessage, bool) {
+	if len(raw) != 2 {
+		return nil, false
+	}
+	if _, ok := raw["schema_version"]; !ok {
+		return nil, false
+	}
+
+	dataRaw, ok := raw["data"]
+	if !ok {
+		return nil, false
+	}
+
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(dataRaw, &data); err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+func bdKvJSONValueString(raw json.RawMessage) (string, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, trimmed); err != nil {
+		return "", err
+	}
+	return compact.String(), nil
 }
