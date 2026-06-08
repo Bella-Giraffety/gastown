@@ -243,7 +243,6 @@ func TestIsSlingConfigError(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 func TestHookBeadWithRetryFailsFastOnBdStderr(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses Unix shell script bd stub")
@@ -287,7 +286,9 @@ exit 1
 	}
 	if got := strings.TrimSpace(string(countBytes)); got != "1" {
 		t.Fatalf("bd update invoked %s times, want 1", got)
-=======
+	}
+}
+
 // TestIsCapacityNeutralTarget verifies the deferred-dispatch gate's target
 // classification: capacity-neutral targets (dogs + standing singleton agents)
 // bypass the scheduler because they do not occupy a polecat slot; bare rigs
@@ -320,7 +321,10 @@ func TestIsCapacityNeutralTarget(t *testing.T) {
 		{"rig witness", "agreement_hub/witness", true},
 		{"rig refinery", "agreement_hub/refinery", true},
 		{"named crew", "agreement_hub/crew/hub_sheriff", true},
-		{"crew without name", "agreement_hub/crew", true},
+		{"crew without name", "agreement_hub/crew", false},
+		{"witness extra segment", "agreement_hub/witness/extra", false},
+		{"refinery extra segment", "agreement_hub/refinery/extra", false},
+		{"crew extra segment", "agreement_hub/crew/hub_sheriff/extra", false},
 
 		// Not capacity-neutral: unrecognized / typo'd targets must still be
 		// rejected by the gate so they cannot silently strand a workflow.
@@ -362,6 +366,8 @@ func TestIsUnroutableTarget(t *testing.T) {
 		{"deacon", false},
 		{"agreement_hub/witness", false},
 		{"agreement_hub/crew/hub_sheriff", false},
+		{"agreement_hub/crew", true},
+		{"agreement_hub/witness/extra", true},
 		{"deacon/dogs/alpha", false},
 		// Blocked: unknown / typo'd targets
 		{"badtarget", true},
@@ -376,6 +382,5 @@ func TestIsUnroutableTarget(t *testing.T) {
 				t.Fatalf("isUnroutableTarget(%q) = %v, want %v", tt.target, got, tt.blocked)
 			}
 		})
->>>>>>> 50119d1e (fix: generalize deferred-dispatch gate to capacity-neutral targets (gt-3798 Approach C))
 	}
 }
