@@ -122,14 +122,20 @@ temporary `fork` remote for your fork and use `FORK_REMOTE=fork` instead.
    cd <town>/<rig>/mayor/rig
    git status --short
    git remote -v
-   git remote get-url upstream >/dev/null 2>&1 || git remote add upstream <upstream-url>
-   FORK_REMOTE=origin  # or: git remote add fork <your-fork-url>; FORK_REMOTE=fork
+   git remote set-url upstream <upstream-url> 2>/dev/null || git remote add upstream <upstream-url>
+   # If origin fetches upstream, run: git remote add fork <your-fork-url>
+   # Then set: FORK_REMOTE=fork
+   FORK_REMOTE=origin
+   git remote get-url "$FORK_REMOTE"         # must print your fork
+   git remote get-url --push "$FORK_REMOTE"  # must print your fork
+   git remote get-url upstream               # must print the canonical upstream
    git fetch "$FORK_REMOTE"
    git fetch upstream
-   git remote get-url --push "$FORK_REMOTE"  # must print your fork, not upstream
+   FORK_MAIN_BEFORE=$(git rev-parse "$FORK_REMOTE/main")
    BACKUP_BRANCH=backup/fork-main-before-reset-$(date +%Y%m%d-%H%M%S)
-   git branch "$BACKUP_BRANCH" "$FORK_REMOTE/main"
-   git push "$FORK_REMOTE" "$BACKUP_BRANCH"
+   git branch "$BACKUP_BRANCH" "$FORK_MAIN_BEFORE"
+   git push "$FORK_REMOTE" "$BACKUP_BRANCH:refs/heads/$BACKUP_BRANCH"
+   git ls-remote --exit-code "$FORK_REMOTE" "refs/heads/$BACKUP_BRANCH"
    git log --oneline --graph upstream/main..."$FORK_REMOTE/main"
    ```
 
@@ -144,7 +150,8 @@ temporary `fork` remote for your fork and use `FORK_REMOTE=fork` instead.
    ```bash
    git checkout main
    git reset --hard upstream/main
-   git push --force-with-lease "$FORK_REMOTE" main
+   git push --force-with-lease=refs/heads/main:"$FORK_MAIN_BEFORE" \
+     "$FORK_REMOTE" HEAD:main
    ```
 
 4. Re-add the rig **with** the fork-routing flags (see [Setup](#setup)) so
