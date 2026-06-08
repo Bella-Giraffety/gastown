@@ -3335,10 +3335,17 @@ func TestBuildRunEnv(t *testing.T) {
 			mustNotContain: nil,
 		},
 		{
-			name:           "isolated strips all beads vars",
-			isolated:       true,
-			envVars:        map[string]string{"BD_ACTOR": "test-actor", "BEADS_DIR": "/tmp/beads"},
-			mustNotContain: []string{"BD_ACTOR=", "BEADS_DIR="},
+			name:     "isolated strips inherited selectors and pins target",
+			isolated: true,
+			envVars: map[string]string{
+				"BD_ACTOR":                   "test-actor",
+				"BEADS_DIR":                  "/tmp/beads",
+				"BEADS_DB":                   "/tmp/beads.db",
+				"BD_DB":                      "/tmp/bd.db",
+				"BEADS_DOLT_SERVER_DATABASE": "gt",
+			},
+			mustContain:    []string{"BEADS_DIR="},
+			mustNotContain: []string{"BD_ACTOR=", "BEADS_DB=", "BD_DB=", "BEADS_DOLT_SERVER_DATABASE="},
 		},
 	}
 
