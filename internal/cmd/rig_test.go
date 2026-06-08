@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/session"
@@ -49,8 +50,8 @@ func TestIsGitRemoteURL(t *testing.T) {
 		{"-c", false},
 
 		// Malformed SCP-style — should return false
-		{"@host:path", false},    // empty user
-		{"user@:/path", false},   // empty host
+		{"@host:path", false},     // empty user
+		{"user@:/path", false},    // empty host
 		{"localhost:path", false}, // no user (not SCP-style)
 	}
 
@@ -61,6 +62,44 @@ func TestIsGitRemoteURL(t *testing.T) {
 				t.Errorf("isGitRemoteURL(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRigAddForkHelpText(t *testing.T) {
+	for _, want := range []string{
+		"use fork mode",
+		"push origin to your fork",
+		forkRigSetupGuideURL,
+		"setup, limitations, verification, and recovery",
+	} {
+		if !strings.Contains(rigAddCmd.Long, want) {
+			t.Fatalf("rig add long help missing %q", want)
+		}
+	}
+
+	checks := map[string][]string{
+		"push-url": {
+			"Push URL for origin",
+			"your fork",
+			forkRigSetupGuideURL,
+		},
+		"upstream-url": {
+			"Upstream fetch/comparison URL",
+			"do not push unless maintainer",
+			forkRigSetupGuideURL,
+		},
+	}
+
+	for name, wants := range checks {
+		flag := rigAddCmd.Flags().Lookup(name)
+		if flag == nil {
+			t.Fatalf("rig add flag %q not registered", name)
+		}
+		for _, want := range wants {
+			if !strings.Contains(flag.Usage, want) {
+				t.Fatalf("rig add --%s usage missing %q: %s", name, want, flag.Usage)
+			}
+		}
 	}
 }
 

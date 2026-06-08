@@ -50,6 +50,8 @@ A rig is a container for managing a project and its agents:
   - .beads/        Rig-level issue tracking`,
 }
 
+const forkRigSetupGuideURL = "https://github.com/gastownhall/gastown/blob/main/docs/guides/fork-rig-setup.md"
+
 var rigAddCmd = &cobra.Command{
 	Use:   "add <name> <git-url>",
 	Short: "Add a new rig to the workspace",
@@ -75,8 +77,9 @@ Use --adopt to register an existing directory instead of creating new:
   - Auto-detects git URL from origin remote (git-url argument not required)
   - Adds entry to mayor/rigs.json
 
-For a repo you don't own, use fork mode (fetch upstream, push to fork).
-See docs/guides/fork-rig-setup.md for setup, verification, and recovery.
+For a repo you don't own, use fork mode (fetch upstream, push origin to your fork).
+Guide: ` + forkRigSetupGuideURL + `
+Includes setup, limitations, verification, and recovery.
 
 Example:
   gt rig add gastown https://github.com/steveyegge/gastown
@@ -302,31 +305,31 @@ Examples:
 
 // Flags
 var (
-	rigAddPrefix       string
-	rigAddLocalRepo    string
-	rigAddBranch       string
-	rigAddPushURL      string
-	rigAddUpstreamURL  string
-	rigAddAdopt           bool
+	rigAddPrefix         string
+	rigAddLocalRepo      string
+	rigAddBranch         string
+	rigAddPushURL        string
+	rigAddUpstreamURL    string
+	rigAddAdopt          bool
 	rigAddAdoptURL       string
 	rigAddAdoptForce     bool
 	rigAddFilter         string
 	rigAddSparseCheckout []string
-	rigResetHandoff    bool
-	rigResetMail       bool
-	rigResetStale      bool
-	rigResetDryRun     bool
-	rigResetRole       string
-	rigShutdownForce   bool
-	rigShutdownNuclear bool
-	rigRebootForce     bool
-	rigRebootNuclear   bool
-	rigStopForce       bool
-	rigStopNuclear     bool
-	rigRestartForce    bool
-	rigRestartNuclear  bool
-	rigListJSON        bool
-	rigRemoveForce     bool
+	rigResetHandoff      bool
+	rigResetMail         bool
+	rigResetStale        bool
+	rigResetDryRun       bool
+	rigResetRole         string
+	rigShutdownForce     bool
+	rigShutdownNuclear   bool
+	rigRebootForce       bool
+	rigRebootNuclear     bool
+	rigStopForce         bool
+	rigStopNuclear       bool
+	rigRestartForce      bool
+	rigRestartNuclear    bool
+	rigListJSON          bool
+	rigRemoveForce       bool
 )
 
 var (
@@ -368,8 +371,8 @@ func init() {
 	rigAddCmd.Flags().StringVar(&rigAddPrefix, "prefix", "", "Beads issue prefix (default: derived from name)")
 	rigAddCmd.Flags().StringVar(&rigAddLocalRepo, "local-repo", "", "Local repo path to share git objects (optional)")
 	rigAddCmd.Flags().StringVar(&rigAddBranch, "branch", "", "Default branch name (default: auto-detected from remote)")
-	rigAddCmd.Flags().StringVar(&rigAddPushURL, "push-url", "", "Push URL for read-only upstreams, i.e. push to fork (see docs/guides/fork-rig-setup.md)")
-	rigAddCmd.Flags().StringVar(&rigAddUpstreamURL, "upstream-url", "", "Upstream repository URL for fork workflows (see docs/guides/fork-rig-setup.md)")
+	rigAddCmd.Flags().StringVar(&rigAddPushURL, "push-url", "", "Push URL for origin when upstream is read-only, e.g. your fork (see "+forkRigSetupGuideURL+")")
+	rigAddCmd.Flags().StringVar(&rigAddUpstreamURL, "upstream-url", "", "Upstream fetch/comparison URL for fork workflows; do not push unless maintainer (see "+forkRigSetupGuideURL+")")
 	rigAddCmd.Flags().BoolVar(&rigAddAdopt, "adopt", false, "Adopt an existing directory instead of creating new")
 	rigAddCmd.Flags().StringVar(&rigAddAdoptURL, "url", "", "Git remote URL for --adopt (default: auto-detected from origin)")
 	rigAddCmd.Flags().BoolVar(&rigAddAdoptForce, "force", false, "With --adopt, register even if git remote cannot be detected")

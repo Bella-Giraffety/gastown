@@ -1,19 +1,20 @@
 # Fork-Based Rig Setup
 
 When you run a rig against a repository you **don't own**, the rig has to
-fetch canonical history from upstream but push all work to your fork.
+fetch canonical history from upstream but push Gas Town-managed work to your
+fork.
 `gt rig add` supports this directly through `--push-url` and
 `--upstream-url`. Without them, the default `gt rig add <name> <fork-url>`
 produces a rig whose refinery merges polecat work into your fork's `main`,
 diverging it from upstream.
 
-## When you need fork mode
+## When You Need Fork Mode
 
 Use fork mode whenever:
 
 - You have read-only access to the canonical repo (e.g. you're an external
   contributor), and
-- You push your work to a personal/organisation fork and open PRs from there.
+- You push your work to a personal/organization fork and open PRs from there.
 
 If you own the canonical repo and push directly to it, you do **not** need
 these flags — the plain `gt rig add <name> <git-url>` is correct.
@@ -39,19 +40,24 @@ What each flag does:
 | Flag | Effect |
 |---|---|
 | positional `<git-url>` | `origin`'s **fetch** URL — where canonical history is pulled from |
-| `--push-url` | `origin`'s **push** URL — where all pushes go (your fork) |
-| `--upstream-url` | Adds a separate named `upstream` remote for rebases against `upstream/main` |
+| `--push-url` | `origin`'s **push** URL — where Gas Town-managed pushes and `git push origin ...` go (your fork) |
+| `--upstream-url` | Adds a separate named `upstream` remote for fetching, comparing, and rebasing against canonical history |
 
-These remotes are configured on **both** the bare canonical clone
-(`<rig>/refinery/rig`) and the mayor's working clone (`<rig>/mayor/rig`).
+These remotes are configured on the shared bare repository
+(`<town>/<rig>/.repo.git`) and the mayor's working clone
+(`<town>/<rig>/mayor/rig`). The refinery directory
+(`<town>/<rig>/refinery/rig`) is a worktree backed by `.repo.git`, so its
+remote configuration comes from the shared bare repo.
 
-## Verifying the setup
+## Verifying the Setup
 
-Check the remotes in the refinery's bare clone and the mayor's clone:
+Check the remotes in the shared bare repo, the refinery worktree, and the
+mayor's clone:
 
 ```bash
+git --git-dir <town>/<rig>/.repo.git remote -v
 cd <town>/<rig>/refinery/rig && git remote -v
-cd <town>/<rig>/mayor/rig    && git remote -v
+cd <town>/<rig>/mayor/rig && git remote -v
 ```
 
 Expect (substituting your fork and the canonical repo):
@@ -63,28 +69,36 @@ upstream  https://github.com/gastownhall/gastown (fetch)
 upstream  https://github.com/gastownhall/gastown (push)
 ```
 
+The `upstream ... (push)` line is Git's default effective push URL for that
+remote. In this workflow, `upstream` is for fetch/comparison/rebase operations;
+do not run `git push upstream ...` unless you are a maintainer intentionally
+updating the canonical repo.
+
 The key invariant: **`origin`'s fetch URL is upstream, `origin`'s push URL
 is your fork.** If `origin (push)` points at the canonical repo, the flags
-did not take effect — re-add the rig.
+did not take effect — update or re-add the rig before running agents.
 
-## Current limitation: the refinery is not yet fork-aware
+## Current Limitation: Runtime Fork Workflows Are Not Yet Enforced
 
 Even a correctly-configured fork rig will, today, have its refinery attempt
 to **merge polecat branches into the fork's `main`** rather than open a PR
 to upstream. The foundation flags (`--push-url` / `--upstream-url`) shipped
-in [gastownhall/gastown#2018](https://github.com/gastownhall/gastown/issues/2018),
-but the behavioral half — refinery raising PRs to upstream instead of
-merging to `origin` — is tracked in
-[gastownhall/gastown#1794](https://github.com/gastownhall/gastown/issues/1794)
-and is not yet implemented.
+in [gastownhall/gastown#2018](https://github.com/gastownhall/gastown/pull/2018),
+but runtime safeguards and upstream-PR behavior are still tracked in
+[gastownhall/gastown#4045](https://github.com/gastownhall/gastown/issues/4045).
+[#1794](https://github.com/gastownhall/gastown/issues/1794) is the original
+historical issue for the PR-to-upstream workflow.
 
 Until then, for strict PR-only behavior:
 
-- Do **not** start the refinery. Park the rig with `gt rig park <rig>`.
-- Use the polecat → feature branch → manual PR path. Push the branch to
-  your fork and open the PR by hand.
+- Do **not** start or keep running the refinery. `gt rig park <rig>` stops the
+  whole rig if you need a durable stop.
+- Push feature branches to your fork and open PRs to upstream manually. The
+  existing
+  [polecat PR-flow harness](../contrib-harnesses/polecat-pr-flow/README.md) is
+  the closest reference for that branch-to-PR path.
 
-## Recovery: a polluted fork `main`
+## Recovery: A Polluted Fork `main`
 
 If you added a rig **without** the fork-routing flags, the refinery may
 have already merged polecat work into your fork's `main`, leaving it with
@@ -94,15 +108,28 @@ upstream.
 > **Destructive — consult a maintainer before running.** Resetting `main`
 > rewrites your fork's history. If any of the diverged commits contain work
 > you still need (unmerged PRs, local-only fixes), stop and recover those
-> branches first. `git reflog` is your escape hatch if you reset too far.
+> branches first. A backup branch is the primary escape hatch; `git reflog`
+> is local and time-limited.
+
+The commands below assume the simple bad setup where `origin` fetches your fork,
+as it does after `gt rig add <name> <fork-url>` with no fork-routing flags. If
+`origin` already fetches upstream, add a temporary `fork` remote for your fork
+and substitute `fork/main` anywhere this recipe uses `origin/main`.
 
 1. Inspect the divergence before touching anything:
 
    ```bash
    cd <town>/<rig>/mayor/rig
+   git status --short
+   git remote -v
+   git remote get-url upstream >/dev/null 2>&1 || git remote add upstream <upstream-url>
+   git fetch origin
    git fetch upstream
+   git branch backup/fork-main-before-reset-$(date +%Y%m%d-%H%M%S) origin/main
    git log --oneline --graph upstream/main...origin/main
    ```
+
+   Make sure `git status --short` prints nothing before continuing.
 
 2. Confirm every commit on `origin/main` that is *not* on `upstream/main`
    is safe to discard (it's refinery merge noise, not real work). Salvage

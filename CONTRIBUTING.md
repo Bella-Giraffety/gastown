@@ -9,7 +9,7 @@ Thanks for your interest in contributing! Gas Town is experimental software, and
 3. Install prerequisites (see README.md)
 4. Build and test: `go build -o gt ./cmd/gt && go test ./...`
 
-## Setting up a rig to contribute to Gas Town
+## Setting Up a Rig to Contribute to Gas Town
 
 If you run a Gas Town rig against this repo, you don't own the canonical
 repository, so the rig must **fetch from upstream but push to your fork**.
@@ -31,20 +31,25 @@ What each flag does at the git-remote level:
 - The positional `<git-url>` (`https://github.com/gastownhall/gastown`)
   becomes `origin`'s **fetch** URL — the rig pulls canonical history from
   upstream.
-- `--push-url` sets `origin`'s **push** URL to your fork, so all pushes land
-  on `https://github.com/<you>/gastown` and never on the canonical repo.
-- `--upstream-url` adds a separate named `upstream` remote pointing at the
-  canonical repo, so rebases against `upstream/main` work without juggling
-  URLs.
+- `--push-url` sets `origin`'s **push** URL to your fork. Gas Town-managed
+  pushes and ordinary `git push origin ...` commands from this rig land on
+  `https://github.com/<you>/gastown`, while `origin` still fetches from
+  upstream. This does not prevent explicit pushes to other remotes.
+- `--upstream-url` adds a separate named `upstream` remote for fetching,
+  comparing, and rebasing against canonical history. Treat `upstream` as
+  read-only unless you are a maintainer intentionally pushing to the canonical
+  repo.
 
-> **Current limitation — the refinery is not yet fork-aware.** Until the
-> behavioral half of
-> [gastownhall/gastown#1794](https://github.com/gastownhall/gastown/issues/1794)
-> ships, even a correctly-configured fork rig will have its refinery attempt
-> to **merge polecat branches into the fork's `main`**, diverging it from
-> upstream. If you want strict PR-only behavior, do not start the refinery
-> (park the rig with `gt rig park <rig>`) and use the
-> polecat → branch → manual PR path instead.
+> **Current limitation - runtime fork workflows are not yet enforced.** The
+> setup plumbing exists, but the refinery/runtime are not yet fork-aware; see
+> [gastownhall/gastown#4045](https://github.com/gastownhall/gastown/issues/4045).
+> [#1794](https://github.com/gastownhall/gastown/issues/1794) described the
+> original PR-to-upstream workflow, and
+> [#2018](https://github.com/gastownhall/gastown/pull/2018) landed the
+> foundation flags. Until #4045 is resolved, a fork-configured refinery can
+> still merge accepted work into the fork's `main`. For strict PR-only
+> behavior, do not run the refinery; push feature branches to your fork and
+> open PRs to upstream manually.
 
 If you set up a rig **without** these flags and your fork's `main` has
 already been polluted, see
