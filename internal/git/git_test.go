@@ -2026,6 +2026,240 @@ func TestPushRemoteBranchExists_SplitURL(t *testing.T) {
 	}
 }
 
+func TestListPushRemoteRefsWithHashes_SplitURL(t *testing.T) {
+	localDir, _, _, _ := initTestRepoWithSplitRemote(t)
+	g := NewGit(localDir)
+
+	branch := "polecat/hash-test"
+	if err := g.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "hash.go"), []byte("package hash\n"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := g.Add("hash.go"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := g.Commit("hash commit"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	wantHash, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev: %v", err)
+	}
+	if err := g.Push("origin", branch, false); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	refs, err := g.ListPushRemoteRefsWithHashes("origin", "refs/heads/polecat/")
+	if err != nil {
+		t.Fatalf("ListPushRemoteRefsWithHashes: %v", err)
+	}
+	ref, ok := findRemoteRef(refs, "refs/heads/"+branch)
+	if !ok {
+		t.Fatalf("expected %s in push remote refs, got %#v", branch, refs)
+	}
+	if ref.Hash != wantHash {
+		t.Errorf("hash = %q, want %q", ref.Hash, wantHash)
+	}
+
+	exists, err := g.RemoteBranchExists("origin", branch)
+	if err != nil {
+		t.Fatalf("RemoteBranchExists: %v", err)
+	}
+	if exists {
+		t.Fatal("branch should exist only on the push URL, not the fetch URL")
+	}
+}
+
+func TestListPushRemoteRefsWithHashes_ClassifiesRemoteOnlyBranchesByHash(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+
+	mergedBranch := "polecat/remote-merged"
+	if err := g.CreateBranch(mergedBranch); err != nil {
+		t.Fatalf("CreateBranch merged: %v", err)
+	}
+	if err := g.Checkout(mergedBranch); err != nil {
+		t.Fatalf("Checkout merged: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "merged.txt"), []byte("merged"), 0644); err != nil {
+		t.Fatalf("write merged: %v", err)
+	}
+	if err := g.Add("merged.txt"); err != nil {
+		t.Fatalf("Add merged: %v", err)
+	}
+	if err := g.Commit("remote merged work"); err != nil {
+		t.Fatalf("Commit merged: %v", err)
+	}
+	mergedHash, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev merged: %v", err)
+	}
+	if err := g.Push("origin", mergedBranch, false); err != nil {
+		t.Fatalf("Push merged: %v", err)
+	}
+	if err := g.Checkout(mainBranch); err != nil {
+		t.Fatalf("Checkout main: %v", err)
+	}
+	if err := g.Merge(mergedBranch); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if err := g.Push("origin", mainBranch, false); err != nil {
+		t.Fatalf("Push main: %v", err)
+	}
+	if err := g.Fetch("origin"); err != nil {
+		t.Fatalf("Fetch origin: %v", err)
+	}
+	if err := g.DeleteBranch(mergedBranch, false); err != nil {
+		t.Fatalf("DeleteBranch merged: %v", err)
+	}
+	runGit(t, localDir, "update-ref", "-d", "refs/remotes/origin/"+mergedBranch)
+
+	unmergedBranch := "polecat/remote-unmerged"
+	if err := g.CreateBranch(unmergedBranch); err != nil {
+		t.Fatalf("CreateBranch unmerged: %v", err)
+	}
+	if err := g.Checkout(unmergedBranch); err != nil {
+		t.Fatalf("Checkout unmerged: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "unmerged.txt"), []byte("unmerged"), 0644); err != nil {
+		t.Fatalf("write unmerged: %v", err)
+	}
+	if err := g.Add("unmerged.txt"); err != nil {
+		t.Fatalf("Add unmerged: %v", err)
+	}
+	if err := g.Commit("remote unmerged work"); err != nil {
+		t.Fatalf("Commit unmerged: %v", err)
+	}
+	if err := g.Push("origin", unmergedBranch, false); err != nil {
+		t.Fatalf("Push unmerged: %v", err)
+	}
+	if err := g.Checkout(mainBranch); err != nil {
+		t.Fatalf("Checkout main after unmerged: %v", err)
+	}
+	if err := g.DeleteBranch(unmergedBranch, true); err != nil {
+		t.Fatalf("DeleteBranch unmerged: %v", err)
+	}
+	runGit(t, localDir, "update-ref", "-d", "refs/remotes/origin/"+unmergedBranch)
+
+	refs, err := g.ListPushRemoteRefsWithHashes("origin", "refs/heads/polecat/")
+	if err != nil {
+		t.Fatalf("ListPushRemoteRefsWithHashes: %v", err)
+	}
+	mergedRef, ok := findRemoteRef(refs, "refs/heads/"+mergedBranch)
+	if !ok {
+		t.Fatalf("expected merged ref in remote refs, got %#v", refs)
+	}
+	unmergedRef, ok := findRemoteRef(refs, "refs/heads/"+unmergedBranch)
+	if !ok {
+		t.Fatalf("expected unmerged ref in remote refs, got %#v", refs)
+	}
+	if mergedRef.Hash != mergedHash {
+		t.Errorf("merged hash = %q, want %q", mergedRef.Hash, mergedHash)
+	}
+
+	merged, err := g.IsAncestor(mergedRef.Hash, "origin/"+mainBranch)
+	if err != nil {
+		t.Fatalf("IsAncestor merged hash: %v", err)
+	}
+	if !merged {
+		t.Fatal("expected merged remote hash to be classified as merged")
+	}
+	unmerged, err := g.IsAncestor(unmergedRef.Hash, "origin/"+mainBranch)
+	if err != nil {
+		t.Fatalf("IsAncestor unmerged hash: %v", err)
+	}
+	if unmerged {
+		t.Fatal("unmerged remote hash should not be classified as merged")
+	}
+	if _, err := g.IsAncestor(mergedBranch, "origin/"+mainBranch); err == nil {
+		t.Fatal("old branch-name classifier unexpectedly resolved a remote-only branch")
+	}
+}
+
+func TestDeleteRemoteBranchIfAtRejectsChangedBranch(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+
+	branch := "polecat/lease-test"
+	if err := g.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "lease.txt"), []byte("old"), 0644); err != nil {
+		t.Fatalf("write old: %v", err)
+	}
+	if err := g.Add("lease.txt"); err != nil {
+		t.Fatalf("Add old: %v", err)
+	}
+	if err := g.Commit("lease old"); err != nil {
+		t.Fatalf("Commit old: %v", err)
+	}
+	oldHash, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev old: %v", err)
+	}
+	if err := g.Push("origin", branch, false); err != nil {
+		t.Fatalf("Push old: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(localDir, "lease.txt"), []byte("new"), 0644); err != nil {
+		t.Fatalf("write new: %v", err)
+	}
+	if err := g.Add("lease.txt"); err != nil {
+		t.Fatalf("Add new: %v", err)
+	}
+	if err := g.Commit("lease new"); err != nil {
+		t.Fatalf("Commit new: %v", err)
+	}
+	newHash, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev new: %v", err)
+	}
+	if err := g.Push("origin", branch, false); err != nil {
+		t.Fatalf("Push new: %v", err)
+	}
+
+	if err := g.DeleteRemoteBranchIfAt("origin", branch, oldHash); err == nil {
+		t.Fatal("DeleteRemoteBranchIfAt should reject a branch that advanced")
+	}
+	exists, err := g.RemoteBranchExists("origin", branch)
+	if err != nil {
+		t.Fatalf("RemoteBranchExists after rejected delete: %v", err)
+	}
+	if !exists {
+		t.Fatal("branch should still exist after rejected delete")
+	}
+	if err := g.DeleteRemoteBranchIfAt("origin", branch, newHash); err != nil {
+		t.Fatalf("DeleteRemoteBranchIfAt current hash: %v", err)
+	}
+	exists, err = g.RemoteBranchExists("origin", branch)
+	if err != nil {
+		t.Fatalf("RemoteBranchExists after delete: %v", err)
+	}
+	if exists {
+		t.Fatal("branch should be deleted when expected hash matches")
+	}
+	if err := g.Checkout(mainBranch); err != nil {
+		t.Fatalf("Checkout main: %v", err)
+	}
+}
+
+func findRemoteRef(refs []RemoteRef, name string) (RemoteRef, bool) {
+	for _, ref := range refs {
+		if ref.Name == name {
+			return ref, true
+		}
+	}
+	return RemoteRef{}, false
+}
+
 // TestPushRemoteBranchExists_NoPushURL verifies that PushRemoteBranchExists
 // falls back to RemoteBranchExists when no custom push URL is configured.
 func TestPushRemoteBranchExists_NoPushURL(t *testing.T) {
