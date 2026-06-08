@@ -199,7 +199,10 @@ func runPrime(cmd *cobra.Command, args []string) (retErr error) {
 	// started with. Only emitted when GT telemetry is active (GT_OTEL_LOGS_URL set).
 	telemetry.RecordPrimeContext(context.Background(), formula, os.Getenv("GT_ROLE"), primeHookMode)
 
-	hasSlungWork := checkSlungWork(ctx, hookedBead)
+	hasSlungWork, err := checkSlungWork(ctx, hookedBead)
+	if err != nil {
+		return err
+	}
 	explain(hasSlungWork, "Autonomous mode: hooked/in-progress work detected")
 
 	outputMoleculeContext(ctx)
@@ -540,7 +543,7 @@ var memoryTypeLabels = map[string]string{
 	"feedback":  "Behavioral Rules (from user feedback)",
 	"user":      "User Context",
 	"project":   "Project Context",
-	"reference":  "Reference Links",
+	"reference": "Reference Links",
 	"general":   "General",
 }
 
@@ -628,9 +631,9 @@ func runMailCheckInject(workDir string) {
 //
 // hookedBead is pre-fetched by the caller (runPrime) via findAgentWork to avoid a
 // redundant lookup and ensure work context is already injected before output runs.
-func checkSlungWork(ctx RoleContext, hookedBead *beads.Issue) bool {
+func checkSlungWork(ctx RoleContext, hookedBead *beads.Issue) (bool, error) {
 	if hookedBead == nil {
-		return false
+		return false, nil
 	}
 
 	attachment := beads.ParseAttachmentFields(hookedBead)
@@ -640,12 +643,14 @@ func checkSlungWork(ctx RoleContext, hookedBead *beads.Issue) bool {
 	outputHookedBeadDetails(hookedBead)
 
 	if hasWorkflow {
-		outputMoleculeWorkflow(ctx, attachment)
+		if err := outputMoleculeWorkflow(ctx, attachment); err != nil {
+			return true, err
+		}
 	} else {
 		outputBeadPreview(hookedBead)
 	}
 
-	return true
+	return true, nil
 }
 
 func hasWorkflowAttachment(attachment *beads.AttachmentFields) bool {
@@ -872,7 +877,7 @@ func outputHookedBeadDetails(hookedBead *beads.Issue) {
 }
 
 // outputMoleculeWorkflow displays attached molecule context with current step.
-func outputMoleculeWorkflow(ctx RoleContext, attachment *beads.AttachmentFields) {
+func outputMoleculeWorkflow(ctx RoleContext, attachment *beads.AttachmentFields) error {
 	fmt.Printf("%s\n\n", style.Bold.Render("## 🧬 ATTACHED FORMULA (WORKFLOW CHECKLIST)"))
 	if attachment.AttachedFormula != "" {
 		fmt.Printf("Formula: %s\n", attachment.AttachedFormula)
@@ -894,18 +899,17 @@ func outputMoleculeWorkflow(ctx RoleContext, attachment *beads.AttachmentFields)
 
 	// Ralph loop mode: output Ralph Wiggum loop command instead of step-by-step execution
 	if attachment.Mode == "ralph" {
-		outputRalphLoopDirective(ctx, attachment)
-		return
+		return outputRalphLoopDirective(ctx, attachment)
 	}
 
 	// Show inline formula steps from the embedded binary (root-only: no child wisps to query).
 	if attachment.AttachedFormula != "" {
-		showFormulaStepsFull(attachment.AttachedFormula, ctx.TownRoot, ctx.Rig, strings.Split(attachment.FormulaVars, "\n"))
+		showFormulaStepsFull(attachment.AttachedFormula, ctx.TownRoot, ctx.Rig, attachmentFormulaVars(attachment))
 		fmt.Println()
 		fmt.Printf("%s\n", style.Bold.Render("Work through ALL steps above, including submit and cleanup."))
 		fmt.Println("The base bead is your assignment. The formula steps define your workflow.")
 		fmt.Printf("\n%s\n", style.Bold.Render("REQUIRED: When all steps complete, run `"+cli.Name()+" done` to submit to the merge queue. Do NOT stop after implementation — the formula has submit steps you must follow."))
-		return
+		return nil
 	}
 
 	// Legacy path: no formula name stored, fall back to bd mol current
@@ -913,42 +917,114 @@ func outputMoleculeWorkflow(ctx RoleContext, attachment *beads.AttachmentFields)
 	fmt.Println()
 	fmt.Printf("%s\n", style.Bold.Render("Follow the molecule steps above, NOT the base bead."))
 	fmt.Println("The base bead is just a container. The molecule steps define your workflow.")
+	return nil
 }
 
-// outputRalphLoopDirective emits inline iterative work instructions for ralph mode.
-// Ralph mode is designed for long, iterative workflows (e.g., quality improvement
-// loops) that benefit from committing progress incrementally. The agent works
-// through formula steps iteratively, committing after each meaningful change,
-// and calls gt done when all acceptance criteria are met or no further progress
-// can be made.
-func outputRalphLoopDirective(ctx RoleContext, attachment *beads.AttachmentFields) {
-	fmt.Printf("%s\n\n", style.Bold.Render("## RALPH LOOP MODE (ITERATIVE WORKFLOW)"))
-	fmt.Println("This work uses iterative loop mode. Work through the steps below,")
-	fmt.Println("committing after each meaningful change. Loop until acceptance criteria")
-	fmt.Println("are met or no further progress can be made.")
-	fmt.Println()
+// outputRalphLoopDirective emits a /ralph-loop slash command to activate the
+// Ralph Wiggum stop-hook loop for multi-step iterative workflows.
+func outputRalphLoopDirective(ctx RoleContext, attachment *beads.AttachmentFields) error {
+	return outputRalphLoopDirectiveWithPluginCheck(ctx, attachment, isRalphLoopPluginInstalled())
+}
 
-	// Show the formula steps inline (same as normal mode) so the agent has
-	// the full checklist. Previously this emitted a /ralph-loop slash command
-	// that didn't exist, causing the polecat to die immediately.
+func outputRalphLoopDirectiveWithPluginCheck(ctx RoleContext, attachment *beads.AttachmentFields, pluginInstalled bool) error {
+	if !pluginInstalled {
+		return fmt.Errorf("--ralph requires the ralph-loop plugin. Install it in Claude Code with: /plugin install ralph-loop@claude-plugins-official")
+	}
+
+	prompt := renderRalphLoopPrompt(ctx, attachment)
+	fmt.Printf("/ralph-loop %s --completion-promise DONE\n", quoteForRalphLoop(prompt))
+	return nil
+}
+
+func renderRalphLoopPrompt(ctx RoleContext, attachment *beads.AttachmentFields) string {
+	var sb strings.Builder
 	if attachment.AttachedFormula != "" {
-		showFormulaStepsFull(attachment.AttachedFormula, ctx.TownRoot, ctx.Rig, strings.Split(attachment.FormulaVars, "\n"))
-		fmt.Println()
+		sb.WriteString(renderFormulaStepsFull(attachment.AttachedFormula, ctx.TownRoot, ctx.Rig, attachmentFormulaVars(attachment)))
 	}
-
 	if attachment.AttachedArgs != "" {
-		fmt.Printf("%s\n", style.Bold.Render("Context:"))
-		fmt.Printf("  %s\n\n", attachment.AttachedArgs)
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(attachment.AttachedArgs)
+		sb.WriteString("\n")
 	}
+	if sb.Len() == 0 {
+		sb.WriteString("Work through the assigned formula steps.\n")
+	}
+	sb.WriteString("\nWhen all steps are complete and `" + cli.Name() + " done` has run successfully, output exactly: <promise>DONE</promise>")
+	return sb.String()
+}
 
-	fmt.Printf("%s\n", style.Bold.Render("Iterative workflow:"))
-	fmt.Println("1. Work through the formula steps above")
-	fmt.Println("2. Commit after each meaningful change (preserve progress via git)")
-	fmt.Println("3. After completing a pass, evaluate results against acceptance criteria")
-	fmt.Println("4. If criteria not met, loop: identify the worst gap, fix it, commit, re-evaluate")
-	fmt.Println("5. When all criteria are met (or no further progress possible), run `" + cli.Name() + " done`")
-	fmt.Println()
-	fmt.Printf("%s\n", style.Bold.Render("Commit frequently. Each commit preserves your progress."))
+func attachmentFormulaVars(attachment *beads.AttachmentFields) []string {
+	if attachment == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var vars []string
+	add := func(variable string) {
+		variable = strings.TrimSpace(variable)
+		if variable == "" {
+			return
+		}
+		key := variable
+		if idx := strings.IndexByte(variable, '='); idx > 0 {
+			key = variable[:idx]
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		vars = append(vars, variable)
+	}
+	for _, variable := range strings.Split(attachment.FormulaVars, "\n") {
+		add(variable)
+	}
+	for _, variable := range attachment.AttachedVars {
+		add(variable)
+	}
+	return vars
+}
+
+// isRalphLoopPluginInstalled reports whether the ralph-loop plugin is installed
+// in the active Claude Code config directory.
+func isRalphLoopPluginInstalled() bool {
+	configDir, err := config.ClaudeConfigDir()
+	if err != nil {
+		return false
+	}
+	return ralphLoopPluginInstalledIn(filepath.Join(configDir, "plugins", "installed_plugins.json"))
+}
+
+func ralphLoopPluginInstalledIn(manifestPath string) bool {
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return false
+	}
+	var manifest struct {
+		Plugins map[string]json.RawMessage `json:"plugins"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return false
+	}
+	for key := range manifest.Plugins {
+		if key == "ralph-loop" || strings.HasPrefix(key, "ralph-loop@") {
+			return true
+		}
+	}
+	return false
+}
+
+// quoteForRalphLoop wraps s in double quotes, escaping characters that would
+// otherwise break the slash-command argument or the plugin's shell-backed setup.
+func quoteForRalphLoop(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, `$`, `\$`)
+	s = strings.ReplaceAll(s, "`", "\\`")
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	return `"` + s + `"`
 }
 
 // outputBeadPreview runs `bd show` and displays a truncated preview of the bead.

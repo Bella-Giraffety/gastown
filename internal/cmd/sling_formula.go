@@ -199,17 +199,25 @@ func runSlingFormula(ctx context.Context, args []string) error {
 	// Update agent bead's hook_bead field (ZFC: agents track their current work)
 	// Note: formula slinging uses town root as workDir (no polecat-specific path)
 	updateAgentHookBead(targetAgent, wispRootID, "", townBeadsDir)
+	if slingRalph {
+		updateAgentMode(targetAgent, "ralph", "", townBeadsDir)
+	}
 
 	// Store all attachment fields in a single read-modify-write cycle.
 	// NOTE: For standalone formula sling, the wisp IS the work - do NOT store
 	// attached_molecule as a self-reference (the wisp's own ID pointing to itself
 	// is meaningless). attached_molecule is only meaningful when a formula-on-bead
 	// creates a wisp that's bonded to a separate base bead.
+	slingMode := ""
+	if slingRalph {
+		slingMode = "ralph"
+	}
 	fieldUpdates := beadFieldUpdates{
 		Dispatcher:      actor,
 		Args:            slingArgs,
 		Vars:            append([]string(nil), slingVars...),
 		AttachedFormula: formulaName,
+		Mode:            slingMode,
 		FormulaVars:     strings.Join(slingVars, "\n"),
 	}
 	if err := storeFieldsInBead(wispRootID, fieldUpdates); err != nil {

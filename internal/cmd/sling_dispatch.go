@@ -18,25 +18,25 @@ import (
 // reconstructed into a SlingParams and passed to executeSling().
 type SlingParams struct {
 	// What to sling
-	BeadID      string   // Base bead
-	FormulaName string   // Formula to apply ("mol-polecat-work", user formula, or "")
-	RigName     string   // Target rig (always a rig for queue)
+	BeadID      string // Base bead
+	FormulaName string // Formula to apply ("mol-polecat-work", user formula, or "")
+	RigName     string // Target rig (always a rig for queue)
 
 	// CLI flag passthrough
-	Args       string   // --args
-	Vars       []string // --var (key=value pairs)
-	Merge      string   // --merge (convoy strategy)
-	BaseBranch string   // --base-branch
-	Account    string   // --account
-	Agent      string   // --agent
-	NoConvoy   bool     // --no-convoy
-	Owned      bool     // --owned
-	NoMerge    bool     // --no-merge
-	Force      bool     // --force
-	HookRawBead bool    // --hook-raw-bead
-	NoBoot     bool     // --no-boot
-	Mode       string   // --ralph: "" (normal) or "ralph"
-	ReviewOnly bool     // --review-only: review and report back only, no merge/commit/push
+	Args        string   // --args
+	Vars        []string // --var (key=value pairs)
+	Merge       string   // --merge (convoy strategy)
+	BaseBranch  string   // --base-branch
+	Account     string   // --account
+	Agent       string   // --agent
+	NoConvoy    bool     // --no-convoy
+	Owned       bool     // --owned
+	NoMerge     bool     // --no-merge
+	Force       bool     // --force
+	HookRawBead bool     // --hook-raw-bead
+	NoBoot      bool     // --no-boot
+	Mode        string   // --ralph: "" (normal) or "ralph"
+	ReviewOnly  bool     // --review-only: review and report back only, no merge/commit/push
 
 	// Execution behavior (set by caller, not serialized to queue)
 	SkipCook         bool   // Batch optimization: formula already cooked
@@ -314,6 +314,9 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 			fmt.Printf("  %s Formula %s applied\n", style.Bold.Render("✓"), params.FormulaName)
 			beadToHook = formulaResult.BeadToHook
 			attachedMoleculeID = formulaResult.WispRootID
+			if len(formulaResult.FormulaVars) > 0 {
+				allVars = formulaResult.FormulaVars
+			}
 		}
 	}
 	result.AttachedMolecule = attachedMoleculeID

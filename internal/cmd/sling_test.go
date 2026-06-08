@@ -778,15 +778,18 @@ exit /b 0
 	prevVars := slingVars
 	prevDryRun := slingDryRun
 	prevNoBoot := slingNoBoot
+	prevRalph := slingRalph
 	t.Cleanup(func() {
 		slingVars = prevVars
 		slingDryRun = prevDryRun
 		slingNoBoot = prevNoBoot
+		slingRalph = prevRalph
 	})
 
 	slingVars = []string{"version=1.2.3", "channel=stable"}
 	slingDryRun = false
 	slingNoBoot = true
+	slingRalph = true
 
 	if err := runSlingFormula(context.Background(), []string{"mol-anything"}); err != nil {
 		t.Fatalf("runSlingFormula: %v", err)
@@ -803,6 +806,9 @@ exit /b 0
 	}
 	if !strings.Contains(attachment, "version=1.2.3") || !strings.Contains(attachment, "channel=stable") {
 		t.Fatalf("formula vars missing from persisted description:\n%s", attachment)
+	}
+	if !strings.Contains(attachment, "mode: ralph") {
+		t.Fatalf("ralph mode missing from persisted description:\n%s", attachment)
 	}
 }
 
@@ -1192,19 +1198,19 @@ func TestLooksLikeBeadID(t *testing.T) {
 		{"aaaaaa-b", false},     // prefix too long (6 chars)
 
 		// Injection / invalid suffix characters - should return false
-		{"gt-abc;rm -rf /", false},       // shell injection in suffix
-		{"gt-abc$(cmd)", false},          // command substitution in suffix
-		{"gt-abc&bg", false},            // ampersand in suffix
-		{"gt-abc|pipe", false},          // pipe in suffix
-		{"gt-abc`tick`", false},         // backtick in suffix
-		{"gt-abc>redir", false},         // redirect in suffix
-		{"gt-abc<redir", false},         // redirect in suffix
-		{"gt-abc'quote", false},         // single quote in suffix
-		{"gt-abc\"dquote", false},       // double quote in suffix
-		{"gt-abc\\slash", false},        // backslash in suffix
-		{"gt-abc xyz", false},           // space in suffix
-		{"gt-ABC", false},              // uppercase in suffix
-		{"gt-abc/path", false},          // slash in suffix
+		{"gt-abc;rm -rf /", false}, // shell injection in suffix
+		{"gt-abc$(cmd)", false},    // command substitution in suffix
+		{"gt-abc&bg", false},       // ampersand in suffix
+		{"gt-abc|pipe", false},     // pipe in suffix
+		{"gt-abc`tick`", false},    // backtick in suffix
+		{"gt-abc>redir", false},    // redirect in suffix
+		{"gt-abc<redir", false},    // redirect in suffix
+		{"gt-abc'quote", false},    // single quote in suffix
+		{"gt-abc\"dquote", false},  // double quote in suffix
+		{"gt-abc\\slash", false},   // backslash in suffix
+		{"gt-abc xyz", false},      // space in suffix
+		{"gt-ABC", false},          // uppercase in suffix
+		{"gt-abc/path", false},     // slash in suffix
 	}
 
 	for _, tt := range tests {
@@ -1411,12 +1417,19 @@ exit /b 0
 			"This is required for gt hook to recognize the molecule attachment.\n"+
 			"Log output:\n%s\nAttached log:\n%s", string(logBytes), attachedLog)
 	}
+	attachedBytes, err := os.ReadFile(attachedLogPath)
+	if err != nil {
+		t.Fatalf("read attached log: %v", err)
+	}
+	attachedLog := string(attachedBytes)
+	if !strings.Contains(attachedLog, "issue=gt-abc123") || !strings.Contains(attachedLog, "feature=Bug to fix") {
+		t.Fatalf("formula_vars missing feature/issue vars in persisted description:\n%s", attachedLog)
+	}
 }
 
-// TestSlingNoMergeFlag verifies that gt sling --no-merge stores the no_merge flag
-// in the bead's description. This flag tells gt done to skip the merge queue
-// and keep work on the feature branch for human review.
-func TestSlingNoMergeFlag(t *testing.T) {
+// TestSlingNoMergeAndRalphFlags verifies that direct gt sling stores durable
+// execution flags in the bead description.
+func TestSlingNoMergeAndRalphFlags(t *testing.T) {
 	townRoot := t.TempDir()
 
 	// Minimal workspace marker so workspace.FindFromCwd() succeeds.
@@ -1487,15 +1500,18 @@ exit /b 0
 	prevDryRun := slingDryRun
 	prevNoConvoy := slingNoConvoy
 	prevNoMerge := slingNoMerge
+	prevRalph := slingRalph
 	t.Cleanup(func() {
 		slingDryRun = prevDryRun
 		slingNoConvoy = prevNoConvoy
 		slingNoMerge = prevNoMerge
+		slingRalph = prevRalph
 	})
 
 	slingDryRun = false
 	slingNoConvoy = true
 	slingNoMerge = true // This is what we're testing
+	slingRalph = true
 
 	if err := runSling(nil, []string{"gt-test123"}); err != nil {
 		t.Fatalf("runSling: %v", err)
@@ -1510,6 +1526,9 @@ exit /b 0
 	molContent := string(molBytes)
 	if !strings.Contains(molContent, "no_merge: true") {
 		t.Errorf("--no-merge flag not stored in bead description\nDescription:\n%s", molContent)
+	}
+	if !strings.Contains(molContent, "mode: ralph") {
+		t.Errorf("--ralph flag not stored in bead description\nDescription:\n%s", molContent)
 	}
 }
 

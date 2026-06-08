@@ -401,7 +401,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			DryRun:      slingDryRun,
 			Force:       slingForce,
 			NoMerge:     slingNoMerge,
-				ReviewOnly:  slingReviewOnly,
+			ReviewOnly:  slingReviewOnly,
 			Account:     slingAccount,
 			Agent:       slingAgent,
 			HookRawBead: slingHookRawBead,
@@ -853,6 +853,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	}
 
 	// Formula-on-bead mode: instantiate formula and bond to original bead
+	persistedFormulaVars := append([]string(nil), slingVars...)
 	if formulaName != "" {
 		fmt.Printf("  Instantiating formula %s...\n", formulaName)
 
@@ -889,6 +890,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		// - gt done: close attached_molecule (wisp) first, then close base bead
 		// - Compound resolution: base bead -> attached_molecule -> wisp
 		attachedMoleculeID = result.WispRootID
+		if len(result.FormulaVars) > 0 {
+			persistedFormulaVars = result.FormulaVars
+		}
 
 		// NOTE: We intentionally keep beadID as the ORIGINAL base bead, not the wisp.
 		// The base bead is hooked so that:
@@ -943,10 +947,17 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	if !hookSetAtomically {
 		updateAgentHookBead(targetAgent, beadID, hookWorkDir, townBeadsDir)
 	}
+	if slingRalph {
+		updateAgentMode(targetAgent, "ralph", hookWorkDir, townBeadsDir)
+	}
 
 	// Store all attachment fields in a single read-modify-write cycle.
 	// This eliminates the race condition where sequential independent updates
 	// (dispatcher, args, no_merge, attached_molecule) could overwrite each other.
+	slingMode := ""
+	if slingRalph {
+		slingMode = "ralph"
+	}
 	fieldUpdates := beadFieldUpdates{
 		Dispatcher:       actor,
 		Args:             slingArgs,
@@ -955,7 +966,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		AttachedFormula:  formulaName,
 		NoMerge:          slingNoMerge,
 		ReviewOnly:       slingReviewOnly,
-		FormulaVars:      strings.Join(slingVars, "\n"),
+		Mode:             slingMode,
+		FormulaVars:      strings.Join(persistedFormulaVars, "\n"),
 	}
 	if err := storeFieldsInBead(beadID, fieldUpdates); err != nil {
 		// Warn but don't fail - polecat will still complete work
