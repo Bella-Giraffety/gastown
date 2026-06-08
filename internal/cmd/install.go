@@ -777,8 +777,10 @@ func ensureBeadsCustomTypes(workDir string, types []string) error {
 		return nil
 	}
 
+	beadsDir := beads.ResolveBeadsDir(workDir)
 	cmd := exec.Command("bd", "config", "set", "types.custom", strings.Join(types, ","))
 	cmd.Dir = workDir
+	cmd.Env = beads.EnvWithValue(beads.EnvForBeadsDir(os.Environ(), beadsDir), "BD_DOLT_AUTO_COMMIT", "on")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("bd config set types.custom failed: %s", strings.TrimSpace(string(output)))

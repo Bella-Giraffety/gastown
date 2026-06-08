@@ -139,10 +139,7 @@ func EnsureCustomTypes(beadsDir string) error {
 	}
 
 	// Configure custom types via bd CLI
-	bdEnv := append(stripEnvPrefixes(os.Environ(), "BEADS_DIR=", "BEADS_DB=", "BEADS_DOLT_SERVER_DATABASE="), "BEADS_DIR="+beadsDir)
-	if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
-		bdEnv = append(bdEnv, dbEnv)
-	}
+	bdEnv := bdPinnedEnv(beadsDir)
 	cmd := exec.Command("bd", "config", "set", "types.custom", typesList)
 	cmd.Dir = beadsDir
 	util.SetDetachedProcessGroup(cmd)
@@ -225,10 +222,7 @@ func EnsureCustomStatuses(beadsDir string) error {
 	getCmd := exec.Command("bd", "config", "get", "status.custom")
 	getCmd.Dir = beadsDir
 	util.SetDetachedProcessGroup(getCmd)
-	getEnv := append(stripEnvPrefixes(os.Environ(), "BEADS_DIR=", "BEADS_DB=", "BEADS_DOLT_SERVER_DATABASE="), "BEADS_DIR="+beadsDir)
-	if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
-		getEnv = append(getEnv, dbEnv)
-	}
+	getEnv := bdPinnedEnv(beadsDir)
 	getCmd.Env = getEnv
 	existingOutput, _ := getCmd.Output()
 
@@ -258,10 +252,7 @@ func EnsureCustomStatuses(beadsDir string) error {
 	cmd := exec.Command("bd", "config", "set", "status.custom", mergedStr)
 	cmd.Dir = beadsDir
 	util.SetDetachedProcessGroup(cmd)
-	setEnv := append(stripEnvPrefixes(os.Environ(), "BEADS_DIR=", "BEADS_DB=", "BEADS_DOLT_SERVER_DATABASE="), "BEADS_DIR="+beadsDir)
-	if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
-		setEnv = append(setEnv, dbEnv)
-	}
+	setEnv := bdPinnedEnv(beadsDir)
 	cmd.Env = setEnv
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("configure custom statuses in %s: %s: %w",
@@ -273,6 +264,10 @@ func EnsureCustomStatuses(beadsDir string) error {
 
 	ensuredDirs[cacheKey] = true
 	return nil
+}
+
+func bdPinnedEnv(beadsDir string) []string {
+	return EnvWithValue(EnvForBeadsDir(os.Environ(), beadsDir), "BD_DOLT_AUTO_COMMIT", "on")
 }
 
 // prefixRe validates beads prefix format. Must start with a letter, contain only
@@ -345,10 +340,7 @@ func ensureDatabaseInitialized(beadsDir string) error {
 	cmd := exec.Command("bd", initArgs...)
 	cmd.Dir = parentDir
 	util.SetDetachedProcessGroup(cmd)
-	initEnv := append(stripEnvPrefixes(os.Environ(), "BEADS_DIR=", "BEADS_DB=", "BEADS_DOLT_SERVER_DATABASE="), "BEADS_DIR="+beadsDir)
-	if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
-		initEnv = append(initEnv, dbEnv)
-	}
+	initEnv := bdPinnedEnv(beadsDir)
 	cmd.Env = initEnv
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Handle "already initialized" gracefully, matching install.go behavior.
@@ -367,10 +359,7 @@ func ensureDatabaseInitialized(beadsDir string) error {
 		pfxCmd := exec.Command("bd", "config", "set", "issue_prefix", prefix)
 		pfxCmd.Dir = parentDir
 		util.SetDetachedProcessGroup(pfxCmd)
-		pfxEnv := append(stripEnvPrefixes(os.Environ(), "BEADS_DIR=", "BEADS_DB=", "BEADS_DOLT_SERVER_DATABASE="), "BEADS_DIR="+beadsDir)
-		if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
-			pfxEnv = append(pfxEnv, dbEnv)
-		}
+		pfxEnv := bdPinnedEnv(beadsDir)
 		pfxCmd.Env = pfxEnv
 		_, _ = pfxCmd.CombinedOutput() // Best effort — crash prevention guard
 	}
@@ -382,10 +371,7 @@ func ensureDatabaseInitialized(beadsDir string) error {
 	// After bd init --server, the Dolt SQL server may need time to register
 	// the new database in its catalog. Retry once after a short delay if the
 	// first migrate attempt fails (GH#1769).
-	migrateEnv := append(stripEnvPrefixes(os.Environ(), "BEADS_DIR=", "BEADS_DB=", "BEADS_DOLT_SERVER_DATABASE="), "BEADS_DIR="+beadsDir)
-	if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
-		migrateEnv = append(migrateEnv, dbEnv)
-	}
+	migrateEnv := bdPinnedEnv(beadsDir)
 	migrateCmd := exec.Command("bd", "migrate", "--yes")
 	migrateCmd.Dir = parentDir
 	migrateCmd.Env = migrateEnv

@@ -641,6 +641,13 @@ func EnvForRouting(environ []string, referenceBeadsDir string) []string {
 	return translateDoltPort(env)
 }
 
+// EnvWithValue returns environ with all existing entries for key removed and a
+// single key=value entry appended. This avoids first-match getenv shadowing.
+func EnvWithValue(environ []string, key, value string) []string {
+	prefix := key + "="
+	return append(stripEnvPrefixes(environ, prefix), prefix+value)
+}
+
 // filterBeadsEnv removes beads-related environment variables from the given
 // environment slice. This ensures test isolation by preventing inherited
 // BD_ACTOR, BEADS_DB, GT_ROOT, HOME etc. from routing commands to production databases.

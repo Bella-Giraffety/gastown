@@ -243,6 +243,7 @@ func runPrimeCompactResume(ctx RoleContext) {
 
 	// Session metadata for seance
 	outputSessionMetadata(ctx)
+	runMailCheckInject(ctx.WorkDir)
 
 	fmt.Println("\n---")
 	fmt.Println()

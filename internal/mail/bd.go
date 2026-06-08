@@ -73,7 +73,7 @@ func runBdCommand(ctx context.Context, args []string, workDir, beadsDir string, 
 	cmd.Dir = workDir
 	util.SetDetachedProcessGroup(cmd)
 
-	env := beads.EnvForBeadsDir(cmd.Environ(), beadsDir)
+	env := beads.EnvWithValue(beads.EnvForBeadsDir(cmd.Environ(), beadsDir), "BD_DOLT_AUTO_COMMIT", "on")
 	env = append(env, extraEnv...)
 	env = append(env, telemetry.OTELEnvForSubprocess()...)
 	cmd.Env = env

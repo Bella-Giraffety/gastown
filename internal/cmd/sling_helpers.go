@@ -361,6 +361,7 @@ func storeFieldsInBead(beadID string, updates beadFieldUpdates) error {
 	if err := BdCmd("update", beadID, "--description="+newDesc).
 		Dir(resolveBeadDir(beadID)).
 		StripBeadsDir().
+		WithAutoCommit().
 		Run(); err != nil {
 		return fmt.Errorf("updating bead description: %w", err)
 	}
