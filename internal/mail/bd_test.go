@@ -1,7 +1,12 @@
 package mail
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -161,6 +166,80 @@ func TestBdError_ImplementsErrorInterface(t *testing.T) {
 	}
 
 	_ = err.Error() // Should compile and not panic
+}
+
+func TestRunBdCommandPinsBeadsDirAndDatabaseEnv(t *testing.T) {
+	workDir := t.TempDir()
+	beadsDir := filepath.Join(workDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	metadata := `{"dolt_database":"hq","dolt_server_host":"127.0.0.1","dolt_server_port":43113}`
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(metadata), 0644); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	binDir := t.TempDir()
+	writeBdEnvStub(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+	t.Setenv("BEADS_DB", "/wrong/beads.db")
+	t.Setenv("BD_DB", "/wrong/bd.db")
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "gt")
+	t.Setenv("BEADS_DOLT_PORT", "3307")
+
+	out, err := runBdCommand(context.Background(), []string{"show", "hq-abc"}, workDir, beadsDir)
+	if err != nil {
+		t.Fatalf("runBdCommand: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		"BEADS_DIR=" + beadsDir,
+		"BEADS_DOLT_SERVER_DATABASE=hq",
+		"BEADS_DOLT_PORT=43113",
+		"BEADS_DB=",
+		"BD_DB=",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("stub output missing %q in:\n%s", want, text)
+		}
+	}
+	for _, bad := range []string{"/wrong", "BEADS_DOLT_SERVER_DATABASE=gt", "BEADS_DOLT_PORT=3307"} {
+		if strings.Contains(text, bad) {
+			t.Fatalf("stub output contains stale value %q in:\n%s", bad, text)
+		}
+	}
+}
+
+func writeBdEnvStub(t *testing.T, dir string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "bd.bat")
+		script := `@echo off
+echo BEADS_DIR=%BEADS_DIR%
+echo BEADS_DB=%BEADS_DB%
+echo BD_DB=%BD_DB%
+echo BEADS_DOLT_SERVER_DATABASE=%BEADS_DOLT_SERVER_DATABASE%
+echo BEADS_DOLT_PORT=%BEADS_DOLT_PORT%
+exit /b 0
+`
+		if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+			t.Fatalf("write bd stub: %v", err)
+		}
+		return
+	}
+	path := filepath.Join(dir, "bd")
+	script := `#!/bin/sh
+printf '%s\n' "BEADS_DIR=$BEADS_DIR"
+printf '%s\n' "BEADS_DB=$BEADS_DB"
+printf '%s\n' "BD_DB=$BD_DB"
+printf '%s\n' "BEADS_DOLT_SERVER_DATABASE=$BEADS_DOLT_SERVER_DATABASE"
+printf '%s\n' "BEADS_DOLT_PORT=$BEADS_DOLT_PORT"
+exit 0
+`
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
 }
 
 func TestBdError_WithAllFields(t *testing.T) {

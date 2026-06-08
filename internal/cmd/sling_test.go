@@ -1676,7 +1676,7 @@ func TestSlingSetsDoltAutoCommitOff(t *testing.T) {
 	logPath := filepath.Join(townRoot, "bd.log")
 	bdScript := `#!/bin/sh
 set -e
-echo "ENV:BD_DOLT_AUTO_COMMIT=${BD_DOLT_AUTO_COMMIT}|$*" >> "${BD_LOG}"
+echo "ENV:BD_DOLT_AUTO_COMMIT=${BD_DOLT_AUTO_COMMIT}|DB=${BEADS_DOLT_SERVER_DATABASE}|BD_DB=${BD_DB}|BEADS_DB=${BEADS_DB}|$*" >> "${BD_LOG}"
 cmd="$1"
 shift || true
 case "$cmd" in
@@ -1691,7 +1691,7 @@ exit 0
 `
 	bdScriptWindows := `@echo off
 setlocal enableextensions
-echo ENV:BD_DOLT_AUTO_COMMIT=%BD_DOLT_AUTO_COMMIT%^|%*>>"%BD_LOG%"
+	echo ENV:BD_DOLT_AUTO_COMMIT=%BD_DOLT_AUTO_COMMIT%^|DB=%BEADS_DOLT_SERVER_DATABASE%^|BD_DB=%BD_DB%^|BEADS_DB=%BEADS_DB%^|%*>>"%BD_LOG%"
 set "cmd=%1"
 if not "%cmd%"=="show" goto :notshow
 echo [{"title":"Test issue","status":"open","assignee":"","description":""}]
@@ -1715,6 +1715,9 @@ exit /b 0
 	t.Setenv("GT_TEST_SKIP_HOOK_VERIFY", "1")
 	// Ensure BD_DOLT_AUTO_COMMIT is NOT set before sling runs
 	t.Setenv("BD_DOLT_AUTO_COMMIT", "")
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "gt")
+	t.Setenv("BEADS_DB", "/wrong/beads.db")
+	t.Setenv("BD_DB", "/wrong/bd.db")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -1756,8 +1759,16 @@ exit /b 0
 			continue
 		}
 		// Commands using .WithAutoCommit() (e.g., "update --status=hooked")
-		// legitimately override to "on" for sequential consistency.
+		// must override to "on" and must not inherit stale database selectors.
 		if strings.Contains(line, "update") && strings.Contains(line, "--status=hooked") {
+			if !strings.Contains(line, "ENV:BD_DOLT_AUTO_COMMIT=on|") {
+				t.Errorf("hook update did not force auto-commit on: %s", line)
+			}
+			for _, stale := range []string{"DB=gt", "BD_DB=/wrong/bd.db", "BEADS_DB=/wrong/beads.db"} {
+				if strings.Contains(line, stale) {
+					t.Errorf("hook update inherited stale database selector %s: %s", stale, line)
+				}
+			}
 			continue
 		}
 		if !strings.Contains(line, "ENV:BD_DOLT_AUTO_COMMIT=off|") {

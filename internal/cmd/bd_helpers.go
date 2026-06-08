@@ -13,13 +13,13 @@ import (
 // It provides a fluent API for configuring environment variables,
 // working directory, and I/O settings common to bd CLI invocations.
 type bdCmd struct {
-	args       []string
-	dir        string
-	env        []string
-	stderr     io.Writer
-	autoCommit bool
-	gtRoot     string
-	beadsDir   string
+	args        []string
+	dir         string
+	env         []string
+	stderr      io.Writer
+	autoCommit  bool
+	gtRoot      string
+	beadsDir    string
 	stripTarget bool
 }
 
