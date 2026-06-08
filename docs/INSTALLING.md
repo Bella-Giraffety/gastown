@@ -83,6 +83,24 @@ tmux -V           # (Optional) Should show 3.0 or higher
 
 ### Step 1: Install the Binaries
 
+On macOS, install Gas Town with Homebrew:
+
+```bash
+brew install gastown
+```
+
+Avoid `go install` for `gt` on macOS. The unsigned binary it produces can be killed by Gatekeeper. To build from source instead, install Dolt with Homebrew, install `bd` with Go, then build and install `gt` with `make install`:
+
+```bash
+brew install dolt
+go install github.com/steveyegge/beads/cmd/bd@latest
+git clone https://github.com/steveyegge/gastown.git
+cd gastown
+make install
+```
+
+On Linux and Windows, install `gt` and `bd` with Go:
+
 ```bash
 # Install Gas Town CLI
 go install github.com/steveyegge/gastown/cmd/gt@latest
