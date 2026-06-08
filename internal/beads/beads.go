@@ -424,16 +424,12 @@ func (b *Beads) run(args ...string) (_ []byte, retErr error) {
 
 	// Conditionally use --allow-stale to prevent failures when db is temporarily stale
 	// (e.g., after daemon is killed during shutdown). Only if bd supports it.
-	beadsDir := b.beadsDir
-	if beadsDir == "" {
-		beadsDir = ResolveBeadsDir(b.workDir)
-	}
-	runEnv := append(b.buildRunEnv(), "BEADS_DIR="+beadsDir)
+	runEnv := b.buildRunEnv()
 	fullArgs := MaybePrependAllowStaleWithEnv(runEnv, args)
 
-	// Always explicitly set BEADS_DIR to prevent inherited env vars from
-	// causing prefix mismatches. Use explicit beadsDir if set, otherwise
-	// resolve from working directory.
+	// Always explicitly target the resolved beads directory/database in the
+	// subprocess env. buildRunEnv strips inherited selectors first so stale
+	// parent env cannot shadow the authoritative values.
 	cmd := exec.Command("bd", fullArgs...) //nolint:gosec // G204: bd is a trusted internal tool
 	util.SetDetachedProcessGroup(cmd)
 	cmd.Dir = b.workDir
@@ -567,38 +563,81 @@ func isSubprocessCrash(err error) bool {
 
 // buildRunEnv builds the environment for run() calls.
 // In isolated mode: strips all beads-related env vars for test isolation.
-// Otherwise: strips inherited BEADS_DIR so the caller can append the correct value.
-// Without this, getenv() returns the first occurrence, so an inherited BEADS_DIR
-// (e.g., from a parent process or shell context) would shadow the explicit value
-// appended by run(). This was the root cause of gt-uygpe / GH #803.
+// Otherwise: strips inherited bd target selectors and pins the subprocess to
+// this wrapper's resolved beads dir/database. Without this, getenv() returns
+// the first occurrence, so inherited selectors (BEADS_DIR, BEADS_DB,
+// BEADS_DOLT_SERVER_DATABASE) can shadow explicit target values and route
+// writes to the wrong or empty database.
 func (b *Beads) buildRunEnv() []string {
+	beadsDir := b.getResolvedBeadsDir()
 	if b.isolated {
 		env := filterBeadsEnv(os.Environ())
+		env = EnvForBeadsDir(env, beadsDir)
 		if b.serverPort > 0 {
+			env = stripEnvPrefixes(env, "GT_DOLT_PORT=", "BEADS_DOLT_PORT=")
 			env = append(env, fmt.Sprintf("GT_DOLT_PORT=%d", b.serverPort))
 			env = append(env, fmt.Sprintf("BEADS_DOLT_PORT=%d", b.serverPort))
 		}
 		return env
 	}
-	env := stripEnvPrefixes(os.Environ(), "BEADS_DIR=")
-	env = overrideDoltEnvFromBeadsDir(env, b.getResolvedBeadsDir())
-	return translateDoltPort(env)
+	return EnvForBeadsDir(os.Environ(), beadsDir)
 }
 
 // buildRoutingEnv builds the environment for runWithRouting() calls.
-// Always strips BEADS_DIR so bd uses native routing.
+// Always strips bd target selectors so bd uses native routing without stale
+// parent env forcing an unrelated database.
 // In isolated mode: also strips BD_ACTOR, BEADS_*, GT_ROOT, HOME.
 func (b *Beads) buildRoutingEnv() []string {
+	beadsDir := b.getResolvedBeadsDir()
 	if b.isolated {
 		env := filterBeadsEnv(os.Environ())
+		env = EnvForRouting(env, beadsDir)
 		if b.serverPort > 0 {
+			env = stripEnvPrefixes(env, "GT_DOLT_PORT=", "BEADS_DOLT_PORT=")
 			env = append(env, fmt.Sprintf("GT_DOLT_PORT=%d", b.serverPort))
 			env = append(env, fmt.Sprintf("BEADS_DOLT_PORT=%d", b.serverPort))
 		}
 		return env
 	}
-	env := stripEnvPrefixes(os.Environ(), "BEADS_DIR=")
-	env = overrideDoltEnvFromBeadsDir(env, b.getResolvedBeadsDir())
+	return EnvForRouting(os.Environ(), beadsDir)
+}
+
+var bdTargetEnvPrefixes = []string{
+	"BEADS_DIR=",
+	"BEADS_DB=",
+	"BD_DB=",
+	"BEADS_DOLT_SERVER_DATABASE=",
+}
+
+// StripBDTargetEnv removes environment selectors that make bd choose a local
+// store or Dolt database. Host/port env vars are intentionally preserved so
+// tests and daemons can still direct clients to a non-default Dolt server.
+func StripBDTargetEnv(environ []string) []string {
+	return stripEnvPrefixes(environ, bdTargetEnvPrefixes...)
+}
+
+// EnvForBeadsDir returns an environment pinned to beadsDir. It removes stale
+// inherited bd target selectors before appending the authoritative BEADS_DIR
+// and metadata-derived BEADS_DOLT_SERVER_DATABASE.
+func EnvForBeadsDir(environ []string, beadsDir string) []string {
+	env := StripBDTargetEnv(environ)
+	env = overrideDoltEnvFromBeadsDir(env, beadsDir)
+	env = translateDoltPort(env)
+	if beadsDir != "" {
+		env = append(env, "BEADS_DIR="+beadsDir)
+		if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
+			env = append(env, dbEnv)
+		}
+	}
+	return env
+}
+
+// EnvForRouting returns an environment suitable for bd prefix/cwd routing: all
+// explicit target selectors are removed, while Dolt host/port are refreshed from
+// the reference beads directory when available.
+func EnvForRouting(environ []string, referenceBeadsDir string) []string {
+	env := StripBDTargetEnv(environ)
+	env = overrideDoltEnvFromBeadsDir(env, referenceBeadsDir)
 	return translateDoltPort(env)
 }
 
@@ -624,6 +663,7 @@ func filterBeadsEnv(environ []string) []string {
 		// GT_ROOT - causes bd to find global routes file
 		// HOME - causes bd to find ~/.beads-planning routing
 		if strings.HasPrefix(env, "BD_ACTOR=") ||
+			strings.HasPrefix(env, "BD_DB=") ||
 			strings.HasPrefix(env, "BEADS_") ||
 			strings.HasPrefix(env, "GT_ROOT=") ||
 			strings.HasPrefix(env, "HOME=") {

@@ -900,27 +900,5 @@ func doctorConfigBeadsDir(ctx *CheckContext) string {
 }
 
 func doctorConfigEnv(beadsDir string) []string {
-	env := stripEnvPrefixes(os.Environ(), "BEADS_DIR=", "BEADS_DB=", "BEADS_DOLT_SERVER_DATABASE=")
-	env = append(env, "BEADS_DIR="+beadsDir)
-	if dbEnv := beads.DatabaseEnv(beadsDir); dbEnv != "" {
-		env = append(env, dbEnv)
-	}
-	return env
-}
-
-func stripEnvPrefixes(env []string, prefixes ...string) []string {
-	filtered := make([]string, 0, len(env))
-	for _, entry := range env {
-		skip := false
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(entry, prefix) {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			filtered = append(filtered, entry)
-		}
-	}
-	return filtered
+	return beads.EnvForBeadsDir(os.Environ(), beadsDir)
 }

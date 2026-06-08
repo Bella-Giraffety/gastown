@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -443,6 +444,59 @@ func TestBdCmd_WithBeadsDir_OverridesInherited(t *testing.T) {
 	}
 }
 
+func TestBdCmd_WithBeadsDir_OverridesInheritedDatabaseSelectors(t *testing.T) {
+	beadsDir := filepath.Join(t.TempDir(), ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	metadata := `{"dolt_database":"gastown","dolt_server_port":43113}`
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(metadata), 0644); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	baseEnv := []string{
+		"PATH=/usr/bin",
+		"BEADS_DIR=/town/.beads",
+		"BEADS_DB=/town/.beads/beads.db",
+		"BD_DB=/town/.beads/bd.db",
+		"BEADS_DOLT_SERVER_DATABASE=gt",
+		"BEADS_DOLT_PORT=3307",
+	}
+
+	bdc := &bdCmd{
+		args:   []string{"update", "gt-abc"},
+		env:    baseEnv,
+		stderr: os.Stderr,
+	}
+	cmd := bdc.WithBeadsDir(beadsDir).Build()
+	envMap := parseEnv(cmd.Env)
+
+	if envMap["BEADS_DIR"] != beadsDir {
+		t.Fatalf("BEADS_DIR = %q, want %q", envMap["BEADS_DIR"], beadsDir)
+	}
+	if envMap["BEADS_DOLT_SERVER_DATABASE"] != "gastown" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want gastown", envMap["BEADS_DOLT_SERVER_DATABASE"])
+	}
+	if envMap["BEADS_DOLT_PORT"] != "43113" {
+		t.Fatalf("BEADS_DOLT_PORT = %q, want 43113", envMap["BEADS_DOLT_PORT"])
+	}
+	for _, prefix := range []string{"BEADS_DIR=", "BEADS_DB=", "BD_DB=", "BEADS_DOLT_SERVER_DATABASE="} {
+		count := 0
+		for _, entry := range cmd.Env {
+			if strings.HasPrefix(entry, prefix) {
+				count++
+			}
+		}
+		want := 0
+		if prefix == "BEADS_DIR=" || prefix == "BEADS_DOLT_SERVER_DATABASE=" {
+			want = 1
+		}
+		if count != want {
+			t.Fatalf("%s count = %d, want %d in %v", prefix, count, want, cmd.Env)
+		}
+	}
+}
+
 func TestBdCmd_EmptyBeadsDir_Skipped(t *testing.T) {
 	// Empty WithBeadsDir should not add BEADS_DIR to env
 	bdc := BdCmd("show", "id").
@@ -484,6 +538,29 @@ func TestBdCmd_StripBeadsDir_RemovesInherited(t *testing.T) {
 
 	if cmd.Dir != "/town/myproject/mayor/rig" {
 		t.Errorf("Dir = %q, want %q", cmd.Dir, "/town/myproject/mayor/rig")
+	}
+}
+
+func TestBdCmd_StripBeadsDir_RemovesInheritedDatabaseSelectors(t *testing.T) {
+	bdc := &bdCmd{
+		args: []string{"show", "gt-abc", "--json"},
+		env: []string{
+			"PATH=/usr/bin",
+			"BEADS_DIR=/town/.beads",
+			"BEADS_DB=/town/.beads/beads.db",
+			"BD_DB=/town/.beads/bd.db",
+			"BEADS_DOLT_SERVER_DATABASE=gt",
+		},
+		stderr: os.Stderr,
+	}
+	cmd := bdc.Dir("/town/myproject/mayor/rig").StripBeadsDir().Build()
+
+	for _, prefix := range []string{"BEADS_DIR=", "BEADS_DB=", "BD_DB=", "BEADS_DOLT_SERVER_DATABASE="} {
+		for _, entry := range cmd.Env {
+			if strings.HasPrefix(entry, prefix) {
+				t.Fatalf("StripBeadsDir should remove %s, found %s in %v", prefix, entry, cmd.Env)
+			}
+		}
 	}
 }
 

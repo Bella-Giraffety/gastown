@@ -20,6 +20,7 @@ type bdCmd struct {
 	autoCommit bool
 	gtRoot     string
 	beadsDir   string
+	stripTarget bool
 }
 
 // BdCmd creates a new bd command builder with the given arguments.
@@ -68,12 +69,13 @@ func (b *bdCmd) Dir(dir string) *bdCmd {
 	return b
 }
 
-// StripBeadsDir removes any inherited BEADS_DIR from the environment.
+// StripBeadsDir removes inherited bd target selectors from the environment.
 // Use this when the command relies on Dir() for routing and an inherited
-// BEADS_DIR would incorrectly override the working-directory-based database
-// discovery. This fixes rig-prefixed bead resolution (GH#2126).
+// BEADS_DIR/BEADS_DB/BEADS_DOLT_SERVER_DATABASE would incorrectly override
+// the working-directory-based database discovery.
 func (b *bdCmd) StripBeadsDir() *bdCmd {
-	b.env = filterEnvKey(b.env, "BEADS_DIR")
+	b.stripTarget = true
+	b.env = beads.StripBDTargetEnv(b.env)
 	return b
 }
 
@@ -100,7 +102,17 @@ func filterEnvKey(env []string, key string) []string {
 
 // buildEnv constructs the final environment slice based on configured options.
 func (b *bdCmd) buildEnv() []string {
-	env := b.env
+	env := append([]string(nil), b.env...)
+
+	if b.beadsDir != "" {
+		env = beads.EnvForBeadsDir(env, b.beadsDir)
+	} else if b.stripTarget {
+		beadsDir := ""
+		if b.dir != "" {
+			beadsDir = beads.ResolveBeadsDir(b.dir)
+		}
+		env = beads.EnvForRouting(env, beadsDir)
+	}
 
 	// Add BD_DOLT_AUTO_COMMIT=on for sequential dependent calls.
 	// Filter existing entries first — glibc getenv() returns the first match,
@@ -115,14 +127,6 @@ func (b *bdCmd) buildEnv() []string {
 	if b.gtRoot != "" {
 		env = filterEnvKey(env, "GT_ROOT")
 		env = append(env, "GT_ROOT="+b.gtRoot)
-	}
-
-	// Add BEADS_DIR if specified.
-	// This prevents inherited BEADS_DIR from causing bd to target the wrong
-	// database (e.g., HQ instead of rig). See gt-ctir.
-	if b.beadsDir != "" {
-		env = filterEnvKey(env, "BEADS_DIR")
-		env = append(env, "BEADS_DIR="+b.beadsDir)
 	}
 
 	return env

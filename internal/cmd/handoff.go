@@ -1294,9 +1294,9 @@ func sendHandoffMail(subject, message string) (string, error) {
 
 	cmd := BdCmd(args...).
 		WithAutoCommit().
+		WithBeadsDir(filepath.Join(townRoot, ".beads")).
 		Dir(townRoot).
 		Build()
-	cmd.Env = append(cmd.Env, "BEADS_DIR="+filepath.Join(townRoot, ".beads"))
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -1318,9 +1318,9 @@ func sendHandoffMail(subject, message string) (string, error) {
 	// Auto-hook the created mail bead
 	hookCmd := BdCmd("update", beadID, "--status=hooked", "--assignee="+agentID).
 		WithAutoCommit().
+		WithBeadsDir(filepath.Join(townRoot, ".beads")).
 		Dir(townRoot).
 		Build()
-	hookCmd.Env = append(hookCmd.Env, "BEADS_DIR="+filepath.Join(townRoot, ".beads"))
 	hookCmd.Stderr = os.Stderr
 
 	if err := hookCmd.Run(); err != nil {

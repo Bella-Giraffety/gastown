@@ -830,6 +830,7 @@ func (m *SessionManager) validateIssue(issueID, workDir string) error {
 	cmd := exec.CommandContext(ctx, "bd", "show", issueID, "--json") //nolint:gosec // G204: bd is a trusted internal tool
 	util.SetDetachedProcessGroup(cmd)
 	cmd.Dir = bdWorkDir
+	cmd.Env = beads.EnvForBeadsDir(os.Environ(), beads.ResolveBeadsDir(bdWorkDir))
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrIssueInvalid, issueID)
@@ -928,10 +929,22 @@ func (m *SessionManager) hookIssue(issueID, agentID, workDir string) error {
 	cmd := exec.CommandContext(ctx, "bd", "update", issueID, "--status=hooked", "--assignee="+agentID) //nolint:gosec // G204: bd is a trusted internal tool
 	util.SetDetachedProcessGroup(cmd)
 	cmd.Dir = bdWorkDir
+	cmd.Env = sessionManagerEnvWithValue(beads.EnvForBeadsDir(os.Environ(), beads.ResolveBeadsDir(bdWorkDir)), "BD_DOLT_AUTO_COMMIT", "on")
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("bd update failed: %w", err)
 	}
 	fmt.Printf("✓ Hooked issue %s to %s\n", issueID, agentID)
 	return nil
+}
+
+func sessionManagerEnvWithValue(env []string, key, value string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			out = append(out, entry)
+		}
+	}
+	return append(out, prefix+value)
 }

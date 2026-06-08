@@ -3097,6 +3097,7 @@ func TestFilterBeadsEnv_EmptyInput(t *testing.T) {
 func TestFilterBeadsEnv_PreservesDoltPortVars(t *testing.T) {
 	environ := []string{
 		"BD_ACTOR=test-actor",
+		"BD_DB=/tmp/bd.db",
 		"BEADS_DIR=/tmp/beads",
 		"BEADS_DB=/tmp/beads.db",
 		"BEADS_DOLT_PORT=13306",
@@ -3272,6 +3273,7 @@ func TestTranslateDoltPort(t *testing.T) {
 // vars from a real os.Environ() with multiple beads vars set.
 func TestFilterBeadsEnv_Integration(t *testing.T) {
 	t.Setenv("BD_ACTOR", "gastown/polecats/TestPolecat")
+	t.Setenv("BD_DB", "/tmp/test-bd.db")
 	t.Setenv("BEADS_DIR", "/tmp/test-beads")
 	t.Setenv("GT_ROOT", "/tmp/test-gt-root")
 
@@ -3279,7 +3281,7 @@ func TestFilterBeadsEnv_Integration(t *testing.T) {
 
 	// BEADS_DOLT_PORT and GT_DOLT_PORT are explicitly preserved (test server access).
 	// Check that other BEADS_* vars are still stripped.
-	forbidden := []string{"BD_ACTOR=", "BEADS_DIR=", "BEADS_DB=", "GT_ROOT=", "HOME="}
+	forbidden := []string{"BD_ACTOR=", "BD_DB=", "BEADS_DIR=", "BEADS_DB=", "GT_ROOT=", "HOME="}
 	for _, e := range env {
 		for _, prefix := range forbidden {
 			if strings.HasPrefix(e, prefix) {
@@ -3382,10 +3384,16 @@ func TestBuildRoutingEnv(t *testing.T) {
 		mustNotContain []string
 	}{
 		{
-			name:           "default strips BEADS_DIR only",
-			envVars:        map[string]string{"BEADS_DIR": "/tmp/beads", "PATH": "/usr/bin"},
+			name: "default strips bd target selectors",
+			envVars: map[string]string{
+				"BEADS_DIR":                  "/tmp/beads",
+				"BEADS_DB":                   "/tmp/beads.db",
+				"BD_DB":                      "/tmp/bd.db",
+				"BEADS_DOLT_SERVER_DATABASE": "gt",
+				"PATH":                       "/usr/bin",
+			},
 			mustContain:    []string{"PATH="},
-			mustNotContain: []string{"BEADS_DIR="},
+			mustNotContain: []string{"BEADS_DIR=", "BEADS_DB=", "BD_DB=", "BEADS_DOLT_SERVER_DATABASE="},
 		},
 		{
 			name:           "isolated strips all beads vars",
@@ -3423,6 +3431,85 @@ func TestBuildRoutingEnv(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEnvForBeadsDir_StripsStaleTargetSelectors(t *testing.T) {
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	metadata := `{"dolt_database":"gastown","dolt_server_host":"127.0.0.1","dolt_server_port":43113}`
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(metadata), 0644); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	env := EnvForBeadsDir([]string{
+		"PATH=/usr/bin",
+		"BEADS_DIR=/wrong/.beads",
+		"BEADS_DB=/wrong/beads.db",
+		"BD_DB=/wrong/bd.db",
+		"BEADS_DOLT_SERVER_DATABASE=gt",
+		"BEADS_DOLT_PORT=3307",
+	}, beadsDir)
+
+	assertEnvCount(t, env, "BEADS_DIR=", 1)
+	assertEnvCount(t, env, "BEADS_DB=", 0)
+	assertEnvCount(t, env, "BD_DB=", 0)
+	assertEnvCount(t, env, "BEADS_DOLT_SERVER_DATABASE=", 1)
+	assertEnvContains(t, env, "BEADS_DIR="+beadsDir)
+	assertEnvContains(t, env, "BEADS_DOLT_SERVER_DATABASE=gastown")
+	assertEnvContains(t, env, "BEADS_DOLT_PORT=43113")
+}
+
+func TestEnvForRouting_StripsDatabaseSelectorsWithoutPinningDatabase(t *testing.T) {
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	metadata := `{"dolt_database":"gastown","dolt_server_port":43113}`
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(metadata), 0644); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	env := EnvForRouting([]string{
+		"PATH=/usr/bin",
+		"BEADS_DIR=/wrong/.beads",
+		"BEADS_DB=/wrong/beads.db",
+		"BD_DB=/wrong/bd.db",
+		"BEADS_DOLT_SERVER_DATABASE=gt",
+		"BEADS_DOLT_PORT=3307",
+	}, beadsDir)
+
+	assertEnvCount(t, env, "BEADS_DIR=", 0)
+	assertEnvCount(t, env, "BEADS_DB=", 0)
+	assertEnvCount(t, env, "BD_DB=", 0)
+	assertEnvCount(t, env, "BEADS_DOLT_SERVER_DATABASE=", 0)
+	assertEnvContains(t, env, "BEADS_DOLT_PORT=43113")
+}
+
+func assertEnvContains(t *testing.T, env []string, want string) {
+	t.Helper()
+	for _, entry := range env {
+		if entry == want {
+			return
+		}
+	}
+	t.Fatalf("env missing %q in %v", want, env)
+}
+
+func assertEnvCount(t *testing.T, env []string, prefix string, want int) {
+	t.Helper()
+	got := 0
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			got++
+		}
+	}
+	if got != want {
+		t.Fatalf("env prefix %q count = %d, want %d in %v", prefix, got, want, env)
 	}
 }
 
