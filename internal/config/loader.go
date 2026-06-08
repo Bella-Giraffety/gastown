@@ -1262,6 +1262,8 @@ func resolveAgentConfigWithOverrideInternal(townRoot, rigPath, agentOverride str
 			return nil, "", fmt.Errorf("agent '%s' not found", agentName)
 		}
 
+		rc.ResolvedAgent = agentName
+
 		// Append extra arguments from the override
 		if len(extraArgs) > 0 {
 			rc.Args = append(rc.Args, extraArgs...)
@@ -2514,8 +2516,16 @@ func BuildStartupCommandWithAgentOverride(envVars map[string]string, rigPath, pr
 	// Explicit override takes priority; fall back to resolved agent name.
 	agentForProcess := rc.ResolvedAgent
 	if agentOverride != "" {
-		resolvedEnv["GT_AGENT"] = agentOverride
-		agentForProcess = agentOverride
+		agentForProcess = rc.ResolvedAgent
+		if agentForProcess == "" {
+			parts := strings.Fields(agentOverride)
+			if len(parts) > 0 {
+				agentForProcess = parts[0]
+			} else {
+				agentForProcess = agentOverride
+			}
+		}
+		resolvedEnv["GT_AGENT"] = agentForProcess
 	} else if rc.ResolvedAgent != "" {
 		resolvedEnv["GT_AGENT"] = rc.ResolvedAgent
 	}

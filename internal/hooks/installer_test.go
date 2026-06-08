@@ -178,6 +178,42 @@ func TestSyncForRole_CreatesNewFile(t *testing.T) {
 	}
 }
 
+func TestOpenCodeTemplate_UsesHookContextAndCanonicalSession(t *testing.T) {
+	template, err := templateFS.ReadFile("templates/opencode/gastown.js")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	content := string(template)
+
+	for _, want := range []string{
+		"gt prime --hook",
+		"process.env.GT_SESSION",
+		"session.compacted",
+		"MAX_COMPACTIONS = 3",
+		"gt handoff --auto",
+		"tmux kill-session",
+		`"=" + sessionName`,
+		`parts[1] === "polecats"`,
+		`return "polecat"`,
+		"safeSessionName",
+		"handoffSaved",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("opencode template missing %q", want)
+		}
+	}
+
+	for _, unwanted := range []string{
+		"GT_SESSION_NAME",
+		"gt mail check --inject",
+		`captureRun("gt prime")`,
+	} {
+		if strings.Contains(content, unwanted) {
+			t.Errorf("opencode template should not contain %q", unwanted)
+		}
+	}
+}
+
 func TestSyncForRole_EmptyProvider(t *testing.T) {
 	dir := t.TempDir()
 	result, err := SyncForRole("", dir, dir, "crew", ".opencode/plugins", "gastown.js", false)

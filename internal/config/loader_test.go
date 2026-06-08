@@ -1251,6 +1251,9 @@ func TestResolveAgentConfigWithOverride(t *testing.T) {
 		if rc.Command != "gemini" {
 			t.Fatalf("rc.Command = %q, want %q", rc.Command, "gemini")
 		}
+		if rc.ResolvedAgent != "gemini" {
+			t.Fatalf("rc.ResolvedAgent = %q, want %q", rc.ResolvedAgent, "gemini")
+		}
 	})
 
 	t.Run("override uses custom agent alias", func(t *testing.T) {
@@ -1263,6 +1266,9 @@ func TestResolveAgentConfigWithOverride(t *testing.T) {
 		}
 		if !isClaudeCommand(rc.Command) {
 			t.Fatalf("rc.Command = %q, want claude or path ending in /claude", rc.Command)
+		}
+		if rc.ResolvedAgent != "claude-haiku" {
+			t.Fatalf("rc.ResolvedAgent = %q, want %q", rc.ResolvedAgent, "claude-haiku")
 		}
 		got := rc.BuildCommand()
 		// Check command includes expected flags (path to claude may vary)
@@ -1329,6 +1335,9 @@ func TestResolveAgentConfigWithOverride(t *testing.T) {
 		}
 		if rc.Command != "opencode" {
 			t.Fatalf("rc.Command = %q, want %q", rc.Command, "opencode")
+		}
+		if rc.ResolvedAgent != "opencode" {
+			t.Fatalf("rc.ResolvedAgent = %q, want %q", rc.ResolvedAgent, "opencode")
 		}
 		// Verify "acp" was appended to Args
 		found := false
@@ -4723,6 +4732,39 @@ func TestBuildStartupCommandWithAgentOverride_SetsGTProcessNames(t *testing.T) {
 	// Should include GT_PROCESS_NAMES with gemini's process names
 	if !strings.Contains(cmd, "GT_PROCESS_NAMES=gemini") {
 		t.Errorf("expected GT_PROCESS_NAMES=gemini in command, got: %q", cmd)
+	}
+}
+
+func TestBuildStartupCommandWithAgentOverride_NormalizesSubcommandAgent(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "testrig")
+
+	if err := SaveTownSettings(TownSettingsPath(townRoot), NewTownSettings()); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+	if err := SaveRigSettings(RigSettingsPath(rigPath), NewRigSettings()); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	cmd, err := BuildStartupCommandWithAgentOverride(
+		map[string]string{"GT_ROLE": constants.RoleWitness},
+		rigPath,
+		"",
+		"opencode acp",
+	)
+	if err != nil {
+		t.Fatalf("BuildStartupCommandWithAgentOverride: %v", err)
+	}
+
+	if !strings.Contains(cmd, "GT_AGENT=opencode") {
+		t.Errorf("expected normalized GT_AGENT=opencode in command, got: %q", cmd)
+	}
+	if strings.Contains(cmd, "GT_AGENT='opencode acp'") || strings.Contains(cmd, "GT_AGENT=\"opencode acp\"") {
+		t.Errorf("GT_AGENT should not include subcommand args, got: %q", cmd)
+	}
+	if !strings.Contains(cmd, "GT_PROCESS_NAMES=opencode,node,bun") {
+		t.Errorf("expected opencode process names in command, got: %q", cmd)
 	}
 }
 
