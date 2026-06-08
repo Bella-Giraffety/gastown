@@ -1,5 +1,5 @@
 # Run with
-# GIT_USER="<your name>" GIT_EMAIL="<your email>" FOLDER="/Users/you/code" docker compose up -d
+# GIT_USER="<your name>" GIT_EMAIL="<your email>" FOLDER="/path/to/empty-or-existing-hq" docker compose up -d
 
 services:
   gastown:
@@ -25,9 +25,9 @@ services:
       GIT_USER: ${GIT_USER:-TestUser}
       GIT_EMAIL: ${GIT_EMAIL:-test@example.com}
     volumes:
-      # FOLDER must be defined in .env file, e.g. FOLDER=/home/user
+      # FOLDER must be defined in .env file, e.g. FOLDER=/home/user/gt-docker
       # or provided as an environment variable when running docker compose,
-      # e.g. FOLDER=/home/user docker compose up
+      # e.g. FOLDER=/home/user/gt-docker docker compose up
       - agent-home:/home/agent
       - ${FOLDER}:/gt
       # Dolt data on a proper ext4 volume (not the macOS bind mount) to
