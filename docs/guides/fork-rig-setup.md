@@ -111,27 +111,31 @@ upstream.
 > branches first. A backup branch is the primary escape hatch; `git reflog`
 > is local and time-limited.
 
-The commands below assume the simple bad setup where `origin` fetches your fork,
-as it does after `gt rig add <name> <fork-url>` with no fork-routing flags. If
-`origin` already fetches upstream, add a temporary `fork` remote for your fork
-and substitute `fork/main` anywhere this recipe uses `origin/main`.
+The commands below use `$FORK_REMOTE` for the remote that fetches and pushes
+your fork's `main`. In the simple bad setup (`gt rig add <name> <fork-url>`),
+that remote is usually `origin`. If `origin` already fetches upstream, add a
+temporary `fork` remote for your fork and use `FORK_REMOTE=fork` instead.
 
-1. Inspect the divergence before touching anything:
+1. Inspect the divergence before destructive changes:
 
    ```bash
    cd <town>/<rig>/mayor/rig
    git status --short
    git remote -v
    git remote get-url upstream >/dev/null 2>&1 || git remote add upstream <upstream-url>
-   git fetch origin
+   FORK_REMOTE=origin  # or: git remote add fork <your-fork-url>; FORK_REMOTE=fork
+   git fetch "$FORK_REMOTE"
    git fetch upstream
-   git branch backup/fork-main-before-reset-$(date +%Y%m%d-%H%M%S) origin/main
-   git log --oneline --graph upstream/main...origin/main
+   git remote get-url --push "$FORK_REMOTE"  # must print your fork, not upstream
+   BACKUP_BRANCH=backup/fork-main-before-reset-$(date +%Y%m%d-%H%M%S)
+   git branch "$BACKUP_BRANCH" "$FORK_REMOTE/main"
+   git push "$FORK_REMOTE" "$BACKUP_BRANCH"
+   git log --oneline --graph upstream/main..."$FORK_REMOTE/main"
    ```
 
    Make sure `git status --short` prints nothing before continuing.
 
-2. Confirm every commit on `origin/main` that is *not* on `upstream/main`
+2. Confirm every commit on `$FORK_REMOTE/main` that is *not* on `upstream/main`
    is safe to discard (it's refinery merge noise, not real work). Salvage
    anything you need onto a separate branch first.
 
@@ -140,7 +144,7 @@ and substitute `fork/main` anywhere this recipe uses `origin/main`.
    ```bash
    git checkout main
    git reset --hard upstream/main
-   git push --force-with-lease origin main
+   git push --force-with-lease "$FORK_REMOTE" main
    ```
 
 4. Re-add the rig **with** the fork-routing flags (see [Setup](#setup)) so
