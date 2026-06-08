@@ -1736,8 +1736,10 @@ func (t *Tmux) NudgeSessionWithOpts(session, message string, opts NudgeOpts) err
 		return fmt.Errorf("nudge to session %q: %w", session, err)
 	}
 
-	// 8. Wake the pane to trigger SIGWINCH for detached sessions
-	t.WakePaneIfDetached(session)
+	// 8. Wake the pane to trigger SIGWINCH for detached sessions.
+	// A bare session target wakes tmux's active window; the resolved target
+	// wakes the window containing the agent pane that received the nudge.
+	t.WakePaneIfDetached(target)
 	return nil
 }
 
