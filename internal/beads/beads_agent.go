@@ -698,17 +698,48 @@ func (b *Beads) ListAgentBeadsFromWisps() (map[string]*Issue, error) {
 // words anywhere in the slug, because ordinary work bead IDs can mention
 // roles such as polecat or witness.
 func isAgentBeadByID(id string) bool {
-	_, role, name, ok := ParseAgentBeadID(id)
-	if !ok {
+	parts := strings.Split(id, "-")
+	if len(parts) < 2 {
 		return false
+	}
+
+	// Collapsed/town form: prefix-role[-name]. Keep this conservative because
+	// without routes we cannot distinguish a collapsed agent from a work slug.
+	if isTownLevelRole(parts[1]) || isRigLevelRole(parts[1]) {
+		return len(parts) == 2
+	}
+	if isTownLevelNamedRole(parts[1]) || isNamedRole(parts[1]) {
+		return len(parts) == 3 && parts[2] != ""
+	}
+
+	if len(parts) < 3 {
+		return false
+	}
+
+	// Full form: prefix-rig-role[-name], where rig may contain hyphens.
+	for i := len(parts) - 1; i >= 2; i-- {
+		if isTownLevelRole(parts[i]) || isRigLevelRole(parts[i]) {
+			return i == len(parts)-1
+		}
+		if isNamedRole(parts[i]) {
+			return i < len(parts)-1 && parts[i+1] != ""
+		}
+	}
+	return false
+}
+
+func parsedAgentBeadIDShape(id string) (rig string, ok bool) {
+	rig, role, name, ok := ParseAgentBeadID(id)
+	if !ok {
+		return "", false
 	}
 	switch {
 	case isTownLevelRole(role), isRigLevelRole(role):
-		return name == ""
+		return rig, name == ""
 	case isTownLevelNamedRole(role), isNamedRole(role):
-		return name != ""
+		return rig, name != ""
 	default:
-		return false
+		return "", false
 	}
 }
 
@@ -718,10 +749,10 @@ func isAgentBeadByID(id string) bool {
 // gt-health-polecat-fix from being misrouted to town just because they contain
 // a role word.
 func isRoutableAgentBeadID(townRoot, id string) bool {
-	if townRoot == "" || !isAgentBeadByID(id) {
+	if townRoot == "" {
 		return false
 	}
-	rig, _, _, ok := ParseAgentBeadID(id)
+	rig, ok := parsedAgentBeadIDShape(id)
 	if !ok {
 		return false
 	}

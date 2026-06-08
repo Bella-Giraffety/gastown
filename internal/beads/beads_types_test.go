@@ -224,6 +224,9 @@ func TestResolveRoutingTarget(t *testing.T) {
 
 	// Create routes.jsonl
 	routesContent := `{"prefix": "gt-", "path": "gastown/mayor/rig"}
+{"prefix": "ho-", "path": "homelab"}
+{"prefix": "mr-", "path": "my-rig/mayor/rig"}
+{"prefix": "ff-", "path": "ff/mayor/rig"}
 {"prefix": "hq-", "path": "."}
 `
 	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(routesContent), 0644); err != nil {
@@ -232,8 +235,13 @@ func TestResolveRoutingTarget(t *testing.T) {
 
 	// Create the rig beads directory
 	rigBeadsDir := filepath.Join(tmpDir, "gastown", "mayor", "rig", ".beads")
-	if err := os.MkdirAll(rigBeadsDir, 0755); err != nil {
-		t.Fatal(err)
+	homelabBeadsDir := filepath.Join(tmpDir, "homelab", ".beads")
+	myRigBeadsDir := filepath.Join(tmpDir, "my-rig", "mayor", "rig", ".beads")
+	ffBeadsDir := filepath.Join(tmpDir, "ff", "mayor", "rig", ".beads")
+	for _, dir := range []string{rigBeadsDir, homelabBeadsDir, myRigBeadsDir, ffBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	fallback := "/fallback/.beads"
@@ -247,8 +255,56 @@ func TestResolveRoutingTarget(t *testing.T) {
 		{
 			name:     "rig-level bead routes to rig",
 			townRoot: tmpDir,
-			beadID:   "gt-gastown-polecat-Toast",
+			beadID:   "gt-work-123",
 			expected: rigBeadsDir,
+		},
+		{
+			name:     "rig-prefixed agent bead routes to town",
+			townRoot: tmpDir,
+			beadID:   "gt-gastown-polecat-Toast",
+			expected: beadsDir,
+		},
+		{
+			name:     "same prefix work bead routes to owning rig",
+			townRoot: tmpDir,
+			beadID:   "ho-work-123",
+			expected: homelabBeadsDir,
+		},
+		{
+			name:     "cross-rig agent bead routes to town",
+			townRoot: tmpDir,
+			beadID:   "ho-homelab-polecat-furiosa",
+			expected: beadsDir,
+		},
+		{
+			name:     "agent-looking non-owner slug routes to rig",
+			townRoot: tmpDir,
+			beadID:   "gt-health-polecat-fix",
+			expected: rigBeadsDir,
+		},
+		{
+			name:     "hyphenated rig agent bead routes to town",
+			townRoot: tmpDir,
+			beadID:   "mr-my-rig-polecat-nux",
+			expected: beadsDir,
+		},
+		{
+			name:     "hyphenated rig work bead routes to rig",
+			townRoot: tmpDir,
+			beadID:   "mr-work-123",
+			expected: myRigBeadsDir,
+		},
+		{
+			name:     "collapsed hyphenated-name agent routes to town",
+			townRoot: tmpDir,
+			beadID:   "ff-polecat-war-boy",
+			expected: beadsDir,
+		},
+		{
+			name:     "collapsed prefix work bead routes to rig",
+			townRoot: tmpDir,
+			beadID:   "ff-work-123",
+			expected: ffBeadsDir,
 		},
 		{
 			name:     "town-level bead routes to town",
