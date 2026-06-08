@@ -483,12 +483,13 @@ func (b *Beads) forIssueID(id string) *Beads {
 	if b.noRoute {
 		return b
 	}
-	resolved := ResolveBeadsDirForID(b.getResolvedBeadsDir(), id)
-	if resolved == "" || resolved == b.getResolvedBeadsDir() {
+	current := b.getResolvedBeadsDir()
+	resolved := ResolveRoutingTarget(b.getTownRoot(), id, current)
+	if resolved == "" || resolved == current {
 		return b
 	}
 	return &Beads{
-		workDir:    b.workDir,
+		workDir:    filepath.Dir(resolved),
 		beadsDir:   resolved,
 		isolated:   b.isolated,
 		serverPort: b.serverPort,
@@ -1283,15 +1284,8 @@ func (b *Beads) ReadyWithType(issueType string) ([]*Issue, error) {
 
 // Show returns detailed information about an issue.
 func (b *Beads) Show(id string) (*Issue, error) {
-	// Route cross-rig queries via routes.jsonl so that rig-level bead IDs
-	// (e.g., "gt-abc123") resolve to the correct rig database.
-	// noRoute (see ForAgentBead) bypasses this for agent-bead lookups.
-	if !b.noRoute {
-		targetDir := ResolveRoutingTarget(b.getTownRoot(), id, b.getResolvedBeadsDir())
-		if targetDir != b.getResolvedBeadsDir() {
-			target := NewWithBeadsDir(filepath.Dir(targetDir), targetDir)
-			return target.Show(id)
-		}
+	if target := b.forIssueID(id); target != b {
+		return target.Show(id)
 	}
 
 	if b.store != nil {
@@ -1659,6 +1653,9 @@ func normalizeBugTitle(title string) string {
 func (b *Beads) Update(id string, opts UpdateOptions) error {
 	if b.store != nil {
 		return b.storeUpdate(id, opts)
+	}
+	if target := b.forIssueID(id); target != b {
+		return target.Update(id, opts)
 	}
 
 	args := []string{"update", id}

@@ -12,7 +12,6 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/telemetry"
 )
 
@@ -695,27 +694,45 @@ func (b *Beads) ListAgentBeadsFromWisps() (map[string]*Issue, error) {
 }
 
 // isAgentBeadByID detects agent beads by their ID naming convention.
-// Agent bead IDs follow two patterns:
-//   - Full form (prefix != rig): prefix-rig-role[-name] (e.g., gt-gastown-witness)
-//   - Collapsed form (prefix == rig): prefix-role[-name] (e.g., bcc-witness)
-//
-// where role is one of: witness, refinery, crew, polecat, deacon, mayor.
-// The collapsed form has only 2 parts for role-only IDs, so we must check
-// from parts[1:] not parts[2:].
+// It intentionally validates the whole shape instead of checking for role
+// words anywhere in the slug, because ordinary work bead IDs can mention
+// roles such as polecat or witness.
 func isAgentBeadByID(id string) bool {
-	parts := strings.Split(id, "-")
-	if len(parts) < 2 {
+	_, role, name, ok := ParseAgentBeadID(id)
+	if !ok {
 		return false
 	}
-	// Check parts[1:] to handle both full-form (role at parts[2]) and
-	// collapsed-form (role at parts[1]) agent bead IDs.
-	for _, part := range parts[1:] {
-		switch part {
-		case constants.RoleWitness, constants.RoleRefinery, constants.RoleCrew, constants.RolePolecat, constants.RoleDeacon, constants.RoleMayor:
-			return true
-		}
+	switch {
+	case isTownLevelRole(role), isRigLevelRole(role):
+		return name == ""
+	case isTownLevelNamedRole(role), isNamedRole(role):
+		return name != ""
+	default:
+		return false
 	}
-	return false
+}
+
+// isRoutableAgentBeadID returns true when an ID is an agent bead whose owning
+// database should be the town DB. Full-form and collapsed rig agent IDs must
+// match the rig configured for their prefix; this prevents work beads such as
+// gt-health-polecat-fix from being misrouted to town just because they contain
+// a role word.
+func isRoutableAgentBeadID(townRoot, id string) bool {
+	if townRoot == "" || !isAgentBeadByID(id) {
+		return false
+	}
+	rig, _, _, ok := ParseAgentBeadID(id)
+	if !ok {
+		return false
+	}
+	if rig == "" {
+		return true
+	}
+	prefix := ExtractPrefix(id)
+	if prefix == "" {
+		return false
+	}
+	return GetRigNameForPrefix(townRoot, prefix) == rig
 }
 
 // ListWispIDs returns a set of all wisp IDs in the wisps table.

@@ -70,6 +70,13 @@ func ResolveRoutingTarget(townRoot, beadID, fallbackDir string) string {
 		return fallbackDir
 	}
 
+	// Agent beads are town-owned identity records even when their IDs carry a
+	// rig prefix (e.g., ho-homelab-polecat-furiosa). Keep this route-aware so
+	// ordinary work beads that happen to contain role words still use their rig.
+	if isRoutableAgentBeadID(townRoot, beadID) {
+		return ResolveBeadsDir(townRoot)
+	}
+
 	// Look up rig path for this prefix
 	rigPath := GetRigPathForPrefix(townRoot, prefix)
 	if rigPath == "" {
