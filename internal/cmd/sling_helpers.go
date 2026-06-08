@@ -931,11 +931,13 @@ func isCapacityNeutralTarget(target string) bool {
 	case constants.RoleMayor, constants.RoleDeacon:
 		return true // town-level standing singletons
 	}
-	// Rig-scoped standing agents: <rig>/witness, <rig>/refinery, <rig>/crew[/<name>].
+	// Rig-scoped standing agents: <rig>/witness, <rig>/refinery, <rig>/crew/<name>.
 	if parts := strings.Split(t, "/"); len(parts) >= 2 {
 		switch parts[1] {
-		case constants.RoleWitness, constants.RoleRefinery, constants.RoleCrew:
-			return true
+		case constants.RoleWitness, constants.RoleRefinery:
+			return len(parts) == 2
+		case constants.RoleCrew:
+			return len(parts) == 3
 		}
 	}
 	return false

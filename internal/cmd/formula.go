@@ -371,6 +371,7 @@ func dryRunFormula(f *formula.Formula, formulaName, targetRig string) error {
 			for k, v := range setVars {
 				dirCtx[k] = v
 			}
+			dirCtx["review_id"] = reviewID
 			outputDir = renderTemplateOrDefault(f.Output.Directory, dirCtx, ".reviews/"+reviewID)
 			fmt.Printf("\n  Output directory: %s\n", outputDir)
 		}
@@ -397,6 +398,7 @@ func dryRunFormula(f *formula.Formula, formulaName, targetRig string) error {
 				for k, v := range setVars {
 					legCtx[k] = v
 				}
+				legCtx["review_id"] = reviewID
 				legPattern := renderTemplateOrDefault(f.Output.LegPattern, legCtx, leg.ID+"-findings.md")
 				outputPath := filepath.Join(outputDir, legPattern)
 				agentSuffix := resolveFormulaLegAgent(leg.Agent, formulaRunAgent, f.Agent)
@@ -544,6 +546,7 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 		for k, v := range setVars {
 			dirCtx[k] = v
 		}
+		dirCtx["review_id"] = reviewID
 		outputDir = renderTemplateOrDefault(f.Output.Directory, dirCtx, ".reviews/"+reviewID)
 
 		// Create the directory
@@ -665,6 +668,7 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 		for k, v := range setVars {
 			synCtx[k] = v
 		}
+		synCtx["review_id"] = reviewID
 		if f.Output != nil {
 			synCtx["output"] = map[string]interface{}{
 				"directory": outputDir,
