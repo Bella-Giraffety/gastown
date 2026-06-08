@@ -1755,6 +1755,63 @@ func TestNudgeSession_WithStoredPaneID(t *testing.T) {
 	}
 }
 
+func TestNudgeSession_WakesAgentWindowNotActiveWindow(t *testing.T) {
+	tm := newTestTmux(t)
+	sessionName := "gt-test-nudge-multiwin-" + fmt.Sprintf("%d", time.Now().UnixNano()%100000)
+
+	if err := tm.NewSession(sessionName, os.TempDir()); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer func() { _ = tm.KillSession(sessionName) }()
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Make window 0 the declared agent pane so delivery resolves away from the
+	// active window after we create window 1.
+	agentPane, err := tm.GetPaneID(sessionName)
+	if err != nil {
+		t.Fatalf("GetPaneID: %v", err)
+	}
+	if err := tm.SetEnvironment(sessionName, "GT_PANE_ID", agentPane); err != nil {
+		t.Fatalf("SetEnvironment GT_PANE_ID: %v", err)
+	}
+
+	if _, err := tm.run("new-window", "-t", sessionName, "-n", "feed"); err != nil {
+		t.Fatalf("new-window: %v", err)
+	}
+
+	// WakePane ends by setting the targeted window-size to latest. Starting both
+	// windows at manual lets us see which window the wake actually targeted.
+	for _, win := range []string{":0", ":1"} {
+		if _, err := tm.run("set-option", "-w", "-t", sessionName+win, "window-size", "manual"); err != nil {
+			t.Fatalf("set-option window-size manual on %s: %v", sessionName+win, err)
+		}
+	}
+
+	if err := tm.NudgeSession(sessionName, "test message"); err != nil {
+		t.Fatalf("NudgeSession: %v", err)
+	}
+
+	windowSize := func(win string) string {
+		out, err := tm.run("show-options", "-w", "-t", sessionName+win, "window-size")
+		if err != nil {
+			t.Fatalf("show-options window-size on %s: %v", sessionName+win, err)
+		}
+		fields := strings.Fields(strings.TrimSpace(out))
+		if len(fields) < 2 {
+			return ""
+		}
+		return fields[1]
+	}
+
+	if got := windowSize(":0"); got != "latest" {
+		t.Errorf("agent window (0) window-size = %q, want %q", got, "latest")
+	}
+	if got := windowSize(":1"); got != "manual" {
+		t.Errorf("active window (1) window-size = %q, want %q", got, "manual")
+	}
+}
+
 // TestAdaptiveTextDelay verifies the delay scaling logic for post-text delivery.
 func TestAdaptiveTextDelay(t *testing.T) {
 	t.Parallel()
