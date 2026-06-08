@@ -492,7 +492,6 @@ func (b *Beads) forIssueID(id string) *Beads {
 		beadsDir:   resolved,
 		isolated:   b.isolated,
 		serverPort: b.serverPort,
-		store:      b.store,
 		townRoot:   b.townRoot,
 	}
 }
@@ -1603,11 +1602,11 @@ func normalizeBugTitle(title string) string {
 
 // Update updates an existing issue.
 func (b *Beads) Update(id string, opts UpdateOptions) error {
-	if b.store != nil {
-		return b.storeUpdate(id, opts)
-	}
 	if target := b.forIssueID(id); target != b {
 		return target.Update(id, opts)
+	}
+	if b.store != nil {
+		return b.storeUpdate(id, opts)
 	}
 
 	args := []string{"update", id}
