@@ -283,6 +283,18 @@ func TestResolveRoutingTarget(t *testing.T) {
 			expected: rigBeadsDir,
 		},
 		{
+			name:     "singleton role with trailing slug routes to rig",
+			townRoot: tmpDir,
+			beadID:   "gt-gastown-witness-health-check",
+			expected: rigBeadsDir,
+		},
+		{
+			name:     "invalid full town role routes to rig",
+			townRoot: tmpDir,
+			beadID:   "gt-gastown-mayor",
+			expected: rigBeadsDir,
+		},
+		{
 			name:     "hyphenated rig agent bead routes to town",
 			townRoot: tmpDir,
 			beadID:   "mr-my-rig-polecat-nux",
