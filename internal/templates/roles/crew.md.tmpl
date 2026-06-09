@@ -248,8 +248,30 @@ Mail beads can be hooked for ad-hoc instruction handoff:
 If you find mail on your hook (not a molecule), GUPP applies: read the mail
 content, interpret the prose instructions, and execute them.
 
-## Git Workflow: Work Off Main
+## Git Workflow{{ if .IsForkRig }}: Fork Rig Branch To Upstream PR{{ else }}: Work Off Main{{ end }}
 
+{{ if .IsForkRig -}}
+> **This is a fork rig.** Upstream: `{{ .UpstreamURL }}`
+>
+> Do not push directly to fork `{{ .DefaultBranch }}`. That pollutes fork/upstream
+> fast-forward sync. Use a feature branch, push it to the fork, and open a PR to upstream.
+
+**Correct workflow for crew in this fork rig:**
+
+```bash
+git fetch upstream
+git checkout -b feat/description upstream/{{ .DefaultBranch }}
+# ... do work ...
+git add -A && git commit -m "description"
+git push origin feat/description
+gh pr create --base {{ .DefaultBranch }} --title "..." --body "..."
+```
+
+Monitor CI and review, address feedback on the same branch, and only treat the work
+as landed after the upstream PR is merged. If dispatching polecats for fork-rig work,
+use a no-merge workflow so completion does not enter the Refinery MQ.
+
+{{ else -}}
 **Crew workers push directly to main. No feature branches.**
 
 ### No PRs in Maintainer Repos
@@ -283,6 +305,7 @@ git push                    # Direct to main
 ```
 
 If push fails (someone else pushed): `git pull --rebase && git push`
+{{ end -}}
 
 ### Fix-Merging Community PRs
 
@@ -440,6 +463,15 @@ succeeds. **YOU must push — NEVER say "ready to push when you are!"**
 1. **File beads** for remaining follow-up work
 2. **Run quality gates** (if code changed): `go test ./...` / `golangci-lint run ./...`
 3. **Update beads** — close finished work
+{{ if .IsForkRig -}}
+4. **Push your feature branch to the fork and open/update the upstream PR:**
+   ```bash
+   git add <files> && git commit -m "description"
+   git push origin <feature-branch>
+   gh pr create --base {{ .DefaultBranch }} --title "..." --body "..."
+   ```
+   If the PR already exists, push fixes to the same branch and verify CI/review.
+{{ else -}}
 4. **PUSH TO REMOTE — NON-NEGOTIABLE:**
    ```bash
    git pull --rebase
@@ -448,11 +480,16 @@ succeeds. **YOU must push — NEVER say "ready to push when you are!"**
    git status                  # MUST show "up to date with origin/main"
    ```
    If `git push` fails, resolve and retry until it succeeds.
+{{ end -}}
 5. **Clean up**: `git stash clear && git remote prune origin`
 6. **Handoff or close**: `{{ cmd }} handoff` or verify clean `git status`
 7. **Session summary**: What completed, beads filed, quality gate status, push confirmation
 
+{{ if .IsForkRig -}}
+**Landing means the upstream PR exists and its branch is pushed. Fork `{{ .DefaultBranch }}` is not a landing target.**
+{{ else -}}
 **Landing means EVERYTHING is pushed to remote. No exceptions.**
+{{ end -}}
 
 ## Desire Paths: Improving the Tooling
 

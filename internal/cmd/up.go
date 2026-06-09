@@ -8,9 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
-	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -755,8 +755,14 @@ func upStartRefinery(rigName string, r *rig.Rig) agentStartResult {
 
 	mgr := refinery.NewManager(r)
 	if err := mgr.Start(false, ""); err != nil {
-		if err == refinery.ErrAlreadyRunning {
+		if errors.Is(err, refinery.ErrAlreadyRunning) {
 			return agentStartResult{name: name, ok: true, detail: mgr.SessionName()}
+		}
+		if errors.Is(err, refinery.ErrDisabled) {
+			return agentStartResult{name: name, ok: true, detail: "skipped (refinery disabled)"}
+		}
+		if errors.Is(err, refinery.ErrForkRig) {
+			return agentStartResult{name: name, ok: true, detail: "skipped (fork rig)"}
 		}
 		return agentStartResult{name: name, ok: false, detail: err.Error()}
 	}
@@ -1065,4 +1071,3 @@ func recoverOrphanedBeads(townRoot string, rigs []string, prefetchedRigs map[str
 
 	return services
 }
-

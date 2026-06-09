@@ -18,6 +18,19 @@ func TestRefineryStartAgentFlag(t *testing.T) {
 	}
 }
 
+func TestRefineryStartForceFlag(t *testing.T) {
+	flag := refineryStartCmd.Flags().Lookup("force")
+	if flag == nil {
+		t.Fatal("expected refinery start to define --force flag")
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("expected default force to be false, got %q", flag.DefValue)
+	}
+	if !strings.Contains(flag.Usage, "upstream_url guard") {
+		t.Errorf("expected --force usage to mention upstream_url guard, got %q", flag.Usage)
+	}
+}
+
 func TestRefineryAttachAgentFlag(t *testing.T) {
 	flag := refineryAttachCmd.Flags().Lookup("agent")
 	if flag == nil {
@@ -41,5 +54,33 @@ func TestRefineryRestartAgentFlag(t *testing.T) {
 	}
 	if !strings.Contains(flag.Usage, "overrides town default") {
 		t.Errorf("expected --agent usage to mention overrides town default, got %q", flag.Usage)
+	}
+}
+
+func TestRefineryRestartForceFlag(t *testing.T) {
+	flag := refineryRestartCmd.Flags().Lookup("force")
+	if flag == nil {
+		t.Fatal("expected refinery restart to define --force flag")
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("expected default force to be false, got %q", flag.DefValue)
+	}
+	if !strings.Contains(flag.Usage, "upstream_url guard") {
+		t.Errorf("expected --force usage to mention upstream_url guard, got %q", flag.Usage)
+	}
+}
+
+func TestRefineryEnableDisableCommandsRegistered(t *testing.T) {
+	for _, name := range []string{"enable", "disable"} {
+		cmd, _, err := refineryCmd.Find([]string{name})
+		if err != nil {
+			t.Fatalf("refinery command %q lookup error: %v", name, err)
+		}
+		if cmd == nil || cmd.Name() != name {
+			t.Fatalf("refinery command %q not registered", name)
+		}
+		if cmd.Args == nil {
+			t.Fatalf("refinery command %q missing Args validation", name)
+		}
 	}
 }

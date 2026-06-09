@@ -103,12 +103,19 @@ type RigConfig struct {
 	DefaultBranch string       `json:"default_branch,omitempty"` // main, master, etc.
 	CreatedAt     time.Time    `json:"created_at"`               // when rig was created
 	Beads         *BeadsConfig `json:"beads,omitempty"`
+	// RefineryDisabled persistently prevents future refinery starts while leaving witness lifecycle enabled.
+	RefineryDisabled bool `json:"refinery_disabled,omitempty"`
 
 	// Persistent polecat pool configuration.
 	// PolecatPoolSize is the number of persistent polecats to create with pool init.
 	// PolecatNames optionally specifies fixed names (overrides theme-based naming).
 	PolecatPoolSize int      `json:"polecat_pool_size,omitempty"`
 	PolecatNames    []string `json:"polecat_names,omitempty"`
+}
+
+// IsForkWorkflow reports whether this rig is configured for branch-to-fork-to-upstream PR flow.
+func (c *RigConfig) IsForkWorkflow() bool {
+	return c != nil && strings.TrimSpace(c.UpstreamURL) != ""
 }
 
 // BeadsConfig represents beads configuration for the rig.
@@ -935,6 +942,11 @@ func (m *Manager) verifyRigIdentity(rigPath, rigName string) error {
 
 // saveRigConfig writes the rig configuration to config.json.
 func (m *Manager) saveRigConfig(rigPath string, cfg *RigConfig) error {
+	return SaveRigConfig(rigPath, cfg)
+}
+
+// SaveRigConfig writes the rig configuration to config.json.
+func SaveRigConfig(rigPath string, cfg *RigConfig) error {
 	configPath := filepath.Join(rigPath, "config.json")
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -956,6 +968,19 @@ func LoadRigConfig(rigPath string) (*RigConfig, error) {
 	}
 	warnDeprecatedRigConfigKeys(data, configPath)
 	return &cfg, nil
+}
+
+// SetRefineryDisabled sets the refinery_disabled flag in a rig's config.json.
+func SetRefineryDisabled(rigPath string, disabled bool) error {
+	cfg, err := LoadRigConfig(rigPath)
+	if err != nil {
+		return fmt.Errorf("loading rig config: %w", err)
+	}
+	cfg.RefineryDisabled = disabled
+	if err := SaveRigConfig(rigPath, cfg); err != nil {
+		return fmt.Errorf("saving rig config: %w", err)
+	}
+	return nil
 }
 
 // warnDeprecatedRigConfigKeys detects merge_queue keys in rig root config.json

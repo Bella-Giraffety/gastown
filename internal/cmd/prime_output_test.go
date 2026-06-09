@@ -6,7 +6,58 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/steveyegge/gastown/internal/rig"
 )
+
+func TestOutputPrimeContext_PassesForkRigToTemplates(t *testing.T) {
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "myrig")
+	if err := os.MkdirAll(rigPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.SaveRigConfig(rigPath, &rig.RigConfig{
+		Type:          "rig",
+		Version:       rig.CurrentRigConfigVersion,
+		Name:          "myrig",
+		UpstreamURL:   "https://github.com/upstream/project",
+		DefaultBranch: "develop",
+	}); err != nil {
+		t.Fatalf("SaveRigConfig: %v", err)
+	}
+
+	ctx := RoleContext{
+		Role:     RolePolecat,
+		TownRoot: townRoot,
+		Rig:      "myrig",
+		WorkDir:  filepath.Join(rigPath, "polecats", "TestCat"),
+		Polecat:  "TestCat",
+	}
+
+	var rendered string
+	var renderErr error
+	captured := captureStdout(t, func() {
+		rendered, renderErr = outputPrimeContext(ctx)
+	})
+	if renderErr != nil {
+		t.Fatalf("outputPrimeContext: %v", renderErr)
+	}
+	if rendered == "" {
+		t.Fatal("outputPrimeContext returned empty rendered output")
+	}
+	if captured != rendered {
+		t.Fatal("captured stdout differs from rendered output")
+	}
+	for _, want := range []string{
+		"Fork Rig Workflow",
+		"https://github.com/upstream/project",
+		"gh pr create --base develop",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered prime context missing %q", want)
+		}
+	}
+}
 
 func TestOutputRoleDirectives(t *testing.T) {
 	t.Parallel()

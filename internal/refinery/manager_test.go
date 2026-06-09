@@ -1,6 +1,7 @@
 package refinery
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -85,6 +86,70 @@ func TestManager_Status_NotRunning(t *testing.T) {
 	t.Logf("Status returned error (expected): %v", err)
 }
 
+func TestManager_Start_ReturnsErrDisabledWhenRefineryDisabled(t *testing.T) {
+	mgr, rigPath := setupTestManager(t)
+	if err := rig.SaveRigConfig(rigPath, &rig.RigConfig{
+		Type:             "rig",
+		Version:          rig.CurrentRigConfigVersion,
+		Name:             "testrig",
+		RefineryDisabled: true,
+		DefaultBranch:    "main",
+	}); err != nil {
+		t.Fatalf("save rig config: %v", err)
+	}
+
+	err := mgr.Start(false, "")
+	if !errors.Is(err, ErrDisabled) {
+		t.Fatalf("Start() error = %v, want ErrDisabled", err)
+	}
+}
+
+func TestManager_CheckStartAllowed_BlocksForkRigUnlessAllowed(t *testing.T) {
+	mgr, rigPath := setupTestManager(t)
+	upstreamURL := "https://github.com/gastownhall/gastown"
+	if err := rig.SaveRigConfig(rigPath, &rig.RigConfig{
+		Type:          "rig",
+		Version:       rig.CurrentRigConfigVersion,
+		Name:          "testrig",
+		UpstreamURL:   upstreamURL,
+		DefaultBranch: "main",
+	}); err != nil {
+		t.Fatalf("save rig config: %v", err)
+	}
+
+	err := mgr.CheckStartAllowed(StartOptions{})
+	if !errors.Is(err, ErrForkRig) {
+		t.Fatalf("CheckStartAllowed() error = %v, want ErrForkRig", err)
+	}
+	var forkErr *ForkRigError
+	if !errors.As(err, &forkErr) {
+		t.Fatalf("CheckStartAllowed() error = %T, want *ForkRigError", err)
+	}
+	if forkErr.UpstreamURL != upstreamURL {
+		t.Fatalf("ForkRigError.UpstreamURL = %q, want %q", forkErr.UpstreamURL, upstreamURL)
+	}
+
+	if err := mgr.CheckStartAllowed(StartOptions{AllowForkRig: true}); err != nil {
+		t.Fatalf("CheckStartAllowed(AllowForkRig) error = %v", err)
+	}
+}
+
+func TestManager_CheckStartAllowed_AllowsNonForkEnabledRig(t *testing.T) {
+	mgr, rigPath := setupTestManager(t)
+	if err := rig.SaveRigConfig(rigPath, &rig.RigConfig{
+		Type:          "rig",
+		Version:       rig.CurrentRigConfigVersion,
+		Name:          "testrig",
+		DefaultBranch: "main",
+	}); err != nil {
+		t.Fatalf("save rig config: %v", err)
+	}
+
+	if err := mgr.CheckStartAllowed(StartOptions{}); err != nil {
+		t.Fatalf("CheckStartAllowed() error = %v", err)
+	}
+}
+
 func TestManager_Queue_NoBeads(t *testing.T) {
 	mgr, _ := setupTestManager(t)
 
@@ -110,14 +175,14 @@ func TestManager_Queue_FiltersClosedMergeRequests(t *testing.T) {
 	}
 
 	openIssue, err := b.Create(beads.CreateOptions{
-		Title: "Open MR",
+		Title:  "Open MR",
 		Labels: []string{"gt:merge-request"},
 	})
 	if err != nil {
 		t.Fatalf("create open merge-request issue: %v", err)
 	}
 	closedIssue, err := b.Create(beads.CreateOptions{
-		Title: "Closed MR",
+		Title:  "Closed MR",
 		Labels: []string{"gt:merge-request"},
 	})
 	if err != nil {
@@ -226,7 +291,7 @@ func TestManager_PostMerge_ClosesMRAndSourceIssue(t *testing.T) {
 
 	// Create a source issue
 	srcIssue, err := b.Create(beads.CreateOptions{
-		Title: "Implement feature X",
+		Title:  "Implement feature X",
 		Labels: []string{"gt:task"},
 	})
 	if err != nil {
