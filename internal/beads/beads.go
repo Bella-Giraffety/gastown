@@ -483,7 +483,15 @@ func (b *Beads) forIssueID(id string) *Beads {
 		return b
 	}
 	current := b.getResolvedBeadsDir()
-	resolved := ResolveRoutingTarget(b.getTownRoot(), id, current)
+	townRoot := b.getTownRoot()
+	if isRoutableAgentBeadID(townRoot, id) {
+		// Agent-shaped work bead IDs still belong to their prefix route; only
+		// override to town when the town record exists and is an agent bead.
+		if target := b.agentBeadTargetIfExists(id); target != nil {
+			return target
+		}
+	}
+	resolved := ResolveBeadsDirForID(current, id)
 	if resolved == "" || resolved == current {
 		return b
 	}
@@ -494,6 +502,18 @@ func (b *Beads) forIssueID(id string) *Beads {
 		serverPort: b.serverPort,
 		townRoot:   b.townRoot,
 	}
+}
+
+func (b *Beads) agentBeadTargetIfExists(id string) *Beads {
+	target := b.ForAgentBead()
+	if target == b {
+		return nil
+	}
+	issue, err := target.Show(id)
+	if err != nil || !IsAgentBead(issue) {
+		return nil
+	}
+	return target
 }
 
 // Init initializes a new beads database in the working directory.
