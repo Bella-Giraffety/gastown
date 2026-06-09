@@ -340,11 +340,22 @@ func TestWorkflowStepDescriptionInteractiveOmitsTarget(t *testing.T) {
 
 	description := "Talk to the human\n\nClarify the requirements"
 	got := workflowStepDescription(formula.Step{Target: "mayor", Interactive: true}, description)
-	if got != description {
-		t.Fatalf("workflowStepDescription(interactive) = %q, want raw %q", got, description)
+	want := "workflow_interactive: true\n\n" + description
+	if got != want {
+		t.Fatalf("workflowStepDescription(interactive) = %q, want %q", got, want)
 	}
 	if strings.Contains(got, workflowTargetField) {
 		t.Fatalf("interactive step description must not contain %q: %q", workflowTargetField, got)
+	}
+}
+
+func TestWorkflowStepDescriptionInteractiveDoesNotDuplicateMarker(t *testing.T) {
+	t.Parallel()
+
+	description := "workflow_interactive: true\n\nTalk to the human"
+	got := workflowStepDescription(formula.Step{Interactive: true}, description)
+	if got != description {
+		t.Fatalf("workflowStepDescription(interactive marked) = %q, want %q", got, description)
 	}
 }
 

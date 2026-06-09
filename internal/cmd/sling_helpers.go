@@ -926,7 +926,7 @@ func isCapacityNeutralTarget(target string) bool {
 	if isPolecatTarget(target) {
 		return false // <rig>/polecats/<name> occupies a polecat slot
 	}
-	t := strings.ToLower(strings.TrimRight(strings.TrimSpace(target), "/"))
+	t := strings.ToLower(strings.TrimSpace(target))
 	switch t {
 	case constants.RoleMayor, constants.RoleDeacon:
 		return true // town-level standing singletons

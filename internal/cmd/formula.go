@@ -399,7 +399,6 @@ func dryRunFormula(f *formula.Formula, formulaName, targetRig string) error {
 					legCtx[k] = v
 				}
 				legCtx["review_id"] = reviewID
-				legCtx["review_id"] = reviewID
 				legPattern := renderTemplateOrDefault(f.Output.LegPattern, legCtx, leg.ID+"-findings.md")
 				outputPath := filepath.Join(outputDir, legPattern)
 				agentSuffix := resolveFormulaLegAgent(leg.Agent, formulaRunAgent, f.Agent)
@@ -904,27 +903,39 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 	// `target` (gt-3798). A workflow that mixes interactive and non-interactive
 	// steps must still route the non-interactive ones — a single interactive
 	// step does not pin the whole workflow to the orchestrator session.
-	// Pre-flight: warn at pour-time if any ready non-interactive step targets
-	// something the capacity-scheduler's deferred gate will reject — neither a
-	// rig nor a capacity-neutral agent (gt-3798 follow-up, Approach C Part 2).
-	if deferred, _ := shouldDeferDispatch(); deferred {
-		for _, step := range f.Steps {
-			if len(step.Needs) > 0 || step.Interactive {
-				continue
-			}
-			t := workflowStepTarget(step, targetRig)
-			if isUnroutableTarget(t, IsRigName) {
-				fmt.Fprintf(os.Stderr,
-					"\nWARNING: step %q resolves target %q — not a rig or capacity-neutral agent.\n"+
-						"Under the capacity scheduler this step will strand.\n"+
-						"Fix the formula's `target` field.\n\n",
-					step.ID, t)
-				_ = BdCmd("comments", "add", workflowID,
-					fmt.Sprintf("Pour-time WARNING: step %q target %q is not a rig or capacity-neutral agent — will strand under the capacity scheduler (gt-3798).", step.ID, t)).
-					Dir(townBeads).
-					Run()
-			}
+	// Pre-flight: warn at pour-time if any non-interactive step has a malformed
+	// target or, under the capacity scheduler, targets something the deferred
+	// gate will reject — neither a rig nor a capacity-neutral agent (gt-3798
+	// follow-up, Approach C Part 2). Check every future step, not just the
+	// initially-ready set, so delayed steps cannot strand later.
+	deferred, _ := shouldDeferDispatch()
+	for _, step := range f.Steps {
+		if step.Interactive {
+			continue
 		}
+		t := workflowStepTarget(step, targetRig)
+		if err := ValidateTarget(t); err != nil {
+			fmt.Fprintf(os.Stderr,
+				"\nWARNING: step %q resolves invalid target %q: %v\n\n",
+				step.ID, t, err)
+			_ = BdCmd("comments", "add", workflowID,
+				fmt.Sprintf("Pour-time WARNING: step %q target %q is invalid: %v (gt-3798).", step.ID, t, err)).
+				Dir(townBeads).
+				Run()
+			continue
+		}
+		if !deferred || !isUnroutableTarget(t, IsRigName) {
+			continue
+		}
+		fmt.Fprintf(os.Stderr,
+			"\nWARNING: step %q resolves target %q — not a rig or capacity-neutral agent.\n"+
+				"Under the capacity scheduler this step will strand.\n"+
+				"Fix the formula's `target` field.\n\n",
+			step.ID, t)
+		_ = BdCmd("comments", "add", workflowID,
+			fmt.Sprintf("Pour-time WARNING: step %q target %q is not a rig or capacity-neutral agent — will strand under the capacity scheduler (gt-3798).", step.ID, t)).
+			Dir(townBeads).
+			Run()
 	}
 
 	fmt.Printf("\n%s Dispatching ready steps...\n\n", style.Bold.Render("→"))
@@ -1005,6 +1016,7 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 }
 
 const workflowTargetField = "workflow_target"
+const workflowInteractiveField = formula.WorkflowInteractiveField
 
 func workflowStepDescription(step formula.Step, description string) string {
 	// Interactive steps run in the orchestrator's session (they need the human's
@@ -1012,7 +1024,13 @@ func workflowStepDescription(step formula.Step, description string) string {
 	// auto-dispatch override (applyWorkflowStepTargetOverride) would redirect them
 	// to a role that has no channel to the human (gt-3798).
 	if step.Interactive {
-		return description
+		if formula.IsWorkflowInteractiveDescription(description) {
+			return description
+		}
+		if description == "" {
+			return fmt.Sprintf("%s: true", workflowInteractiveField)
+		}
+		return fmt.Sprintf("%s: true\n\n%s", workflowInteractiveField, description)
 	}
 	target := strings.TrimSpace(step.Target)
 	if target == "" {

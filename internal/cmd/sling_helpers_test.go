@@ -314,13 +314,14 @@ func TestIsCapacityNeutralTarget(t *testing.T) {
 		// Capacity-neutral: town-level standing singletons.
 		{"mayor", "mayor", true},
 		{"mayor case-insensitive", "MAYOR", true},
-		{"mayor trailing slash", "mayor/", true},
+		{"mayor trailing slash", "mayor/", false},
 		{"deacon", "deacon", true},
 
 		// Capacity-neutral: rig-scoped standing agents.
 		{"rig witness", "agreement_hub/witness", true},
 		{"rig refinery", "agreement_hub/refinery", true},
 		{"named crew", "agreement_hub/crew/hub_sheriff", true},
+		{"rig witness trailing slash", "agreement_hub/witness/", false},
 		{"crew without name", "agreement_hub/crew", false},
 		{"witness extra segment", "agreement_hub/witness/extra", false},
 		{"refinery extra segment", "agreement_hub/refinery/extra", false},

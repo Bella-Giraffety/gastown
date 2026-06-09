@@ -1197,6 +1197,71 @@ exit 0
 	}
 }
 
+func TestFeedFirstReady_InteractiveWorkflowStep_SkipsAndContinues(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on Windows")
+	}
+
+	binDir := t.TempDir()
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	routes := `{"prefix":"gt-","path":"gastown/.beads"}` + "\n"
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	callLogPath := filepath.Join(binDir, "gt-calls.log")
+	gtScript := `#!/bin/sh
+echo "$@" >> "` + callLogPath + `"
+exit 0
+`
+	gtPath := filepath.Join(binDir, "gt")
+	if err := os.WriteFile(gtPath, []byte(gtScript), 0755); err != nil {
+		t.Fatalf("write mock gt: %v", err)
+	}
+
+	var logged []string
+	logger := func(format string, args ...interface{}) {
+		logged = append(logged, fmt.Sprintf(format, args...))
+	}
+
+	m := NewConvoyManager(townRoot, logger, gtPath, 10*time.Minute, nil, nil, nil)
+	m.isWorkflowInteractiveIssue = func(issueID string) bool { return issueID == "gt-interactive" }
+
+	c := strandedConvoyInfo{
+		ID:          "hq-wf-test",
+		Title:       "Workflow",
+		ReadyCount:  2,
+		ReadyIssues: []string{"gt-interactive", "gt-normal"},
+	}
+	m.feedFirstReady(c)
+
+	data, err := os.ReadFile(callLogPath)
+	if err != nil {
+		t.Fatalf("read call log: %v", err)
+	}
+	calls := string(data)
+	if strings.Contains(calls, "sling gt-interactive") {
+		t.Fatalf("interactive workflow step was slung unexpectedly: %s", calls)
+	}
+	if !strings.Contains(calls, "sling gt-normal gastown --no-boot") {
+		t.Fatalf("expected normal ready issue to be slung after interactive skip, got: %s", calls)
+	}
+
+	interactiveLogged := false
+	for _, s := range logged {
+		if strings.Contains(s, "interactive workflow step") && strings.Contains(s, "gt-interactive") {
+			interactiveLogged = true
+			break
+		}
+	}
+	if !interactiveLogged {
+		t.Fatalf("expected interactive skip log, got: %v", logged)
+	}
+}
+
 func TestScan_ContextCancelled_MidIteration(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping on Windows")

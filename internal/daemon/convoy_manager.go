@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	beadsdk "github.com/steveyegge/beads"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/convoy"
+	"github.com/steveyegge/gastown/internal/formula"
 	"github.com/steveyegge/gastown/internal/util"
 )
 
@@ -117,6 +119,14 @@ type ConvoyManager struct {
 	// logs and escalates once per stranded issue instead of spamming every
 	// scan cycle. Key: issueID.
 	seenSlingErrors sync.Map // map[string]bool
+
+	// seenInteractiveSteps deduplicates ready interactive workflow steps that
+	// intentionally cannot be daemon-dispatched. Key: issueID.
+	seenInteractiveSteps sync.Map // map[string]bool
+
+	// isWorkflowInteractiveIssue reports whether a ready issue is a materialized
+	// interactive workflow step. Injectable for tests.
+	isWorkflowInteractiveIssue func(issueID string) bool
 }
 
 // NewConvoyManager creates a new convoy manager.
@@ -135,7 +145,7 @@ func NewConvoyManager(townRoot string, logger func(format string, args ...interf
 		isRigParked = func(string) bool { return false }
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &ConvoyManager{
+	m := &ConvoyManager{
 		townRoot:     townRoot,
 		scanInterval: scanInterval,
 		ctx:          ctx,
@@ -146,6 +156,8 @@ func NewConvoyManager(townRoot string, logger func(format string, args ...interf
 		isRigParked:  isRigParked,
 		gtPath:       gtPath,
 	}
+	m.isWorkflowInteractiveIssue = m.workflowInteractiveIssue
+	return m
 }
 
 // Start begins the convoy manager goroutines (event poll + stranded scan).
@@ -546,6 +558,14 @@ func (m *ConvoyManager) feedFirstReady(c strandedConvoyInfo) {
 	}
 
 	for _, issueID := range c.ReadyIssues {
+		if m.isWorkflowInteractiveIssue != nil && m.isWorkflowInteractiveIssue(issueID) {
+			if _, already := m.seenInteractiveSteps.LoadOrStore(issueID, true); !already {
+				m.logger("Convoy %s: %s is an interactive workflow step; waiting for the originating session", c.ID, issueID)
+				m.escalateSlingFailure(c.ID, issueID, "interactive workflow step requires the originating session")
+			}
+			continue
+		}
+
 		prefix := beads.ExtractPrefix(issueID)
 		if prefix == "" {
 			m.logger("Convoy %s: no prefix for %s, skipping", c.ID, issueID)
@@ -588,10 +608,20 @@ func (m *ConvoyManager) feedFirstReady(c strandedConvoyInfo) {
 		// Dispatch succeeded — clear any prior failure record so a future
 		// failure (if the issue is re-queued) is reported again.
 		m.seenSlingErrors.Delete(issueID)
+		m.seenInteractiveSteps.Delete(issueID)
 		return // Successfully dispatched one issue
 	}
 
 	m.logger("Convoy %s: no dispatchable issues (all %d skipped)", c.ID, len(c.ReadyIssues))
+}
+
+func (m *ConvoyManager) workflowInteractiveIssue(issueID string) bool {
+	b := beads.NewWithBeadsDir(m.townRoot, filepath.Join(m.townRoot, ".beads"))
+	issue, err := b.Show(issueID)
+	if err != nil || issue == nil {
+		return false
+	}
+	return formula.IsWorkflowInteractiveDescription(issue.Description)
 }
 
 // escalateSlingFailure fires a one-shot gt escalate for a stranded convoy step.
