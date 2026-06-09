@@ -1673,6 +1673,20 @@ func findStrandedConvoys(townBeads string) ([]strandedConvoyInfo, error) {
 		return stranded, nil
 	}
 
+	skippedConvoys := make(map[string]bool)
+	for _, convoy := range convoys {
+		if len(trackedByConvoy[convoy.ID]) > 0 {
+			continue
+		}
+		fallbackIDs, err := bdShowTrackedDeps(townBeads, convoy.ID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠ Warning: skipping convoy %s: %v\n", convoy.ID, err)
+			skippedConvoys[convoy.ID] = true
+			continue
+		}
+		trackedByConvoy[convoy.ID] = fallbackIDs
+	}
+
 	allTrackedIDs := make([]string, 0)
 	seenTracked := make(map[string]bool)
 	for _, ids := range trackedByConvoy {
@@ -1691,6 +1705,9 @@ func findStrandedConvoys(townBeads string) ([]strandedConvoyInfo, error) {
 
 	// Check each convoy for stranded state using the shared scan data.
 	for _, convoy := range convoys {
+		if skippedConvoys[convoy.ID] {
+			continue
+		}
 		tracked := trackedIssueInfosFromIDs(trackedByConvoy[convoy.ID], freshDetails, workersMap)
 		appendStranded(convoy, tracked, scheduledSet)
 	}

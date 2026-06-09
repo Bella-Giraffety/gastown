@@ -357,6 +357,22 @@ exit 0
 	if len(stranded) != 2 {
 		t.Fatalf("expected 2 stranded convoys, got %d", len(stranded))
 	}
+	byID := map[string]strandedConvoyInfo{}
+	for _, s := range stranded {
+		byID[s.ID] = s
+	}
+	for convoyID, readyID := range map[string]string{"hq-batch1": "gt-ready1", "hq-batch2": "gt-ready2"} {
+		s, ok := byID[convoyID]
+		if !ok {
+			t.Fatalf("missing stranded convoy %s", convoyID)
+		}
+		if s.TrackedCount != 1 || s.ReadyCount != 1 {
+			t.Fatalf("%s counts = tracked %d ready %d, want 1/1", convoyID, s.TrackedCount, s.ReadyCount)
+		}
+		if len(s.ReadyIssues) != 1 || s.ReadyIssues[0] != readyID {
+			t.Fatalf("%s ready issues = %v, want [%s]", convoyID, s.ReadyIssues, readyID)
+		}
+	}
 
 	logData, err := os.ReadFile(logPath)
 	if err != nil {
