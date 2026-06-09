@@ -125,6 +125,7 @@ func TestRenderRole_Polecat_ForkRig(t *testing.T) {
 	}
 	for _, bad := range []string{
 		"Refinery: Merges your work when complete",
+		"refinery/   ← Processes your completed work",
 		"Polecats: use `gt done` → Refinery merges to main",
 		"Local branch → `gt done` → MR in queue → Refinery merges → LANDED",
 	} {
@@ -173,6 +174,7 @@ func TestRenderRole_Crew_ForkRig(t *testing.T) {
 		"Crew workers push directly to main. No feature branches.",
 		"git push                    # Direct to main",
 		"PUSH TO REMOTE — NON-NEGOTIABLE",
+		"submit to that rig's Refinery immediately",
 	} {
 		if strings.Contains(output, bad) {
 			t.Errorf("fork crew output still contains non-fork guidance %q", bad)
