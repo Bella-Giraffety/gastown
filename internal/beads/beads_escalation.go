@@ -13,22 +13,21 @@ import (
 // EscalationFields holds structured fields for escalation beads.
 // These are stored as "key: value" lines in the description.
 type EscalationFields struct {
-	Severity           string // critical, high, medium, low
-	Reason             string // Why this was escalated
-	Source             string // Source identifier (e.g., plugin:rebuild-gt, patrol:deacon)
-	EscalatedBy        string // Agent address that escalated (e.g., "gastown/Toast")
-	EscalatedAt        string // ISO 8601 timestamp
-	AckedBy            string // Agent that acknowledged (empty if not acked)
-	AckedAt            string // When acknowledged (empty if not acked)
-	ClosedBy           string // Agent that closed (empty if not closed)
-	ClosedReason       string // Resolution reason (empty if not closed)
-	RelatedBead        string // Optional: related bead ID (task, bug, etc.)
-	OriginalSeverity   string // Original severity before any re-escalation
-	ReescalationCount  int    // Number of times this has been re-escalated
-	LastReescalatedAt  string // When last re-escalated (empty if never)
-	LastReescalatedBy  string // Who last re-escalated (empty if never)
+	Severity          string // critical, high, medium, low
+	Reason            string // Why this was escalated
+	Source            string // Source identifier (e.g., plugin:rebuild-gt, patrol:deacon)
+	EscalatedBy       string // Agent address that escalated (e.g., "gastown/Toast")
+	EscalatedAt       string // ISO 8601 timestamp
+	AckedBy           string // Agent that acknowledged (empty if not acked)
+	AckedAt           string // When acknowledged (empty if not acked)
+	ClosedBy          string // Agent that closed (empty if not closed)
+	ClosedReason      string // Resolution reason (empty if not closed)
+	RelatedBead       string // Optional: related bead ID (task, bug, etc.)
+	OriginalSeverity  string // Original severity before any re-escalation
+	ReescalationCount int    // Number of times this has been re-escalated
+	LastReescalatedAt string // When last re-escalated (empty if never)
+	LastReescalatedBy string // Who last re-escalated (empty if never)
 }
-
 
 // FormatEscalationDescription creates a description string from escalation fields.
 func FormatEscalationDescription(title string, fields *EscalationFields) string {
@@ -182,9 +181,14 @@ func (b *Beads) CreateEscalationBead(title string, fields *EscalationFields) (*I
 		args = append(args, fmt.Sprintf("--labels=severity:%s", fields.Severity))
 	}
 
-	// Default actor from BD_ACTOR env var for provenance tracking
-	// Uses getActor() to respect isolated mode (tests)
-	if actor := b.getActor(); actor != "" {
+	// Default actor from BD_ACTOR env var for provenance tracking.
+	// If escalation is running from a degraded boot environment without
+	// BD_ACTOR, fall back to the already-detected sender identity.
+	actor := b.getActor()
+	if actor == "" && fields != nil {
+		actor = strings.TrimSpace(fields.EscalatedBy)
+	}
+	if actor != "" {
 		args = append(args, "--actor="+actor)
 	}
 

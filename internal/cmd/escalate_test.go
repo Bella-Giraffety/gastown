@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -561,6 +562,188 @@ func TestRunEscalateValidation(t *testing.T) {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
+}
+
+func TestRunEscalateUsesTownBeadsFromBootCwd(t *testing.T) {
+	townRoot, callsPath := setupEscalateFakeBD(t, false)
+	bootDir := filepath.Join(townRoot, "deacon", "dogs", "boot")
+	if err := os.MkdirAll(bootDir, 0o755); err != nil {
+		t.Fatalf("mkdir boot dir: %v", err)
+	}
+	chdirForTest(t, bootDir)
+
+	resetEscalateFlagsForTest(t)
+	t.Setenv("GT_ROLE", "deacon/boot")
+	t.Setenv("BD_ACTOR", "")
+	t.Setenv("GIT_CEILING_DIRECTORIES", townRoot)
+	escalateSeverity = "low"
+	escalateReason = "diagnostics: /tmp/dolt-hang-1780958661.log /tmp/dolt-status-1780958661.log"
+	escalateSource = "boot-prime"
+	escalateRelatedBead = "gt-boot-prime-read-throttle-escalation-failure"
+
+	if err := runEscalate(escalateCmd, []string{"boot fallback alert"}); err != nil {
+		t.Fatalf("runEscalate: %v", err)
+	}
+
+	calls := readTestFile(t, callsPath)
+	for _, want := range []string{
+		"PWD=" + townRoot,
+		"BEADS_DIR=" + filepath.Join(townRoot, ".beads"),
+		"ARGS=create --json",
+		"--actor=deacon-boot",
+	} {
+		if !strings.Contains(calls, want) {
+			t.Fatalf("fake bd calls missing %q:\n%s", want, calls)
+		}
+	}
+}
+
+func TestRunEscalateWritesFallbackLogWhenBeadCreateFails(t *testing.T) {
+	townRoot, _ := setupEscalateFakeBD(t, true)
+	bootDir := filepath.Join(townRoot, "deacon", "dogs", "boot")
+	if err := os.MkdirAll(bootDir, 0o755); err != nil {
+		t.Fatalf("mkdir boot dir: %v", err)
+	}
+	chdirForTest(t, bootDir)
+
+	resetEscalateFlagsForTest(t)
+	t.Setenv("GT_ROLE", "deacon/boot")
+	t.Setenv("BD_ACTOR", "")
+	t.Setenv("GIT_CEILING_DIRECTORIES", townRoot)
+	escalateSeverity = "low"
+	escalateReason = "diagnostics: /tmp/dolt-hang-1780958661.log /tmp/dolt-status-1780958661.log"
+	escalateSource = "boot-prime"
+	escalateRelatedBead = "gt-boot-prime-read-throttle-escalation-failure"
+
+	err := runEscalate(escalateCmd, []string{"boot fallback alert"})
+	if err == nil {
+		t.Fatal("expected runEscalate to return create error")
+	}
+	if !strings.Contains(err.Error(), "fallback written to") {
+		t.Fatalf("error missing fallback path: %v", err)
+	}
+
+	logText := readTestFile(t, filepath.Join(townRoot, "logs", "escalations.log"))
+	for _, want := range []string{
+		"[LOW]",
+		"bead-create-failed",
+		"boot fallback alert",
+		"reason: diagnostics: /tmp/dolt-hang-1780958661.log /tmp/dolt-status-1780958661.log",
+		"source: boot-prime",
+		"related_bead: gt-boot-prime-read-throttle-escalation-failure",
+		"bead_create_error:",
+		"beads.role not configured",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("fallback log missing %q:\n%s", want, logText)
+		}
+	}
+}
+
+func setupEscalateFakeBD(t *testing.T, failCreate bool) (string, string) {
+	t.Helper()
+	beads.ResetBdAllowStaleCacheForTest()
+	t.Cleanup(beads.ResetBdAllowStaleCacheForTest)
+
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0o755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"type":"town","version":"1.0.0","name":"test-town"}`), 0o644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0o755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	fakeDir := t.TempDir()
+	callsPath := filepath.Join(t.TempDir(), "bd-calls.txt")
+	fakeBD := filepath.Join(fakeDir, "bd")
+	script := `#!/bin/sh
+set -eu
+if [ "${1:-}" = "--allow-stale" ] && [ "${2:-}" = "version" ]; then
+  exit 0
+fi
+if [ "${1:-}" = "--allow-stale" ]; then
+  shift
+fi
+{
+  printf 'PWD=%s\n' "$PWD"
+  printf 'BEADS_DIR=%s\n' "${BEADS_DIR:-}"
+  printf 'ARGS=%s\n' "$*"
+} >> "$GT_FAKE_BD_CALLS"
+if [ "${GT_FAKE_BD_FAIL_CREATE:-}" = "1" ] && [ "${1:-}" = "create" ]; then
+  printf 'beads.role not configured\n' >&2
+  exit 1
+fi
+if [ "${1:-}" = "create" ]; then
+  printf '{"id":"hq-esc123","title":"boot fallback alert","description":"","status":"open","issue_type":"task","created_at":"2026-06-09T00:00:00Z"}\n'
+  exit 0
+fi
+printf 'unexpected bd args: %s\n' "$*" >&2
+exit 1
+`
+	if err := os.WriteFile(fakeBD, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GT_FAKE_BD_CALLS", callsPath)
+	if failCreate {
+		t.Setenv("GT_FAKE_BD_FAIL_CREATE", "1")
+	} else {
+		t.Setenv("GT_FAKE_BD_FAIL_CREATE", "")
+	}
+	return townRoot, callsPath
+}
+
+func resetEscalateFlagsForTest(t *testing.T) {
+	t.Helper()
+	origSeverity := escalateSeverity
+	origReason := escalateReason
+	origSource := escalateSource
+	origRelated := escalateRelatedBead
+	origJSON := escalateJSON
+	origDryRun := escalateDryRun
+	origStdin := escalateStdin
+	t.Cleanup(func() {
+		escalateSeverity = origSeverity
+		escalateReason = origReason
+		escalateSource = origSource
+		escalateRelatedBead = origRelated
+		escalateJSON = origJSON
+		escalateDryRun = origDryRun
+		escalateStdin = origStdin
+	})
+	escalateSeverity = "medium"
+	escalateReason = ""
+	escalateSource = ""
+	escalateRelatedBead = ""
+	escalateJSON = false
+	escalateDryRun = false
+	escalateStdin = false
+}
+
+func chdirForTest(t *testing.T, dir string) {
+	t.Helper()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+}
+
+func readTestFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
 }
 
 func TestFormatEscalationMailBodyNeutralSubjectStillCarriesStructuredBody(t *testing.T) {

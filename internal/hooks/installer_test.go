@@ -117,6 +117,29 @@ func TestInstallForRole_UpgradesStaleExportPath(t *testing.T) {
 	}
 }
 
+func TestInstallForRole_UpgradesStaleOpenCodePrimeHook(t *testing.T) {
+	dir := t.TempDir()
+	hooksPath := filepath.Join(dir, ".opencode/plugins", "gastown.js")
+	os.MkdirAll(filepath.Dir(hooksPath), 0755)
+
+	os.WriteFile(hooksPath, []byte(`export const GasTown = async () => { await captureRun("gt prime") }`), 0644)
+
+	if err := InstallForRole("opencode", dir, dir, "crew", ".opencode/plugins", "gastown.js", false); err != nil {
+		t.Fatalf("InstallForRole: %v", err)
+	}
+
+	got, _ := os.ReadFile(hooksPath)
+	text := string(got)
+	for _, want := range []string{"prime --hook", "GT_HOOK_SOURCE", "GT_SESSION_ID"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("upgraded OpenCode plugin missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, `captureRun("gt prime")`) {
+		t.Fatalf("stale bare gt prime call was not upgraded:\n%s", text)
+	}
+}
+
 func TestSyncForRole_UpdatesStaleContent(t *testing.T) {
 	dir := t.TempDir()
 	hooksPath := filepath.Join(dir, ".opencode/plugins", "gastown.js")
@@ -175,6 +198,27 @@ func TestSyncForRole_CreatesNewFile(t *testing.T) {
 
 	if _, err := os.Stat(hooksPath); os.IsNotExist(err) {
 		t.Error("file was not created")
+	}
+}
+
+func TestComputeExpectedTemplate_OpenCodeUsesHookPrime(t *testing.T) {
+	content, err := ComputeExpectedTemplate("opencode", "gastown.js", "polecat")
+	if err != nil {
+		t.Fatalf("ComputeExpectedTemplate: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{
+		"prime --hook",
+		"GT_HOOK_SOURCE",
+		"GT_SESSION_ID",
+		"gt dolt status",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("OpenCode template missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, `captureRun("gt prime")`) || strings.Contains(text, "gt mail check --inject") {
+		t.Fatalf("OpenCode template contains stale startup calls:\n%s", text)
 	}
 }
 

@@ -63,6 +63,7 @@ func runEscalate(cmd *cobra.Command, args []string) error {
 	if agentID == "" {
 		agentID = "unknown"
 	}
+	agentID = escalationActor(agentID)
 
 	// Dry run mode
 	if escalateDryRun {
@@ -83,7 +84,7 @@ func runEscalate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create escalation bead
-	bd := beads.New(beads.ResolveBeadsDir(townRoot))
+	bd := townEscalationBeads(townRoot)
 	fields := &beads.EscalationFields{
 		Severity:    severity,
 		Reason:      escalateReason,
@@ -95,7 +96,10 @@ func runEscalate(cmd *cobra.Command, args []string) error {
 
 	issue, err := bd.CreateEscalationBead(description, fields)
 	if err != nil {
-		return fmt.Errorf("creating escalation bead: %w", err)
+		if logErr := writeEscalationCreateFailureLog(townRoot, severity, description, fields, err); logErr != nil {
+			return fmt.Errorf("creating escalation bead: %w; fallback log failed: %v", err, logErr)
+		}
+		return fmt.Errorf("creating escalation bead: %w; fallback written to %s", err, escalationLogPath(townRoot))
 	}
 
 	// Get routing actions for this severity
@@ -138,7 +142,7 @@ func runEscalate(cmd *cobra.Command, args []string) error {
 		status.Persisted = true
 		status.RuntimeNotified = true
 
-		mailBeads := beads.New(beads.ResolveBeadsDir(townRoot))
+		mailBeads := bd
 		mailIssue, err := mailBeads.FindLatestIssueByTitleAndAssignee(msg.Subject, mail.AddressToIdentity(target))
 		if err != nil {
 			status.Warning = fmt.Sprintf("annotation lookup failed: %v", err)
@@ -231,7 +235,7 @@ func runEscalateList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a Gas Town workspace: %w", err)
 	}
 
-	bd := beads.New(beads.ResolveBeadsDir(townRoot))
+	bd := townEscalationBeads(townRoot)
 
 	var issues []*beads.Issue
 	if escalateListAll {
@@ -324,7 +328,7 @@ func runEscalateAck(cmd *cobra.Command, args []string) error {
 		ackedBy = "unknown"
 	}
 
-	bd := beads.New(beads.ResolveBeadsDir(townRoot))
+	bd := townEscalationBeads(townRoot)
 	if err := bd.AckEscalation(escalationID, ackedBy); err != nil {
 		return fmt.Errorf("acknowledging escalation: %w", err)
 	}
@@ -353,7 +357,7 @@ func runEscalateClose(cmd *cobra.Command, args []string) error {
 		closedBy = "unknown"
 	}
 
-	bd := beads.New(beads.ResolveBeadsDir(townRoot))
+	bd := townEscalationBeads(townRoot)
 	if err := bd.CloseEscalation(escalationID, closedBy, escalateCloseReason); err != nil {
 		return fmt.Errorf("closing escalation: %w", err)
 	}
@@ -385,7 +389,7 @@ func runEscalateStale(cmd *cobra.Command, args []string) error {
 	threshold := escalationConfig.GetStaleThreshold()
 	maxReescalations := escalationConfig.GetMaxReescalations()
 
-	bd := beads.New(beads.ResolveBeadsDir(townRoot))
+	bd := townEscalationBeads(townRoot)
 	stale, err := bd.ListStaleEscalations(threshold)
 	if err != nil {
 		return fmt.Errorf("listing stale escalations: %w", err)
@@ -567,7 +571,7 @@ func runEscalateShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a Gas Town workspace: %w", err)
 	}
 
-	bd := beads.New(beads.ResolveBeadsDir(townRoot))
+	bd := townEscalationBeads(townRoot)
 	issue, fields, err := bd.GetEscalationBead(escalationID)
 	if err != nil {
 		return fmt.Errorf("getting escalation: %w", err)
@@ -622,6 +626,27 @@ func runEscalateShow(cmd *cobra.Command, args []string) error {
 }
 
 // Helper functions
+
+func townEscalationBeads(townRoot string) *beads.Beads {
+	return beads.NewWithBeadsDir(townRoot, beads.ResolveBeadsDir(townRoot))
+}
+
+func escalationActor(sender string) string {
+	sender = strings.TrimSpace(sender)
+	switch sender {
+	case "deacon/boot", "deacon/dogs/boot", "deacon-boot":
+		return "deacon-boot"
+	case "":
+		return "unknown"
+	}
+
+	role, rig, polecat := parseRoleString(sender)
+	actor := (RoleInfo{Role: role, Rig: rig, Polecat: polecat}).ActorString()
+	if actor == "" {
+		return sender
+	}
+	return actor
+}
 
 // extractMailTargetsFromActions extracts mail targets from action strings.
 // Action format: "mail:target" returns "target"
@@ -810,7 +835,7 @@ func writeEscalationLog(townRoot, beadID, severity, description string) error {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("creating log directory: %w", err)
 	}
-	logPath := fmt.Sprintf("%s/escalations.log", logDir)
+	logPath := escalationLogPath(townRoot)
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("opening log file: %w", err)
@@ -820,6 +845,28 @@ func writeEscalationLog(townRoot, beadID, severity, description string) error {
 	entry := fmt.Sprintf("%s [%s] %s: %s\n", time.Now().Format(time.RFC3339), strings.ToUpper(severity), beadID, description)
 	_, err = f.WriteString(entry)
 	return err
+}
+
+func escalationLogPath(townRoot string) string {
+	return fmt.Sprintf("%s/logs/escalations.log", townRoot)
+}
+
+func writeEscalationCreateFailureLog(townRoot, severity, description string, fields *beads.EscalationFields, createErr error) error {
+	var lines []string
+	lines = append(lines, description)
+	if fields != nil {
+		if fields.Reason != "" {
+			lines = append(lines, "reason: "+fields.Reason)
+		}
+		if fields.Source != "" {
+			lines = append(lines, "source: "+fields.Source)
+		}
+		if fields.RelatedBead != "" {
+			lines = append(lines, "related_bead: "+fields.RelatedBead)
+		}
+	}
+	lines = append(lines, "bead_create_error: "+createErr.Error())
+	return writeEscalationLog(townRoot, "bead-create-failed", severity, strings.Join(lines, "\n"))
 }
 
 func formatEscalationMailBody(beadID, severity, reason, from, related string) string {
