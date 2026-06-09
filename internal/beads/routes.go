@@ -497,18 +497,20 @@ func ResolveBeadsDirForID(currentBeadsDir, beadID string) string {
 		return currentBeadsDir
 	}
 
-	foundPrefix := false
 	for _, r := range routes {
 		if r.Prefix == prefix {
-			foundPrefix = true
-			break
+			if r.Path == "." {
+				return routesBeadsDir
+			}
+			// Rig-level bead — resolve to rig's beads directory.
+			// Derive town root from the routes directory we actually used.
+			townRoot := filepath.Dir(routesBeadsDir)
+			rigDir := filepath.Join(townRoot, r.Path)
+			return ResolveBeadsDir(rigDir)
 		}
 	}
-	if !foundPrefix {
-		return currentBeadsDir
-	}
 
-	return ResolveRoutingTarget(filepath.Dir(routesBeadsDir), beadID, currentBeadsDir)
+	return currentBeadsDir
 }
 
 // ValidateRigPrefix checks that a newly created bead landed in the expected rig's
