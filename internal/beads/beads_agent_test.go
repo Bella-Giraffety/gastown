@@ -380,7 +380,14 @@ case "$cmd" in
     printf '{"id":"pt-imported-polecat-shiny","title":"shiny","status":"open"}\n'
     exit 0
     ;;
-  slot|config|migrate|init|show|update)
+  show)
+    if [ -n "$MOCK_BD_SHOW_OUTPUT" ]; then
+      printf '%s\n' "$MOCK_BD_SHOW_OUTPUT"
+      exit 0
+    fi
+    exit 1
+    ;;
+  slot|config|migrate|init|update)
     exit 0
     ;;
   *)
@@ -492,6 +499,7 @@ func TestUpdate_RigPrefixedAgentBeadUsesTownRoot(t *testing.T) {
 
 	logPath := filepath.Join(townRoot, "bd.log")
 	installMockBDCreateRecorder(t, logPath)
+	t.Setenv("MOCK_BD_SHOW_OUTPUT", `[{"id":"ho-homelab-polecat-furiosa","title":"furiosa","issue_type":"task","labels":["gt:agent"],"description":"role_type: polecat\nrig: homelab\nagent_state: working"}]`)
 
 	bd := NewWithBeadsDir(rigDir, rigBeadsDir)
 	if err := bd.Update("ho-homelab-polecat-furiosa", UpdateOptions{
@@ -509,6 +517,45 @@ func TestUpdate_RigPrefixedAgentBeadUsesTownRoot(t *testing.T) {
 	}
 	if !strings.Contains(logOutput, "args=update ho-homelab-polecat-furiosa --add-label=done-intent:COMPLETED:1778598000") {
 		t.Fatalf("mock bd log missing routed update call:\n%s", logOutput)
+	}
+}
+
+func TestUpdate_AgentShapedWorkBeadUsesRigRootWhenTownAgentMissing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("path assertions are Unix-oriented")
+	}
+
+	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	rigDir := filepath.Join(townRoot, "homelab")
+	rigBeadsDir := filepath.Join(rigDir, ".beads")
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), townBeadsDir, rigBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRoutes(townBeadsDir, []Route{{Prefix: "hq-", Path: "."}, {Prefix: "ho-", Path: "homelab"}}); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	logPath := filepath.Join(townRoot, "bd.log")
+	installMockBDCreateRecorder(t, logPath)
+
+	bd := NewWithBeadsDir(rigDir, rigBeadsDir)
+	status := "in_progress"
+	if err := bd.Update("ho-homelab-polecat-cleanup", UpdateOptions{Status: &status}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	logOutput := readMockBDLog(t, logPath)
+	if !strings.Contains(logOutput, "beads_dir="+rigBeadsDir) {
+		t.Fatalf("mock bd log missing rig BEADS_DIR:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, "args=update ho-homelab-polecat-cleanup --status=in_progress") {
+		t.Fatalf("mock bd log missing rig update call:\n%s", logOutput)
 	}
 }
 
