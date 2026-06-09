@@ -132,6 +132,7 @@ Install the tools for the setup path you choose. Homebrew and Docker bundle some
 | Go | 1.25.8+ | Required for Linux, Windows, and macOS source builds. Not needed for `brew install gastown` or Docker. |
 | Dolt | 1.82.4+ | Required for Linux, Windows, and macOS source builds. Homebrew and Docker install it for you. |
 | beads (`bd`) | 0.57.0+ | Installed by Homebrew, Docker, and the `go install` steps below. Existing installs must meet this minimum. |
+| Docker with Compose v2 | latest | Required only for the Docker setup path. Use the `docker compose` plugin command. |
 | sqlite3 | any | Used by convoy database queries. Usually pre-installed on macOS and Linux. |
 | tmux | 3.0+ | Required for `gt up` and the tmux-backed roles (Mayor, Witnesses, Refineries, polecats). Optional only for minimal-mode workflows where you run runtime instances manually. |
 | Claude Code CLI | latest | Default runtime. See [Runtime Configuration](#runtime-configuration) for alternatives (Codex, Copilot, Gemini, Cursor). |
@@ -251,6 +252,8 @@ gt mayor attach
 
 ### Docker Compose setup
 
+Install Docker Engine or Docker Desktop with the Compose v2 plugin first; the commands below use `docker compose`.
+
 `docker-compose.yml` runs Gas Town inside a container. The container hosts an HQ at `/gt`, which Compose bind-mounts from `${FOLDER}` on the host. The entrypoint runs `gt install /gt --git` against that directory on first start, so `FOLDER` must point at an empty directory that you want to become the HQ or an existing Gas Town HQ. See the [Docker guide](docs/docker.md) for storage, security, and lifecycle details.
 
 ```bash
@@ -278,18 +281,7 @@ gt mayor attach
 ## Quick Start Guide
 
 ### Getting Started
-Run
-```shell
-git config --global user.name "Your Name" &&
-git config --global user.email "you@example.com" &&
-gt install ~/gt --shell --git &&
-cd ~/gt &&
-gt up &&
-gt doctor --fix &&
-gt config agent list &&
-gt mayor attach
-```
-and tell the Mayor what you want to build!
+Use the [local setup](#local-setup) or [Docker Compose setup](#docker-compose-setup) above. After `gt mayor attach`, tell the Mayor what you want to build.
 
 ---
 

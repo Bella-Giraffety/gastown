@@ -4,14 +4,17 @@ Complete setup guide for Gas Town multi-agent orchestrator.
 
 ## Prerequisites
 
-### Required
+Install only the tools required by your setup path. Homebrew installs `gt`, `bd`, and Dolt together; Docker bundles the runtime prerequisites inside the image. Go, Dolt, and `bd` are separate host prerequisites for Linux, Windows, and macOS source builds.
+
+### Required by setup path
 
 | Tool | Version | Check | Install |
 |------|---------|-------|---------|
-| **Go** | 1.25.8+ | `go version` | See [golang.org](https://go.dev/doc/install) |
 | **Git** | 2.25+ | `git --version` | See below |
-| **Dolt** | >= 1.82.4 | `dolt version` | See [dolthub/dolt](https://github.com/dolthub/dolt?tab=readme-ov-file#installation) |
-| **Beads** | >= 0.57.0 | `bd version` | `go install github.com/steveyegge/beads/cmd/bd@latest` |
+| **Go** | 1.25.8+ | `go version` | Linux, Windows, and macOS source builds only. See [golang.org](https://go.dev/doc/install). |
+| **Dolt** | >= 1.82.4 | `dolt version` | Linux, Windows, and macOS source builds only. See [dolthub/dolt](https://github.com/dolthub/dolt?tab=readme-ov-file#installation). |
+| **Beads** | >= 0.57.0 | `bd version` | Linux, Windows, and macOS source builds only: `go install github.com/steveyegge/beads/cmd/bd@latest`. |
+| **Docker with Compose v2** | latest | `docker compose version` | Docker setup path only. Install Docker Engine or Docker Desktop with the Compose plugin. |
 
 ### Optional (for Full Stack Mode)
 
@@ -31,9 +34,12 @@ Complete setup guide for Gas Town multi-agent orchestrator.
 # Install Homebrew if needed
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Required
-brew install go git
-# Install Dolt: see https://github.com/dolthub/dolt?tab=readme-ov-file#installation
+# Recommended: install gt, bd, and Dolt together
+brew install gastown
+
+# Source build only
+brew install go git dolt
+go install github.com/steveyegge/beads/cmd/bd@latest
 
 # Optional (for full stack mode)
 brew install tmux
@@ -253,11 +259,11 @@ Gas Town is modular. Enable only what you need:
 
 ### `gt: command not found`
 
-Your Go bin directory is not in PATH:
+Your install directory is not in `PATH`:
 
 ```bash
 # Add to your shell config (~/.bashrc, ~/.zshrc)
-export PATH="$PATH:$HOME/go/bin"
+export PATH="$HOME/.local/bin:$PATH:$HOME/go/bin"
 source ~/.bashrc  # or restart terminal
 ```
 
@@ -316,13 +322,22 @@ bd doctor                  # Run beads health check
 
 ## Updating
 
-To update Gas Town and Beads:
+To update a Homebrew install on macOS:
+
+```bash
+brew upgrade gastown
+gt doctor --fix            # Fix any post-update issues
+```
+
+To update a Linux or Windows Go install:
 
 ```bash
 go install github.com/steveyegge/gastown/cmd/gt@latest
 go install github.com/steveyegge/beads/cmd/bd@latest
 gt doctor --fix            # Fix any post-update issues
 ```
+
+For a macOS source build, pull the repository and run `make install` again so the signed-install workaround stays in `$HOME/.local/bin`.
 
 ## Uninstalling
 

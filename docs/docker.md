@@ -21,6 +21,7 @@ CI workflows under `.github/workflows/` use `Dockerfile.e2e` for e2e jobs and pu
 ## Quick start
 
 The runtime image expects three environment variables and one host directory.
+Install Docker Engine or Docker Desktop with the Compose v2 plugin first; the commands below use `docker compose`.
 
 ```bash
 export GIT_USER="<your name>"
@@ -66,7 +67,7 @@ Go installs from the official tarball because the Debian-packaged version lags. 
 
 `bd` and `dolt` install via the upstream `curl | bash` install scripts. The scripts deposit binaries on `$PATH` for the `agent` user.
 
-`PATH` is set so `/app/gastown` (where the freshly-built `gt` binary lives) takes priority. `/usr/local/go/bin` and `/home/agent/go/bin` follow. The Dockerfile writes the same prefixes into `/etc/profile.d/gastown.sh` and `/etc/zsh/zshenv` so both bash and zsh interactive sessions see the right binaries.
+The Dockerfile `ENV` sets `PATH` so `/app/gastown` (where the freshly-built `gt` binary lives) takes priority, followed by `/usr/local/go/bin` and `/home/agent/go/bin`. The shell init snippets repeat `/app/gastown` so interactive bash and zsh sessions keep the built `gt` first.
 
 ### Building gt from source
 
@@ -153,7 +154,7 @@ ports:
   - "${DASHBOARD_PORT:-8080}:8080"
 ```
 
-No other ports leave the container. Dolt runs on port 3307 inside the container's network namespace, but Dolt is unreachable from the host. The unreachability is intentional: the container is meant to be a self-contained Gas Town environment.
+No other ports are published to the host. Dolt runs on port 3307 inside the container's network namespace, and Compose does not map that port to the host. The container is meant to be a self-contained Gas Town environment.
 
 Compose publishes the dashboard as `${DASHBOARD_PORT}:8080`, which Docker may bind on all host interfaces. Because `IS_SANDBOX=1` makes the dashboard bind to `0.0.0.0` inside the container, treat the dashboard as host-exposed. Use an explicit localhost binding, such as `127.0.0.1:${DASHBOARD_PORT:-8080}:8080`, if you need local-only access.
 
