@@ -183,6 +183,9 @@ func TestAddressToSessionIDs(t *testing.T) {
 		{"mayor", []string{"hq-mayor"}},
 		{"mayor/", []string{"hq-mayor"}},
 		{"deacon", []string{"hq-deacon"}},
+		{"deacon/", []string{"hq-deacon"}},
+		{"deacon/dogs/alpha", []string{"hq-dog-alpha"}},
+		{"deacon/dogs/my-dog", []string{"hq-dog-my-dog"}},
 
 		// Rig singletons - single session (no crew/polecat ambiguity)
 		{"gastown/refinery", []string{"gt-refinery"}},
@@ -200,6 +203,12 @@ func TestAddressToSessionIDs(t *testing.T) {
 		{"gastown/", nil}, // Empty target
 		{"gastown", nil},  // No slash
 		{"", nil},         // Empty address
+		{"deacon/dogs", nil},
+		{"deacon/dogs/", nil},
+		{"deacon/dogs/alpha/extra", nil},
+		{"deacon/foo", nil},
+		{"deaconer", nil},
+		{"mayor/foo", nil},
 	}
 
 	for _, tt := range tests {
@@ -1357,6 +1366,21 @@ func TestAddressToAgentBeadID(t *testing.T) {
 			expected: "hq-deacon",
 		},
 		{
+			name:     "deacon without slash",
+			address:  "deacon",
+			expected: "hq-deacon",
+		},
+		{
+			name:     "dog",
+			address:  "deacon/dogs/alpha",
+			expected: "hq-dog-alpha",
+		},
+		{
+			name:     "hyphenated dog",
+			address:  "deacon/dogs/my-dog",
+			expected: "hq-dog-my-dog",
+		},
+		{
 			name:     "witness",
 			address:  "gastown/witness",
 			expected: "gt-witness",
@@ -1394,6 +1418,31 @@ func TestAddressToAgentBeadID(t *testing.T) {
 		{
 			name:     "rig with empty target",
 			address:  "gastown/",
+			expected: "",
+		},
+		{
+			name:     "dog pool has no session",
+			address:  "deacon/dogs",
+			expected: "",
+		},
+		{
+			name:     "empty dog name",
+			address:  "deacon/dogs/",
+			expected: "",
+		},
+		{
+			name:     "dog extra segment",
+			address:  "deacon/dogs/alpha/extra",
+			expected: "",
+		},
+		{
+			name:     "deacon subpath is reserved",
+			address:  "deacon/foo",
+			expected: "",
+		},
+		{
+			name:     "mayor subpath is reserved",
+			address:  "mayor/foo",
 			expected: "",
 		},
 	}

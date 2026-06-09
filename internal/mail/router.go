@@ -1783,16 +1783,33 @@ func (r *Router) isRecipientMuted(address string) bool {
 	return level == beads.NotifyMuted
 }
 
+// townLevelSessionNameForAddress resolves reserved town-level addresses.
+// Malformed reserved paths are handled with an empty session so they do not
+// fall through to rig/name ambiguity handling.
+func townLevelSessionNameForAddress(address string) (string, bool) {
+	identity, err := session.ParseAddress(address)
+	if err == nil {
+		switch identity.Role {
+		case session.RoleMayor, session.RoleDeacon, session.RoleDog:
+			return identity.SessionName(), true
+		}
+	}
+
+	if strings.HasPrefix(address, constants.RoleMayor+"/") || strings.HasPrefix(address, constants.RoleDeacon+"/") {
+		return "", true
+	}
+
+	return "", false
+}
+
 // addressToAgentBeadID converts a mail address to an agent bead ID for DND lookup.
 // Returns empty string if the address cannot be converted.
 func addressToAgentBeadID(address string) string {
-	switch {
-	case address == "overseer":
+	if address == "overseer" {
 		return "" // Overseer is a human, no agent bead
-	case strings.HasPrefix(address, constants.RoleMayor):
-		return session.MayorSessionName()
-	case strings.HasPrefix(address, constants.RoleDeacon):
-		return session.DeaconSessionName()
+	}
+	if sessionID, handled := townLevelSessionNameForAddress(address); handled {
+		return sessionID
 	}
 
 	parts := strings.SplitN(address, "/", 2)
@@ -1834,14 +1851,12 @@ func AddressToSessionIDs(address string) []string {
 		return []string{session.OverseerSessionName()}
 	}
 
-	// Mayor address: "mayor/" or "mayor"
-	if strings.HasPrefix(address, constants.RoleMayor) {
-		return []string{session.MayorSessionName()}
-	}
-
-	// Deacon address: "deacon/" or "deacon"
-	if strings.HasPrefix(address, constants.RoleDeacon) {
-		return []string{session.DeaconSessionName()}
+	// Town-level addresses: "mayor", "deacon", and "deacon/dogs/<name>".
+	if sessionID, handled := townLevelSessionNameForAddress(address); handled {
+		if sessionID == "" {
+			return nil
+		}
+		return []string{sessionID}
 	}
 
 	// Rig-based address: "rig/target" or "rig/crew/name" or "rig/polecats/name"

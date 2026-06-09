@@ -413,6 +413,16 @@ func TestParseAddress(t *testing.T) {
 			want:    AgentIdentity{Role: RoleDeacon},
 		},
 		{
+			name:    "dog",
+			address: "deacon/dogs/alpha",
+			want:    AgentIdentity{Role: RoleDog, Name: "alpha"},
+		},
+		{
+			name:    "dog hyphenated name",
+			address: "deacon/dogs/my-dog",
+			want:    AgentIdentity{Role: RoleDog, Name: "my-dog"},
+		},
+		{
 			name:    "witness",
 			address: "gastown/witness",
 			want:    AgentIdentity{Role: RoleWitness, Rig: "gastown", Prefix: PrefixFor("gastown")},
@@ -440,6 +450,31 @@ func TestParseAddress(t *testing.T) {
 		{
 			name:    "invalid",
 			address: "gastown/crew",
+			wantErr: true,
+		},
+		{
+			name:    "invalid dog pool",
+			address: "deacon/dogs",
+			wantErr: true,
+		},
+		{
+			name:    "invalid empty dog name",
+			address: "deacon/dogs/",
+			wantErr: true,
+		},
+		{
+			name:    "invalid dog extra segment",
+			address: "deacon/dogs/alpha/extra",
+			wantErr: true,
+		},
+		{
+			name:    "invalid deacon subpath",
+			address: "deacon/foo",
+			wantErr: true,
+		},
+		{
+			name:    "invalid mayor subpath",
+			address: "mayor/foo",
 			wantErr: true,
 		},
 	}
