@@ -261,7 +261,7 @@ var bdCallTimeout = 60 * time.Second
 func getAllAgentLabels(agentBead, beadsDir string) ([]string, error) {
 	args := []string{"show", agentBead, "--json"}
 
-	stdout, err := runAgentBDCommand(args, beadsDir)
+	stdout, stderr, err := runAgentBDCommandOutput(args, beadsDir)
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "not found") {
@@ -270,10 +270,15 @@ func getAllAgentLabels(agentBead, beadsDir string) ([]string, error) {
 		return nil, fmt.Errorf("querying agent bead: %w", err)
 	}
 
-	return parseAgentBeadLabels(stdout, nil, agentBead)
+	return parseAgentBeadLabels(stdout, stderr, agentBead)
 }
 
 func runAgentBDCommand(args []string, beadsDir string) ([]byte, error) {
+	stdout, _, err := runAgentBDCommandOutput(args, beadsDir)
+	return stdout, err
+}
+
+func runAgentBDCommandOutput(args []string, beadsDir string) ([]byte, []byte, error) {
 	beads.CleanStaleDoltServerPID(beadsDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), bdCallTimeout)
@@ -290,43 +295,38 @@ func runAgentBDCommand(args []string, beadsDir string) ([]byte, error) {
 
 	err := cmd.Run()
 	if err == nil {
-		return stdout.Bytes(), nil
+		return stdout.Bytes(), stderr.Bytes(), nil
 	}
 
 	stderrText := strings.TrimSpace(stderr.String())
 	if ctxErr := ctx.Err(); errors.Is(ctxErr, context.DeadlineExceeded) {
 		if stderrText != "" {
-			return nil, fmt.Errorf("bd %s timed out after %s: %s", strings.Join(args, " "), bdCallTimeout, stderrText)
+			return nil, stderr.Bytes(), fmt.Errorf("bd %s timed out after %s: %s", strings.Join(args, " "), bdCallTimeout, stderrText)
 		}
-		return nil, fmt.Errorf("bd %s timed out after %s", strings.Join(args, " "), bdCallTimeout)
+		return nil, stderr.Bytes(), fmt.Errorf("bd %s timed out after %s", strings.Join(args, " "), bdCallTimeout)
 	} else if errors.Is(ctxErr, context.Canceled) {
 		if stderrText != "" {
-			return nil, fmt.Errorf("bd %s canceled: %s", strings.Join(args, " "), stderrText)
+			return nil, stderr.Bytes(), fmt.Errorf("bd %s canceled: %s", strings.Join(args, " "), stderrText)
 		}
-		return nil, fmt.Errorf("bd %s canceled", strings.Join(args, " "))
+		return nil, stderr.Bytes(), fmt.Errorf("bd %s canceled", strings.Join(args, " "))
 	}
 
 	if stderrText != "" {
-		return nil, fmt.Errorf("%s", stderrText)
+		return nil, stderr.Bytes(), fmt.Errorf("%s", stderrText)
 	}
-	return nil, err
+	return nil, stderr.Bytes(), err
 }
 
 func agentBDEnv(base []string, beadsDir string) []string {
 	base = beads.EnvForBeadsDir(base, beadsDir)
-	env := make([]string, 0, len(base)+2)
+	env := make([]string, 0, len(base)+1)
 	for _, entry := range base {
-		if strings.HasPrefix(entry, "BEADS_DIR=") ||
-			strings.HasPrefix(entry, "BEADS_DOLT_SERVER_DATABASE=") ||
-			strings.HasPrefix(entry, "BEADS_DB=") {
+		if strings.HasPrefix(entry, "BEADS_DIR=") {
 			continue
 		}
 		env = append(env, entry)
 	}
 	env = append(env, "BEADS_DIR="+beadsDir)
-	if dbEnv := beads.DatabaseEnv(beadsDir); dbEnv != "" {
-		env = append(env, dbEnv)
-	}
 	return env
 }
 
@@ -409,6 +409,15 @@ func setAllAgentLabels(agentBead, beadsDir string, labels []string) error {
 
 	if _, err := runAgentBDCommand(args, beadsDir); err != nil {
 		return fmt.Errorf("updating agent labels: %w", err)
+	}
+	return nil
+}
+
+// setAgentBackoffUntil persists a backoff-until:TIMESTAMP label on the agent bead.
+// This allows interrupted await invocations to resume with remaining time.
+func setAgentBackoffUntil(agentBead, beadsDir string, until time.Time) error {
+	if err := updateAgentLabels(agentBead, beadsDir, agentLabelMutation{backoffUntil: &until}); err != nil {
+		return fmt.Errorf("setting backoff-until label: %w", err)
 	}
 	return nil
 }

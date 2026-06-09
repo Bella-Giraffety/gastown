@@ -1387,7 +1387,7 @@ func setDoneIntentLabel(bd *beads.Beads, agentBeadID, exitType string) {
 
 // clearDoneIntentLabel removes any done-intent:* label from the agent bead.
 // Called at the end of updateAgentStateOnDone on clean exit.
-// Uses read-modify-write pattern (same as clearAgentBackoffUntil).
+// Uses the same read-modify-write label pattern as other agent state cleanup.
 func clearDoneIntentLabel(bd *beads.Beads, agentBeadID string) {
 	if agentBeadID == "" {
 		return

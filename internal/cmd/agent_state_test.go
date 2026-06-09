@@ -428,6 +428,38 @@ func TestRunAgentBDCommandTimeoutReportsDeadline(t *testing.T) {
 	}
 }
 
+func TestGetAllAgentLabelsPreservesEmptyStdoutStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell mock is Unix-only")
+	}
+
+	beadsDir := filepath.Join(t.TempDir(), ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+case "$1" in
+  show)
+    printf '%s\n' 'database mismatch: useful diagnostic' >&2
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := getAllAgentLabels("gt-test", beadsDir)
+	if err == nil {
+		t.Fatal("expected empty-stdout diagnostic error")
+	}
+	if !strings.Contains(err.Error(), "database mismatch") {
+		t.Fatalf("error = %q, want stderr diagnostic", err.Error())
+	}
+}
+
 func installAgentLabelMockBD(t *testing.T, showOutput string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
