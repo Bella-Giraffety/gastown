@@ -663,6 +663,27 @@ func TestAccountsConfigRoundTrip(t *testing.T) {
 	}
 }
 
+func TestResolveAccountConfigDirFlagOverridesEnv(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mayor", "accounts.json")
+	accounts := NewAccountsConfig()
+	accounts.Accounts["env"] = Account{Email: "env@example.com", ConfigDir: filepath.Join(dir, "env")}
+	accounts.Accounts["flag"] = Account{Email: "flag@example.com", ConfigDir: filepath.Join(dir, "flag")}
+	accounts.Default = "env"
+	if err := SaveAccountsConfig(path, accounts); err != nil {
+		t.Fatalf("SaveAccountsConfig: %v", err)
+	}
+	t.Setenv("GT_ACCOUNT", "env")
+
+	configDir, handle, err := ResolveAccountConfigDir(path, "flag")
+	if err != nil {
+		t.Fatalf("ResolveAccountConfigDir: %v", err)
+	}
+	if handle != "flag" || configDir != filepath.Join(dir, "flag") {
+		t.Fatalf("ResolveAccountConfigDir() = (%q, %q), want flag account", configDir, handle)
+	}
+}
+
 func TestAccountsConfigValidation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

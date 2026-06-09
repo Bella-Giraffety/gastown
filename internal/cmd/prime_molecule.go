@@ -225,12 +225,13 @@ func applyFormulaVars(text string, varMap map[string]string) string {
 // key=value string (as stored in AttachmentFields.FormulaVars).
 // Returns "" if the key is not found.
 func extractFormulaVar(formulaVars, key string) string {
+	value := ""
 	for _, line := range strings.Split(formulaVars, "\n") {
 		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && k == key {
-			return v
+			value = v
 		}
 	}
-	return ""
+	return value
 }
 
 // truncateDescription truncates a multi-line description to a single line summary.

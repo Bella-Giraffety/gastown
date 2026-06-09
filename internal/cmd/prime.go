@@ -1017,12 +1017,12 @@ func requireRalphLoopPlugin() error {
 }
 
 func requireRalphLoopPluginForAccount(townRoot, account string) error {
-	if account == "" {
-		return requireRalphLoopPlugin()
-	}
 	configDir, _, err := config.ResolveAccountConfigDir(constants.MayorAccountsPath(townRoot), account)
 	if err != nil {
 		return fmt.Errorf("resolving Claude Code account for --ralph: %w", err)
+	}
+	if configDir == "" {
+		return requireRalphLoopPlugin()
 	}
 	if ralphLoopPluginInstalledInConfigDir(configDir) {
 		return nil

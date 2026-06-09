@@ -1049,6 +1049,13 @@ func TestAttachmentFormulaVarsUsesPersistedOverrides(t *testing.T) {
 	}
 }
 
+func TestExtractFormulaVarUsesLastOverride(t *testing.T) {
+	vars := "base_branch=main\nsetup_command=\nbase_branch=release/test"
+	if got := extractFormulaVar(vars, "base_branch"); got != "release/test" {
+		t.Fatalf("extractFormulaVar() = %q, want last override", got)
+	}
+}
+
 func TestRalphLoopPluginInstalledIn(t *testing.T) {
 	manifest := filepath.Join(t.TempDir(), "installed_plugins.json")
 	if err := os.WriteFile(manifest, []byte(`{"plugins":{"ralph-loop@claude-plugins-official":{}}}`), 0644); err != nil {
