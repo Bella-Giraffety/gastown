@@ -68,8 +68,7 @@ func needsUpgrade(content []byte) bool {
 	// Stale pattern: export PATH=... && gt — replaced by {{GT_BIN}} in current templates.
 	// The PATH export breaks Gemini CLI's hook runner which expands $PATH into
 	// an enormous string. Also catches files missing GT_HOOK_SOURCE env vars.
-	return bytes.Contains(content, []byte(`export PATH=`)) ||
-		(bytes.Contains(content, []byte(`gt prime`)) && !bytes.Contains(content, []byte(`GT_HOOK_SOURCE`)))
+	return bytes.Contains(content, []byte(`export PATH=`))
 }
 
 // SyncResult describes what SyncForRole did.
