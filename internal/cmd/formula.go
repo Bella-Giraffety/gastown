@@ -472,6 +472,76 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 		}
 	}
 
+	// Parse --set key=value pairs for template rendering.
+	setVars := parseSetVars(formulaRunSet)
+
+	// Generate a unique review ID for this convoy run. Honors --set
+	// review_id=X so it matches --dry-run output exactly (gt-4032).
+	reviewID := resolveReviewID(setVars)
+
+	// Build target description.
+	var targetDescription string
+	if formulaRunPR > 0 {
+		targetDescription = fmt.Sprintf("PR #%d", formulaRunPR)
+	} else {
+		targetDescription = "local files"
+	}
+
+	// Fetch PR info if --pr flag is set.
+	var prTitle string
+	var changedFiles []map[string]interface{}
+	if formulaRunPR > 0 {
+		prTitle, changedFiles = fetchPRInfo(formulaRunPR)
+	}
+
+	// Render paths and synthesis text before any bead writes so template errors
+	// cannot leave a partial convoy behind (gt-4032-B).
+	var outputDir string
+	if f.Output != nil && f.Output.Directory != "" {
+		dirCtx := map[string]interface{}{
+			"review_id":    reviewID,
+			"formula_name": formulaName,
+		}
+		for k, v := range setVars {
+			dirCtx[k] = v
+		}
+		dirCtx["review_id"] = reviewID
+		outputDir = renderTemplateOrDefault(f.Output.Directory, dirCtx, ".reviews/"+reviewID)
+	}
+
+	var renderedSynthesisDescription string
+	if f.Synthesis != nil {
+		synDesc := f.Synthesis.Description
+		if synDesc == "" {
+			synDesc = "Synthesize findings from all legs into unified output"
+		}
+		synCtx := map[string]interface{}{
+			"formula_name":       formulaName,
+			"target_description": targetDescription,
+			"review_id":          reviewID,
+			"pr_number":          formulaRunPR,
+			"pr_title":           prTitle,
+			"changed_files":      changedFiles,
+			"files":              formulaRunFiles,
+		}
+		for k, v := range setVars {
+			synCtx[k] = v
+		}
+		synCtx["review_id"] = reviewID
+		if f.Output != nil {
+			synCtx["output"] = map[string]interface{}{
+				"directory": outputDir,
+				"synthesis": f.Output.Synthesis,
+			}
+			synCtx["output_path"] = filepath.Join(outputDir, f.Output.Synthesis)
+		}
+		rendered, err := renderTemplate(synDesc, synCtx)
+		if err != nil {
+			return fmt.Errorf("rendering synthesis description: %w", err)
+		}
+		renderedSynthesisDescription = rendered
+	}
+
 	// Step 1: Create convoy bead
 	convoyID := fmt.Sprintf("%s-cv-%s", rigPrefix, generateFormulaShortID())
 	convoyTitle := fmt.Sprintf("%s: %s", formulaName, f.Description)
@@ -512,44 +582,7 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 
 	fmt.Printf("%s Created convoy: %s\n", style.Bold.Render("✓"), convoyID)
 
-	// Parse --set key=value pairs for template rendering
-	setVars := parseSetVars(formulaRunSet)
-
-	// Generate a unique review ID for this convoy run. Honors --set
-	// review_id=X so it matches --dry-run output exactly (gt-4032).
-	reviewID := resolveReviewID(setVars)
-
-	// Build target description
-	var targetDescription string
-	if formulaRunPR > 0 {
-		targetDescription = fmt.Sprintf("PR #%d", formulaRunPR)
-	} else {
-		targetDescription = "local files"
-	}
-
-	// Fetch PR info if --pr flag is set
-	var prTitle string
-	var changedFiles []map[string]interface{}
-	if formulaRunPR > 0 {
-		prTitle, changedFiles = fetchPRInfo(formulaRunPR)
-	}
-
-	// Create output directory if configured
-	var outputDir string
-	if f.Output != nil && f.Output.Directory != "" {
-		// Build minimal context for directory rendering. Inject --set vars
-		// so the rendered directory matches --dry-run exactly (gt-4032).
-		dirCtx := map[string]interface{}{
-			"review_id":    reviewID,
-			"formula_name": formulaName,
-		}
-		for k, v := range setVars {
-			dirCtx[k] = v
-		}
-		dirCtx["review_id"] = reviewID
-		outputDir = renderTemplateOrDefault(f.Output.Directory, dirCtx, ".reviews/"+reviewID)
-
-		// Create the directory
+	if outputDir != "" {
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
 			fmt.Printf("%s Failed to create output directory %s: %v\n",
 				style.Dim.Render("Warning:"), outputDir, err)
@@ -647,47 +680,12 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 	if f.Synthesis != nil {
 		synthesisBeadID = fmt.Sprintf("%s-syn-%s", rigPrefix, generateFormulaShortID())
 
-		synDesc := f.Synthesis.Description
-		if synDesc == "" {
-			synDesc = "Synthesize findings from all legs into unified output"
-		}
-
-		// Render the synthesis description with the same template context
-		// the legs receive, so {{.output.directory}}/{{.output.synthesis}}
-		// and --set vars resolve to concrete paths instead of being stored
-		// raw for the synthesizer to choke on (gt-4032).
-		synCtx := map[string]interface{}{
-			"formula_name":       formulaName,
-			"target_description": targetDescription,
-			"review_id":          reviewID,
-			"pr_number":          formulaRunPR,
-			"pr_title":           prTitle,
-			"changed_files":      changedFiles,
-			"files":              formulaRunFiles,
-		}
-		for k, v := range setVars {
-			synCtx[k] = v
-		}
-		synCtx["review_id"] = reviewID
-		if f.Output != nil {
-			synCtx["output"] = map[string]interface{}{
-				"directory": outputDir,
-				"synthesis": f.Output.Synthesis,
-			}
-			synCtx["output_path"] = filepath.Join(outputDir, f.Output.Synthesis)
-		}
-		rendered, err := renderTemplate(synDesc, synCtx)
-		if err != nil {
-			return fmt.Errorf("rendering synthesis description: %w", err)
-		}
-		synDesc = rendered
-
 		synArgs := []string{
 			"create",
 			"--type=task",
 			"--id=" + synthesisBeadID,
 			"--title=" + f.Synthesis.Title,
-			"--description=" + synDesc,
+			"--description=" + renderedSynthesisDescription,
 		}
 		if beads.NeedsForceForID(synthesisBeadID) {
 			synArgs = append(synArgs, "--force")
@@ -866,6 +864,12 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 				style.Dim.Render("Warning:"), step.ID, err)
 			continue
 		}
+		if step.Interactive {
+			_ = BdCmd("update", stepBeadID, "--status=hooked").
+				WithAutoCommit().
+				Dir(rigBeadsDir).
+				Run()
+		}
 
 		// Track the step with the workflow
 		if err := addTrackingRelationWithRetry(townBeads, workflowID, stepBeadID); err != nil {
@@ -940,11 +944,18 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 
 	fmt.Printf("\n%s Dispatching ready steps...\n\n", style.Bold.Render("→"))
 
+	totalInteractiveCount := 0
+	for _, step := range f.Steps {
+		if step.Interactive {
+			totalInteractiveCount++
+		}
+	}
+
 	slingCount := 0
 	interactiveCount := 0
 	for _, step := range f.Steps {
 		if len(step.Needs) > 0 {
-			continue // has unmet dependencies — will be auto-dispatched
+			continue // has unmet dependencies; dependency closure gates follow-up
 		}
 
 		stepBeadID, ok := stepBeads[step.ID]
@@ -953,13 +964,8 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 		}
 
 		if step.Interactive {
-			// Interactive step: hook to current session instead of slinging to a polecat.
-			// The user will execute this step in their current crew session.
-			_ = BdCmd("update", stepBeadID, "--status=hooked").
-				WithAutoCommit().
-				Dir(rigBeadsDir).
-				Run()
-
+			// Interactive step: already marked session-bound at creation instead
+			// of slinging to a polecat. The user executes it in the crew session.
 			fmt.Printf("  %s %s: %s (interactive — hooked to current session)\n",
 				style.Bold.Render("⇨"), step.ID, stepBeadID)
 			fmt.Printf("    %s\n", step.Title)
@@ -1000,9 +1006,9 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 	blockedCount := len(f.Steps) - slingCount - interactiveCount
 	fmt.Printf("\n%s Workflow dispatched!\n", style.Bold.Render("✓"))
 	fmt.Printf("  Workflow: %s\n", workflowID)
-	if interactiveCount > 0 {
-		fmt.Printf("  Steps:    %d total, %d interactive (current session), %d dispatched, %d awaiting dependencies\n",
-			len(f.Steps), interactiveCount, slingCount, blockedCount)
+	if totalInteractiveCount > 0 {
+		fmt.Printf("  Steps:    %d total, %d interactive (current session), %d currently ready, %d dispatched, %d awaiting dependencies\n",
+			len(f.Steps), totalInteractiveCount, interactiveCount, slingCount, blockedCount)
 		fmt.Printf("\n  This workflow has interactive steps. Work through them sequentially:\n")
 		fmt.Printf("    bd mol current <molecule-id>   — find current step\n")
 		fmt.Printf("    bd close <step-id>             — advance to next step\n")
