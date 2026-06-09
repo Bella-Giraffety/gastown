@@ -639,13 +639,7 @@ func escalationActor(sender string) string {
 	case "":
 		return "unknown"
 	}
-
-	role, rig, polecat := parseRoleString(sender)
-	actor := (RoleInfo{Role: role, Rig: rig, Polecat: polecat}).ActorString()
-	if actor == "" {
-		return sender
-	}
-	return actor
+	return sender
 }
 
 // extractMailTargetsFromActions extracts mail targets from action strings.

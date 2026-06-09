@@ -351,14 +351,6 @@ func TestFormatReescalationMailBody(t *testing.T) {
 }
 
 func TestDetectSenderFallback(t *testing.T) {
-	// Save original env vars
-	origActor := os.Getenv("BD_ACTOR")
-	origRole := os.Getenv("GT_ROLE")
-	defer func() {
-		os.Setenv("BD_ACTOR", origActor)
-		os.Setenv("GT_ROLE", origRole)
-	}()
-
 	tests := []struct {
 		name  string
 		actor string
@@ -387,8 +379,8 @@ func TestDetectSenderFallback(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Setenv("BD_ACTOR", tt.actor)
-			os.Setenv("GT_ROLE", tt.role)
+			t.Setenv("BD_ACTOR", tt.actor)
+			t.Setenv("GT_ROLE", tt.role)
 
 			got := detectSenderFallback()
 			if got != tt.want {
