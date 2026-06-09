@@ -298,6 +298,11 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			return err
 		}
 	}
+	if slingRalph && !slingDryRun {
+		if err := requireRalphLoopPlugin(); err != nil {
+			return err
+		}
+	}
 
 	// Config-driven dispatch mode: check scheduler.max_polecats
 	deferred, deferErr := shouldDeferDispatch()
@@ -947,10 +952,6 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	if !hookSetAtomically {
 		updateAgentHookBead(targetAgent, beadID, hookWorkDir, townBeadsDir)
 	}
-	if slingRalph {
-		updateAgentMode(targetAgent, "ralph", hookWorkDir, townBeadsDir)
-	}
-
 	// Store all attachment fields in a single read-modify-write cycle.
 	// This eliminates the race condition where sequential independent updates
 	// (dispatcher, args, no_merge, attached_molecule) could overwrite each other.
@@ -958,6 +959,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	if slingRalph {
 		slingMode = "ralph"
 	}
+	updateAgentMode(targetAgent, slingMode, hookWorkDir, townBeadsDir)
 	fieldUpdates := beadFieldUpdates{
 		Dispatcher:       actor,
 		Args:             slingArgs,

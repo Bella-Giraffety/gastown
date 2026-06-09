@@ -13,19 +13,19 @@ import (
 // AttachmentFields holds the attachment info for pinned beads.
 // These fields track which molecule is attached to a handoff/pinned bead.
 type AttachmentFields struct {
-	AttachedMolecule string // Root issue ID of the attached molecule
-	AttachedFormula  string // Formula name (e.g., "mol-polecat-work") for inline step display
-	AttachedAt       string // ISO 8601 timestamp when attached
-	AttachedArgs     string // Natural language args passed via gt sling --args (no-tmux mode)
+	AttachedMolecule string   // Root issue ID of the attached molecule
+	AttachedFormula  string   // Formula name (e.g., "mol-polecat-work") for inline step display
+	AttachedAt       string   // ISO 8601 timestamp when attached
+	AttachedArgs     string   // Natural language args passed via gt sling --args (no-tmux mode)
 	AttachedVars     []string // Formula variables passed via gt sling --var
-	DispatchedBy     string // Agent ID that dispatched this work (for completion notification)
-	NoMerge          bool   // If true, gt done skips merge queue (for upstream PRs/human review)
-	ReviewOnly       bool   // If true, assignee must evaluate and report back — no merge/commit/push
-	Mode             string // Execution mode: "" (normal) or "ralph" (Ralph Wiggum loop)
-	ConvoyID         string // Convoy bead ID tracking this issue (e.g., "hq-cv-abc")
-	MergeStrategy    string // Convoy merge strategy: "direct", "mr", "local", or "" (default = mr)
-	ConvoyOwned      bool   // If true, convoy has gt:owned label (caller-managed lifecycle)
-	FormulaVars      string // Newline-separated key=value pairs for formula template substitution
+	DispatchedBy     string   // Agent ID that dispatched this work (for completion notification)
+	NoMerge          bool     // If true, gt done skips merge queue (for upstream PRs/human review)
+	ReviewOnly       bool     // If true, assignee must evaluate and report back — no merge/commit/push
+	Mode             string   // Execution mode: "" (normal) or "ralph" (Ralph Wiggum loop)
+	ConvoyID         string   // Convoy bead ID tracking this issue (e.g., "hq-cv-abc")
+	MergeStrategy    string   // Convoy merge strategy: "direct", "mr", "local", or "" (default = mr)
+	ConvoyOwned      bool     // If true, convoy has gt:owned label (caller-managed lifecycle)
+	FormulaVars      string   // Newline-separated key=value pairs for formula template substitution
 }
 
 // ParseAttachmentFields extracts attachment fields from an issue's description.
@@ -95,7 +95,7 @@ func ParseAttachmentFields(issue *Issue) *AttachmentFields {
 			fields.ConvoyOwned = strings.ToLower(value) == "true"
 			hasFields = true
 		case "formula_vars", "formula-vars", "formulavars":
-			fields.FormulaVars = value
+			fields.FormulaVars = parseFormulaVars(value)
 			hasFields = true
 		}
 	}
@@ -152,7 +152,7 @@ func FormatAttachmentFields(fields *AttachmentFields) string {
 		lines = append(lines, "convoy_owned: true")
 	}
 	if fields.FormulaVars != "" {
-		lines = append(lines, "formula_vars: "+fields.FormulaVars)
+		lines = append(lines, "formula_vars: "+formatFormulaVars(fields.FormulaVars))
 	}
 
 	return strings.Join(lines, "\n")
@@ -187,7 +187,7 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 		"nomerge":           true,
 		"review_only":       true,
 		"review-only":       true,
-		"reviewonly":         true,
+		"reviewonly":        true,
 		"mode":              true,
 		"convoy_id":         true,
 		"convoy-id":         true,
@@ -207,13 +207,19 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 	// Collect non-attachment lines from existing description
 	var otherLines []string
 	if issue != nil && issue.Description != "" {
+		skipFormulaVarContinuation := false
 		for _, line := range strings.Split(issue.Description, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" {
+				skipFormulaVarContinuation = false
 				// Preserve blank lines in content
 				otherLines = append(otherLines, line)
 				continue
 			}
+			if skipFormulaVarContinuation && strings.Index(trimmed, ":") == -1 && looksLikeFormulaVarLine(trimmed) {
+				continue
+			}
+			skipFormulaVarContinuation = false
 
 			// Check if this is an attachment field line
 			colonIdx := strings.Index(trimmed, ":")
@@ -225,6 +231,8 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 			key := strings.ToLower(strings.TrimSpace(trimmed[:colonIdx]))
 			if !attachmentKeys[key] {
 				otherLines = append(otherLines, line)
+			} else if key == "formula_vars" || key == "formula-vars" || key == "formulavars" {
+				skipFormulaVarContinuation = true
 			}
 			// Skip attachment field lines - they'll be replaced
 		}
@@ -498,6 +506,46 @@ func parseAttachedVars(raw string) []string {
 	return []string{raw}
 }
 
+func formatFormulaVars(raw string) string {
+	vars := splitFormulaVars(raw)
+	if len(vars) == 0 {
+		return ""
+	}
+	return formatAttachedVars(vars)
+}
+
+func parseFormulaVars(raw string) string {
+	return strings.Join(parseAttachedVars(raw), "\n")
+}
+
+func splitFormulaVars(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var vars []string
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			vars = append(vars, line)
+		}
+	}
+	return vars
+}
+
+func looksLikeFormulaVarLine(line string) bool {
+	key, _, ok := strings.Cut(line, "=")
+	if !ok || key == "" {
+		return false
+	}
+	for i, r := range key {
+		if r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // SetConvoyFields updates an issue's description with the given convoy fields.
 // Existing convoy field lines are replaced; other content is preserved.
 // Returns the new description string.
@@ -508,17 +556,17 @@ func SetConvoyFields(issue *Issue, fields *ConvoyFields) string {
 
 	// Known convoy field keys (lowercase)
 	convoyKeys := map[string]bool{
-		"owner":           true,
-		"notify":          true,
-		"merge":           true,
-		"molecule":        true,
-		"base_branch":     true,
-		"base-branch":     true,
-		"basebranch":      true,
-		"watchers":        true,
-		"nudge_watchers":  true,
-		"nudge-watchers":  true,
-		"nudgewatchers":   true,
+		"owner":          true,
+		"notify":         true,
+		"merge":          true,
+		"molecule":       true,
+		"base_branch":    true,
+		"base-branch":    true,
+		"basebranch":     true,
+		"watchers":       true,
+		"nudge_watchers": true,
+		"nudge-watchers": true,
+		"nudgewatchers":  true,
 	}
 
 	// Collect non-convoy lines from existing description
@@ -770,47 +818,47 @@ func SetMRFields(issue *Issue, fields *MRFields) string {
 
 	// Known MR field keys (lowercase)
 	mrKeys := map[string]bool{
-		"branch":             true,
-		"target":             true,
-		"source_issue":       true,
-		"source-issue":       true,
-		"sourceissue":        true,
-		"worker":             true,
-		"rig":                true,
-		"merge_commit":       true,
-		"merge-commit":       true,
-		"mergecommit":        true,
-		"close_reason":       true,
-		"close-reason":       true,
-		"closereason":        true,
-		"agent_bead":         true,
-		"agent-bead":         true,
-		"agentbead":          true,
-		"retry_count":        true,
-		"retry-count":        true,
-		"retrycount":         true,
-		"last_conflict_sha":  true,
-		"last-conflict-sha":  true,
-		"lastconflictsha":    true,
-		"conflict_task_id":   true,
-		"conflict-task-id":   true,
-		"conflicttaskid":     true,
-		"convoy_id":          true,
-		"convoy-id":          true,
-		"convoyid":           true,
-		"convoy":             true,
-		"convoy_created_at":  true,
-		"convoy-created-at":  true,
-		"convoycreatedat":    true,
-		"pre_verified":       true,
-		"pre-verified":       true,
-		"preverified":        true,
-		"pre_verified_at":    true,
-		"pre-verified-at":    true,
-		"preverifiedat":      true,
-		"pre_verified_base":  true,
-		"pre-verified-base":  true,
-		"preverifiedbase":    true,
+		"branch":            true,
+		"target":            true,
+		"source_issue":      true,
+		"source-issue":      true,
+		"sourceissue":       true,
+		"worker":            true,
+		"rig":               true,
+		"merge_commit":      true,
+		"merge-commit":      true,
+		"mergecommit":       true,
+		"close_reason":      true,
+		"close-reason":      true,
+		"closereason":       true,
+		"agent_bead":        true,
+		"agent-bead":        true,
+		"agentbead":         true,
+		"retry_count":       true,
+		"retry-count":       true,
+		"retrycount":        true,
+		"last_conflict_sha": true,
+		"last-conflict-sha": true,
+		"lastconflictsha":   true,
+		"conflict_task_id":  true,
+		"conflict-task-id":  true,
+		"conflicttaskid":    true,
+		"convoy_id":         true,
+		"convoy-id":         true,
+		"convoyid":          true,
+		"convoy":            true,
+		"convoy_created_at": true,
+		"convoy-created-at": true,
+		"convoycreatedat":   true,
+		"pre_verified":      true,
+		"pre-verified":      true,
+		"preverified":       true,
+		"pre_verified_at":   true,
+		"pre-verified-at":   true,
+		"preverifiedat":     true,
+		"pre_verified_base": true,
+		"pre-verified-base": true,
+		"preverifiedbase":   true,
 	}
 
 	// Collect non-MR lines from existing description

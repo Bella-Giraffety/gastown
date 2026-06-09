@@ -790,6 +790,7 @@ exit /b 0
 	slingDryRun = false
 	slingNoBoot = true
 	slingRalph = true
+	installRalphLoopPluginForTest(t)
 
 	if err := runSlingFormula(context.Background(), []string{"mol-anything"}); err != nil {
 		t.Fatalf("runSlingFormula: %v", err)
@@ -1512,6 +1513,7 @@ exit /b 0
 	slingNoConvoy = true
 	slingNoMerge = true // This is what we're testing
 	slingRalph = true
+	installRalphLoopPluginForTest(t)
 
 	if err := runSling(nil, []string{"gt-test123"}); err != nil {
 		t.Fatalf("runSling: %v", err)

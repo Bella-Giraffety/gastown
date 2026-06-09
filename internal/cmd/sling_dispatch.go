@@ -111,6 +111,12 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	result := &SlingResult{
 		BeadID: params.BeadID,
 	}
+	if params.Mode == "ralph" {
+		if err := requireRalphLoopPlugin(); err != nil {
+			result.ErrMsg = err.Error()
+			return result, err
+		}
+	}
 
 	// 0. Check if rig is parked or docked before dispatching (gt-4owfd.1, gt-11y)
 	if params.RigName != "" {
@@ -364,10 +370,8 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		fmt.Printf("  %s Could not store fields in bead: %v\n", style.Dim.Render("Warning:"), err)
 	}
 
-	// Update agent bead mode (for stuck detector to identify ralphcats)
-	if params.Mode != "" {
-		updateAgentMode(targetAgent, params.Mode, hookWorkDir, beadsDir)
-	}
+	// Update agent bead mode (for stuck detector to identify ralphcats) or clear stale mode.
+	updateAgentMode(targetAgent, params.Mode, hookWorkDir, beadsDir)
 
 	// 11. Start polecat session
 	pane, err := spawnInfo.StartSession()

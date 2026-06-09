@@ -1004,7 +1004,7 @@ func TestOutputRalphLoopDirective_WithFormula(t *testing.T) {
 	attachment := &beads.AttachmentFields{
 		Mode:            "ralph",
 		AttachedFormula: "mol-polecat-work",
-		FormulaVars:     "base_branch=main",
+		FormulaVars:     "base_branch=origin/main",
 	}
 	var err error
 	output := captureStdout(t, func() {
@@ -1019,6 +1019,9 @@ func TestOutputRalphLoopDirective_WithFormula(t *testing.T) {
 	}
 	if !strings.Contains(output, "Formula Checklist") {
 		t.Fatalf("expected formula checklist in command prompt, got:\n%s", output)
+	}
+	if !strings.Contains(output, "origin/main") || strings.Contains(output, "{{base_branch}}") {
+		t.Fatalf("expected substituted formula vars in command prompt, got:\n%s", output)
 	}
 }
 
@@ -1050,6 +1053,13 @@ func TestRalphLoopPluginInstalledIn(t *testing.T) {
 		t.Fatal("must not match similarly prefixed plugin names")
 	}
 
+	if err := os.WriteFile(manifest, []byte(`{"plugins":{"ralph-loop@evil":{}}}`), 0644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if ralphLoopPluginInstalledIn(manifest) {
+		t.Fatal("must not match unofficial ralph-loop plugin keys")
+	}
+
 	if err := os.WriteFile(manifest, []byte(`not json`), 0644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -1059,6 +1069,15 @@ func TestRalphLoopPluginInstalledIn(t *testing.T) {
 }
 
 func TestIsRalphLoopPluginInstalledUsesClaudeConfigDir(t *testing.T) {
+	installRalphLoopPluginForTest(t)
+
+	if !isRalphLoopPluginInstalled() {
+		t.Fatal("expected plugin detection to honor CLAUDE_CONFIG_DIR")
+	}
+}
+
+func installRalphLoopPluginForTest(t *testing.T) string {
+	t.Helper()
 	configDir := t.TempDir()
 	pluginsDir := filepath.Join(configDir, "plugins")
 	if err := os.MkdirAll(pluginsDir, 0755); err != nil {
@@ -1069,10 +1088,7 @@ func TestIsRalphLoopPluginInstalledUsesClaudeConfigDir(t *testing.T) {
 		t.Fatalf("write manifest: %v", err)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
-
-	if !isRalphLoopPluginInstalled() {
-		t.Fatal("expected plugin detection to honor CLAUDE_CONFIG_DIR")
-	}
+	return configDir
 }
 
 func TestQuoteForRalphLoop(t *testing.T) {

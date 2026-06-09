@@ -84,6 +84,11 @@ func runSlingFormula(ctx context.Context, args []string) error {
 		return fmt.Errorf("finding town root: %w", err)
 	}
 	townBeadsDir := filepath.Join(townRoot, ".beads")
+	if slingRalph && !slingDryRun {
+		if err := requireRalphLoopPlugin(); err != nil {
+			return err
+		}
+	}
 
 	// Resolve target using shared dispatch logic
 	var target string
@@ -199,9 +204,6 @@ func runSlingFormula(ctx context.Context, args []string) error {
 	// Update agent bead's hook_bead field (ZFC: agents track their current work)
 	// Note: formula slinging uses town root as workDir (no polecat-specific path)
 	updateAgentHookBead(targetAgent, wispRootID, "", townBeadsDir)
-	if slingRalph {
-		updateAgentMode(targetAgent, "ralph", "", townBeadsDir)
-	}
 
 	// Store all attachment fields in a single read-modify-write cycle.
 	// NOTE: For standalone formula sling, the wisp IS the work - do NOT store
@@ -212,6 +214,7 @@ func runSlingFormula(ctx context.Context, args []string) error {
 	if slingRalph {
 		slingMode = "ralph"
 	}
+	updateAgentMode(targetAgent, slingMode, "", townBeadsDir)
 	fieldUpdates := beadFieldUpdates{
 		Dispatcher:      actor,
 		Args:            slingArgs,

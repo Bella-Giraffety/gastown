@@ -81,6 +81,64 @@ func TestSetAttachmentFieldsPreservesMode(t *testing.T) {
 	}
 }
 
+func TestAttachmentFieldsFormulaVarsRoundTrip(t *testing.T) {
+	original := &AttachmentFields{
+		AttachedFormula: "mol-polecat-work",
+		FormulaVars:     "feature=Bug to fix\nissue=gt-abc123\nbase_branch=release/test",
+	}
+
+	formatted := FormatAttachmentFields(original)
+	if strings.Count(formatted, "formula_vars:") != 1 {
+		t.Fatalf("formula_vars should be one metadata line, got:\n%s", formatted)
+	}
+	if strings.Contains(formatted, "\nissue=gt-abc123") {
+		t.Fatalf("formula_vars continuation leaked as a raw line:\n%s", formatted)
+	}
+
+	parsed := ParseAttachmentFields(&Issue{Description: formatted})
+	if parsed == nil {
+		t.Fatal("round-trip parse returned nil")
+	}
+	if parsed.FormulaVars != original.FormulaVars {
+		t.Fatalf("FormulaVars = %q, want %q", parsed.FormulaVars, original.FormulaVars)
+	}
+	if extractFormulaVarForTest(parsed.FormulaVars, "base_branch") != "release/test" {
+		t.Fatalf("base_branch did not survive round trip: %q", parsed.FormulaVars)
+	}
+}
+
+func TestParseAttachmentFieldsLegacyFormulaVars(t *testing.T) {
+	parsed := ParseAttachmentFields(&Issue{Description: "formula_vars: base_branch=main"})
+	if parsed == nil {
+		t.Fatal("parse returned nil")
+	}
+	if parsed.FormulaVars != "base_branch=main" {
+		t.Fatalf("FormulaVars = %q, want legacy scalar", parsed.FormulaVars)
+	}
+}
+
+func TestSetAttachmentFieldsDropsLegacyFormulaVarsContinuation(t *testing.T) {
+	issue := &Issue{Description: "formula_vars: feature=Old\nissue=gt-old\nbase_branch=old\n\nBody line"}
+	fields := &AttachmentFields{FormulaVars: "feature=New\nissue=gt-new"}
+
+	newDesc := SetAttachmentFields(issue, fields)
+	if strings.Contains(newDesc, "issue=gt-old") || strings.Contains(newDesc, "base_branch=old") {
+		t.Fatalf("legacy formula_vars continuation was preserved:\n%s", newDesc)
+	}
+	if !strings.Contains(newDesc, "Body line") {
+		t.Fatalf("non-attachment body was lost:\n%s", newDesc)
+	}
+}
+
+func extractFormulaVarForTest(formulaVars, key string) string {
+	for _, line := range strings.Split(formulaVars, "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && k == key {
+			return v
+		}
+	}
+	return ""
+}
+
 // --- AgentFields Mode round-trip ---
 
 func TestAgentFieldsModeRoundTrip(t *testing.T) {

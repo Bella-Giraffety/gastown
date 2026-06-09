@@ -928,7 +928,7 @@ func outputRalphLoopDirective(ctx RoleContext, attachment *beads.AttachmentField
 
 func outputRalphLoopDirectiveWithPluginCheck(ctx RoleContext, attachment *beads.AttachmentFields, pluginInstalled bool) error {
 	if !pluginInstalled {
-		return fmt.Errorf("--ralph requires the ralph-loop plugin. Install it in Claude Code with: /plugin install ralph-loop@claude-plugins-official")
+		return missingRalphLoopPluginError()
 	}
 
 	prompt := renderRalphLoopPrompt(ctx, attachment)
@@ -995,6 +995,17 @@ func isRalphLoopPluginInstalled() bool {
 	return ralphLoopPluginInstalledIn(filepath.Join(configDir, "plugins", "installed_plugins.json"))
 }
 
+func requireRalphLoopPlugin() error {
+	if isRalphLoopPluginInstalled() {
+		return nil
+	}
+	return missingRalphLoopPluginError()
+}
+
+func missingRalphLoopPluginError() error {
+	return fmt.Errorf("--ralph requires the ralph-loop plugin. Install it in Claude Code with: /plugin install ralph-loop@claude-plugins-official")
+}
+
 func ralphLoopPluginInstalledIn(manifestPath string) bool {
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -1007,7 +1018,7 @@ func ralphLoopPluginInstalledIn(manifestPath string) bool {
 		return false
 	}
 	for key := range manifest.Plugins {
-		if key == "ralph-loop" || strings.HasPrefix(key, "ralph-loop@") {
+		if key == "ralph-loop" || key == "ralph-loop@claude-plugins-official" {
 			return true
 		}
 	}

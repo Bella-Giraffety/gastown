@@ -349,9 +349,7 @@ func storeFieldsInBead(beadID string, updates beadFieldUpdates) error {
 	if updates.ConvoyOwned {
 		fields.ConvoyOwned = true
 	}
-	if updates.FormulaVars != "" {
-		fields.FormulaVars = updates.FormulaVars
-	}
+	fields.FormulaVars = updates.FormulaVars
 
 	// Write back once
 	newDesc := beads.SetAttachmentFields(issue, fields)
