@@ -99,6 +99,7 @@ const (
 	convoyStatusClosed         = "closed"
 	convoyStatusStagedReady    = "staged_ready"
 	convoyStatusStagedWarnings = "staged_warnings"
+	trackedStatusUnknown       = "unknown"
 )
 
 func normalizeConvoyStatus(status string) string {
@@ -893,15 +894,29 @@ func closeConvoyIfComplete(townBeads, convoyID, title string, tracked []trackedI
 
 	allClosed := true
 	openCount := 0
+	unknownCount := 0
 	for _, t := range tracked {
-		if t.Status != "closed" && t.Status != "tombstone" {
+		switch t.Status {
+		case "closed", "tombstone":
+			// counted as complete
+		case trackedStatusUnknown:
+			allClosed = false
+			unknownCount++
+		default:
 			allClosed = false
 			openCount++
 		}
 	}
 
 	if !allClosed {
-		fmt.Printf("%s Convoy %s has %d open issue(s) remaining\n", style.Dim.Render("○"), convoyID, openCount)
+		switch {
+		case unknownCount > 0 && openCount > 0:
+			fmt.Printf("%s Convoy %s has %d open, %d unknown issue(s) remaining\n", style.Dim.Render("○"), convoyID, openCount, unknownCount)
+		case unknownCount > 0:
+			fmt.Printf("%s Convoy %s has %d unknown issue(s) remaining\n", style.Dim.Render("○"), convoyID, unknownCount)
+		default:
+			fmt.Printf("%s Convoy %s has %d open issue(s) remaining\n", style.Dim.Render("○"), convoyID, openCount)
+		}
 		return false, nil
 	}
 
@@ -1573,8 +1588,8 @@ func findStrandedConvoys(townBeads string) ([]strandedConvoyInfo, error) {
 // - AND not blocked (cross-rig-aware from issue details)
 // scheduledSet is a pre-computed set of bead IDs with open sling contexts (from areScheduled).
 func isReadyIssue(t trackedIssueInfo, scheduledSet map[string]bool) bool {
-	// Closed issues are never ready
-	if t.Status == "closed" || t.Status == "tombstone" {
+	// Closed or unresolved issues are never ready.
+	if t.Status == "closed" || t.Status == "tombstone" || t.Status == trackedStatusUnknown || t.Status == "" {
 		return false
 	}
 
@@ -1866,6 +1881,8 @@ func runConvoyStatus(cmd *cobra.Command, args []string) error {
 				status = "✓"
 			case "in_progress", "hooked":
 				status = "▶"
+			case trackedStatusUnknown:
+				status = "?"
 			}
 
 			// Show assignee in brackets (extract short name from path like gastown/polecats/goose -> goose)
@@ -2170,7 +2187,10 @@ type trackedDependency struct {
 }
 
 func applyFreshIssueDetails(dep *trackedDependency, details *issueDetails) {
-	dep.Status = details.Status
+	dep.Status = strings.TrimSpace(details.Status)
+	if dep.Status == "" {
+		dep.Status = trackedStatusUnknown
+	}
 	dep.Blocked = details.IsBlocked()
 	if dep.Title == "" {
 		dep.Title = details.Title
@@ -2236,6 +2256,8 @@ func getTrackedIssues(townBeads, convoyID string) ([]trackedIssueInfo, error) {
 		}
 		if details, ok := freshDetails[id]; ok {
 			applyFreshIssueDetails(&dep, details)
+		} else {
+			dep.Status = trackedStatusUnknown
 		}
 		deps = append(deps, dep)
 	}

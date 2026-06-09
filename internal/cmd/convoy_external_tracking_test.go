@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -170,5 +171,99 @@ esac
 	}
 	if result["gm-abc"].Status != "closed" {
 		t.Fatalf("expected status closed, got %q", result["gm-abc"].Status)
+	}
+}
+
+func TestGetTrackedIssues_UnknownStatusForUnresolvedDetails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	townRoot, townBeads, _ := makeExternalTrackingTownWorkspace(t)
+	chdirExternalTrackingTest(t, townRoot)
+
+	scriptBody := `
+case "$*" in
+  "--allow-stale version")
+    exit 0
+    ;;
+  *sql*dependencies*)
+    echo '[{"depends_on_id":"ws-missing"},{"depends_on_id":"hq-blank"}]'
+    ;;
+  "--allow-stale show ws-missing --json"|"show ws-missing --json")
+    echo "no issue found matching ws-missing" >&2
+    exit 1
+    ;;
+  "--allow-stale show hq-blank --json"|"show hq-blank --json")
+    echo '[{"id":"hq-blank","title":"Blank status","status":"","issue_type":"task"}]'
+    ;;
+  *)
+    echo "unexpected bd args: $*" >&2
+    exit 1
+    ;;
+esac
+`
+	writeExternalTrackingBdStub(t, scriptBody)
+
+	tracked, err := getTrackedIssues(townBeads, "hq-cv-unresolved")
+	if err != nil {
+		t.Fatalf("getTrackedIssues: %v", err)
+	}
+	if len(tracked) != 2 {
+		t.Fatalf("expected 2 tracked issues, got %d: %#v", len(tracked), tracked)
+	}
+
+	statusByID := map[string]string{}
+	for _, item := range tracked {
+		statusByID[item.ID] = item.Status
+	}
+	if statusByID["ws-missing"] != trackedStatusUnknown {
+		t.Fatalf("ws-missing status = %q, want %q", statusByID["ws-missing"], trackedStatusUnknown)
+	}
+	if statusByID["hq-blank"] != trackedStatusUnknown {
+		t.Fatalf("hq-blank status = %q, want %q", statusByID["hq-blank"], trackedStatusUnknown)
+	}
+}
+
+func TestUnknownTrackedIssueIsNotReady(t *testing.T) {
+	cases := []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "unknown", status: trackedStatusUnknown, want: false},
+		{name: "blank", status: "", want: false},
+		{name: "open unassigned", status: "open", want: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isReadyIssue(trackedIssueInfo{ID: "ws-issue", Status: tc.status}, nil)
+			if got != tc.want {
+				t.Fatalf("isReadyIssue status %q = %v, want %v", tc.status, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCloseConvoyIfCompleteReportsUnknownTrackedIssues(t *testing.T) {
+	townBeads := t.TempDir()
+	tracked := []trackedIssueInfo{
+		{ID: "ws-missing", Status: trackedStatusUnknown},
+		{ID: "hq-done", Status: "closed"},
+	}
+
+	out, err := captureConvoyStdoutErr(t, func() error {
+		ready, err := closeConvoyIfComplete(townBeads, "hq-cv-unresolved", "Unresolved", tracked, false)
+		if ready {
+			t.Fatalf("closeConvoyIfComplete reported ready with unknown tracked status")
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatalf("closeConvoyIfComplete: %v", err)
+	}
+	if !strings.Contains(out, "unknown") {
+		t.Fatalf("diagnostic missing unknown status: %q", out)
 	}
 }
