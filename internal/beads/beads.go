@@ -486,7 +486,9 @@ func (b *Beads) forIssueID(id string) *Beads {
 	if isRoutableAgentBeadID(townRoot, id) {
 		// Agent-shaped work bead IDs still belong to their prefix route; only
 		// override to town when the town record exists and is an agent bead.
-		if target := b.agentBeadTargetIfExists(id); target != nil {
+		// On lookup errors other than not-found, fail closed against town so a
+		// transient town DB error cannot mutate an agent-shaped rig work bead.
+		if target, ok, err := b.agentBeadTargetStatus(id); ok || (err != nil && !errors.Is(err, ErrNotFound)) {
 			return target
 		}
 	}
@@ -503,16 +505,16 @@ func (b *Beads) forIssueID(id string) *Beads {
 	}
 }
 
-func (b *Beads) agentBeadTargetIfExists(id string) *Beads {
+func (b *Beads) agentBeadTargetStatus(id string) (*Beads, bool, error) {
 	target := b.ForAgentBead()
 	if target == b {
-		return nil
+		return nil, false, nil
 	}
 	issue, err := target.Show(id)
-	if err != nil || !IsAgentBead(issue) {
-		return nil
+	if err != nil {
+		return target, false, err
 	}
-	return target
+	return target, IsAgentBead(issue), nil
 }
 
 // Init initializes a new beads database in the working directory.

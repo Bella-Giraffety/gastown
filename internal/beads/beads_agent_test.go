@@ -385,6 +385,7 @@ case "$cmd" in
       printf '%s\n' "$MOCK_BD_SHOW_OUTPUT"
       exit 0
     fi
+    echo 'not found' >&2
     exit 1
     ;;
   slot|config|migrate|init|update)
