@@ -121,6 +121,13 @@ func TestManager_CheckStartAllowed_BlocksForkRigUnlessAllowed(t *testing.T) {
 	if !errors.Is(err, ErrForkRig) {
 		t.Fatalf("CheckStartAllowed() error = %v, want ErrForkRig", err)
 	}
+	cfg, loadErr := rig.LoadRigConfig(rigPath)
+	if loadErr != nil {
+		t.Fatalf("LoadRigConfig after fork guard: %v", loadErr)
+	}
+	if cfg.RefineryDisabled {
+		t.Fatal("fork guard persisted RefineryDisabled; fork policy must remain derived from upstream_url")
+	}
 	var forkErr *ForkRigError
 	if !errors.As(err, &forkErr) {
 		t.Fatalf("CheckStartAllowed() error = %T, want *ForkRigError", err)
