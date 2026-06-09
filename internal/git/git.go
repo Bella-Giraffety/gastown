@@ -515,6 +515,14 @@ func (g *Git) FetchBranch(remote, branch string) error {
 	return err
 }
 
+// FetchPushRemoteRef fetches a push-target ref into FETCH_HEAD and returns its SHA.
+func (g *Git) FetchPushRemoteRef(remote, ref string) (string, error) {
+	if _, err := g.run("fetch", "--no-tags", g.pushRemoteTarget(remote), ref); err != nil {
+		return "", err
+	}
+	return g.Rev("FETCH_HEAD")
+}
+
 // FetchBranchShallow fetches a single branch with --depth 1 and creates the
 // remote tracking ref (e.g. origin/<branch>). Use this on shallow single-branch
 // clones to add a branch that wasn't included in the initial clone.
@@ -1148,10 +1156,15 @@ func (g *Git) BitbucketPRMerge(workspace, repoSlug string, prID int, strategy st
 	return sha, nil
 }
 
-// ListRemoteRefs returns remote ref names matching a prefix using ls-remote.
+// RemoteRef is a ref observed through ls-remote.
+type RemoteRef struct {
+	Hash string
+	Name string
+}
+
+// ListRemoteRefsWithHashes returns remote refs matching a prefix using ls-remote.
 // The prefix filters refs (e.g., "refs/heads/polecat/" for all polecat branches).
-// Returns full ref names like "refs/heads/polecat/furiosa-abc123".
-func (g *Git) ListRemoteRefs(remote, prefix string) ([]string, error) {
+func (g *Git) ListRemoteRefsWithHashes(remote, prefix string) ([]RemoteRef, error) {
 	out, err := g.run("ls-remote", "--refs", remote, prefix+"*")
 	if err != nil {
 		return nil, err
@@ -1159,7 +1172,7 @@ func (g *Git) ListRemoteRefs(remote, prefix string) ([]string, error) {
 	if out == "" {
 		return nil, nil
 	}
-	var refs []string
+	var refs []RemoteRef
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -1168,8 +1181,22 @@ func (g *Git) ListRemoteRefs(remote, prefix string) ([]string, error) {
 		// ls-remote output format: <sha>\t<refname>
 		parts := strings.Fields(line)
 		if len(parts) >= 2 {
-			refs = append(refs, parts[1])
+			refs = append(refs, RemoteRef{Hash: parts[0], Name: parts[1]})
 		}
+	}
+	return refs, nil
+}
+
+// ListRemoteRefs returns remote ref names matching a prefix using ls-remote.
+// Returns full ref names like "refs/heads/polecat/furiosa-abc123".
+func (g *Git) ListRemoteRefs(remote, prefix string) ([]string, error) {
+	refsWithHashes, err := g.ListRemoteRefsWithHashes(remote, prefix)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]string, 0, len(refsWithHashes))
+	for _, ref := range refsWithHashes {
+		refs = append(refs, ref.Name)
 	}
 	return refs, nil
 }
@@ -1180,13 +1207,29 @@ func (g *Git) ListRemoteRefs(remote, prefix string) ([]string, error) {
 // method queries the push URL so cleanup can find branches that were pushed.
 // Falls back to ListRemoteRefs if no custom push URL is configured.
 func (g *Git) ListPushRemoteRefs(remote, prefix string) ([]string, error) {
+	refsWithHashes, err := g.ListPushRemoteRefsWithHashes(remote, prefix)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]string, 0, len(refsWithHashes))
+	for _, ref := range refsWithHashes {
+		refs = append(refs, ref.Name)
+	}
+	return refs, nil
+}
+
+// ListPushRemoteRefsWithHashes is ListPushRemoteRefs with commit hashes.
+func (g *Git) ListPushRemoteRefsWithHashes(remote, prefix string) ([]RemoteRef, error) {
+	return g.ListRemoteRefsWithHashes(g.pushRemoteTarget(remote), prefix)
+}
+
+func (g *Git) pushRemoteTarget(remote string) string {
 	fetchURL, fetchErr := g.RemoteURL(remote)
 	pushURL, pushErr := g.GetPushURL(remote)
-	if fetchErr != nil || pushErr != nil || pushURL == fetchURL {
-		return g.ListRemoteRefs(remote, prefix)
+	if fetchErr == nil && pushErr == nil && pushURL != fetchURL {
+		return pushURL
 	}
-	// Query the push URL directly
-	return g.ListRemoteRefs(pushURL, prefix)
+	return remote
 }
 
 // Rebase rebases the current branch onto the given ref.
@@ -1469,6 +1512,65 @@ func (g *Git) IsAncestor(ancestor, descendant string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// Cherry runs `git cherry <upstream> <head>` to compare commits by patch-id.
+func (g *Git) Cherry(upstream, head string) (string, error) {
+	return g.run("cherry", upstream, head)
+}
+
+// CountCherryUnmergedCommits counts `git cherry` lines whose patches are not on upstream.
+func CountCherryUnmergedCommits(out string) int {
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "+") {
+			count++
+		}
+	}
+	return count
+}
+
+// ChangesAlreadyOnBase reports whether head would add no new content to base.
+// It covers ancestry, rebase/cherry-pick patch equivalence, and aggregate squash merges.
+func (g *Git) ChangesAlreadyOnBase(base, head string) (bool, error) {
+	merged, err := g.IsAncestor(head, base)
+	if err != nil {
+		return false, err
+	}
+	if merged {
+		return true, nil
+	}
+
+	cherryOut, err := g.Cherry(base, head)
+	if err != nil {
+		return false, err
+	}
+	if CountCherryUnmergedCommits(cherryOut) == 0 {
+		return true, nil
+	}
+
+	noOp, err := g.mergeWouldNotChangeBase(base, head)
+	if err != nil {
+		return false, nil
+	}
+	return noOp, nil
+}
+
+func (g *Git) mergeWouldNotChangeBase(base, head string) (bool, error) {
+	mergedTreeOut, err := g.run("merge-tree", "--write-tree", base, head)
+	if err != nil {
+		return false, err
+	}
+	mergedTreeFields := strings.Fields(mergedTreeOut)
+	if len(mergedTreeFields) == 0 {
+		return false, fmt.Errorf("merge-tree produced no tree")
+	}
+
+	baseTree, err := g.run("rev-parse", base+"^{tree}")
+	if err != nil {
+		return false, err
+	}
+	return mergedTreeFields[0] == strings.TrimSpace(baseTree), nil
 }
 
 // WorktreeAdd creates a new worktree at the given path with a new branch.

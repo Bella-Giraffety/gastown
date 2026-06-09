@@ -1065,6 +1065,167 @@ func TestFetchPrune(t *testing.T) {
 	}
 }
 
+func TestChangesAlreadyOnBase_MultiCommitSquashMergedBranch(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "polecat/squash-merged"
+
+	runGit(t, localDir, "checkout", "-b", branch)
+	commitTestFile(t, localDir, "squash-a.txt", "a", "squash work a")
+	commitTestFile(t, localDir, "squash-b.txt", "b", "squash work b")
+	branchSHA, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev branch: %v", err)
+	}
+	runGit(t, localDir, "push", "origin", branch)
+
+	runGit(t, localDir, "checkout", mainBranch)
+	runGit(t, localDir, "merge", "--squash", branch)
+	runGit(t, localDir, "commit", "-m", "squash merge polecat/squash-merged")
+	runGit(t, localDir, "push", "origin", mainBranch)
+
+	isAncestor, err := g.IsAncestor(branchSHA, "origin/"+mainBranch)
+	if err != nil {
+		t.Fatalf("IsAncestor: %v", err)
+	}
+	if isAncestor {
+		t.Fatal("test setup broken: squash-merged branch unexpectedly became an ancestor")
+	}
+
+	merged, err := g.ChangesAlreadyOnBase("origin/"+mainBranch, branchSHA)
+	if err != nil {
+		t.Fatalf("ChangesAlreadyOnBase: %v", err)
+	}
+	if !merged {
+		t.Fatal("ChangesAlreadyOnBase = false, want true for multi-commit squash merge")
+	}
+}
+
+func TestChangesAlreadyOnBase_CherryPickedBranch(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "polecat/cherry-picked"
+
+	runGit(t, localDir, "checkout", "-b", branch)
+	commitTestFile(t, localDir, "picked.txt", "picked", "picked work")
+	branchSHA, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev branch: %v", err)
+	}
+	runGit(t, localDir, "push", "origin", branch)
+
+	runGit(t, localDir, "checkout", mainBranch)
+	commitTestFile(t, localDir, "main-only.txt", "main", "main-only work")
+	runGit(t, localDir, "cherry-pick", branchSHA)
+	runGit(t, localDir, "push", "origin", mainBranch)
+
+	isAncestor, err := g.IsAncestor(branchSHA, "origin/"+mainBranch)
+	if err != nil {
+		t.Fatalf("IsAncestor: %v", err)
+	}
+	if isAncestor {
+		t.Fatal("test setup broken: cherry-picked branch unexpectedly became an ancestor")
+	}
+
+	merged, err := g.ChangesAlreadyOnBase("origin/"+mainBranch, branchSHA)
+	if err != nil {
+		t.Fatalf("ChangesAlreadyOnBase: %v", err)
+	}
+	if !merged {
+		t.Fatal("ChangesAlreadyOnBase = false, want true for cherry-picked branch")
+	}
+}
+
+func TestChangesAlreadyOnBase_UnmergedBranch(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "polecat/unmerged-patches"
+
+	runGit(t, localDir, "checkout", "-b", branch)
+	commitTestFile(t, localDir, "unique.txt", "unique", "unique work")
+	branchSHA, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev branch: %v", err)
+	}
+
+	runGit(t, localDir, "checkout", mainBranch)
+	merged, err := g.ChangesAlreadyOnBase("origin/"+mainBranch, branchSHA)
+	if err != nil {
+		t.Fatalf("ChangesAlreadyOnBase: %v", err)
+	}
+	if merged {
+		t.Fatal("ChangesAlreadyOnBase = true, want false for unmerged branch")
+	}
+}
+
+func TestListAndFetchPushRemoteRefsWithHashes_SplitURL(t *testing.T) {
+	localDir, _, _, mainBranch := initTestRepoWithSplitRemote(t)
+	g := NewGit(localDir)
+	branch := "polecat/push-only"
+	refName := "refs/heads/" + branch
+
+	runGit(t, localDir, "checkout", "-b", branch)
+	commitTestFile(t, localDir, "push-only.txt", "push-only", "push-only work")
+	branchSHA, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev branch: %v", err)
+	}
+	if err := g.Push("origin", branch, false); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	runGit(t, localDir, "checkout", mainBranch)
+
+	fetchRemoteHasBranch, err := g.RemoteBranchExists("origin", branch)
+	if err != nil {
+		t.Fatalf("RemoteBranchExists: %v", err)
+	}
+	if fetchRemoteHasBranch {
+		t.Fatal("fetch remote should not have push-only branch")
+	}
+
+	refs, err := g.ListPushRemoteRefsWithHashes("origin", "refs/heads/polecat/")
+	if err != nil {
+		t.Fatalf("ListPushRemoteRefsWithHashes: %v", err)
+	}
+	var found RemoteRef
+	for _, ref := range refs {
+		if ref.Name == refName {
+			found = ref
+			break
+		}
+	}
+	if found.Name == "" {
+		t.Fatalf("did not find %s in push remote refs: %#v", refName, refs)
+	}
+	if found.Hash != branchSHA {
+		t.Fatalf("push remote hash = %s, want %s", found.Hash, branchSHA)
+	}
+
+	fetchedSHA, err := g.FetchPushRemoteRef("origin", refName)
+	if err != nil {
+		t.Fatalf("FetchPushRemoteRef: %v", err)
+	}
+	if fetchedSHA != branchSHA {
+		t.Fatalf("fetched SHA = %s, want %s", fetchedSHA, branchSHA)
+	}
+	out, err := g.Cherry("origin/"+mainBranch, fetchedSHA)
+	if err != nil {
+		t.Fatalf("Cherry: %v", err)
+	}
+	if got := CountCherryUnmergedCommits(out); got != 1 {
+		t.Fatalf("CountCherryUnmergedCommits = %d, want 1", got)
+	}
+}
+
+func commitTestFile(t *testing.T, dir, name, contents, message string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(contents), 0644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+	runGit(t, dir, "add", name)
+	runGit(t, dir, "commit", "-m", message)
+}
+
 // initTestRepoWithSubmodule creates a parent repo with a submodule for testing.
 // Returns parentDir, submoduleRemoteDir (bare).
 func initTestRepoWithSubmodule(t *testing.T) (string, string) {
