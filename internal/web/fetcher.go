@@ -176,6 +176,7 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 			workerCfg = ts.WorkerStatus
 		}
 	}
+	staleThreshold, stuckThreshold, heartbeatFreshThreshold, mayorActiveThreshold := resolveWorkerStatusThresholds(workerCfg)
 
 	// Build a local prefix registry from the town's rigs.json so session
 	// name parsing works regardless of whether the package-level
@@ -193,11 +194,28 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 		cmdTimeout:              config.ParseDurationOrDefault(webCfg.CmdTimeout, 15*time.Second),
 		ghCmdTimeout:            config.ParseDurationOrDefault(webCfg.GhCmdTimeout, 10*time.Second),
 		tmuxCmdTimeout:          config.ParseDurationOrDefault(webCfg.TmuxCmdTimeout, 2*time.Second),
-		staleThreshold:          config.ParseDurationOrDefault(workerCfg.StaleThreshold, 5*time.Minute),
-		stuckThreshold:          config.ParseDurationOrDefault(workerCfg.StuckThreshold, constants.GUPPViolationTimeout),
-		heartbeatFreshThreshold: config.ParseDurationOrDefault(workerCfg.HeartbeatFreshThreshold, 5*time.Minute),
-		mayorActiveThreshold:    config.ParseDurationOrDefault(workerCfg.MayorActiveThreshold, 5*time.Minute),
+		staleThreshold:          staleThreshold,
+		stuckThreshold:          stuckThreshold,
+		heartbeatFreshThreshold: heartbeatFreshThreshold,
+		mayorActiveThreshold:    mayorActiveThreshold,
 	}, nil
+}
+
+func resolveWorkerStatusThresholds(workerCfg *config.WorkerStatusConfig) (stale, stuck, heartbeatFresh, mayorActive time.Duration) {
+	defaults := config.DefaultWorkerStatusConfig()
+	if workerCfg == nil {
+		workerCfg = defaults
+	}
+
+	defaultStale := config.ParseDurationOrDefault(defaults.StaleThreshold, 0)
+	defaultStuck := config.ParseDurationOrDefault(defaults.StuckThreshold, constants.GUPPViolationTimeout)
+	defaultHeartbeatFresh := config.ParseDurationOrDefault(defaults.HeartbeatFreshThreshold, 0)
+	defaultMayorActive := config.ParseDurationOrDefault(defaults.MayorActiveThreshold, 0)
+
+	return config.ParseDurationOrDefault(workerCfg.StaleThreshold, defaultStale),
+		config.ParseDurationOrDefault(workerCfg.StuckThreshold, defaultStuck),
+		config.ParseDurationOrDefault(workerCfg.HeartbeatFreshThreshold, defaultHeartbeatFresh),
+		config.ParseDurationOrDefault(workerCfg.MayorActiveThreshold, defaultMayorActive)
 }
 
 // FetchConvoys fetches all open convoys with their activity data.
@@ -900,19 +918,20 @@ func (f *LiveConvoyFetcher) FetchWorkers() ([]WorkerRow, error) {
 
 // assignedIssue holds issue info for the assigned issues map.
 type assignedIssue struct {
-	ID    string
-	Title string
+	ID     string
+	Title  string
+	Status string
 }
 
 // getAssignedIssuesMap returns a map of assignee -> assigned issue.
-// Queries beads for all in_progress issues with assignees.
+// Queries beads for assigned issues with assignees.
 func (f *LiveConvoyFetcher) getAssignedIssuesMap() map[string]assignedIssue {
 	result := make(map[string]assignedIssue)
 
-	// Query all in_progress issues (these are the ones being worked on)
-	stdout, err := f.runBdCmd(f.townRoot, "list", "--status=in_progress", "--json")
+	statusFilter := fmt.Sprintf("%s,%s", beads.StatusInProgress, beads.IssueStatusHooked)
+	stdout, err := f.runBdCmd(f.townRoot, "list", "--status="+statusFilter, "--json", "--limit=0")
 	if err != nil {
-		log.Printf("warning: bd list in_progress failed: %v", err)
+		log.Printf("warning: bd list assigned issues failed: %v", err)
 		return result
 	}
 
@@ -920,6 +939,7 @@ func (f *LiveConvoyFetcher) getAssignedIssuesMap() map[string]assignedIssue {
 		ID       string `json:"id"`
 		Title    string `json:"title"`
 		Assignee string `json:"assignee"`
+		Status   string `json:"status"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &issues); err != nil {
 		log.Printf("warning: parsing bd list output: %v", err)
@@ -927,11 +947,16 @@ func (f *LiveConvoyFetcher) getAssignedIssuesMap() map[string]assignedIssue {
 	}
 
 	for _, issue := range issues {
-		if issue.Assignee != "" {
-			result[issue.Assignee] = assignedIssue{
-				ID:    issue.ID,
-				Title: issue.Title,
-			}
+		if issue.Assignee == "" {
+			continue
+		}
+		if existing, ok := result[issue.Assignee]; ok && existing.Status == string(beads.StatusInProgress) && issue.Status != string(beads.StatusInProgress) {
+			continue
+		}
+		result[issue.Assignee] = assignedIssue{
+			ID:     issue.ID,
+			Title:  issue.Title,
+			Status: issue.Status,
 		}
 	}
 

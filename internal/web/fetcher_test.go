@@ -346,7 +346,7 @@ func TestParseActivityTimestamp(t *testing.T) {
 // --- calculateWorkerWorkStatus with configurable thresholds ---
 
 func TestCalculateWorkerWorkStatus_DefaultThresholds(t *testing.T) {
-	stale := 5 * time.Minute
+	stale := 15 * time.Minute
 	stuck := 30 * time.Minute
 
 	tests := []struct {
@@ -363,7 +363,7 @@ func TestCalculateWorkerWorkStatus_DefaultThresholds(t *testing.T) {
 		{"very recent is working", 1 * time.Second, "gt-123", "dag", "working"},
 		{"just under stale is working", stale - 1*time.Second, "gt-123", "dag", "working"},
 		{"at stale boundary is stale", stale, "gt-123", "dag", "stale"},
-		{"between stale and stuck is stale", 15 * time.Minute, "gt-123", "dag", "stale"},
+		{"between stale and stuck is stale", 20 * time.Minute, "gt-123", "dag", "stale"},
 		{"just under stuck is stale", stuck - 1*time.Second, "gt-123", "dag", "stale"},
 		{"at stuck boundary is stuck", stuck, "gt-123", "dag", "stuck"},
 		{"well past stuck is stuck", 2 * time.Hour, "gt-123", "dag", "stuck"},
@@ -431,6 +431,122 @@ func TestCalculateWorkerWorkStatus_ZeroThresholds(t *testing.T) {
 	if got != "stuck" {
 		t.Errorf("0 age with 0/0 thresholds should be stuck, got %q", got)
 	}
+}
+
+func TestResolveWorkerStatusThresholds_UsesConfigDefaults(t *testing.T) {
+	stale, stuck, heartbeatFresh, mayorActive := resolveWorkerStatusThresholds(&config.WorkerStatusConfig{})
+	if stale != 15*time.Minute {
+		t.Errorf("stale = %v, want 15m", stale)
+	}
+	if stuck != 30*time.Minute {
+		t.Errorf("stuck = %v, want 30m", stuck)
+	}
+	if heartbeatFresh != 5*time.Minute {
+		t.Errorf("heartbeatFresh = %v, want 5m", heartbeatFresh)
+	}
+	if mayorActive != 5*time.Minute {
+		t.Errorf("mayorActive = %v, want 5m", mayorActive)
+	}
+
+	stale, stuck, heartbeatFresh, mayorActive = resolveWorkerStatusThresholds(&config.WorkerStatusConfig{
+		StaleThreshold:          "2m",
+		StuckThreshold:          "garbage",
+		HeartbeatFreshThreshold: "3m",
+	})
+	if stale != 2*time.Minute {
+		t.Errorf("custom stale = %v, want 2m", stale)
+	}
+	if stuck != 30*time.Minute {
+		t.Errorf("invalid stuck = %v, want default 30m", stuck)
+	}
+	if heartbeatFresh != 3*time.Minute {
+		t.Errorf("custom heartbeatFresh = %v, want 3m", heartbeatFresh)
+	}
+	if mayorActive != 5*time.Minute {
+		t.Errorf("empty mayorActive = %v, want default 5m", mayorActive)
+	}
+}
+
+func TestGetAssignedIssuesMap_IncludesHookedAndPrefersInProgress(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based fake bd test")
+	}
+
+	binDir := t.TempDir()
+	bdPath := filepath.Join(binDir, "bd")
+	argsPath := filepath.Join(binDir, "args.txt")
+	t.Setenv("ARGS_FILE", argsPath)
+
+	script := `#!/bin/sh
+printf '%s\n' "$*" > "$ARGS_FILE"
+cat <<'JSON'
+[
+  {"id":"gt-hooked","title":"Hooked work","assignee":"gastown/polecats/dag","status":"hooked"},
+  {"id":"gt-active","title":"Active work","assignee":"gastown/polecats/nux","status":"in_progress"},
+  {"id":"gt-unassigned","title":"No assignee","assignee":"","status":"hooked"},
+  {"id":"gt-active-wins","title":"Active wins","assignee":"gastown/polecats/dag","status":"in_progress"},
+  {"id":"gt-hooked-late","title":"Hooked late","assignee":"gastown/polecats/dag","status":"hooked"}
+]
+JSON
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+
+	f := &LiveConvoyFetcher{townRoot: t.TempDir(), cmdTimeout: 30 * time.Second, bdBin: bdPath}
+	got := f.getAssignedIssuesMap()
+
+	if got["gastown/polecats/dag"].ID != "gt-active-wins" {
+		t.Fatalf("dag issue = %+v, want in_progress issue", got["gastown/polecats/dag"])
+	}
+	if got["gastown/polecats/nux"].ID != "gt-active" {
+		t.Fatalf("nux issue = %+v, want active issue", got["gastown/polecats/nux"])
+	}
+	if _, ok := got[""]; ok {
+		t.Fatal("empty assignee should be skipped")
+	}
+
+	argsBytes, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read fake bd args: %v", err)
+	}
+	args := strings.Fields(string(argsBytes))
+	if len(args) == 0 || args[0] != "list" {
+		t.Fatalf("args = %v, want list command", args)
+	}
+	assertArgPresent(t, args, "--json")
+	assertArgPresent(t, args, "--limit=0")
+	assertArgPresent(t, args, "--flat")
+
+	status := findArgPrefix(args, "--status=")
+	if status == "" {
+		t.Fatalf("args = %v, missing --status", args)
+	}
+	status = strings.TrimPrefix(status, "--status=")
+	for _, want := range []string{"in_progress", "hooked"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("status filter = %q, missing %q", status, want)
+		}
+	}
+}
+
+func assertArgPresent(t *testing.T, args []string, want string) {
+	t.Helper()
+	for _, arg := range args {
+		if arg == want {
+			return
+		}
+	}
+	t.Fatalf("args = %v, missing %q", args, want)
+}
+
+func findArgPrefix(args []string, prefix string) string {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, prefix) {
+			return arg
+		}
+	}
+	return ""
 }
 
 // --- NewConvoyHandler timeout ---

@@ -89,8 +89,8 @@ func TestDefaultWorkerStatusConfig(t *testing.T) {
 	}
 
 	stale := ParseDurationOrDefault(cfg.StaleThreshold, 0)
-	if stale != 5*time.Minute {
-		t.Errorf("StaleThreshold = %v, want 5m", stale)
+	if stale != 15*time.Minute {
+		t.Errorf("StaleThreshold = %v, want 15m", stale)
 	}
 	stuck := ParseDurationOrDefault(cfg.StuckThreshold, 0)
 	if stuck != 30*time.Minute {
@@ -141,7 +141,7 @@ func TestWebTimeoutsConfig_JSONRoundTrip(t *testing.T) {
 		TmuxCmdTimeout:    "3s",
 		FetchTimeout:      "12s",
 		DefaultRunTimeout: "45s",
-		MaxRunTimeout:      "90s",
+		MaxRunTimeout:     "90s",
 	}
 
 	data, err := json.Marshal(original)
@@ -621,5 +621,3 @@ func TestParseDurationOrDefault_AllWebTimeoutDefaults(t *testing.T) {
 		})
 	}
 }
-
-
