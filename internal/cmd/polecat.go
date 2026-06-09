@@ -1633,17 +1633,27 @@ func runPolecatPrune(cmd *cobra.Command, args []string) error {
 		fmt.Println("Pruning remote polecat branches...")
 
 		defaultBranch := repoGit.RemoteDefaultBranch()
-		remoteRefs, lsErr := repoGit.ListPushRemoteRefs("origin", "refs/heads/polecat/")
+		remoteRefs, lsErr := repoGit.ListPushRemoteRefsWithHashes("origin", "refs/heads/polecat/")
 		if lsErr != nil {
 			return fmt.Errorf("listing remote refs: %w", lsErr)
 		}
 
 		remotePruned := 0
 		for _, ref := range remoteRefs {
-			branch := strings.TrimPrefix(ref, "refs/heads/")
-			// Check if merged to main
-			merged, mergeErr := repoGit.IsAncestor(branch, "origin/"+defaultBranch)
+			branch := strings.TrimPrefix(ref.Name, "refs/heads/")
+			fetchedSHA, fetchErr := repoGit.FetchPushRemoteRef("origin", ref.Name)
+			if fetchErr != nil {
+				fmt.Printf("  %s inspect remote %s: %v\n", style.Warning.Render("⚠"), branch, fetchErr)
+				continue
+			}
+			if fetchedSHA != ref.Hash {
+				fmt.Printf("  %s remote %s moved while pruning (continuing)\n", style.Warning.Render("⚠"), branch)
+				continue
+			}
+
+			merged, mergeErr := repoGit.ChangesAlreadyOnBase("origin/"+defaultBranch, fetchedSHA)
 			if mergeErr != nil {
+				fmt.Printf("  %s inspect remote %s: %v\n", style.Warning.Render("⚠"), branch, mergeErr)
 				continue
 			}
 			if !merged {
@@ -1652,14 +1662,15 @@ func runPolecatPrune(cmd *cobra.Command, args []string) error {
 
 			if polecatPruneDryRun {
 				fmt.Printf("  Would delete remote: %s\n", style.Dim.Render(branch))
+				remotePruned++
 			} else {
 				if delErr := repoGit.DeleteRemoteBranch("origin", branch); delErr != nil {
 					fmt.Printf("  %s remote %s: %v\n", style.Warning.Render("⚠"), branch, delErr)
 				} else {
 					fmt.Printf("  %s deleted remote %s\n", style.Success.Render("✓"), branch)
+					remotePruned++
 				}
 			}
-			remotePruned++
 		}
 
 		if remotePruned == 0 {
