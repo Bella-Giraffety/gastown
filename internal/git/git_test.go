@@ -1217,6 +1217,64 @@ func TestListAndFetchPushRemoteRefsWithHashes_SplitURL(t *testing.T) {
 	}
 }
 
+func TestDeleteRemoteBranchWithLeaseDeletesExpectedTip(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "polecat/leased-delete"
+
+	runGit(t, localDir, "checkout", "-b", branch)
+	commitTestFile(t, localDir, "leased.txt", "leased", "leased work")
+	branchSHA, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev branch: %v", err)
+	}
+	runGit(t, localDir, "push", "origin", branch)
+	runGit(t, localDir, "checkout", mainBranch)
+
+	if err := g.DeleteRemoteBranchWithLease("origin", branch, branchSHA); err != nil {
+		t.Fatalf("DeleteRemoteBranchWithLease: %v", err)
+	}
+	exists, err := g.RemoteBranchExists("origin", branch)
+	if err != nil {
+		t.Fatalf("RemoteBranchExists: %v", err)
+	}
+	if exists {
+		t.Fatal("leased delete should remove branch at expected tip")
+	}
+}
+
+func TestDeleteRemoteBranchWithLeaseRejectsMovedBranch(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "polecat/leased-moved"
+
+	runGit(t, localDir, "checkout", "-b", branch)
+	commitTestFile(t, localDir, "leased-a.txt", "a", "leased work a")
+	oldSHA, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev old branch: %v", err)
+	}
+	runGit(t, localDir, "push", "origin", branch)
+	commitTestFile(t, localDir, "leased-b.txt", "b", "leased work b")
+	newSHA, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev new branch: %v", err)
+	}
+	runGit(t, localDir, "push", "origin", branch)
+	runGit(t, localDir, "checkout", mainBranch)
+
+	if err := g.DeleteRemoteBranchWithLease("origin", branch, oldSHA); err == nil {
+		t.Fatal("DeleteRemoteBranchWithLease succeeded with stale expected SHA")
+	}
+	out, err := g.run("ls-remote", "--heads", "origin", branch)
+	if err != nil {
+		t.Fatalf("ls-remote: %v", err)
+	}
+	if !strings.Contains(out, newSHA) {
+		t.Fatalf("moved branch should remain at %s, ls-remote output: %s", newSHA, out)
+	}
+}
+
 func commitTestFile(t *testing.T, dir, name, contents, message string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(contents), 0644); err != nil {
