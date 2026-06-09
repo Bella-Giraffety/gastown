@@ -34,8 +34,11 @@ Install only the tools required by your setup path. Homebrew installs `gt`, `bd`
 # Install Homebrew if needed
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Recommended: install gt, bd, and Dolt together
-brew install gastown
+# Recommended Homebrew path: no separate Go, Dolt, or bd prerequisite.
+# Step 1 installs gt, bd, and Dolt together with: brew install gastown
+
+# Upgrade Git if your system Git is older than 2.25
+brew install git
 
 # Source build only
 brew install go git dolt
@@ -68,7 +71,9 @@ sudo apt install -y tmux
 
 ```bash
 # Required
-sudo dnf install -y git golang
+sudo dnf install -y git
+
+# Install Go 1.25.8+ from https://go.dev/doc/install if your distro package is older.
 # Install Dolt: see https://github.com/dolthub/dolt?tab=readme-ov-file#installation
 
 # Optional
@@ -142,8 +147,8 @@ gt install ~/gt --shell --git
 #   ~/gt/
 #   ├── CLAUDE.md          # Identity anchor (run gt prime)
 #   ├── mayor/             # Mayor config and state
-#   ├── rigs/              # Project containers (initially empty)
 #   └── .beads/            # Town-level issue tracking
+# Rigs are added later as top-level directories under ~/gt/<rig>.
 ```
 
 ### Step 3: Add a Project (Rig)
@@ -151,7 +156,11 @@ gt install ~/gt --shell --git
 ```bash
 # Add your first project
 gt rig add myproject https://github.com/you/repo.git
+```
 
+Rig names accept letters, digits, and underscores. Hyphens, dots, spaces, and path separators are not allowed. Use `my_project` instead of `my-project`.
+
+```bash
 # This clones the repo and sets up:
 #   ~/gt/myproject/
 #   ├── .beads/            # Project issue tracking

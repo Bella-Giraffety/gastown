@@ -20,13 +20,13 @@ CI workflows under `.github/workflows/` use `Dockerfile.e2e` for e2e jobs and pu
 
 ## Quick start
 
-The runtime image expects three environment variables and one host directory.
+The runtime image expects three environment variables and one dedicated host directory.
 Install Docker Engine or Docker Desktop with the Compose v2 plugin first; the commands below use `docker compose`.
 
 ```bash
 export GIT_USER="<your name>"
 export GIT_EMAIL="<your email>"
-export FOLDER="/path/to/empty-or-existing-hq"   # becomes /gt inside the container
+export FOLDER="/path/to/empty-docker-hq"   # becomes /gt inside the container
 export DASHBOARD_PORT=8080            # optional, host port for the dashboard
 
 mkdir -p "$FOLDER"
@@ -94,7 +94,7 @@ CMD ["sleep", "infinity"]
 |---|---|---|
 | `GIT_USER` | `TestUser` | The entrypoint sets `git config --global user.name` and `dolt config --global user.name` from this variable. Gas Town's identity detection requires a value here; set this to your real Git name in normal use. |
 | `GIT_EMAIL` | `test@example.com` | The entrypoint sets `user.email` for git and dolt from this variable. The entrypoint also enables `credential.helper store` so subsequent git pushes can persist credentials; set this to your real Git email in normal use. |
-| `FOLDER` | (unset, **required**) | `FOLDER` is the host path bind-mounted to `/gt` inside the container. The directory must exist before `docker compose up`, and must be empty or already a Gas Town HQ — the entrypoint runs `gt install /gt --git` against the bind-mounted directory on first start, which converts whatever is there into an HQ. |
+| `FOLDER` | (unset, **required**) | `FOLDER` is the host path bind-mounted to `/gt` inside the container. Use a dedicated directory for this Compose project. It should be empty on first start; the entrypoint runs `gt install /gt --git` against it and converts it into the container's HQ. Do not point `FOLDER` at a native host HQ because the `dolt-data` volume overlays `/gt/.dolt-data`. |
 | `DASHBOARD_PORT` | `8080` | `DASHBOARD_PORT` is the host port mapped to the container's port 8080 (the `gt dashboard` web UI). |
 | `IS_SANDBOX` | `1` (set by compose) | `internal/cmd/dashboard.go` reads `IS_SANDBOX`. When set, `gt dashboard` binds to `0.0.0.0` instead of `127.0.0.1` so the host port forward can reach the server. Leave the variable alone for normal use. |
 
@@ -103,7 +103,7 @@ The recommended way to set `GIT_USER`, `GIT_EMAIL`, and `FOLDER` is a `.env` fil
 ```
 GIT_USER=Your Name
 GIT_EMAIL=you@example.com
-FOLDER=/path/to/empty-or-existing-hq
+FOLDER=/path/to/empty-docker-hq
 DASHBOARD_PORT=8080
 ```
 
@@ -121,7 +121,7 @@ The compose file declares three volume mounts on the `gastown` service.
 
 The third mount is intentional layering. The named volume overrides the bind mount at `/gt/.dolt-data` only. Dolt journaling on macOS bind mounts uses VirtioFS, which can corrupt under certain `fsync` patterns. The `dolt-data` volume sidesteps that path entirely. Linux hosts have a lower corruption risk, but the same layout runs everywhere for consistency.
 
-`agent-home` and `dolt-data` are created on first `docker compose up` and survive `docker compose down`. Only `docker compose down -v` removes them. The `${FOLDER}` host directory is never touched by `down`. The host directory lives on your filesystem and is your responsibility to clean up.
+`agent-home` and `dolt-data` are created on first `docker compose up` and survive `docker compose down`. Only `docker compose down -v` removes them. The `${FOLDER}` host directory is never touched by `down`. The host directory lives on your filesystem and is your responsibility to clean up. If you remove `dolt-data`, also use a fresh empty `${FOLDER}` so the host-visible HQ and Docker-managed Dolt storage do not diverge.
 
 ### Security
 
@@ -185,7 +185,7 @@ exec "$@"
 
 The identity block runs every time the container starts. The behavior means you can update `GIT_USER` or `GIT_EMAIL` in your `.env` file and bounce the container to switch identities, even though the persistent `agent-home` volume retains the old `~/.gitconfig`.
 
-The install block uses `mayor/town.json` as a marker for "is this already a Gas Town workspace?" If the marker is absent, the bind mount is a fresh `${FOLDER}`, and `gt install /gt --git` initializes it. If the marker is present, the workspace already exists from a previous run, and `gt install /gt --git --force` refreshes the workspace in place. The `--force` path preserves core HQ markers such as `town.json` and `rigs.json`, but managed config files may be refreshed.
+The install block uses `mayor/town.json` as a marker for "is this already a Gas Town workspace?" If the marker is absent, the bind mount is a fresh `${FOLDER}`, and `gt install /gt --git` initializes it. If the marker is present, the workspace already exists from a previous run with the same Docker volumes, and `gt install /gt --git --force` refreshes the workspace in place. The `--force` path preserves core HQ markers such as `town.json` and `rigs.json`, but managed config files may be refreshed.
 
 The final `exec "$@"` hands off to the container's `CMD`, which is `sleep infinity`. The script terminates and the sleep takes over the foreground, with `tini` holding PID 1.
 

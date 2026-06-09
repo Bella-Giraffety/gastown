@@ -1,5 +1,5 @@
 # Run with
-# GIT_USER="<your name>" GIT_EMAIL="<your email>" FOLDER="/path/to/empty-or-existing-hq" docker compose up -d
+# GIT_USER="<your name>" GIT_EMAIL="<your email>" FOLDER="/path/to/empty-docker-hq" docker compose up -d
 
 services:
   gastown:
