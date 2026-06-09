@@ -184,7 +184,9 @@ func runMoleculeAwaitEvent(cmd *cobra.Command, args []string) error {
 
 	// Persist backoff-until for crash recovery
 	if awaitEventAgentBead != "" && beadsDir != "" {
-		_ = setAgentBackoffUntil(awaitEventAgentBead, beadsDir, now.Add(timeout))
+		if err := setAgentBackoffUntil(awaitEventAgentBead, beadsDir, now.Add(timeout)); err != nil {
+			return fmt.Errorf("persisting await-event backoff window: %w", err)
+		}
 	}
 
 	if !awaitEventQuiet && !moleculeJSON {
@@ -204,32 +206,31 @@ func runMoleculeAwaitEvent(cmd *cobra.Command, args []string) error {
 	}
 	result.Elapsed = time.Since(startTime)
 
-	// Update agent bead idle cycles and heartbeat
+	// Update agent bead idle cycles and heartbeat in one label write so the
+	// refinery does not report a clean idle cycle unless the state persisted.
 	if awaitEventAgentBead != "" && beadsDir != "" {
-		// Always update heartbeat (both event and timeout) so witness doesn't
-		// think we're dead during long idle periods.
-		_ = updateAgentHeartbeat(awaitEventAgentBead, beadsDir)
-
 		if result.Reason == "timeout" {
 			newIdle := idleCycles + 1
-			if setErr := setAgentIdleCycles(awaitEventAgentBead, beadsDir, newIdle); setErr != nil {
-				if !awaitEventQuiet {
-					fmt.Printf("%s Failed to update idle count: %v\n",
-						style.Dim.Render("⚠"), setErr)
-				}
-			} else {
-				result.IdleCycles = newIdle
+			if setErr := updateAgentLabels(awaitEventAgentBead, beadsDir, agentLabelMutation{
+				idle:              &newIdle,
+				heartbeat:         true,
+				clearBackoffUntil: true,
+			}); setErr != nil {
+				return fmt.Errorf("updating await-event agent state after timeout: %w", setErr)
 			}
+			result.IdleCycles = newIdle
 		} else if result.Reason == "event" {
 			// Reset idle on event received
-			if idleCycles > 0 {
-				_ = setAgentIdleCycles(awaitEventAgentBead, beadsDir, 0)
+			resetIdle := 0
+			if setErr := updateAgentLabels(awaitEventAgentBead, beadsDir, agentLabelMutation{
+				idle:              &resetIdle,
+				heartbeat:         true,
+				clearBackoffUntil: true,
+			}); setErr != nil {
+				return fmt.Errorf("updating await-event agent state after event: %w", setErr)
 			}
 			result.IdleCycles = 0
 		}
-
-		// Clear backoff-until — we completed normally
-		_ = clearAgentBackoffUntil(awaitEventAgentBead, beadsDir)
 	}
 
 	// Cleanup event files if requested

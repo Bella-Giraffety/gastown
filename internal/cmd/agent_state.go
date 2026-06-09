@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/style"
+	"github.com/steveyegge/gastown/internal/util"
 )
 
 var (
@@ -218,18 +221,7 @@ func modifyAgentState(agentBead, beadsDir string, hasIncr bool) error {
 		args = append(args, "--set-labels=")
 	}
 
-	// Execute bd update
-	cmd := exec.Command("bd", args...)
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg != "" {
-			return fmt.Errorf("%s", errMsg)
-		}
+	if _, err := runAgentBDCommand(args, beadsDir); err != nil {
 		return fmt.Errorf("updating agent state: %w", err)
 	}
 
@@ -259,38 +251,166 @@ func getAgentLabels(agentBead, beadsDir string) (map[string]string, error) {
 	return labels, nil
 }
 
-// bdCallTimeout is the per-call timeout for bd subprocess invocations in agent-bead
-// helpers. bd commands should be fast against a local Dolt server, but can hang
-// indefinitely if Dolt is unresponsive (e.g., connection pool exhausted). A 30s
-// ceiling prevents await-event/await-signal from stalling past the patrol timeout.
-const bdCallTimeout = 30 * time.Second
+// bdCallTimeout is the per-call timeout for bd subprocess invocations in
+// agent-bead helpers. Agent idle paths run under concurrent town load, so use
+// the same 60s ceiling as mail bd operations instead of the former 30s limit
+// that surfaced as raw signal:killed errors under Dolt contention.
+var bdCallTimeout = 60 * time.Second
 
 // getAllAgentLabels retrieves all labels (including non-state) from an agent bead.
 func getAllAgentLabels(agentBead, beadsDir string) ([]string, error) {
 	args := []string{"show", agentBead, "--json"}
 
+	stdout, err := runAgentBDCommand(args, beadsDir)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not found") {
+			return nil, fmt.Errorf("agent bead not found: %s", agentBead)
+		}
+		return nil, fmt.Errorf("querying agent bead: %w", err)
+	}
+
+	return parseAgentBeadLabels(stdout, nil, agentBead)
+}
+
+func runAgentBDCommand(args []string, beadsDir string) ([]byte, error) {
+	beads.CleanStaleDoltServerPID(beadsDir)
+
 	ctx, cancel := context.WithTimeout(context.Background(), bdCallTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bd", args...) //nolint:gosec // G204: bd is a trusted internal tool
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
+	cmd.Dir = filepath.Dir(beadsDir)
+	util.SetProcessGroup(cmd)
+	cmd.Env = agentBDEnv(cmd.Environ(), beadsDir)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		errMsg := strings.TrimSpace(stderr.String())
-		if strings.Contains(errMsg, "not found") {
-			return nil, fmt.Errorf("agent bead not found: %s", agentBead)
-		}
-		if errMsg != "" {
-			return nil, fmt.Errorf("%s", errMsg)
-		}
-		return nil, fmt.Errorf("querying agent bead: %w", err)
+	err := cmd.Run()
+	if err == nil {
+		return stdout.Bytes(), nil
 	}
 
-	return parseAgentBeadLabels(stdout.Bytes(), stderr.Bytes(), agentBead)
+	stderrText := strings.TrimSpace(stderr.String())
+	if ctxErr := ctx.Err(); errors.Is(ctxErr, context.DeadlineExceeded) {
+		if stderrText != "" {
+			return nil, fmt.Errorf("bd %s timed out after %s: %s", strings.Join(args, " "), bdCallTimeout, stderrText)
+		}
+		return nil, fmt.Errorf("bd %s timed out after %s", strings.Join(args, " "), bdCallTimeout)
+	} else if errors.Is(ctxErr, context.Canceled) {
+		if stderrText != "" {
+			return nil, fmt.Errorf("bd %s canceled: %s", strings.Join(args, " "), stderrText)
+		}
+		return nil, fmt.Errorf("bd %s canceled", strings.Join(args, " "))
+	}
+
+	if stderrText != "" {
+		return nil, fmt.Errorf("%s", stderrText)
+	}
+	return nil, err
+}
+
+func agentBDEnv(base []string, beadsDir string) []string {
+	base = beads.EnvForBeadsDir(base, beadsDir)
+	env := make([]string, 0, len(base)+2)
+	for _, entry := range base {
+		if strings.HasPrefix(entry, "BEADS_DIR=") ||
+			strings.HasPrefix(entry, "BEADS_DOLT_SERVER_DATABASE=") ||
+			strings.HasPrefix(entry, "BEADS_DB=") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env, "BEADS_DIR="+beadsDir)
+	if dbEnv := beads.DatabaseEnv(beadsDir); dbEnv != "" {
+		env = append(env, dbEnv)
+	}
+	return env
+}
+
+type agentLabelMutation struct {
+	idle              *int
+	heartbeat         bool
+	backoffUntil      *time.Time
+	clearBackoffUntil bool
+}
+
+func updateAgentLabels(agentBead, beadsDir string, mutation agentLabelMutation) error {
+	allLabels, err := getAllAgentLabels(agentBead, beadsDir)
+	if err != nil {
+		return err
+	}
+
+	labels, changed := applyAgentLabelMutation(allLabels, mutation, time.Now())
+	if !changed {
+		return nil
+	}
+
+	return setAllAgentLabels(agentBead, beadsDir, labels)
+}
+
+func applyAgentLabelMutation(allLabels []string, mutation agentLabelMutation, now time.Time) ([]string, bool) {
+	stripIdle := mutation.idle != nil
+	stripHeartbeat := mutation.heartbeat
+	stripBackoff := mutation.backoffUntil != nil || mutation.clearBackoffUntil
+
+	newLabels := make([]string, 0, len(allLabels)+3)
+	seen := make(map[string]struct{}, len(allLabels)+3)
+	changed := false
+
+	for _, label := range allLabels {
+		switch {
+		case stripIdle && strings.HasPrefix(label, "idle:"):
+			changed = true
+			continue
+		case stripHeartbeat && strings.HasPrefix(label, "heartbeat:"):
+			changed = true
+			continue
+		case stripBackoff && strings.HasPrefix(label, "backoff-until:"):
+			changed = true
+			continue
+		}
+
+		if _, ok := seen[label]; ok {
+			changed = true
+			continue
+		}
+		seen[label] = struct{}{}
+		newLabels = append(newLabels, label)
+	}
+
+	if mutation.heartbeat {
+		newLabels = append(newLabels, fmt.Sprintf("heartbeat:%d", now.Unix()))
+		changed = true
+	}
+	if mutation.idle != nil {
+		newLabels = append(newLabels, fmt.Sprintf("idle:%d", *mutation.idle))
+		changed = true
+	}
+	if mutation.backoffUntil != nil {
+		newLabels = append(newLabels, fmt.Sprintf("backoff-until:%d", mutation.backoffUntil.Unix()))
+		changed = true
+	}
+
+	return newLabels, changed
+}
+
+func setAllAgentLabels(agentBead, beadsDir string, labels []string) error {
+	args := []string{"update", agentBead}
+	if len(labels) == 0 {
+		args = append(args, "--set-labels=")
+	} else {
+		for _, label := range labels {
+			args = append(args, "--set-labels="+label)
+		}
+	}
+
+	if _, err := runAgentBDCommand(args, beadsDir); err != nil {
+		return fmt.Errorf("updating agent labels: %w", err)
+	}
+	return nil
 }
 
 // parseAgentBeadLabels parses the JSON output from bd show --json and extracts labels.

@@ -665,6 +665,16 @@ func translateDoltPort(env []string) []string {
 	return env
 }
 
+// EnvForBeadsDir returns a subprocess environment pinned to the given beads
+// directory's Dolt connection. It strips inherited BEADS_DIR and replaces stale
+// BEADS_DOLT_* values with the selected database's recorded port/host when
+// available.
+func EnvForBeadsDir(environ []string, beadsDir string) []string {
+	env := stripEnvPrefixes(environ, "BEADS_DIR=")
+	env = overrideDoltEnvFromBeadsDir(env, beadsDir)
+	return translateDoltPort(env)
+}
+
 // overrideDoltEnvFromBeadsDir replaces inherited BEADS_DOLT_* values with the
 // authoritative connection data for the selected beads directory when present.
 // This prevents a parent shell's stale Dolt port from routing bd commands to

@@ -2,7 +2,12 @@ package cmd
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseStateLabels(t *testing.T) {
@@ -313,4 +318,138 @@ func TestParseAgentBeadLabels(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApplyAgentLabelMutationNormalizesAwaitState(t *testing.T) {
+	now := time.Unix(1234, 0)
+	idle := 3
+	labels, changed := applyAgentLabelMutation([]string{
+		"gt:agent",
+		"idle:1",
+		"heartbeat:111",
+		"backoff-until:999",
+		"idle:2",
+		"role:refinery",
+		"gt:agent",
+	}, agentLabelMutation{
+		idle:              &idle,
+		heartbeat:         true,
+		clearBackoffUntil: true,
+	}, now)
+
+	if !changed {
+		t.Fatal("expected label mutation to report a change")
+	}
+
+	want := []string{"gt:agent", "role:refinery", "heartbeat:1234", "idle:3"}
+	if len(labels) != len(want) {
+		t.Fatalf("labels length = %d, want %d: %v", len(labels), len(want), labels)
+	}
+	for i := range want {
+		if labels[i] != want[i] {
+			t.Fatalf("labels[%d] = %q, want %q (all labels: %v)", i, labels[i], want[i], labels)
+		}
+	}
+}
+
+func TestUpdateAgentLabelsWritesOneNormalizedUpdate(t *testing.T) {
+	beadsDir := filepath.Join(t.TempDir(), ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := installAgentLabelMockBD(t, `[{"id":"gt-test","labels":["gt:agent","idle:1","heartbeat:111","backoff-until:999","idle:2","role:refinery"]}]`)
+
+	idle := 3
+	if err := updateAgentLabels("gt-test", beadsDir, agentLabelMutation{
+		idle:              &idle,
+		heartbeat:         true,
+		clearBackoffUntil: true,
+	}); err != nil {
+		t.Fatalf("updateAgentLabels returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("bd calls = %d, want 2 (show + one update): %q", len(lines), string(data))
+	}
+	updateLine := lines[1]
+	for _, want := range []string{
+		"update gt-test",
+		"--set-labels=gt:agent",
+		"--set-labels=role:refinery",
+		"--set-labels=idle:3",
+		"--set-labels=heartbeat:",
+	} {
+		if !strings.Contains(updateLine, want) {
+			t.Fatalf("update line %q does not contain %q", updateLine, want)
+		}
+	}
+	for _, forbidden := range []string{"idle:1", "idle:2", "heartbeat:111", "backoff-until:"} {
+		if strings.Contains(updateLine, forbidden) {
+			t.Fatalf("update line %q still contains %q", updateLine, forbidden)
+		}
+	}
+}
+
+func TestRunAgentBDCommandTimeoutReportsDeadline(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell sleep mock is Unix-only")
+	}
+
+	oldTimeout := bdCallTimeout
+	bdCallTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { bdCallTimeout = oldTimeout })
+
+	beadsDir := filepath.Join(t.TempDir(), ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	binDir := t.TempDir()
+	scriptPath := filepath.Join(binDir, "bd")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nsleep 2\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := runAgentBDCommand([]string{"update", "gt-test", "--set-labels=idle:1"}, beadsDir)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out after") {
+		t.Fatalf("error = %q, want timeout context", err.Error())
+	}
+	if strings.Contains(err.Error(), "signal: killed") {
+		t.Fatalf("error leaked raw signal: %q", err.Error())
+	}
+}
+
+func installAgentLabelMockBD(t *testing.T, showOutput string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell mock is Unix-only")
+	}
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "bd.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$1" in
+  show)
+    printf '%s\n' "$MOCK_BD_SHOW_OUTPUT"
+    ;;
+  update)
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MOCK_BD_SHOW_OUTPUT", showOutput)
+	return logPath
 }
