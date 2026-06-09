@@ -80,10 +80,12 @@ sudo dnf install -y git
 sudo dnf install -y tmux
 ```
 
-### Verify Prerequisites
+### Verify Prerequisites For Your Setup Path
+
+Skip checks for tools that your setup path bundles. Homebrew and Docker bundle Dolt and `bd`; Docker also bundles Go inside the image.
 
 ```bash
-# Check all prerequisites
+# Check host prerequisites for Linux, Windows, and source-build paths
 go version        # Should show go1.25.8 or higher
 git --version     # Should show 2.25 or higher
 dolt version      # Should show 1.82.4 or higher
@@ -158,16 +160,11 @@ gt install ~/gt --shell --git
 gt rig add myproject https://github.com/you/repo.git
 ```
 
-Rig names accept letters, digits, and underscores. Hyphens, dots, spaces, and path separators are not allowed. Use `my_project` instead of `my-project`.
+Rig names cannot contain hyphens, dots, spaces, or path separators. Underscores are allowed, so use `my_project` instead of `my-project`.
 
 ```bash
-# This clones the repo and sets up:
-#   ~/gt/myproject/
-#   ├── .beads/            # Project issue tracking
-#   ├── mayor/rig/         # Mayor's clone (canonical)
-#   ├── refinery/rig/      # Merge queue processor
-#   ├── witness/           # Worker monitor
-#   └── polecats/          # Worker clones (created on demand)
+# This creates the rig under ~/gt/myproject/ with its project beads,
+# role worktrees, witness state, and polecat worktrees as needed.
 ```
 
 ### Step 4: Verify Installation

@@ -131,7 +131,7 @@ Install the tools for the setup path you choose. Homebrew and Docker bundle some
 | Git | 2.25+ | Worktree support |
 | Go | 1.25.8+ | Required for Linux, Windows, and macOS source builds. Not needed for `brew install gastown` or Docker. |
 | Dolt | 1.82.4+ | Required for Linux, Windows, and macOS source builds. Homebrew and Docker install it for you. |
-| beads (`bd`) | 0.57.0+ | Installed by Homebrew, Docker, and the `go install` steps below. Existing installs must meet this minimum. |
+| beads (`bd`) | 0.57.0+ | Installed by Homebrew, Docker, and the `go install` steps in [docs/INSTALLING.md](docs/INSTALLING.md). Existing installs must meet this minimum. |
 | Docker with Compose v2 | latest | Required only for the Docker setup path. Use the `docker compose` plugin command. |
 | sqlite3 | any | Used by convoy database queries. Usually pre-installed on macOS and Linux. |
 | tmux | 3.0+ | Required for `gt up` and the tmux-backed roles (Mayor, Witnesses, Refineries, polecats). Optional only for minimal-mode workflows where you run runtime instances manually. |
