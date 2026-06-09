@@ -227,18 +227,20 @@ esac
 
 func TestUnknownTrackedIssueIsNotReady(t *testing.T) {
 	cases := []struct {
-		name   string
-		status string
-		want   bool
+		name      string
+		status    string
+		scheduled map[string]bool
+		want      bool
 	}{
 		{name: "unknown", status: trackedStatusUnknown, want: false},
 		{name: "blank", status: "", want: false},
+		{name: "scheduled", status: "open", scheduled: map[string]bool{"ws-issue": true}, want: false},
 		{name: "open unassigned", status: "open", want: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := isReadyIssue(trackedIssueInfo{ID: "ws-issue", Status: tc.status}, nil)
+			got := isReadyIssue(trackedIssueInfo{ID: "ws-issue", Status: tc.status}, tc.scheduled)
 			if got != tc.want {
 				t.Fatalf("isReadyIssue status %q = %v, want %v", tc.status, got, tc.want)
 			}

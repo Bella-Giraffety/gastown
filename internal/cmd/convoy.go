@@ -1878,7 +1878,7 @@ func runConvoyStatus(cmd *cobra.Command, args []string) error {
 	if len(tracked) > 0 {
 		fmt.Printf("\n  %s\n", style.Bold.Render("Tracked Issues:"))
 		for _, t := range tracked {
-			// Status symbol: ✓ closed, ▶ in_progress/hooked, ○ other
+			// Status symbol: ✓ closed, ▶ in_progress/hooked, ? unknown, ○ other
 			status := "○"
 			switch t.Status {
 			case "closed":
@@ -2103,13 +2103,15 @@ func printConvoyTree(townBeads string, convoys []struct {
 				connector = "└──"
 			}
 
-			// Status symbol: ✓ closed, ▶ in_progress/hooked, ○ other
+			// Status symbol: ✓ closed, ▶ in_progress/hooked, ? unknown, ○ other
 			status := "○"
 			switch t.Status {
 			case "closed":
 				status = "✓"
 			case "in_progress", "hooked":
 				status = "▶"
+			case trackedStatusUnknown:
+				status = "?"
 			}
 
 			fmt.Printf("%s %s %s: %s\n", connector, status, t.ID, t.Title)
