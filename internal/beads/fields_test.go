@@ -117,6 +117,17 @@ func TestParseAttachmentFieldsLegacyFormulaVars(t *testing.T) {
 	}
 }
 
+func TestParseAttachmentFieldsLegacyFormulaVarsContinuation(t *testing.T) {
+	parsed := ParseAttachmentFields(&Issue{Description: "formula_vars: feature=Bug\nissue=gt-abc123\nbase_branch=release/test\n\nBody line"})
+	if parsed == nil {
+		t.Fatal("parse returned nil")
+	}
+	want := "feature=Bug\nissue=gt-abc123\nbase_branch=release/test"
+	if parsed.FormulaVars != want {
+		t.Fatalf("FormulaVars = %q, want %q", parsed.FormulaVars, want)
+	}
+}
+
 func TestSetAttachmentFieldsDropsLegacyFormulaVarsContinuation(t *testing.T) {
 	issue := &Issue{Description: "formula_vars: feature=Old\nissue=gt-old\nbase_branch=old\n\nBody line"}
 	fields := &AttachmentFields{FormulaVars: "feature=New\nissue=gt-new"}

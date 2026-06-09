@@ -1037,6 +1037,18 @@ func TestAttachmentFormulaVarsMergesPersistedAndAttached(t *testing.T) {
 	}
 }
 
+func TestAttachmentFormulaVarsUsesPersistedOverrides(t *testing.T) {
+	attachment := &beads.AttachmentFields{
+		FormulaVars:  "base_branch=main\nbase_branch=release/test\nissue=gt-abc123",
+		AttachedVars: []string{"issue=stale", "custom=yes"},
+	}
+	got := strings.Join(attachmentFormulaVars(attachment), "\n")
+	want := "base_branch=release/test\nissue=gt-abc123\ncustom=yes"
+	if got != want {
+		t.Fatalf("attachmentFormulaVars() = %q, want %q", got, want)
+	}
+}
+
 func TestRalphLoopPluginInstalledIn(t *testing.T) {
 	manifest := filepath.Join(t.TempDir(), "installed_plugins.json")
 	if err := os.WriteFile(manifest, []byte(`{"plugins":{"ralph-loop@claude-plugins-official":{}}}`), 0644); err != nil {
@@ -1051,6 +1063,13 @@ func TestRalphLoopPluginInstalledIn(t *testing.T) {
 	}
 	if ralphLoopPluginInstalledIn(manifest) {
 		t.Fatal("must not match similarly prefixed plugin names")
+	}
+
+	if err := os.WriteFile(manifest, []byte(`{"plugins":{"ralph-loop":{}}}`), 0644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if ralphLoopPluginInstalledIn(manifest) {
+		t.Fatal("must not match bare plugin keys without the official source")
 	}
 
 	if err := os.WriteFile(manifest, []byte(`{"plugins":{"ralph-loop@evil":{}}}`), 0644); err != nil {
@@ -1084,7 +1103,7 @@ func installRalphLoopPluginForTest(t *testing.T) string {
 		t.Fatalf("mkdir plugins: %v", err)
 	}
 	manifest := filepath.Join(pluginsDir, "installed_plugins.json")
-	if err := os.WriteFile(manifest, []byte(`{"plugins":{"ralph-loop":{}}}`), 0644); err != nil {
+	if err := os.WriteFile(manifest, []byte(`{"plugins":{"ralph-loop@claude-plugins-official":{}}}`), 0644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)

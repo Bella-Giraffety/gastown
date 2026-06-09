@@ -37,12 +37,21 @@ func ParseAttachmentFields(issue *Issue) *AttachmentFields {
 
 	fields := &AttachmentFields{}
 	hasFields := false
+	var formulaVars []string
+	collectingFormulaVars := false
 
 	for _, line := range strings.Split(issue.Description, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
+			collectingFormulaVars = false
 			continue
 		}
+		if collectingFormulaVars && strings.Index(line, ":") == -1 && looksLikeFormulaVarLine(line) {
+			formulaVars = append(formulaVars, line)
+			fields.FormulaVars = strings.Join(formulaVars, "\n")
+			continue
+		}
+		collectingFormulaVars = false
 
 		// Look for "key: value" pattern
 		colonIdx := strings.Index(line, ":")
@@ -95,7 +104,9 @@ func ParseAttachmentFields(issue *Issue) *AttachmentFields {
 			fields.ConvoyOwned = strings.ToLower(value) == "true"
 			hasFields = true
 		case "formula_vars", "formula-vars", "formulavars":
-			fields.FormulaVars = parseFormulaVars(value)
+			formulaVars = append(formulaVars, parseFormulaVars(value)...)
+			fields.FormulaVars = strings.Join(formulaVars, "\n")
+			collectingFormulaVars = true
 			hasFields = true
 		}
 	}
@@ -514,8 +525,8 @@ func formatFormulaVars(raw string) string {
 	return formatAttachedVars(vars)
 }
 
-func parseFormulaVars(raw string) string {
-	return strings.Join(parseAttachedVars(raw), "\n")
+func parseFormulaVars(raw string) []string {
+	return parseAttachedVars(raw)
 }
 
 func splitFormulaVars(raw string) []string {

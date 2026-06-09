@@ -959,27 +959,39 @@ func attachmentFormulaVars(attachment *beads.AttachmentFields) []string {
 	if attachment == nil {
 		return nil
 	}
-	seen := make(map[string]bool)
+	indexes := make(map[string]int)
+	formulaKeys := make(map[string]bool)
 	var vars []string
-	add := func(variable string) {
+	add := func(variable string) (string, bool) {
 		variable = strings.TrimSpace(variable)
 		if variable == "" {
-			return
+			return "", false
 		}
 		key := variable
 		if idx := strings.IndexByte(variable, '='); idx > 0 {
 			key = variable[:idx]
 		}
-		if seen[key] {
-			return
+		if idx, ok := indexes[key]; ok {
+			vars[idx] = variable
+			return key, true
 		}
-		seen[key] = true
+		indexes[key] = len(vars)
 		vars = append(vars, variable)
+		return key, true
 	}
 	for _, variable := range strings.Split(attachment.FormulaVars, "\n") {
-		add(variable)
+		if key, ok := add(variable); ok {
+			formulaKeys[key] = true
+		}
 	}
 	for _, variable := range attachment.AttachedVars {
+		key := variable
+		if idx := strings.IndexByte(variable, '='); idx > 0 {
+			key = strings.TrimSpace(variable[:idx])
+		}
+		if formulaKeys[key] {
+			continue
+		}
 		add(variable)
 	}
 	return vars
@@ -1018,7 +1030,7 @@ func ralphLoopPluginInstalledIn(manifestPath string) bool {
 		return false
 	}
 	for key := range manifest.Plugins {
-		if key == "ralph-loop" || key == "ralph-loop@claude-plugins-official" {
+		if key == "ralph-loop@claude-plugins-official" {
 			return true
 		}
 	}
