@@ -88,6 +88,98 @@ func TestRenderRole_Polecat(t *testing.T) {
 	}
 }
 
+func TestRenderRole_Polecat_ForkRig(t *testing.T) {
+	tmpl, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	data := RoleData{
+		Role:          "polecat",
+		RigName:       "myrig",
+		TownRoot:      "/test/town",
+		TownName:      "town",
+		WorkDir:       "/test/town/myrig/polecats/TestCat",
+		DefaultBranch: "main",
+		Polecat:       "TestCat",
+		MayorSession:  "gt-town-mayor",
+		DeaconSession: "gt-town-deacon",
+		IsForkRig:     true,
+		UpstreamURL:   "https://github.com/upstream/project",
+	}
+
+	output, err := tmpl.RenderRole("polecat", data)
+	if err != nil {
+		t.Fatalf("RenderRole() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"Fork Rig Workflow",
+		"feature branch → push to fork → PR to upstream",
+		"gh pr create --base main",
+		"Fork Rig Landing Rule",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("fork polecat output missing %q", want)
+		}
+	}
+	for _, bad := range []string{
+		"Refinery: Merges your work when complete",
+		"Polecats: use `gt done` → Refinery merges to main",
+		"Local branch → `gt done` → MR in queue → Refinery merges → LANDED",
+	} {
+		if strings.Contains(output, bad) {
+			t.Errorf("fork polecat output still contains non-fork guidance %q", bad)
+		}
+	}
+}
+
+func TestRenderRole_Crew_ForkRig(t *testing.T) {
+	tmpl, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	data := RoleData{
+		Role:          "crew",
+		RigName:       "myrig",
+		TownRoot:      "/test/town",
+		TownName:      "town",
+		WorkDir:       "/test/town/myrig/crew/Alice",
+		DefaultBranch: "main",
+		Polecat:       "Alice",
+		MayorSession:  "gt-town-mayor",
+		DeaconSession: "gt-town-deacon",
+		IsForkRig:     true,
+		UpstreamURL:   "https://github.com/upstream/project",
+	}
+
+	output, err := tmpl.RenderRole("crew", data)
+	if err != nil {
+		t.Fatalf("RenderRole() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"Git Workflow: Fork Rig Branch To Upstream PR",
+		"git checkout -b feat/description upstream/main",
+		"gh pr create --base main",
+		"Fork `main` is not a landing target",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("fork crew output missing %q", want)
+		}
+	}
+	for _, bad := range []string{
+		"Crew workers push directly to main. No feature branches.",
+		"git push                    # Direct to main",
+		"PUSH TO REMOTE — NON-NEGOTIABLE",
+	} {
+		if strings.Contains(output, bad) {
+			t.Errorf("fork crew output still contains non-fork guidance %q", bad)
+		}
+	}
+}
+
 func TestRenderRole_Deacon(t *testing.T) {
 	tmpl, err := New()
 	if err != nil {

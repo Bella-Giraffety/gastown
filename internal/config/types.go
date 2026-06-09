@@ -633,6 +633,8 @@ type RigConfig struct {
 	LocalRepo   string       `json:"local_repo,omitempty"`
 	CreatedAt   time.Time    `json:"created_at"` // when the rig was created
 	Beads       *BeadsConfig `json:"beads,omitempty"`
+	// RefineryDisabled persistently prevents future refinery starts while leaving witness lifecycle enabled.
+	RefineryDisabled bool `json:"refinery_disabled,omitempty"`
 }
 
 // WorkflowConfig represents workflow settings for a rig.

@@ -32,7 +32,31 @@ var (
 	ErrNotRunning     = errors.New("refinery not running")
 	ErrAlreadyRunning = errors.New("refinery already running")
 	ErrNoQueue        = errors.New("no items in queue")
+	ErrDisabled       = errors.New("refinery disabled for this rig")
+	ErrForkRig        = errors.New("refinery blocked for fork rig")
 )
+
+// StartOptions controls guarded refinery starts.
+type StartOptions struct {
+	AllowForkRig bool
+}
+
+// ForkRigError carries the upstream URL that caused the fork-rig refinery guard.
+type ForkRigError struct {
+	RigName     string
+	UpstreamURL string
+}
+
+func (e *ForkRigError) Error() string {
+	if e.UpstreamURL == "" {
+		return "refinery blocked for fork rig"
+	}
+	return fmt.Sprintf("refinery blocked for fork rig %q with upstream_url %q", e.RigName, e.UpstreamURL)
+}
+
+func (e *ForkRigError) Unwrap() error {
+	return ErrForkRig
+}
 
 // Manager handles refinery lifecycle and queue operations.
 type Manager struct {
@@ -111,6 +135,33 @@ func (m *Manager) Status() (*tmux.SessionInfo, error) {
 // The agentOverride parameter allows specifying an agent alias to use instead of the town default.
 // ZFC-compliant: no state file, tmux session is source of truth.
 func (m *Manager) Start(foreground bool, agentOverride string) error {
+	return m.StartWithOptions(foreground, agentOverride, StartOptions{})
+}
+
+// CheckStartAllowed returns any configured policy block before Start mutates tmux/worktrees.
+func (m *Manager) CheckStartAllowed(opts StartOptions) error {
+	rigCfg, err := rig.LoadRigConfig(m.rig.Path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("loading rig config: %w", err)
+	}
+	if rigCfg.RefineryDisabled {
+		return ErrDisabled
+	}
+	if !opts.AllowForkRig && rigCfg.IsForkWorkflow() {
+		return &ForkRigError{RigName: m.rig.Name, UpstreamURL: strings.TrimSpace(rigCfg.UpstreamURL)}
+	}
+	return nil
+}
+
+// StartWithOptions starts the refinery with explicit policy overrides.
+func (m *Manager) StartWithOptions(foreground bool, agentOverride string, opts StartOptions) error {
+	if err := m.CheckStartAllowed(opts); err != nil {
+		return err
+	}
+
 	t := tmux.NewTmux()
 	sessionID := m.SessionName()
 

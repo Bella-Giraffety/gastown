@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/wisp"
@@ -204,6 +205,65 @@ func TestGetStringConfig(t *testing.T) {
 	unknown := rig.GetStringConfig("nonexistent")
 	if unknown != "" {
 		t.Errorf("expected empty string for unknown key, got %s", unknown)
+	}
+}
+
+func TestSetRefineryDisabled_RoundTrip(t *testing.T) {
+	rigPath := filepath.Join(t.TempDir(), "testrig")
+	if err := os.MkdirAll(rigPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	original := &RigConfig{
+		Type:            "rig",
+		Version:         CurrentRigConfigVersion,
+		Name:            "testrig",
+		GitURL:          "https://github.com/example/project",
+		PushURL:         "git@github.com:fork/project.git",
+		UpstreamURL:     "https://github.com/upstream/project",
+		LocalRepo:       "/repos/project.git",
+		DefaultBranch:   "develop",
+		Beads:           &BeadsConfig{Prefix: "gt"},
+		PolecatPoolSize: 2,
+		PolecatNames:    []string{"one", "two"},
+	}
+	if err := SaveRigConfig(rigPath, original); err != nil {
+		t.Fatalf("SaveRigConfig: %v", err)
+	}
+
+	if err := SetRefineryDisabled(rigPath, true); err != nil {
+		t.Fatalf("SetRefineryDisabled(true): %v", err)
+	}
+	got, err := LoadRigConfig(rigPath)
+	if err != nil {
+		t.Fatalf("LoadRigConfig: %v", err)
+	}
+	if !got.RefineryDisabled {
+		t.Fatal("RefineryDisabled = false, want true")
+	}
+	if got.UpstreamURL != original.UpstreamURL || got.PushURL != original.PushURL || got.DefaultBranch != original.DefaultBranch {
+		t.Fatalf("config fields not preserved: got upstream=%q push=%q branch=%q", got.UpstreamURL, got.PushURL, got.DefaultBranch)
+	}
+	if got.Beads == nil || got.Beads.Prefix != "gt" || got.PolecatPoolSize != 2 || len(got.PolecatNames) != 2 {
+		t.Fatalf("nested/pool fields not preserved: %+v", got)
+	}
+
+	if err := SetRefineryDisabled(rigPath, false); err != nil {
+		t.Fatalf("SetRefineryDisabled(false): %v", err)
+	}
+	got, err = LoadRigConfig(rigPath)
+	if err != nil {
+		t.Fatalf("LoadRigConfig after false: %v", err)
+	}
+	if got.RefineryDisabled {
+		t.Fatal("RefineryDisabled = true, want false")
+	}
+	data, err := os.ReadFile(filepath.Join(rigPath, "config.json"))
+	if err != nil {
+		t.Fatalf("read config.json: %v", err)
+	}
+	if strings.Contains(string(data), "refinery_disabled") {
+		t.Fatalf("refinery_disabled should be omitted when false: %s", data)
 	}
 }
 
