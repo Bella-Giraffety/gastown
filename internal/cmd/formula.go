@@ -399,6 +399,7 @@ func dryRunFormula(f *formula.Formula, formulaName, targetRig string) error {
 					legCtx[k] = v
 				}
 				legCtx["review_id"] = reviewID
+				legCtx["review_id"] = reviewID
 				legPattern := renderTemplateOrDefault(f.Output.LegPattern, legCtx, leg.ID+"-findings.md")
 				outputPath := filepath.Join(outputDir, legPattern)
 				agentSuffix := resolveFormulaLegAgent(leg.Agent, formulaRunAgent, f.Agent)
@@ -676,12 +677,11 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 			}
 			synCtx["output_path"] = filepath.Join(outputDir, f.Output.Synthesis)
 		}
-		if rendered, err := renderTemplate(synDesc, synCtx); err != nil {
-			fmt.Printf("%s Failed to render synthesis description: %v\n",
-				style.Dim.Render("Warning:"), err)
-		} else {
-			synDesc = rendered
+		rendered, err := renderTemplate(synDesc, synCtx)
+		if err != nil {
+			return fmt.Errorf("rendering synthesis description: %w", err)
 		}
+		synDesc = rendered
 
 		synArgs := []string{
 			"create",
@@ -703,7 +703,10 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 				style.Dim.Render("Warning:"), err)
 		} else {
 			// Track synthesis with convoy
-			_ = addTrackingRelationWithRetry(townBeads, convoyID, synthesisBeadID)
+			if err := addTrackingRelationWithRetry(townBeads, convoyID, synthesisBeadID); err != nil {
+				fmt.Printf("%s Failed to track synthesis %s for convoy %s: %v\n",
+					style.Dim.Render("Warning:"), synthesisBeadID, convoyID, err)
+			}
 
 			// Add dependencies: synthesis depends on all legs
 			for _, legBeadID := range legBeads {
@@ -866,7 +869,10 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 		}
 
 		// Track the step with the workflow
-		_ = addTrackingRelationWithRetry(townBeads, workflowID, stepBeadID)
+		if err := addTrackingRelationWithRetry(townBeads, workflowID, stepBeadID); err != nil {
+			fmt.Printf("%s Failed to track workflow step %s (%s) for workflow %s: %v\n",
+				style.Dim.Render("Warning:"), step.ID, stepBeadID, workflowID, err)
+		}
 
 		// Wire dependencies: this step depends on its needs
 		for _, needID := range step.Needs {
