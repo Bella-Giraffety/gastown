@@ -962,6 +962,16 @@ func (g *Git) DeleteRemoteBranch(remote, branch string) error {
 	return err
 }
 
+// DeleteRemoteBranchWithLease deletes a remote branch only if it still points to expectedSHA.
+func (g *Git) DeleteRemoteBranchWithLease(remote, branch, expectedSHA string) error {
+	if strings.TrimSpace(expectedSHA) == "" {
+		return fmt.Errorf("expected SHA required for leased remote delete")
+	}
+	ref := "refs/heads/" + branch
+	_, err := g.runWithTimeout(pushTimeout, "push", "--force-with-lease="+ref+":"+expectedSHA, remote, ":"+ref)
+	return err
+}
+
 // HasOpenPR checks whether the given branch has an open pull request on GitHub.
 // Uses the gh CLI to query for open PRs with the branch as head ref.
 // Returns false on any error (fail-open: branch deletion proceeds if gh is unavailable).
@@ -1546,7 +1556,7 @@ func (g *Git) ChangesAlreadyOnBase(base, head string) (bool, error) {
 		return false, err
 	}
 	if CountCherryUnmergedCommits(cherryOut) == 0 {
-		return true, nil
+		return g.mergeWouldNotChangeBase(base, head)
 	}
 
 	noOp, err := g.mergeWouldNotChangeBase(base, head)
