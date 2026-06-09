@@ -99,6 +99,8 @@ cd gastown
 make install
 ```
 
+`make install` puts `gt` in `$HOME/.local/bin`. Put that directory ahead of any stale Go-installed binaries on your `PATH` before verifying the install.
+
 On Linux and Windows, install `gt` and `bd` with Go:
 
 ```bash
@@ -113,11 +115,11 @@ gt version
 bd version
 ```
 
-If `gt` is not found, ensure `$GOPATH/bin` (usually `~/go/bin`) is in your PATH:
+If `gt` or `bd` is not found, ensure the local install directory and `$GOPATH/bin` (usually `~/go/bin`) are in your `PATH`:
 
 ```bash
 # Add to ~/.bashrc, ~/.zshrc, or equivalent
-export PATH="$PATH:$HOME/go/bin"
+export PATH="$HOME/.local/bin:$PATH:$HOME/go/bin"
 ```
 
 ### Step 2: Create Your Workspace
@@ -154,6 +156,8 @@ gt rig add myproject https://github.com/you/repo.git
 ```
 
 ### Step 4: Verify Installation
+
+The full-stack verification below starts Gas Town's tmux-backed services. Install `tmux` first, or use a Linux-like environment such as WSL on Windows, before running this path.
 
 ```bash
 cd ~/gt
