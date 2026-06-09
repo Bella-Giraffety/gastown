@@ -758,11 +758,8 @@ func upStartRefinery(rigName string, r *rig.Rig) agentStartResult {
 		if errors.Is(err, refinery.ErrAlreadyRunning) {
 			return agentStartResult{name: name, ok: true, detail: mgr.SessionName()}
 		}
-		if errors.Is(err, refinery.ErrDisabled) {
-			return agentStartResult{name: name, ok: true, detail: "skipped (refinery disabled)"}
-		}
-		if errors.Is(err, refinery.ErrForkRig) {
-			return agentStartResult{name: name, ok: true, detail: "skipped (fork rig)"}
+		if reason, ok := refineryStartSkipReason(err); ok {
+			return agentStartResult{name: name, ok: true, detail: fmt.Sprintf("skipped (%s)", reason)}
 		}
 		return agentStartResult{name: name, ok: false, detail: err.Error()}
 	}

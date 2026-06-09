@@ -330,6 +330,16 @@ func refineryStartOptions() refinery.StartOptions {
 	return refinery.StartOptions{AllowForkRig: refineryForce}
 }
 
+func refineryStartSkipReason(err error) (string, bool) {
+	if errors.Is(err, refinery.ErrDisabled) {
+		return "refinery disabled", true
+	}
+	if errors.Is(err, refinery.ErrForkRig) {
+		return "fork rig", true
+	}
+	return "", false
+}
+
 func refineryStartError(err error, rigName, action string) error {
 	if errors.Is(err, refinery.ErrDisabled) {
 		return fmt.Errorf("refinery disabled for %s (use 'gt refinery enable %s' to re-enable)", rigName, rigName)
