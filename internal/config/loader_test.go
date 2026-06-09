@@ -697,6 +697,21 @@ func TestResolveAccountConfigDirSelectedAccountRequiresConfig(t *testing.T) {
 	}
 }
 
+func TestResolveAccountConfigDirMalformedConfigFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mayor", "accounts.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(`not json`), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if _, _, err := ResolveAccountConfigDir(path, ""); err == nil {
+		t.Fatal("expected malformed accounts config to fail closed")
+	}
+}
+
 func TestAccountsConfigValidation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -765,16 +765,16 @@ func TestSchedulerConvoyFlagRejection(t *testing.T) {
 	// Create a convoy in HQ.
 	convoyID := createTestBeadOfType(t, hqPath, "Flag rejection convoy", "convoy")
 
-	// Attempt to schedule convoy with task-only flag --ralph.
-	out, err := runGTCmdMayFail(t, gtBinary, hqPath, env, "sling", convoyID, "--ralph")
+	// Attempt to schedule convoy with task-only flag --review-only.
+	out, err := runGTCmdMayFail(t, gtBinary, hqPath, env, "sling", convoyID, "--review-only")
 	if err == nil {
-		t.Fatalf("gt sling %s deferred dispatch (max_polecats > 0) --ralph should fail, but succeeded:\n%s", convoyID, out)
+		t.Fatalf("gt sling %s deferred dispatch (max_polecats > 0) --review-only should fail, but succeeded:\n%s", convoyID, out)
 	}
 	if !strings.Contains(out, "convoy mode does not support") {
 		t.Errorf("expected 'convoy mode does not support' error, got:\n%s", out)
 	}
-	if !strings.Contains(out, "--ralph") {
-		t.Errorf("error should mention --ralph, got:\n%s", out)
+	if !strings.Contains(out, "--review-only") {
+		t.Errorf("error should mention --review-only, got:\n%s", out)
 	}
 }
 
@@ -789,16 +789,16 @@ func TestSchedulerEpicFlagRejection(t *testing.T) {
 	child := createTestBead(t, rig1Path, "Epic child")
 	addBeadDependencyOfType(t, epicID, child, "depends_on", rig1Path)
 
-	// Attempt to schedule epic with task-only flag --account.
-	out, err := runGTCmdMayFail(t, gtBinary, hqPath, env, "sling", epicID, "--account", "foo")
+	// Attempt to schedule epic with task-only flag --review-only.
+	out, err := runGTCmdMayFail(t, gtBinary, hqPath, env, "sling", epicID, "--review-only")
 	if err == nil {
-		t.Fatalf("gt sling %s deferred dispatch (max_polecats > 0) --account foo should fail, but succeeded:\n%s", epicID, out)
+		t.Fatalf("gt sling %s deferred dispatch (max_polecats > 0) --review-only should fail, but succeeded:\n%s", epicID, out)
 	}
 	if !strings.Contains(out, "epic mode does not support") {
 		t.Errorf("expected 'epic mode does not support' error, got:\n%s", out)
 	}
-	if !strings.Contains(out, "--account") {
-		t.Errorf("error should mention --account, got:\n%s", out)
+	if !strings.Contains(out, "--review-only") {
+		t.Errorf("error should mention --review-only, got:\n%s", out)
 	}
 }
 

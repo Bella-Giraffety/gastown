@@ -892,6 +892,9 @@ func ResolveAccountConfigDir(accountsPath, accountFlag string) (configDir, handl
 	// Load accounts config
 	cfg, loadErr := LoadAccountsConfig(accountsPath)
 	if loadErr != nil {
+		if !errors.Is(loadErr, ErrNotFound) {
+			return "", "", fmt.Errorf("loading accounts config: %w", loadErr)
+		}
 		if accountFlag != "" {
 			return "", "", fmt.Errorf("account '%s' requested but accounts config unavailable: %w", accountFlag, loadErr)
 		}
