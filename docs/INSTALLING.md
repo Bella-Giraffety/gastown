@@ -145,12 +145,8 @@ git config --global user.email "you@example.com"
 # Create a Gas Town workspace (HQ)
 gt install ~/gt --shell --git
 
-# This creates:
-#   ~/gt/
-#   ├── CLAUDE.md          # Identity anchor (run gt prime)
-#   ├── mayor/             # Mayor config and state
-#   └── .beads/            # Town-level issue tracking
-# Rigs are added later as top-level directories under ~/gt/<rig>.
+# This creates the HQ at ~/gt with Gas Town config, role state, and town beads.
+# Rigs are added later as top-level directories such as ~/gt/<rig>.
 ```
 
 ### Step 3: Add a Project (Rig)
@@ -275,7 +271,7 @@ source ~/.bashrc  # or restart terminal
 
 ### `bd: command not found`
 
-Beads CLI not installed:
+Beads CLI is missing from the selected setup path. Homebrew installs `bd` with `gastown`; Docker includes it inside the container. For Linux, Windows, or source-build paths, install it with Go:
 
 ```bash
 go install github.com/steveyegge/beads/cmd/bd@latest
@@ -344,6 +340,13 @@ gt doctor --fix            # Fix any post-update issues
 ```
 
 For a macOS source build, pull the repository and run `make install` again so the signed-install workaround stays in `$HOME/.local/bin`.
+
+For a Docker checkout, pull the repository, rebuild the image, and restart the service:
+
+```bash
+docker compose build
+docker compose up -d
+```
 
 ## Uninstalling
 
