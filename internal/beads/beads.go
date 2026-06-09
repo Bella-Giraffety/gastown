@@ -753,10 +753,8 @@ func (b *Beads) wrapError(err error, stderr string, args []string) error {
 		return ErrNotInstalled
 	}
 
-	// ErrNotFound is widely used for issue lookups - acceptable exception
-	// Match various "not found" error patterns from bd
-	if strings.Contains(stderr, "not found") || strings.Contains(stderr, "Issue not found") ||
-		strings.Contains(stderr, "no issue found") {
+	// ErrNotFound is widely used for issue lookups - acceptable exception.
+	if isIssueNotFoundError(stderr) {
 		return ErrNotFound
 	}
 
@@ -764,6 +762,27 @@ func (b *Beads) wrapError(err error, stderr string, args []string) error {
 		return fmt.Errorf("bd %s: %s", strings.Join(args, " "), stderr)
 	}
 	return fmt.Errorf("bd %s: %w", strings.Join(args, " "), err)
+}
+
+func isIssueNotFoundError(stderr string) bool {
+	s := strings.ToLower(strings.TrimSpace(stderr))
+	if s == "" {
+		return false
+	}
+	if strings.Contains(s, "database not found") || strings.Contains(s, "table not found") {
+		return false
+	}
+	if strings.Contains(s, "issue not found") || strings.Contains(s, "no issue found") {
+		return true
+	}
+	fields := strings.Fields(s)
+	for i := 0; i+2 < len(fields); i++ {
+		id := strings.Trim(fields[i], " .,;:'\"")
+		if strings.Contains(id, "-") && fields[i+1] == "not" && strings.Trim(fields[i+2], " .,;:'\"") == "found" {
+			return true
+		}
+	}
+	return false
 }
 
 // isSubprocessCrash returns true if the error indicates the subprocess crashed

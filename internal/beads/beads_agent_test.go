@@ -381,11 +381,15 @@ case "$cmd" in
     exit 0
     ;;
   show)
+    if [ -n "$MOCK_BD_SHOW_ERROR" ]; then
+      echo "$MOCK_BD_SHOW_ERROR" >&2
+      exit 1
+    fi
     if [ -n "$MOCK_BD_SHOW_OUTPUT" ]; then
       printf '%s\n' "$MOCK_BD_SHOW_OUTPUT"
       exit 0
     fi
-    echo 'not found' >&2
+    echo 'Issue not found' >&2
     exit 1
     ;;
   slot|config|migrate|init|update)
@@ -557,6 +561,86 @@ func TestUpdate_AgentShapedWorkBeadUsesRigRootWhenTownAgentMissing(t *testing.T)
 	}
 	if !strings.Contains(logOutput, "args=update ho-homelab-polecat-cleanup --status=in_progress") {
 		t.Fatalf("mock bd log missing rig update call:\n%s", logOutput)
+	}
+}
+
+func TestUpdate_AgentShapedWorkBeadUsesRigRootWhenTownRecordIsNotAgent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("path assertions are Unix-oriented")
+	}
+
+	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	rigDir := filepath.Join(townRoot, "homelab")
+	rigBeadsDir := filepath.Join(rigDir, ".beads")
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), townBeadsDir, rigBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRoutes(townBeadsDir, []Route{{Prefix: "hq-", Path: "."}, {Prefix: "ho-", Path: "homelab"}}); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	logPath := filepath.Join(townRoot, "bd.log")
+	installMockBDCreateRecorder(t, logPath)
+	t.Setenv("MOCK_BD_SHOW_OUTPUT", `[{"id":"ho-homelab-polecat-cleanup","title":"not an agent","issue_type":"task","labels":[]}]`)
+
+	bd := NewWithBeadsDir(rigDir, rigBeadsDir)
+	status := "in_progress"
+	if err := bd.Update("ho-homelab-polecat-cleanup", UpdateOptions{Status: &status}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	logOutput := readMockBDLog(t, logPath)
+	if !strings.Contains(logOutput, "beads_dir="+rigBeadsDir) {
+		t.Fatalf("mock bd log missing rig BEADS_DIR:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, "args=update ho-homelab-polecat-cleanup --status=in_progress") {
+		t.Fatalf("mock bd log missing rig update call:\n%s", logOutput)
+	}
+}
+
+func TestUpdate_AgentShapedWorkBeadFailsClosedOnTownLookupError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("path assertions are Unix-oriented")
+	}
+
+	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	rigDir := filepath.Join(townRoot, "homelab")
+	rigBeadsDir := filepath.Join(rigDir, ".beads")
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), townBeadsDir, rigBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRoutes(townBeadsDir, []Route{{Prefix: "hq-", Path: "."}, {Prefix: "ho-", Path: "homelab"}}); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	logPath := filepath.Join(townRoot, "bd.log")
+	installMockBDCreateRecorder(t, logPath)
+	t.Setenv("MOCK_BD_SHOW_ERROR", "database not found")
+
+	bd := NewWithBeadsDir(rigDir, rigBeadsDir)
+	status := "in_progress"
+	if err := bd.Update("ho-homelab-polecat-cleanup", UpdateOptions{Status: &status}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	logOutput := readMockBDLog(t, logPath)
+	if strings.Contains(logOutput, "beads_dir="+rigBeadsDir) {
+		t.Fatalf("lookup error fell back to rig BEADS_DIR:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, "beads_dir="+townBeadsDir) {
+		t.Fatalf("mock bd log missing town BEADS_DIR:\n%s", logOutput)
 	}
 }
 
