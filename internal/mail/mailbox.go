@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	beadsdk "github.com/steveyegge/beads"
 	"github.com/gofrs/flock"
+	beadsdk "github.com/steveyegge/beads"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/runtime"
 	"github.com/steveyegge/gastown/internal/telemetry"
@@ -259,67 +259,74 @@ func (m *Mailbox) listFromDir(beadsDir string) ([]*Message, error) {
 // Protocol/lifecycle messages are stored as wisps by shouldBeWisp(), but bd list only
 // queries the issues table. Uses bd sql --json for full wisp data.
 func (m *Mailbox) listWispMessages(beadsDir string, identities []string, seen map[string]bool) []*Message {
-	var messages []*Message
-
-	// Query 3a: assignee match via SQL on wisps table
-	for _, id := range identities {
-		wispMsgs := m.queryWispMessagesByAssignee(beadsDir, id)
-		for _, bm := range wispMsgs {
-			if seen[bm.ID] {
-				continue
-			}
-			if bm.Status == "open" || bm.Status == "hooked" {
-				seen[bm.ID] = true
-				messages = append(messages, bm.ToMessage())
-			}
-		}
+	if len(identities) == 0 {
+		return nil
 	}
 
-	// Query 3b: CC match via SQL on wisps table
+	identitySet := make(map[string]bool, len(identities))
+	ccLabelSet := make(map[string]bool, len(identities))
 	for _, id := range identities {
-		wispMsgs := m.queryWispMessagesByCC(beadsDir, id)
-		for _, bm := range wispMsgs {
-			if seen[bm.ID] {
-				continue
-			}
-			if bm.Status == "open" {
-				seen[bm.ID] = true
-				messages = append(messages, bm.ToMessage())
+		identitySet[id] = true
+		ccLabelSet["cc:"+id] = true
+	}
+
+	wispMsgs := m.queryWispMessages(beadsDir, identities)
+	messages := make([]*Message, 0, len(wispMsgs))
+	for _, bm := range wispMsgs {
+		if seen[bm.ID] {
+			continue
+		}
+
+		assigneeMatch := identitySet[bm.Assignee] && (bm.Status == "open" || bm.Status == "hooked")
+		ccMatch := false
+		if bm.Status == "open" {
+			for label := range ccLabelSet {
+				if bm.HasLabel(label) {
+					ccMatch = true
+					break
+				}
 			}
 		}
+		if !assigneeMatch && !ccMatch {
+			continue
+		}
+
+		seen[bm.ID] = true
+		messages = append(messages, bm.ToMessage())
 	}
 
 	return messages
 }
 
-// queryWispMessagesByAssignee queries wisps table for messages assigned to identity.
-func (m *Mailbox) queryWispMessagesByAssignee(beadsDir, identity string) []BeadsMessage {
+// queryWispMessages queries wisps table once for all direct and CC identity variants.
+func (m *Mailbox) queryWispMessages(beadsDir string, identities []string) []BeadsMessage {
+	if len(identities) == 0 {
+		return nil
+	}
+	ccLabels := make([]string, 0, len(identities))
+	for _, id := range identities {
+		ccLabels = append(ccLabels, "cc:"+id)
+	}
+
 	query := fmt.Sprintf(
 		"SELECT w.id, w.title, w.description, w.status, w.priority, w.assignee, w.created_at, w.updated_at, "+
 			"GROUP_CONCAT(al.label) as labels_csv "+
 			"FROM wisps w "+
-			"JOIN wisp_labels l ON w.id = l.issue_id "+
+			"JOIN wisp_labels msg ON w.id = msg.issue_id "+
 			"JOIN wisp_labels al ON w.id = al.issue_id "+
-			"WHERE l.label = 'gt:message' AND w.status IN ('open', 'hooked') AND w.assignee = '%s' "+
+			"WHERE msg.label = 'gt:message' AND w.status IN ('open', 'hooked') "+
+			"AND (w.assignee IN (%s) OR EXISTS (SELECT 1 FROM wisp_labels cl WHERE cl.issue_id = w.id AND cl.label IN (%s))) "+
 			"GROUP BY w.id, w.title, w.description, w.status, w.priority, w.assignee, w.created_at, w.updated_at",
-		escapeSQLString(identity))
+		sqlStringList(identities), sqlStringList(ccLabels))
 	return m.runWispSQL(beadsDir, query)
 }
 
-// queryWispMessagesByCC queries wisps table for messages where identity is CC'd.
-func (m *Mailbox) queryWispMessagesByCC(beadsDir, identity string) []BeadsMessage {
-	ccLabel := "cc:" + identity
-	query := fmt.Sprintf(
-		"SELECT w.id, w.title, w.description, w.status, w.priority, w.assignee, w.created_at, w.updated_at, "+
-			"GROUP_CONCAT(al.label) as labels_csv "+
-			"FROM wisps w "+
-			"JOIN wisp_labels l1 ON w.id = l1.issue_id "+
-			"JOIN wisp_labels l2 ON w.id = l2.issue_id "+
-			"JOIN wisp_labels al ON w.id = al.issue_id "+
-			"WHERE l1.label = 'gt:message' AND l2.label = '%s' AND w.status IN ('open', 'hooked') "+
-			"GROUP BY w.id, w.title, w.description, w.status, w.priority, w.assignee, w.created_at, w.updated_at",
-		escapeSQLString(ccLabel))
-	return m.runWispSQL(beadsDir, query)
+func sqlStringList(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, "'"+escapeSQLString(value)+"'")
+	}
+	return strings.Join(quoted, ",")
 }
 
 // wispSQLRow represents a row from the wisps SQL query with aggregated labels.

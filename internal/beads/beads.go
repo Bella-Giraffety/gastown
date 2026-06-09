@@ -1160,6 +1160,49 @@ func (b *Beads) ShowMultiple(ids []string) (map[string]*Issue, error) {
 		return make(map[string]*Issue), nil
 	}
 
+	baseDir := b.getResolvedBeadsDir()
+	townRoot := b.getTownRoot()
+	groups := make(map[string][]string)
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		targetDir := ResolveRoutingTarget(townRoot, id, baseDir)
+		groups[targetDir] = append(groups[targetDir], id)
+	}
+
+	if len(groups) > 1 || groups[baseDir] == nil {
+		result := make(map[string]*Issue, len(ids))
+		for targetDir, group := range groups {
+			var (
+				issues map[string]*Issue
+				err    error
+			)
+			if targetDir == baseDir {
+				issues, err = b.showMultipleLocal(group)
+			} else {
+				issues, err = NewWithBeadsDir(filepath.Dir(targetDir), targetDir).ShowMultiple(group)
+			}
+			if err != nil {
+				return nil, err
+			}
+			for id, issue := range issues {
+				result[id] = issue
+			}
+		}
+		return result, nil
+	}
+
+	return b.showMultipleLocal(groups[baseDir])
+}
+
+func (b *Beads) showMultipleLocal(ids []string) (map[string]*Issue, error) {
+	if len(ids) == 0 {
+		return make(map[string]*Issue), nil
+	}
+
 	if b.store != nil {
 		return b.storeShowMultiple(ids)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,72 @@ func TestNewMailboxBeads(t *testing.T) {
 	}
 	if m.legacy {
 		t.Error("NewMailboxBeads should not create legacy mailbox")
+	}
+}
+
+func TestMailboxListWispMessagesBatchesIdentityVariants(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping shell stub test on Windows")
+	}
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "bd.log")
+	bdPath := filepath.Join(binDir, "bd")
+	script := `#!/bin/sh
+echo "$@" >> "` + logPath + `"
+case "$1" in
+  sql)
+    echo '[
+      {"id":"w-direct-open","title":"Direct open","description":"","status":"open","priority":2,"assignee":"mayor/","created_at":"2026-06-09T00:00:00Z","updated_at":"2026-06-09T00:00:00Z","labels_csv":"gt:message,from:deacon/"},
+      {"id":"w-direct-hooked","title":"Direct hooked","description":"","status":"hooked","priority":2,"assignee":"mayor","created_at":"2026-06-09T00:00:00Z","updated_at":"2026-06-09T00:00:00Z","labels_csv":"gt:message,from:deacon/"},
+      {"id":"w-cc-open","title":"CC open","description":"","status":"open","priority":2,"assignee":"other","created_at":"2026-06-09T00:00:00Z","updated_at":"2026-06-09T00:00:00Z","labels_csv":"gt:message,cc:mayor/,from:deacon/"},
+      {"id":"w-cc-hooked","title":"CC hooked","description":"","status":"hooked","priority":2,"assignee":"other","created_at":"2026-06-09T00:00:00Z","updated_at":"2026-06-09T00:00:00Z","labels_csv":"gt:message,cc:mayor/,from:deacon/"},
+      {"id":"w-seen","title":"Seen","description":"","status":"open","priority":2,"assignee":"mayor/","created_at":"2026-06-09T00:00:00Z","updated_at":"2026-06-09T00:00:00Z","labels_csv":"gt:message,from:deacon/"}
+    ]'
+    ;;
+  *)
+    echo '[]'
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	m := NewMailboxBeads("mayor/", binDir)
+	seen := map[string]bool{"w-seen": true}
+	messages := m.listWispMessages(binDir, []string{"mayor/", "mayor"}, seen)
+
+	got := make(map[string]bool)
+	for _, msg := range messages {
+		got[msg.ID] = true
+	}
+	for _, want := range []string{"w-direct-open", "w-direct-hooked", "w-cc-open"} {
+		if !got[want] {
+			t.Errorf("missing message %s from batched wisp results", want)
+		}
+	}
+	for _, unwanted := range []string{"w-cc-hooked", "w-seen"} {
+		if got[unwanted] {
+			t.Errorf("unexpected message %s in batched wisp results", unwanted)
+		}
+	}
+
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(logData)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("bd sql calls = %d, want 1; log:\n%s", len(lines), logData)
+	}
+	line := lines[0]
+	for _, want := range []string{"w.assignee IN", "mayor/", "mayor", "cc:mayor/", "cc:mayor"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("batched wisp SQL missing %q; got %q", want, line)
+		}
 	}
 }
 
@@ -703,4 +770,3 @@ func TestMailboxLegacyAtomicArchive(t *testing.T) {
 		t.Errorf("Archived message ID = %q, want msg-002", archived[0].ID)
 	}
 }
-

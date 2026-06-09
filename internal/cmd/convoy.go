@@ -536,6 +536,86 @@ func bdDepListRawIDs(dir, issueID, direction, depType string) ([]string, error) 
 	return ids, nil
 }
 
+// bdDepListRawIDsBatch queries raw dependency IDs for multiple issues in one SQL call.
+// The returned map is keyed by the requested issue ID for the chosen direction.
+func bdDepListRawIDsBatch(dir string, issueIDs []string, direction, depType string) (map[string][]string, error) {
+	result := make(map[string][]string)
+	if len(issueIDs) == 0 {
+		return result, nil
+	}
+
+	var selectCol, whereCol string
+	if direction == "up" {
+		selectCol = "issue_id"
+		whereCol = "depends_on_id"
+	} else {
+		selectCol = "depends_on_id"
+		whereCol = "issue_id"
+	}
+
+	uniqueIDs := make([]string, 0, len(issueIDs))
+	seenInputs := make(map[string]bool, len(issueIDs))
+	for _, id := range issueIDs {
+		if !isValidBeadID(id) {
+			return nil, fmt.Errorf("invalid bead ID: %q", id)
+		}
+		if seenInputs[id] {
+			continue
+		}
+		seenInputs[id] = true
+		uniqueIDs = append(uniqueIDs, id)
+		result[id] = nil
+	}
+
+	query := fmt.Sprintf("SELECT issue_id, depends_on_id FROM dependencies WHERE %s IN (%s)", whereCol, sqlBeadIDList(uniqueIDs))
+	if depType != "" {
+		if !isValidBeadID(depType) {
+			return nil, fmt.Errorf("invalid dep type: %q", depType)
+		}
+		query += fmt.Sprintf(" AND type = '%s'", depType)
+	}
+
+	out, err := runBdJSON(dir, "sql", query, "--json")
+	if err != nil {
+		return nil, fmt.Errorf("bd sql for batch deps: %w", err)
+	}
+
+	var rows []map[string]string
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return nil, fmt.Errorf("parsing batch dep sql: %w", err)
+	}
+
+	seenByKey := make(map[string]map[string]bool)
+	for _, row := range rows {
+		key := beads.ExtractIssueID(row[whereCol])
+		id := beads.ExtractIssueID(row[selectCol])
+		if key == "" || id == "" {
+			continue
+		}
+		if !seenInputs[key] {
+			continue
+		}
+		if seenByKey[key] == nil {
+			seenByKey[key] = make(map[string]bool)
+		}
+		if seenByKey[key][id] {
+			continue
+		}
+		seenByKey[key][id] = true
+		result[key] = append(result[key], id)
+	}
+
+	return result, nil
+}
+
+func sqlBeadIDList(ids []string) string {
+	quoted := make([]string, 0, len(ids))
+	for _, id := range ids {
+		quoted = append(quoted, "'"+id+"'")
+	}
+	return strings.Join(quoted, ",")
+}
+
 // isValidBeadID checks that a string is safe for SQL interpolation in dep queries.
 // Bead IDs contain only alphanumeric chars, hyphens, dots, and underscores.
 func isValidBeadID(s string) bool {
@@ -1492,31 +1572,24 @@ func findStrandedConvoys(townBeads string) ([]strandedConvoyInfo, error) {
 		return nil, fmt.Errorf("listing convoys: %w", err)
 	}
 
-	var convoys []struct {
+	type convoyListItem struct {
 		ID          string `json:"id"`
 		Title       string `json:"title"`
 		CreatedAt   string `json:"created_at"`
 		Description string `json:"description"`
 	}
+	var convoys []convoyListItem
 	if err := json.Unmarshal(out, &convoys); err != nil {
 		return nil, fmt.Errorf("parsing convoy list: %w", err)
 	}
 
-	// Check each convoy for stranded state
-	for _, convoy := range convoys {
+	appendStranded := func(convoy convoyListItem, tracked []trackedIssueInfo, scheduledSet map[string]bool) {
 		// Extract base_branch from convoy description fields
 		var baseBranch string
 		if cf := beads.ParseConvoyFields(&beads.Issue{Description: convoy.Description}); cf != nil {
 			baseBranch = cf.BaseBranch
 		}
 
-		tracked, err := getTrackedIssues(townBeads, convoy.ID)
-		if err != nil {
-			// Write to stderr explicitly — stdout may be consumed as JSON
-			// by the daemon's JSON parser (fixes #2142).
-			fmt.Fprintf(os.Stderr, "⚠ Warning: skipping convoy %s: %v\n", convoy.ID, err)
-			continue
-		}
 		// Empty convoys (0 tracked issues) are stranded — they need
 		// attention (auto-close via convoy check or manual cleanup).
 		if len(tracked) == 0 {
@@ -1529,20 +1602,13 @@ func findStrandedConvoys(townBeads string) ([]strandedConvoyInfo, error) {
 				CreatedAt:    convoy.CreatedAt,
 				BaseBranch:   baseBranch,
 			})
-			continue
+			return
 		}
 
 		// Find ready issues (open, not blocked, no live assignee, slingable).
 		// Town-level beads (hq- prefix with path=".") are excluded because
 		// they can't be dispatched via gt sling -- they're handled by the deacon.
 		// Non-slingable types (epics, convoys, etc.) are also excluded.
-
-		// Batch-check scheduling status for all tracked issues (single DB query).
-		var trackedIDs []string
-		for _, t := range tracked {
-			trackedIDs = append(trackedIDs, t.ID)
-		}
-		scheduledSet := areScheduled(trackedIDs)
 
 		var readyIssues []string
 		for _, t := range tracked {
@@ -1580,6 +1646,53 @@ func findStrandedConvoys(townBeads string) ([]strandedConvoyInfo, error) {
 				BaseBranch:   baseBranch,
 			})
 		}
+	}
+
+	convoyIDs := make([]string, 0, len(convoys))
+	for _, convoy := range convoys {
+		convoyIDs = append(convoyIDs, convoy.ID)
+	}
+
+	trackedByConvoy, batchErr := bdDepListRawIDsBatch(townBeads, convoyIDs, "down", "tracks")
+	if batchErr != nil {
+		// Preserve the older per-convoy fallback path when raw batch SQL is unavailable.
+		for _, convoy := range convoys {
+			tracked, err := getTrackedIssues(townBeads, convoy.ID)
+			if err != nil {
+				// Write to stderr explicitly — stdout may be consumed as JSON
+				// by the daemon's JSON parser (fixes #2142).
+				fmt.Fprintf(os.Stderr, "⚠ Warning: skipping convoy %s: %v\n", convoy.ID, err)
+				continue
+			}
+			trackedIDs := make([]string, 0, len(tracked))
+			for _, t := range tracked {
+				trackedIDs = append(trackedIDs, t.ID)
+			}
+			appendStranded(convoy, tracked, areScheduled(trackedIDs))
+		}
+		return stranded, nil
+	}
+
+	allTrackedIDs := make([]string, 0)
+	seenTracked := make(map[string]bool)
+	for _, ids := range trackedByConvoy {
+		for _, id := range ids {
+			if seenTracked[id] {
+				continue
+			}
+			seenTracked[id] = true
+			allTrackedIDs = append(allTrackedIDs, id)
+		}
+	}
+
+	freshDetails := getIssueDetailsBatch(allTrackedIDs)
+	workersMap := getWorkersForIssues(openTrackedIssueIDs(allTrackedIDs, freshDetails))
+	scheduledSet := areScheduled(allTrackedIDs)
+
+	// Check each convoy for stranded state using the shared scan data.
+	for _, convoy := range convoys {
+		tracked := trackedIssueInfosFromIDs(trackedByConvoy[convoy.ID], freshDetails, workersMap)
+		appendStranded(convoy, tracked, scheduledSet)
 	}
 
 	return stranded, nil
@@ -2216,6 +2329,49 @@ func applyFreshIssueDetails(dep *trackedDependency, details *issueDetails) {
 	dep.Labels = details.Labels
 }
 
+func openTrackedIssueIDs(trackedIDs []string, freshDetails map[string]*issueDetails) []string {
+	openIssueIDs := make([]string, 0, len(trackedIDs))
+	for _, id := range trackedIDs {
+		if details, ok := freshDetails[id]; ok && details.Status == "closed" {
+			continue
+		}
+		openIssueIDs = append(openIssueIDs, id)
+	}
+	return openIssueIDs
+}
+
+func trackedIssueInfosFromIDs(trackedIDs []string, freshDetails map[string]*issueDetails, workersMap map[string]*workerInfo) []trackedIssueInfo {
+	tracked := make([]trackedIssueInfo, 0, len(trackedIDs))
+	for _, id := range trackedIDs {
+		dep := trackedDependency{
+			ID:             id,
+			DependencyType: "tracks",
+		}
+		if details, ok := freshDetails[id]; ok {
+			applyFreshIssueDetails(&dep, details)
+		} else {
+			dep.Status = trackedStatusUnknown
+		}
+
+		info := trackedIssueInfo{
+			ID:        dep.ID,
+			Title:     dep.Title,
+			Status:    dep.Status,
+			Type:      dep.DependencyType,
+			IssueType: dep.IssueType,
+			Blocked:   dep.Blocked,
+			Assignee:  dep.Assignee,
+			Labels:    dep.Labels,
+		}
+		if worker, ok := workersMap[dep.ID]; ok {
+			info.Worker = worker.Worker
+			info.WorkerAge = worker.Age
+		}
+		tracked = append(tracked, info)
+	}
+	return tracked
+}
+
 // getTrackedIssues gets issues tracked by a convoy with fresh cross-rig details.
 // Returns issue details including status, type, and worker info.
 //
@@ -2250,57 +2406,10 @@ func getTrackedIssues(townBeads, convoyID string) ([]trackedIssueInfo, error) {
 		return nil, nil
 	}
 
-	// Fetch fresh issue details via bd show (uses prefix routing for cross-rig).
+	// Fetch fresh issue details via batch bd show (uses prefix routing for cross-rig).
 	freshDetails := getIssueDetailsBatch(trackedIDs)
-
-	// Build tracked dependency structs from fresh details
-	var deps []trackedDependency
-	for _, id := range trackedIDs {
-		dep := trackedDependency{
-			ID:             id,
-			DependencyType: "tracks",
-		}
-		if details, ok := freshDetails[id]; ok {
-			applyFreshIssueDetails(&dep, details)
-		} else {
-			dep.Status = trackedStatusUnknown
-		}
-		deps = append(deps, dep)
-	}
-
-	// Collect non-closed issue IDs for worker lookup
-	openIssueIDs := make([]string, 0, len(deps))
-	for _, dep := range deps {
-		if dep.Status != "closed" {
-			openIssueIDs = append(openIssueIDs, dep.ID)
-		}
-	}
-	workersMap := getWorkersForIssues(openIssueIDs)
-
-	// Build result
-	var tracked []trackedIssueInfo
-	for _, dep := range deps {
-		info := trackedIssueInfo{
-			ID:        dep.ID,
-			Title:     dep.Title,
-			Status:    dep.Status,
-			Type:      dep.DependencyType,
-			IssueType: dep.IssueType,
-			Blocked:   dep.Blocked,
-			Assignee:  dep.Assignee,
-			Labels:    dep.Labels,
-		}
-
-		// Add worker info if available
-		if worker, ok := workersMap[dep.ID]; ok {
-			info.Worker = worker.Worker
-			info.WorkerAge = worker.Age
-		}
-
-		tracked = append(tracked, info)
-	}
-
-	return tracked, nil
+	workersMap := getWorkersForIssues(openTrackedIssueIDs(trackedIDs, freshDetails))
+	return trackedIssueInfosFromIDs(trackedIDs, freshDetails, workersMap), nil
 }
 
 // bdDepListTracked runs `bd dep list <convoyID> --direction=down --type=tracks --json`
@@ -2434,6 +2543,17 @@ func getIssueDetailsBatch(issueIDs []string) map[string]*issueDetails {
 
 	townRoot, _ := workspace.FindFromCwdOrError()
 	b := beads.New(townRoot)
+	issues, err := b.ShowMultiple(issueIDs)
+	if err == nil {
+		for id, issue := range issues {
+			if issue == nil {
+				continue
+			}
+			result[id] = issueToDetails(issue)
+		}
+		return result
+	}
+
 	for _, id := range issueIDs {
 		issue, err := b.Show(id)
 		if err != nil || issue == nil {

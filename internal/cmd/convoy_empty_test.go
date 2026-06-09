@@ -182,14 +182,17 @@ case "$pos0" in
     exit 0
     ;;
   sql)
-    # bdDepListRawIDs: SELECT depends_on_id FROM dependencies WHERE issue_id = '<id>' AND type = 'tracks'
-    case "$*" in
-      *"issue_id = 'hq-empty-mix'"*)
-        echo '[]'
-        ;;
-      *"issue_id = 'hq-feed-mix'"*)
-        echo '[{"depends_on_id":"gt-ready1"}]'
-        ;;
+	    # Batched stranded dependency lookup: SELECT issue_id, depends_on_id ... issue_id IN (...)
+	    case "$*" in
+	      *"hq-empty-mix"*"hq-feed-mix"*)
+	        echo '[{"issue_id":"hq-feed-mix","depends_on_id":"gt-ready1"}]'
+	        ;;
+	      *"issue_id = 'hq-empty-mix'"*)
+	        echo '[]'
+	        ;;
+	      *"issue_id = 'hq-feed-mix'"*)
+	        echo '[{"depends_on_id":"gt-ready1"}]'
+	        ;;
       *)
         echo '[]'
         ;;
@@ -287,6 +290,103 @@ esac
 	}
 }
 
+func TestFindStrandedConvoys_BatchesDependencySQLAndIssueDetails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping convoy test on Windows")
+	}
+
+	binDir := t.TempDir()
+	townRoot := t.TempDir()
+	beadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	rigBeadsDir := filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads")
+	if err := os.MkdirAll(rigBeadsDir, 0755); err != nil {
+		t.Fatalf("mkdir rig .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(`{"prefix":"gt-","path":"gastown/mayor/rig"}`+"\n"), 0644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	logPath := filepath.Join(binDir, "bd.log")
+	bdPath := filepath.Join(binDir, "bd")
+	script := `#!/bin/sh
+echo "$@" >> "` + logPath + `"
+
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+
+case "$cmd" in
+  list)
+    case "$*" in
+      *"--type=convoy"*)
+        echo '[{"id":"hq-batch1","title":"Batch one"},{"id":"hq-batch2","title":"Batch two"}]'
+        ;;
+      *)
+        echo '[]'
+        ;;
+    esac
+    ;;
+  sql)
+    echo '[{"issue_id":"hq-batch1","depends_on_id":"gt-ready1"},{"issue_id":"hq-batch2","depends_on_id":"gt-ready2"}]'
+    ;;
+  show)
+    echo '[{"id":"gt-ready1","title":"Ready 1","status":"open","issue_type":"task","assignee":"","blocked_by":[],"blocked_by_count":0,"dependencies":[]},{"id":"gt-ready2","title":"Ready 2","status":"open","issue_type":"task","assignee":"","blocked_by":[],"blocked_by_count":0,"dependencies":[]}]'
+    ;;
+  *)
+    echo '[]'
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stranded, err := findStrandedConvoys(townRoot)
+	if err != nil {
+		t.Fatalf("findStrandedConvoys() error: %v", err)
+	}
+	if len(stranded) != 2 {
+		t.Fatalf("expected 2 stranded convoys, got %d", len(stranded))
+	}
+
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	var sqlLines, showLines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(logData)), "\n") {
+		if strings.HasPrefix(line, "sql ") {
+			sqlLines = append(sqlLines, line)
+		}
+		if strings.Contains(line, "show --json") {
+			showLines = append(showLines, line)
+		}
+	}
+	if len(sqlLines) != 1 {
+		t.Fatalf("dependency SQL calls = %d, want 1; log:\n%s", len(sqlLines), logData)
+	}
+	for _, want := range []string{"hq-batch1", "hq-batch2", "depends_on_id", "issue_id IN"} {
+		if !strings.Contains(sqlLines[0], want) {
+			t.Errorf("batch dependency SQL missing %q; got %q", want, sqlLines[0])
+		}
+	}
+	if len(showLines) != 1 {
+		t.Fatalf("issue detail show calls = %d, want 1; log:\n%s", len(showLines), logData)
+	}
+	if !strings.Contains(showLines[0], "gt-ready1") || !strings.Contains(showLines[0], "gt-ready2") {
+		t.Errorf("batch show did not include both tracked issues; got %q", showLines[0])
+	}
+}
+
 // TestFindStrandedConvoys_StuckConvoy verifies that a convoy with tracked
 // issues but none ready (stuck) is included in the stranded list with
 // TrackedCount > 0 and ReadyCount == 0, preventing accidental auto-close.
@@ -324,9 +424,9 @@ case "$pos0" in
     ;;
   sql)
     # bdDepListRawIDs: return tracked bead IDs for hq-stuck1
-    echo '[{"depends_on_id":"gt-busy1"},{"depends_on_id":"gt-busy2"}]'
-    exit 0
-    ;;
+	    echo '[{"issue_id":"hq-stuck1","depends_on_id":"gt-busy1"},{"issue_id":"hq-stuck1","depends_on_id":"gt-busy2"}]'
+	    exit 0
+	    ;;
   dep)
     # All tracked issues are open but blocked — none are ready
     echo '[{"id":"gt-busy1","title":"Blocked issue 1","status":"open","issue_type":"task","assignee":"","dependency_type":"tracks"},{"id":"gt-busy2","title":"Blocked issue 2","status":"open","issue_type":"task","assignee":"","dependency_type":"tracks"}]'

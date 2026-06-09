@@ -193,3 +193,38 @@ func TestFormatInjectOutput(t *testing.T) {
 		})
 	}
 }
+
+type countingMailLister struct {
+	calls    int
+	messages []*mail.Message
+}
+
+func (l *countingMailLister) List() ([]*mail.Message, error) {
+	l.calls++
+	return l.messages, nil
+}
+
+func TestLoadMailSnapshotListsOnce(t *testing.T) {
+	lister := &countingMailLister{messages: []*mail.Message{
+		{ID: "m1", Read: false},
+		{ID: "m2", Read: true},
+		{ID: "m3", Read: false},
+	}}
+
+	snapshot, err := loadMailSnapshot(lister)
+	if err != nil {
+		t.Fatalf("loadMailSnapshot() error: %v", err)
+	}
+	if lister.calls != 1 {
+		t.Fatalf("List() calls = %d, want 1", lister.calls)
+	}
+	if snapshot.total != 3 {
+		t.Errorf("total = %d, want 3", snapshot.total)
+	}
+	if snapshot.unreadCount != 2 {
+		t.Errorf("unreadCount = %d, want 2", snapshot.unreadCount)
+	}
+	if len(snapshot.unread) != 2 || snapshot.unread[0].ID != "m1" || snapshot.unread[1].ID != "m3" {
+		t.Errorf("unread messages = %v, want [m1 m3]", snapshot.unread)
+	}
+}

@@ -45,15 +45,15 @@ func runMailCheck(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting mailbox: %w", err)
 	}
 
-	// Count unread
-	_, unread, err := mailbox.Count()
+	snapshot, err := loadMailSnapshot(mailbox)
 	if err != nil {
 		if mailCheckInject {
-			fmt.Fprintf(os.Stderr, "gt mail check: count error for %s: %v\n", address, err)
+			fmt.Fprintf(os.Stderr, "gt mail check: list error for %s: %v\n", address, err)
 			return nil
 		}
-		return fmt.Errorf("counting messages: %w", err)
+		return fmt.Errorf("listing messages: %w", err)
 	}
+	unread := snapshot.unreadCount
 
 	// JSON output
 	if mailCheckJSON {
@@ -90,11 +90,7 @@ func runMailCheck(cmd *cobra.Command, args []string) error {
 		}
 
 		if unread > 0 {
-			messages, listErr := mailbox.ListUnread()
-			if listErr != nil {
-				fmt.Fprintf(os.Stderr, "gt mail check: could not list unread for %s: %v\n", address, listErr)
-				return nil
-			}
+			messages := snapshot.unread
 			fmt.Print(formatInjectOutput(messages))
 			// Ack after output so message is delivered before being marked acked.
 			if ackErr := mailbox.AcknowledgeDeliveries(address, messages); ackErr != nil {

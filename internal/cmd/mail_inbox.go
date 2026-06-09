@@ -53,20 +53,15 @@ func runMailInbox(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get messages
-	// --all is the default behavior (shows all messages)
-	// --unread filters to only unread messages
-	var messages []*mail.Message
-	if mailInboxUnread {
-		messages, err = mailbox.ListUnread()
-	} else {
-		messages, err = mailbox.List()
-	}
+	// Load once, then derive display/filter counts from the same snapshot.
+	// --all is the default behavior; --unread only changes display/ack output.
+	snapshot, err := loadMailSnapshot(mailbox)
 	if err != nil {
 		return fmt.Errorf("listing messages: %w", err)
 	}
-	if messages == nil {
-		messages = make([]*mail.Message, 0)
+	messages := snapshot.messages
+	if mailInboxUnread {
+		messages = snapshot.unread
 	}
 
 	// JSON output
@@ -83,13 +78,8 @@ func runMailInbox(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Human-readable output
-	total, unread, err := mailbox.Count()
-	if err != nil {
-		style.PrintWarning("could not count messages: %v", err)
-	}
 	fmt.Printf("%s Inbox: %s (%d messages, %d unread)\n\n",
-		style.Bold.Render("📬"), address, total, unread)
+		style.Bold.Render("📬"), address, snapshot.total, snapshot.unreadCount)
 
 	if len(messages) == 0 {
 		fmt.Printf("  %s\n", style.Dim.Render("(no messages)"))

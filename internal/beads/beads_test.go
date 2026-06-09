@@ -89,6 +89,96 @@ func TestCreateOptionsRig(t *testing.T) {
 	}
 }
 
+func TestShowMultipleRoutesByBeadsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping shell stub test on Windows")
+	}
+
+	tmp := t.TempDir()
+	townRoot := filepath.Join(tmp, "town")
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("create mayor dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	townBeads := filepath.Join(townRoot, ".beads")
+	rigBeads := filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads")
+	for _, dir := range []string{townBeads, rigBeads} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("create beads dir %s: %v", dir, err)
+		}
+	}
+	routes := `{"prefix":"hq-","path":"."}` + "\n" + `{"prefix":"gt-","path":"gastown/mayor/rig"}` + "\n"
+	if err := os.WriteFile(filepath.Join(townBeads, "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	binDir := filepath.Join(tmp, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+	logPath := filepath.Join(tmp, "bd.log")
+	bdPath := filepath.Join(binDir, "bd")
+	script := `#!/bin/sh
+echo "$BEADS_DIR|$@" >> "` + logPath + `"
+case "$*" in
+  *"hq-one"*"gt-one"*)
+    echo '[{"id":"hq-one","title":"HQ","status":"open","issue_type":"task"},{"id":"gt-one","title":"GT","status":"open","issue_type":"task"}]'
+    ;;
+  *"hq-one"*)
+    echo '[{"id":"hq-one","title":"HQ","status":"open","issue_type":"task"}]'
+    ;;
+  *"gt-one"*)
+    echo '[{"id":"gt-one","title":"GT","status":"open","issue_type":"task"}]'
+    ;;
+  *)
+    echo '[]'
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	b := NewWithBeadsDir(townRoot, townBeads)
+	issues, err := b.ShowMultiple([]string{"hq-one", "gt-one"})
+	if err != nil {
+		t.Fatalf("ShowMultiple() error: %v", err)
+	}
+	if len(issues) != 2 || issues["hq-one"] == nil || issues["gt-one"] == nil {
+		t.Fatalf("ShowMultiple() issues = %#v, want hq-one and gt-one", issues)
+	}
+
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	var showLines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(logData)), "\n") {
+		if strings.Contains(line, "show --json") {
+			showLines = append(showLines, line)
+		}
+	}
+	if len(showLines) != 2 {
+		t.Fatalf("show calls = %d, want 2 route groups; log:\n%s", len(showLines), logData)
+	}
+	var sawTown, sawRig bool
+	for _, line := range showLines {
+		if strings.Contains(line, townBeads+"|") && strings.Contains(line, "hq-one") && !strings.Contains(line, "gt-one") {
+			sawTown = true
+		}
+		if strings.Contains(line, rigBeads+"|") && strings.Contains(line, "gt-one") && !strings.Contains(line, "hq-one") {
+			sawRig = true
+		}
+	}
+	if !sawTown || !sawRig {
+		t.Fatalf("ShowMultiple did not group by route; sawTown=%v sawRig=%v log:\n%s", sawTown, sawRig, logData)
+	}
+}
+
 // TestIsFlagLikeTitle verifies flag-like title detection (gt-e0kx5).
 func TestIsFlagLikeTitle(t *testing.T) {
 	tests := []struct {
