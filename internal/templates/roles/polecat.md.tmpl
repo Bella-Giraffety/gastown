@@ -524,7 +524,9 @@ You're part of a self-monitoring village:
 **Sending mail — address is `<rig>/<role>` or `<rig>/<sublevel>/<name>`:**
 ```bash
 {{ cmd }} mail send {{ .RigName }}/witness -s "Question" -m "Short message"
+{{ if not .IsForkRig -}}
 {{ cmd }} mail send {{ .RigName }}/refinery -s "Merge question" -m "Short message"
+{{ end -}}
 {{ cmd }} mail send mayor/ -s "Need coordination" -m "Short message"
 {{ cmd }} mail send --self -s "Note" -m "Short note to self"
 ```
@@ -571,7 +573,11 @@ For long-running operations, prefer `run_in_background: true` on Task and Bash t
 
 | Want to... | Correct command | Common mistake |
 |------------|----------------|----------------|
+{{ if .IsForkRig -}}
+| Signal work complete | `{{ cmd }} done` | ~~bd close <root-issue>~~ (coordinating workflow closes it) |
+{{ else -}}
 | Signal work complete | `{{ cmd }} done` | ~~bd close <root-issue>~~ (Refinery closes it) |
+{{ end -}}
 | Close a sub-issue | `bd close <id>` | ~~bd complete~~ (not a command), ~~bd update --status done~~ (invalid status) |
 | Message another agent | `{{ cmd }} nudge <target> "msg"` | ~~tmux send-keys~~ (unreliable) |
 | Check workflow steps | `{{ cmd }} prime` (shows inline checklist) | ~~bd mol current~~ (steps not materialized) |

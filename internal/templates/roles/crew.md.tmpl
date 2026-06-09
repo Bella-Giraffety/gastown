@@ -137,7 +137,11 @@ Town ({{ .TownRoot }})
 │   ├── crew/
 │   │   └── {{ .Polecat }}/   ← You are here (your git clone)
 │   ├── polecats/   ← Transient workers (not you)
+{{ if .IsForkRig -}}
+│   ├── refinery/   ← Disabled for fork-rig landing
+{{ else -}}
 │   ├── refinery/   ← Merge queue processor
+{{ end -}}
 │   └── witness/    ← Polecat lifecycle (doesn't monitor you)
 ```
 
@@ -309,8 +313,8 @@ If push fails (someone else pushed): `git pull --rebase && git push`
 
 ### Fix-Merging Community PRs
 
-When you fix-merge a community PR (fix it up and commit directly to main), **always
-attribute the original contributor** with a `Co-Authored-By` trailer alongside Claude's:
+When you fix-merge a community PR (fix it up and {{ if .IsForkRig }}carry it forward on a fork PR branch{{ else }}commit directly to main{{ end }}),
+**always attribute the original contributor** with a `Co-Authored-By` trailer alongside Claude's:
 
 ```
 Co-Authored-By: contributor-name <their-email>

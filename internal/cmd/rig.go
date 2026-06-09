@@ -1646,9 +1646,14 @@ func runRigBoot(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Starting refinery...\n")
 		refMgr := refinery.NewManager(r)
 		if err := refMgr.Start(false, ""); err != nil { // false = background mode
-			return fmt.Errorf("starting refinery: %w", err)
+			if reason, ok := refineryStartSkipReason(err); ok {
+				skipped = append(skipped, "refinery ("+reason+")")
+			} else {
+				return fmt.Errorf("starting refinery: %w", err)
+			}
+		} else {
+			started = append(started, "refinery")
 		}
-		started = append(started, "refinery")
 	}
 
 	// Report results
@@ -1708,13 +1713,13 @@ func runRigStart(cmd *cobra.Command, args []string) error {
 		witnessSession := session.WitnessSessionName(session.PrefixFor(rigName))
 		witnessRunning, _ := t.HasSession(witnessSession)
 		if witnessRunning {
-			skipped = append(skipped, "witness")
+			skipped = append(skipped, "witness (already running)")
 		} else {
 			fmt.Printf("  Starting witness...\n")
 			witMgr := witness.NewManager(r)
 			if err := witMgr.Start(false, "", nil); err != nil {
 				if err == witness.ErrAlreadyRunning {
-					skipped = append(skipped, "witness")
+					skipped = append(skipped, "witness (already running)")
 				} else {
 					fmt.Printf("  %s Failed to start witness: %v\n", style.Warning.Render("⚠"), err)
 					hasError = true
@@ -1728,13 +1733,17 @@ func runRigStart(cmd *cobra.Command, args []string) error {
 		refinerySession := session.RefinerySessionName(session.PrefixFor(rigName))
 		refineryRunning, _ := t.HasSession(refinerySession)
 		if refineryRunning {
-			skipped = append(skipped, "refinery")
+			skipped = append(skipped, "refinery (already running)")
 		} else {
 			fmt.Printf("  Starting refinery...\n")
 			refMgr := refinery.NewManager(r)
 			if err := refMgr.Start(false, ""); err != nil {
-				fmt.Printf("  %s Failed to start refinery: %v\n", style.Warning.Render("⚠"), err)
-				hasError = true
+				if reason, ok := refineryStartSkipReason(err); ok {
+					skipped = append(skipped, "refinery ("+reason+")")
+				} else {
+					fmt.Printf("  %s Failed to start refinery: %v\n", style.Warning.Render("⚠"), err)
+					hasError = true
+				}
 			} else {
 				started = append(started, "refinery")
 			}
@@ -1745,7 +1754,7 @@ func runRigStart(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s Started: %s\n", style.Success.Render("✓"), strings.Join(started, ", "))
 		}
 		if len(skipped) > 0 {
-			fmt.Printf("  %s Skipped: %s (already running)\n", style.Dim.Render("•"), strings.Join(skipped, ", "))
+			fmt.Printf("  %s Skipped: %s\n", style.Dim.Render("•"), strings.Join(skipped, ", "))
 		}
 
 		if hasError {
@@ -2286,12 +2295,12 @@ func runRigRestart(cmd *cobra.Command, args []string) error {
 		witnessSession := session.WitnessSessionName(session.PrefixFor(rigName))
 		witnessRunning, _ := t.HasSession(witnessSession)
 		if witnessRunning {
-			skipped = append(skipped, "witness")
+			skipped = append(skipped, "witness (already running)")
 		} else {
 			fmt.Printf("    Starting witness...\n")
 			if err := witMgr.Start(false, "", nil); err != nil {
 				if err == witness.ErrAlreadyRunning {
-					skipped = append(skipped, "witness")
+					skipped = append(skipped, "witness (already running)")
 				} else {
 					fmt.Printf("    %s Failed to start witness: %v\n", style.Warning.Render("⚠"), err)
 					startErrors = append(startErrors, fmt.Sprintf("witness: %v", err))
@@ -2305,12 +2314,16 @@ func runRigRestart(cmd *cobra.Command, args []string) error {
 		refinerySession := session.RefinerySessionName(session.PrefixFor(rigName))
 		refineryRunning, _ := t.HasSession(refinerySession)
 		if refineryRunning {
-			skipped = append(skipped, "refinery")
+			skipped = append(skipped, "refinery (already running)")
 		} else {
 			fmt.Printf("    Starting refinery...\n")
 			if err := refMgr.Start(false, ""); err != nil {
-				fmt.Printf("    %s Failed to start refinery: %v\n", style.Warning.Render("⚠"), err)
-				startErrors = append(startErrors, fmt.Sprintf("refinery: %v", err))
+				if reason, ok := refineryStartSkipReason(err); ok {
+					skipped = append(skipped, "refinery ("+reason+")")
+				} else {
+					fmt.Printf("    %s Failed to start refinery: %v\n", style.Warning.Render("⚠"), err)
+					startErrors = append(startErrors, fmt.Sprintf("refinery: %v", err))
+				}
 			} else {
 				started = append(started, "refinery")
 			}
@@ -2321,7 +2334,7 @@ func runRigRestart(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s Started: %s\n", style.Success.Render("✓"), strings.Join(started, ", "))
 		}
 		if len(skipped) > 0 {
-			fmt.Printf("  %s Skipped: %s (already running)\n", style.Dim.Render("•"), strings.Join(skipped, ", "))
+			fmt.Printf("  %s Skipped: %s\n", style.Dim.Render("•"), strings.Join(skipped, ", "))
 		}
 
 		if len(startErrors) > 0 {
