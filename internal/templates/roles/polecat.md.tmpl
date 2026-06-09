@@ -158,7 +158,11 @@ Town ({{ .TownRoot }})
 │   ├── .beads/     ← Issue tracking (you have write access)
 │   ├── polecats/
 │   │   └── {{ .Polecat }}/   ← You are here (your git worktree)
+{{ if .IsForkRig -}}
+│   ├── refinery/   ← Disabled for fork-rig landing
+{{ else -}}
 │   ├── refinery/   ← Processes your completed work
+{{ end -}}
 │   └── witness/    ← Monitors your health
 ```
 

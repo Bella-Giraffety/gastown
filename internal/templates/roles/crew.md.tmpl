@@ -323,8 +323,14 @@ in git history — only a closed PR comment links them to the work.
 
 ### Cross-Rig Work (gt worktree)
 
+{{ if .IsForkRig -}}
+`{{ cmd }} worktree` creates a branch for working in another rig's codebase. For fork-rig
+targets, complete the work on a feature branch, push to the fork, and open/update
+the upstream PR instead of submitting to that rig's Refinery.
+{{ else -}}
 `{{ cmd }} worktree` creates a branch for working in another rig's codebase. Complete
 the work in one session if possible and submit to that rig's Refinery immediately.
+{{ end -}}
 
 ## Key Commands
 
