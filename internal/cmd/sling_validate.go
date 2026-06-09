@@ -25,6 +25,19 @@ func ValidateTarget(target string) error {
 	if target == "" || target == "." {
 		return nil
 	}
+	lowerTarget := strings.ToLower(target)
+
+	if strings.HasPrefix(lowerTarget, "dog:") {
+		if _, ok := IsDogTarget(lowerTarget); ok {
+			return nil
+		}
+		return fmt.Errorf("invalid target %q: malformed dog target\n"+
+			"Valid dog formats:\n"+
+			"  deacon/dogs          dog pool\n"+
+			"  deacon/dogs/<name>   specific dog\n"+
+			"  dog:                 dog pool\n"+
+			"  dog:<name>           specific dog", target)
+	}
 
 	// No slashes → could be rig name or role shortcut; let resolveTarget decide.
 	if !strings.Contains(target, "/") {
@@ -52,7 +65,13 @@ func ValidateTarget(target string) error {
 	// Dog targets are valid at any depth (deacon/dogs, deacon/dogs/<name>).
 	// Deacon sub-path validation is handled downstream by IsDogTarget/resolveTarget.
 	if strings.ToLower(parts[0]) == "deacon" {
-		return nil
+		if _, ok := IsDogTarget(strings.ToLower(target)); ok {
+			return nil
+		}
+		return fmt.Errorf("invalid target %q: deacon only supports dog targets\n"+
+			"Valid dog formats:\n"+
+			"  deacon/dogs          dog pool\n"+
+			"  deacon/dogs/<name>   specific dog", target)
 	}
 
 	// Mayor has no sub-agents.

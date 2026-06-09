@@ -621,6 +621,7 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 				for k, v := range setVars {
 					legCtx[k] = v
 				}
+				legCtx["review_id"] = reviewID
 
 				// Compute output path for this leg
 				if f.Output != nil {

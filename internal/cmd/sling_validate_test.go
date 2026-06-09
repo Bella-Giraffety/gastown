@@ -24,6 +24,8 @@ func TestValidateTarget(t *testing.T) {
 		{name: "rig/refinery", target: "gastown/refinery", wantErr: false},
 		{name: "deacon/dogs", target: "deacon/dogs", wantErr: false},
 		{name: "deacon/dogs/name", target: "deacon/dogs/rex", wantErr: false},
+		{name: "dog pool shorthand", target: "dog:", wantErr: false},
+		{name: "dog name shorthand", target: "dog:rex", wantErr: false},
 		{name: "polecat shorthand", target: "gastown/nux", wantErr: false},
 		{name: "crew shorthand", target: "gastown/max", wantErr: false},
 
@@ -49,6 +51,11 @@ func TestValidateTarget(t *testing.T) {
 
 		// Invalid targets — mayor sub-paths
 		{name: "mayor sub-agent", target: "mayor/something", wantErr: true, errMsg: "does not have sub-agents"},
+
+		// Invalid targets — malformed dog/deacon paths
+		{name: "dog shorthand extra path", target: "dog:rex/extra", wantErr: true, errMsg: "malformed dog target"},
+		{name: "deacon unknown path", target: "deacon/foo", wantErr: true, errMsg: "deacon only supports dog targets"},
+		{name: "deacon dog extra path", target: "deacon/dogs/rex/extra", wantErr: true, errMsg: "deacon only supports dog targets"},
 	}
 
 	for _, tc := range tests {

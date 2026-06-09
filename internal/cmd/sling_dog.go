@@ -37,7 +37,7 @@ func IsDogTarget(target string) (dogName string, isDog bool) {
 		if name != "" && !strings.Contains(name, "/") {
 			return name, true
 		}
-		return "", true // "dog:" without name = pool dispatch
+		return "", false
 	}
 
 	// Check for "deacon/dogs/<name>" (specific dog)

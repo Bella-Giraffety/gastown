@@ -310,6 +310,7 @@ func TestIsCapacityNeutralTarget(t *testing.T) {
 		{"specific dog", "deacon/dogs/alpha", true},
 		{"dog shorthand pool", "dog:", true},
 		{"dog shorthand named", "dog:bravo", true},
+		{"dog shorthand malformed", "dog:bravo/extra", false},
 
 		// Capacity-neutral: town-level standing singletons.
 		{"mayor", "mayor", true},
@@ -370,6 +371,7 @@ func TestIsUnroutableTarget(t *testing.T) {
 		{"agreement_hub/crew", true},
 		{"agreement_hub/witness/extra", true},
 		{"deacon/dogs/alpha", false},
+		{"dog:alpha/extra", true},
 		// Blocked: unknown / typo'd targets
 		{"badtarget", true},
 		{"mayors", true},
