@@ -465,7 +465,7 @@ func (b *Beads) targetBeadsDirForCreate(opts CreateOptions) (string, error) {
 	}
 
 	if opts.Parent != "" {
-		return ResolveRoutingTarget(townRoot, opts.Parent, fallback), nil
+		return ResolveBeadsDirForID(fallback, opts.Parent), nil
 	}
 
 	return fallback, nil

@@ -366,6 +366,7 @@ func installMockBDCreateRecorder(t *testing.T, logPath string) {
 printf 'pwd=%s\n' "$(pwd)" >> "$MOCK_BD_LOG"
 printf 'beads_dir=%s\n' "$BEADS_DIR" >> "$MOCK_BD_LOG"
 printf 'args=%s\n' "$*" >> "$MOCK_BD_LOG"
+printf 'call=%s args=%s\n' "$BEADS_DIR" "$*" >> "$MOCK_BD_LOG"
 
 cmd=""
 for arg in "$@"; do
@@ -520,7 +521,7 @@ func TestUpdate_RigPrefixedAgentBeadUsesTownRoot(t *testing.T) {
 	if !strings.Contains(logOutput, "beads_dir="+townBeadsDir) {
 		t.Fatalf("mock bd log missing town-root BEADS_DIR:\n%s", logOutput)
 	}
-	if !strings.Contains(logOutput, "args=update ho-homelab-polecat-furiosa --add-label=done-intent:COMPLETED:1778598000") {
+	if !strings.Contains(logOutput, "call="+townBeadsDir+" args=update ho-homelab-polecat-furiosa --add-label=done-intent:COMPLETED:1778598000") {
 		t.Fatalf("mock bd log missing routed update call:\n%s", logOutput)
 	}
 }
@@ -559,7 +560,7 @@ func TestUpdate_AgentShapedWorkBeadUsesRigRootWhenTownAgentMissing(t *testing.T)
 	if !strings.Contains(logOutput, "beads_dir="+rigBeadsDir) {
 		t.Fatalf("mock bd log missing rig BEADS_DIR:\n%s", logOutput)
 	}
-	if !strings.Contains(logOutput, "args=update ho-homelab-polecat-cleanup --status=in_progress") {
+	if !strings.Contains(logOutput, "call="+rigBeadsDir+" args=update ho-homelab-polecat-cleanup --status=in_progress") {
 		t.Fatalf("mock bd log missing rig update call:\n%s", logOutput)
 	}
 }
@@ -599,7 +600,7 @@ func TestUpdate_AgentShapedWorkBeadUsesRigRootWhenTownRecordIsNotAgent(t *testin
 	if !strings.Contains(logOutput, "beads_dir="+rigBeadsDir) {
 		t.Fatalf("mock bd log missing rig BEADS_DIR:\n%s", logOutput)
 	}
-	if !strings.Contains(logOutput, "args=update ho-homelab-polecat-cleanup --status=in_progress") {
+	if !strings.Contains(logOutput, "call="+rigBeadsDir+" args=update ho-homelab-polecat-cleanup --status=in_progress") {
 		t.Fatalf("mock bd log missing rig update call:\n%s", logOutput)
 	}
 }
@@ -641,6 +642,9 @@ func TestUpdate_AgentShapedWorkBeadFailsClosedOnTownLookupError(t *testing.T) {
 	}
 	if !strings.Contains(logOutput, "beads_dir="+townBeadsDir) {
 		t.Fatalf("mock bd log missing town BEADS_DIR:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, "call="+townBeadsDir+" args=update ho-homelab-polecat-cleanup --status=in_progress") {
+		t.Fatalf("mock bd log missing town update call:\n%s", logOutput)
 	}
 }
 

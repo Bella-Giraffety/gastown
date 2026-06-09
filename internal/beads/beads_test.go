@@ -509,6 +509,10 @@ exit 0
 			opts: CreateOptions{Title: "Child task", Parent: "tr-parent"},
 		},
 		{
+			name: "agent-shaped parent prefix",
+			opts: CreateOptions{Title: "Child task", Parent: "tr-testrig-polecat-cleanup"},
+		},
+		{
 			name:   "deterministic id explicit rig",
 			opts:   CreateOptions{Title: "Fixed merge", Rig: "testrig"},
 			withID: true,
