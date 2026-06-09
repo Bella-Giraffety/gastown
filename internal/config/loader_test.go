@@ -684,6 +684,19 @@ func TestResolveAccountConfigDirFlagOverridesEnv(t *testing.T) {
 	}
 }
 
+func TestResolveAccountConfigDirSelectedAccountRequiresConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mayor", "missing-accounts.json")
+
+	if _, _, err := ResolveAccountConfigDir(path, "work"); err == nil {
+		t.Fatal("expected explicit account to require accounts config")
+	}
+	t.Setenv("GT_ACCOUNT", "work")
+	if _, _, err := ResolveAccountConfigDir(path, ""); err == nil {
+		t.Fatal("expected GT_ACCOUNT to require accounts config")
+	}
+}
+
 func TestAccountsConfigValidation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

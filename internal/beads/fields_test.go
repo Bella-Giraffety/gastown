@@ -118,22 +118,22 @@ func TestParseAttachmentFieldsLegacyFormulaVars(t *testing.T) {
 }
 
 func TestParseAttachmentFieldsLegacyFormulaVarsContinuation(t *testing.T) {
-	parsed := ParseAttachmentFields(&Issue{Description: "formula_vars: feature=Bug\nissue=gt-abc123\nbase_branch=release/test\n\nBody line"})
+	parsed := ParseAttachmentFields(&Issue{Description: "formula_vars: feature=Bug\nsetup_command=npm run test:ci\nbase_branch=release/test\n\nBody line"})
 	if parsed == nil {
 		t.Fatal("parse returned nil")
 	}
-	want := "feature=Bug\nissue=gt-abc123\nbase_branch=release/test"
+	want := "feature=Bug\nsetup_command=npm run test:ci\nbase_branch=release/test"
 	if parsed.FormulaVars != want {
 		t.Fatalf("FormulaVars = %q, want %q", parsed.FormulaVars, want)
 	}
 }
 
 func TestSetAttachmentFieldsDropsLegacyFormulaVarsContinuation(t *testing.T) {
-	issue := &Issue{Description: "formula_vars: feature=Old\nissue=gt-old\nbase_branch=old\n\nBody line"}
+	issue := &Issue{Description: "formula_vars: feature=Old\nsetup_command=npm run test:ci\nbase_branch=old\n\nBody line"}
 	fields := &AttachmentFields{FormulaVars: "feature=New\nissue=gt-new"}
 
 	newDesc := SetAttachmentFields(issue, fields)
-	if strings.Contains(newDesc, "issue=gt-old") || strings.Contains(newDesc, "base_branch=old") {
+	if strings.Contains(newDesc, "setup_command=npm run test:ci") || strings.Contains(newDesc, "base_branch=old") {
 		t.Fatalf("legacy formula_vars continuation was preserved:\n%s", newDesc)
 	}
 	if !strings.Contains(newDesc, "Body line") {

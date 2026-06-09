@@ -892,7 +892,13 @@ func ResolveAccountConfigDir(accountsPath, accountFlag string) (configDir, handl
 	// Load accounts config
 	cfg, loadErr := LoadAccountsConfig(accountsPath)
 	if loadErr != nil {
-		// No accounts configured - that's OK, return empty
+		if accountFlag != "" {
+			return "", "", fmt.Errorf("account '%s' requested but accounts config unavailable: %w", accountFlag, loadErr)
+		}
+		if envAccount := os.Getenv("GT_ACCOUNT"); envAccount != "" {
+			return "", "", fmt.Errorf("GT_ACCOUNT '%s' set but accounts config unavailable: %w", envAccount, loadErr)
+		}
+		// No accounts configured and none selected - that's OK, return empty.
 		return "", "", nil
 	}
 

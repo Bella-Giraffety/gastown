@@ -56,6 +56,13 @@ type SlingResult struct {
 	AttachedMolecule string
 }
 
+func ralphMode(enabled bool) string {
+	if enabled {
+		return "ralph"
+	}
+	return ""
+}
+
 // executeSling performs the unified per-bead polecat/rig dispatch.
 // Batch sling and queue dispatch call this function. The single-sling path
 // (runSling) retains its own implementation for now (handles dogs, mayor,

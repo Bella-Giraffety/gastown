@@ -46,7 +46,7 @@ func ParseAttachmentFields(issue *Issue) *AttachmentFields {
 			collectingFormulaVars = false
 			continue
 		}
-		if collectingFormulaVars && strings.Index(line, ":") == -1 && looksLikeFormulaVarLine(line) {
+		if collectingFormulaVars && looksLikeFormulaVarLine(line) {
 			formulaVars = append(formulaVars, line)
 			fields.FormulaVars = strings.Join(formulaVars, "\n")
 			continue
@@ -227,7 +227,7 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 				otherLines = append(otherLines, line)
 				continue
 			}
-			if skipFormulaVarContinuation && strings.Index(trimmed, ":") == -1 && looksLikeFormulaVarLine(trimmed) {
+			if skipFormulaVarContinuation && looksLikeFormulaVarLine(trimmed) {
 				continue
 			}
 			skipFormulaVarContinuation = false

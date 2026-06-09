@@ -21,6 +21,8 @@ type epicScheduleOpts struct {
 	Force       bool
 	DryRun      bool
 	NoBoot      bool
+	Account     string
+	Ralph       bool
 }
 
 // runEpicScheduleByID schedules all open children of an epic.
@@ -130,6 +132,8 @@ func runEpicScheduleByID(epicID string, opts epicScheduleOpts) error {
 			Force:       opts.Force,
 			HookRawBead: opts.HookRawBead,
 			NoConvoy:    true, // Epic is the organizing structure
+			Account:     opts.Account,
+			Ralph:       opts.Ralph,
 		})
 		if err != nil {
 			fmt.Printf("  %s %s: %v\n", style.Dim.Render("✗"), c.ID, err)
@@ -245,10 +249,12 @@ func runEpicSlingByID(epicID string, opts epicScheduleOpts) error {
 			BeadID:        c.ID,
 			RigName:       c.RigName,
 			FormulaName:   formula,
+			Account:       opts.Account,
 			Force:         opts.Force,
 			HookRawBead:   opts.HookRawBead,
 			NoConvoy:      true, // Epic is the organizing structure
 			NoBoot:        opts.NoBoot,
+			Mode:          ralphMode(opts.Ralph),
 			CallerContext: "epic-sling",
 			TownRoot:      townRoot,
 			BeadsDir:      filepath.Join(townRoot, ".beads"),

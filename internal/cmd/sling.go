@@ -471,6 +471,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 						HookRawBead: slingHookRawBead,
 						Force:       slingForce,
 						DryRun:      slingDryRun,
+						Account:     slingAccount,
+						Ralph:       slingRalph,
 					})
 				}
 				return runConvoySlingByID(args[0], convoyScheduleOpts{
@@ -479,6 +481,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 					Force:       slingForce,
 					DryRun:      slingDryRun,
 					NoBoot:      slingNoBoot,
+					Account:     slingAccount,
+					Ralph:       slingRalph,
 				})
 			case "epic":
 				if err := validateNoTaskOnlySchedulerFlags(cmd, "epic"); err != nil {
@@ -490,6 +494,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 						HookRawBead: slingHookRawBead,
 						Force:       slingForce,
 						DryRun:      slingDryRun,
+						Account:     slingAccount,
+						Ralph:       slingRalph,
 					})
 				}
 				return runEpicSlingByID(args[0], epicScheduleOpts{
@@ -498,6 +504,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 					Force:       slingForce,
 					DryRun:      slingDryRun,
 					NoBoot:      slingNoBoot,
+					Account:     slingAccount,
+					Ralph:       slingRalph,
 				})
 			}
 		}

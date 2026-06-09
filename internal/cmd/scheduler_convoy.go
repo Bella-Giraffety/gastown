@@ -17,6 +17,8 @@ type convoyScheduleOpts struct {
 	Force       bool
 	DryRun      bool
 	NoBoot      bool
+	Account     string
+	Ralph       bool
 }
 
 // runConvoyScheduleByID schedules all open tracked issues of a convoy.
@@ -127,6 +129,8 @@ func runConvoyScheduleByID(convoyID string, opts convoyScheduleOpts) error {
 			NoConvoy:    true, // Already tracked by this convoy
 			Force:       opts.Force,
 			HookRawBead: opts.HookRawBead,
+			Account:     opts.Account,
+			Ralph:       opts.Ralph,
 		})
 		if err != nil {
 			fmt.Printf("  %s %s: %v\n", style.Dim.Render("✗"), c.ID, err)
@@ -243,10 +247,12 @@ func runConvoySlingByID(convoyID string, opts convoyScheduleOpts) error {
 			BeadID:        c.ID,
 			RigName:       c.RigName,
 			FormulaName:   formula,
+			Account:       opts.Account,
 			Force:         opts.Force,
 			HookRawBead:   opts.HookRawBead,
 			NoConvoy:      true, // Already tracked by this convoy
 			NoBoot:        opts.NoBoot,
+			Mode:          ralphMode(opts.Ralph),
 			CallerContext: "convoy-sling",
 			TownRoot:      townRoot,
 			BeadsDir:      filepath.Join(townRoot, ".beads"),
