@@ -407,7 +407,6 @@ func (b *Beads) ForAgentBead() *Beads {
 		beadsDir:   townBeadsDir,
 		isolated:   b.isolated,
 		serverPort: b.serverPort,
-		store:      b.store,
 		townRoot:   townRoot,
 		noRoute:    true,
 	}

@@ -255,6 +255,16 @@ func TestResolveBeadsDirForID(t *testing.T) {
 			expected: rigBeadsDir,
 		},
 		{
+			name:     "rig-prefixed agent bead resolves to town beadsDir",
+			beadID:   "gt-gastown-polecat-Toast",
+			expected: beadsDir,
+		},
+		{
+			name:     "agent-looking non-owner bead resolves to rig beadsDir",
+			beadID:   "gt-health-polecat-fix",
+			expected: rigBeadsDir,
+		},
+		{
 			name:     "unknown prefix returns currentBeadsDir",
 			beadID:   "xx-unknown",
 			expected: beadsDir,
@@ -335,6 +345,10 @@ func TestResolveBeadsDirForID_UsesTownRoutesFromWorktreeBeadsDir(t *testing.T) {
 	result = ResolveBeadsDirForID(worktreeBeadsDir, "hq-wisp-abc")
 	if result != townBeadsDir {
 		t.Fatalf("ResolveBeadsDirForID(%q, %q) = %q, want %q", worktreeBeadsDir, "hq-wisp-abc", result, townBeadsDir)
+	}
+	result = ResolveBeadsDirForID(worktreeBeadsDir, "gt-gastown-polecat-Toast")
+	if result != townBeadsDir {
+		t.Fatalf("ResolveBeadsDirForID(%q, %q) = %q, want %q", worktreeBeadsDir, "gt-gastown-polecat-Toast", result, townBeadsDir)
 	}
 }
 
