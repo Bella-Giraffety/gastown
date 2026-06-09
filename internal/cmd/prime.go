@@ -17,6 +17,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/cli"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/lock"
 	"github.com/steveyegge/gastown/internal/state"
 	"github.com/steveyegge/gastown/internal/style"
@@ -1008,7 +1009,22 @@ func isRalphLoopPluginInstalled() bool {
 }
 
 func requireRalphLoopPlugin() error {
-	if isRalphLoopPluginInstalled() {
+	configDir, err := config.ClaudeConfigDir()
+	if err == nil && ralphLoopPluginInstalledInConfigDir(configDir) {
+		return nil
+	}
+	return missingRalphLoopPluginError()
+}
+
+func requireRalphLoopPluginForAccount(townRoot, account string) error {
+	if account == "" {
+		return requireRalphLoopPlugin()
+	}
+	configDir, _, err := config.ResolveAccountConfigDir(constants.MayorAccountsPath(townRoot), account)
+	if err != nil {
+		return fmt.Errorf("resolving Claude Code account for --ralph: %w", err)
+	}
+	if ralphLoopPluginInstalledInConfigDir(configDir) {
 		return nil
 	}
 	return missingRalphLoopPluginError()
@@ -1016,6 +1032,10 @@ func requireRalphLoopPlugin() error {
 
 func missingRalphLoopPluginError() error {
 	return fmt.Errorf("--ralph requires the ralph-loop plugin. Install it in Claude Code with: /plugin install ralph-loop@claude-plugins-official")
+}
+
+func ralphLoopPluginInstalledInConfigDir(configDir string) bool {
+	return ralphLoopPluginInstalledIn(filepath.Join(configDir, "plugins", "installed_plugins.json"))
 }
 
 func ralphLoopPluginInstalledIn(manifestPath string) bool {

@@ -112,7 +112,7 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		BeadID: params.BeadID,
 	}
 	if params.Mode == "ralph" {
-		if err := requireRalphLoopPlugin(); err != nil {
+		if err := requireRalphLoopPluginForAccount(townRoot, params.Account); err != nil {
 			result.ErrMsg = err.Error()
 			return result, err
 		}

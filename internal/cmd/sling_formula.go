@@ -85,7 +85,7 @@ func runSlingFormula(ctx context.Context, args []string) error {
 	}
 	townBeadsDir := filepath.Join(townRoot, ".beads")
 	if slingRalph && !slingDryRun {
-		if err := requireRalphLoopPlugin(); err != nil {
+		if err := requireRalphLoopPluginForAccount(townRoot, slingAccount); err != nil {
 			return err
 		}
 	}

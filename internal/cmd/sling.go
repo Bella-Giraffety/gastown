@@ -299,7 +299,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		}
 	}
 	if slingRalph && !slingDryRun {
-		if err := requireRalphLoopPlugin(); err != nil {
+		if err := requireRalphLoopPluginForAccount(townRoot, slingAccount); err != nil {
 			return err
 		}
 	}
