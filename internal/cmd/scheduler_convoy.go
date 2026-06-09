@@ -50,6 +50,7 @@ func runConvoyScheduleByID(convoyID string, opts convoyScheduleOpts) error {
 	}
 	var candidates []scheduleCandidate
 	skippedClosed := 0
+	skippedUnknown := 0
 	skippedAssigned := 0
 	skippedScheduled := 0
 	skippedNoRig := 0
@@ -64,6 +65,10 @@ func runConvoyScheduleByID(convoyID string, opts convoyScheduleOpts) error {
 	for _, t := range tracked {
 		if t.Status == "closed" || t.Status == "tombstone" {
 			skippedClosed++
+			continue
+		}
+		if isUnresolvedTrackedStatus(t.Status) {
+			skippedUnknown++
 			continue
 		}
 
@@ -91,9 +96,9 @@ func runConvoyScheduleByID(convoyID string, opts convoyScheduleOpts) error {
 
 	if len(candidates) == 0 {
 		fmt.Printf("No issues to schedule from convoy %s", convoyID)
-		if skippedClosed > 0 || skippedAssigned > 0 || skippedScheduled > 0 || skippedNoRig > 0 {
-			fmt.Printf(" (%d closed, %d assigned, %d already scheduled, %d no rig)",
-				skippedClosed, skippedAssigned, skippedScheduled, skippedNoRig)
+		if skippedClosed > 0 || skippedUnknown > 0 || skippedAssigned > 0 || skippedScheduled > 0 || skippedNoRig > 0 {
+			fmt.Printf(" (%d closed, %d unknown, %d assigned, %d already scheduled, %d no rig)",
+				skippedClosed, skippedUnknown, skippedAssigned, skippedScheduled, skippedNoRig)
 		}
 		fmt.Println()
 		return nil
@@ -112,9 +117,9 @@ func runConvoyScheduleByID(convoyID string, opts convoyScheduleOpts) error {
 		for _, c := range candidates {
 			fmt.Printf("  Would schedule: %s -> %s (%s)\n", c.ID, c.RigName, c.Title)
 		}
-		if skippedClosed > 0 || skippedAssigned > 0 || skippedScheduled > 0 || skippedNoRig > 0 {
-			fmt.Printf("\nSkipped: %d closed, %d assigned, %d already scheduled, %d no rig\n",
-				skippedClosed, skippedAssigned, skippedScheduled, skippedNoRig)
+		if skippedClosed > 0 || skippedUnknown > 0 || skippedAssigned > 0 || skippedScheduled > 0 || skippedNoRig > 0 {
+			fmt.Printf("\nSkipped: %d closed, %d unknown, %d assigned, %d already scheduled, %d no rig\n",
+				skippedClosed, skippedUnknown, skippedAssigned, skippedScheduled, skippedNoRig)
 		}
 		return nil
 	}
@@ -141,9 +146,9 @@ func runConvoyScheduleByID(convoyID string, opts convoyScheduleOpts) error {
 
 	fmt.Printf("\n%s Scheduled %d/%d issue(s) from convoy %s\n",
 		style.Bold.Render("📊"), successCount, len(candidates), convoyID)
-	if skippedClosed > 0 || skippedAssigned > 0 || skippedScheduled > 0 || skippedNoRig > 0 {
-		fmt.Printf("  Skipped: %d closed, %d assigned, %d already scheduled, %d no rig\n",
-			skippedClosed, skippedAssigned, skippedScheduled, skippedNoRig)
+	if skippedClosed > 0 || skippedUnknown > 0 || skippedAssigned > 0 || skippedScheduled > 0 || skippedNoRig > 0 {
+		fmt.Printf("  Skipped: %d closed, %d unknown, %d assigned, %d already scheduled, %d no rig\n",
+			skippedClosed, skippedUnknown, skippedAssigned, skippedScheduled, skippedNoRig)
 	}
 
 	if successCount == 0 {
@@ -183,12 +188,17 @@ func runConvoySlingByID(convoyID string, opts convoyScheduleOpts) error {
 	}
 	var candidates []slingCandidate
 	skippedClosed := 0
+	skippedUnknown := 0
 	skippedAssigned := 0
 	skippedNoRig := 0
 
 	for _, t := range tracked {
 		if t.Status == "closed" || t.Status == "tombstone" {
 			skippedClosed++
+			continue
+		}
+		if isUnresolvedTrackedStatus(t.Status) {
+			skippedUnknown++
 			continue
 		}
 		if t.Assignee != "" && !opts.Force {
@@ -208,9 +218,9 @@ func runConvoySlingByID(convoyID string, opts convoyScheduleOpts) error {
 
 	if len(candidates) == 0 {
 		fmt.Printf("No issues to dispatch from convoy %s", convoyID)
-		if skippedClosed > 0 || skippedAssigned > 0 || skippedNoRig > 0 {
-			fmt.Printf(" (%d closed, %d assigned, %d no rig)",
-				skippedClosed, skippedAssigned, skippedNoRig)
+		if skippedClosed > 0 || skippedUnknown > 0 || skippedAssigned > 0 || skippedNoRig > 0 {
+			fmt.Printf(" (%d closed, %d unknown, %d assigned, %d no rig)",
+				skippedClosed, skippedUnknown, skippedAssigned, skippedNoRig)
 		}
 		fmt.Println()
 		return nil
@@ -224,9 +234,9 @@ func runConvoySlingByID(convoyID string, opts convoyScheduleOpts) error {
 		for _, c := range candidates {
 			fmt.Printf("  Would dispatch: %s -> %s (%s)\n", c.ID, c.RigName, c.Title)
 		}
-		if skippedClosed > 0 || skippedAssigned > 0 || skippedNoRig > 0 {
-			fmt.Printf("\nSkipped: %d closed, %d assigned, %d no rig\n",
-				skippedClosed, skippedAssigned, skippedNoRig)
+		if skippedClosed > 0 || skippedUnknown > 0 || skippedAssigned > 0 || skippedNoRig > 0 {
+			fmt.Printf("\nSkipped: %d closed, %d unknown, %d assigned, %d no rig\n",
+				skippedClosed, skippedUnknown, skippedAssigned, skippedNoRig)
 		}
 		return nil
 	}
@@ -279,9 +289,9 @@ func runConvoySlingByID(convoyID string, opts convoyScheduleOpts) error {
 
 	fmt.Printf("\n%s Dispatched %d/%d issue(s) from convoy %s\n",
 		style.Bold.Render("📊"), successCount, len(candidates), convoyID)
-	if skippedClosed > 0 || skippedAssigned > 0 || skippedNoRig > 0 {
-		fmt.Printf("  Skipped: %d closed, %d assigned, %d no rig\n",
-			skippedClosed, skippedAssigned, skippedNoRig)
+	if skippedClosed > 0 || skippedUnknown > 0 || skippedAssigned > 0 || skippedNoRig > 0 {
+		fmt.Printf("  Skipped: %d closed, %d unknown, %d assigned, %d no rig\n",
+			skippedClosed, skippedUnknown, skippedAssigned, skippedNoRig)
 	}
 
 	if successCount == 0 {

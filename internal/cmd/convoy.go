@@ -122,6 +122,10 @@ func ensureKnownConvoyStatus(status string) error {
 	}
 }
 
+func isUnresolvedTrackedStatus(status string) bool {
+	return status == "" || status == trackedStatusUnknown
+}
+
 // isStagedStatus reports whether the given normalized status is a staged status.
 func isStagedStatus(status string) bool {
 	return strings.HasPrefix(status, "staged_")
@@ -1589,7 +1593,7 @@ func findStrandedConvoys(townBeads string) ([]strandedConvoyInfo, error) {
 // scheduledSet is a pre-computed set of bead IDs with open sling contexts (from areScheduled).
 func isReadyIssue(t trackedIssueInfo, scheduledSet map[string]bool) bool {
 	// Closed or unresolved issues are never ready.
-	if t.Status == "closed" || t.Status == "tombstone" || t.Status == trackedStatusUnknown || t.Status == "" {
+	if t.Status == "closed" || t.Status == "tombstone" || isUnresolvedTrackedStatus(t.Status) {
 		return false
 	}
 
