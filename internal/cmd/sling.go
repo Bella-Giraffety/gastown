@@ -757,28 +757,25 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// Auto-convoy: check if issue is already tracked by a convoy
 	// If not, create one for dashboard visibility (unless --no-convoy is set)
 	if !slingNoConvoy && formulaName == "" {
-		existingConvoy := isTrackedByConvoy(beadID)
-		if existingConvoy == "" {
-			if slingDryRun {
-				fmt.Printf("Would create convoy 'Work: %s'\n", info.Title)
-				fmt.Printf("Would add tracking relation to %s\n", beadID)
-				if slingMerge != "" {
-					fmt.Printf("Would set convoy merge strategy: %s\n", slingMerge)
-				}
+		if slingDryRun {
+			fmt.Printf("Would create convoy 'Work: %s'\n", info.Title)
+			fmt.Printf("Would add tracking relation to %s\n", beadID)
+			if slingMerge != "" {
+				fmt.Printf("Would set convoy merge strategy: %s\n", slingMerge)
+			}
+		} else if existingConvoy := isTrackedByConvoy(beadID); existingConvoy == "" {
+			convoyID, err := createAutoConvoy(beadID, info.Title, slingOwned, slingMerge, slingBaseBranch)
+			if err != nil {
+				// Log warning but don't fail - convoy is optional
+				fmt.Printf("%s Could not create auto-convoy: %v\n", style.Dim.Render("Warning:"), err)
 			} else {
-				convoyID, err := createAutoConvoy(beadID, info.Title, slingOwned, slingMerge, slingBaseBranch)
-				if err != nil {
-					// Log warning but don't fail - convoy is optional
-					fmt.Printf("%s Could not create auto-convoy: %v\n", style.Dim.Render("Warning:"), err)
-				} else {
-					fmt.Printf("%s Created convoy 🚚 %s\n", style.Bold.Render("→"), convoyID)
-					fmt.Printf("  Tracking: %s\n", beadID)
-					if slingOwned {
-						fmt.Printf("  Lifecycle: caller-managed (owned)\n")
-					}
-					if slingMerge != "" {
-						fmt.Printf("  Merge:    %s\n", slingMerge)
-					}
+				fmt.Printf("%s Created convoy 🚚 %s\n", style.Bold.Render("→"), convoyID)
+				fmt.Printf("  Tracking: %s\n", beadID)
+				if slingOwned {
+					fmt.Printf("  Lifecycle: caller-managed (owned)\n")
+				}
+				if slingMerge != "" {
+					fmt.Printf("  Merge:    %s\n", slingMerge)
 				}
 			}
 		} else {

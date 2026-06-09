@@ -2484,6 +2484,182 @@ exit /b 0
 	}
 }
 
+func TestSlingDryRunSkipsConvoyLookup(t *testing.T) {
+	townRoot := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir rig beads dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown"), 0755); err != nil {
+		t.Fatalf("mkdir rig dir: %v", err)
+	}
+
+	rigs := &config.RigsConfig{
+		Version: 1,
+		Rigs: map[string]config.RigEntry{
+			"gastown": {
+				GitURL:  "git@github.com:test/gastown.git",
+				AddedAt: time.Now().Truncate(time.Second),
+				BeadsConfig: &config.BeadsConfig{
+					Repo:   "local",
+					Prefix: "gt-",
+				},
+			},
+		},
+	}
+	if err := config.SaveRigsConfig(filepath.Join(townRoot, "mayor", "rigs.json"), rigs); err != nil {
+		t.Fatalf("SaveRigsConfig: %v", err)
+	}
+
+	routes := strings.Join([]string{
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd.log")
+	bdScript := `#!/bin/sh
+set -e
+echo "$*" >> "${BD_LOG}"
+cmd="$1"
+if [ "$cmd" = "--allow-stale" ]; then
+  shift
+  cmd="$1"
+fi
+case "$cmd" in
+  show)
+    echo '[{"title":"Test issue","status":"open","assignee":"","description":""}]'
+    ;;
+  sql|list)
+    echo '[]'
+    ;;
+  update)
+    exit 0
+    ;;
+esac
+exit 0
+`
+	bdScriptWindows := `@echo off
+echo %*>>"%BD_LOG%"
+set "cmd=%1"
+if "%cmd%"=="--allow-stale" set "cmd=%2"
+if "%cmd%"=="show" (
+  echo [{"title":"Test issue","status":"open","assignee":"","description":""}]
+  exit /b 0
+)
+if "%cmd%"=="sql" (
+  echo []
+  exit /b 0
+)
+if "%cmd%"=="list" (
+  echo []
+  exit /b 0
+)
+if "%cmd%"=="update" exit /b 0
+exit /b 0
+`
+	_ = writeBDStub(t, binDir, bdScript, bdScriptWindows)
+
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(EnvGTRole, "mayor")
+	t.Setenv("GT_POLECAT", "")
+	t.Setenv("GT_CREW", "")
+	t.Setenv("TMUX_PANE", "")
+	t.Setenv("GT_TEST_NO_NUDGE", "1")
+	t.Setenv("GT_TEST_SKIP_HOOK_VERIFY", "1")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevDryRun := slingDryRun
+	prevNoConvoy := slingNoConvoy
+	prevForce := slingForce
+	prevHookRaw := slingHookRawBead
+	prevFormula := slingFormula
+	prevMerge := slingMerge
+	prevBaseBranch := slingBaseBranch
+	t.Cleanup(func() {
+		slingDryRun = prevDryRun
+		slingNoConvoy = prevNoConvoy
+		slingForce = prevForce
+		slingHookRawBead = prevHookRaw
+		slingFormula = prevFormula
+		slingMerge = prevMerge
+		slingBaseBranch = prevBaseBranch
+	})
+	slingDryRun = true
+	slingNoConvoy = false
+	slingForce = false
+	slingHookRawBead = false
+	slingFormula = ""
+	slingMerge = ""
+	slingBaseBranch = ""
+
+	origStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = origStdout })
+
+	err = runSling(nil, []string{"gt-test123", "gastown"})
+
+	w.Close()
+	os.Stdout = origStdout
+	var captured bytes.Buffer
+	_, _ = captured.ReadFrom(r)
+	stdout := captured.String()
+
+	if err != nil {
+		t.Fatalf("runSling: %v\nstdout:\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "Would spawn fresh polecat in rig 'gastown'") {
+		t.Fatalf("expected dry-run spawn plan, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "Would create convoy 'Work: Test issue'") {
+		t.Fatalf("expected dry-run convoy plan, got:\n%s", stdout)
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(logBytes)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		cmd := fields[0]
+		if cmd == "--allow-stale" && len(fields) > 1 {
+			cmd = fields[1]
+		}
+		if cmd == "sql" {
+			t.Fatalf("dry-run invoked bd sql convoy lookup; log:\n%s", string(logBytes))
+		}
+		if cmd == "list" && strings.Contains(line, "--type=convoy") {
+			t.Fatalf("dry-run invoked convoy list lookup; log:\n%s", string(logBytes))
+		}
+	}
+}
+
 // TestSlingRejectsDeferredBead verifies that gt sling refuses to sling beads
 // with deferred status or deferral keywords in their description (gt-1326mw).
 // This prevents wasting polecat slots on low-priority deferred work.
