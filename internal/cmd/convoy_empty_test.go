@@ -403,6 +403,109 @@ exit 0
 	}
 }
 
+func TestFindStrandedConvoys_BatchSQLFailureFallsBackPerConvoy(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping convoy test on Windows")
+	}
+
+	binDir := t.TempDir()
+	townRoot := t.TempDir()
+	beadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(`{"prefix":"gt-","path":"gastown/mayor/rig"}`+"\n"), 0644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	logPath := filepath.Join(binDir, "bd.log")
+	bdPath := filepath.Join(binDir, "bd")
+	script := `#!/bin/sh
+echo "$@" >> "` + logPath + `"
+
+i=0
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) eval "pos$i=\"$arg\""; i=$((i+1)) ;;
+  esac
+done
+
+case "$pos0" in
+  list)
+    case "$*" in
+      *"--type=convoy"*)
+        echo '[{"id":"hq-fallback1","title":"Fallback one"},{"id":"hq-fallback2","title":"Fallback two"}]'
+        ;;
+      *)
+        echo '[]'
+        ;;
+    esac
+    ;;
+  sql)
+    echo 'sql unavailable' >&2
+    exit 1
+    ;;
+  dep)
+    case "$pos2" in
+      hq-fallback1)
+        echo '[{"id":"gt-fallback1"}]'
+        ;;
+      hq-fallback2)
+        echo '[{"id":"gt-fallback2"}]'
+        ;;
+      *)
+        echo '[]'
+        ;;
+    esac
+    ;;
+  show)
+    echo '[{"id":"gt-fallback1","title":"Fallback issue 1","status":"open","issue_type":"task","assignee":"","blocked_by":[],"blocked_by_count":0,"dependencies":[]},{"id":"gt-fallback2","title":"Fallback issue 2","status":"open","issue_type":"task","assignee":"","blocked_by":[],"blocked_by_count":0,"dependencies":[]}]'
+    ;;
+  *)
+    echo '[]'
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stranded, err := findStrandedConvoys(townRoot)
+	if err != nil {
+		t.Fatalf("findStrandedConvoys() error: %v", err)
+	}
+	byID := map[string]strandedConvoyInfo{}
+	for _, s := range stranded {
+		byID[s.ID] = s
+	}
+	for convoyID, readyID := range map[string]string{"hq-fallback1": "gt-fallback1", "hq-fallback2": "gt-fallback2"} {
+		s, ok := byID[convoyID]
+		if !ok {
+			t.Fatalf("missing stranded convoy %s", convoyID)
+		}
+		if s.TrackedCount != 1 || s.ReadyCount != 1 || len(s.ReadyIssues) != 1 || s.ReadyIssues[0] != readyID {
+			t.Fatalf("%s fallback result = tracked %d ready %d issues %v, want %s", convoyID, s.TrackedCount, s.ReadyCount, s.ReadyIssues, readyID)
+		}
+	}
+
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	depLines := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(logData)), "\n") {
+		if strings.Contains(line, "dep list") {
+			depLines++
+		}
+	}
+	if depLines != 2 {
+		t.Fatalf("fallback dep list calls = %d, want 2; log:\n%s", depLines, logData)
+	}
+}
+
 // TestFindStrandedConvoys_StuckConvoy verifies that a convoy with tracked
 // issues but none ready (stuck) is included in the stranded list with
 // TrackedCount > 0 and ReadyCount == 0, preventing accidental auto-close.
