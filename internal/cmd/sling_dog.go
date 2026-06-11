@@ -98,6 +98,7 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 
 	var targetDog *dog.Dog
 	var spawned bool
+	var workStartedAt time.Time
 
 	if dogName != "" {
 		// Specific dog requested
@@ -115,45 +116,92 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 				return nil, fmt.Errorf("dog %s not found (use --create to add)", dogName)
 			}
 		}
+
+		agentID := fmt.Sprintf("deacon/dogs/%s", targetDog.Name)
+		if existing, err := findHookedFormulaSingleton(townRoot, agentID, opts.WorkDesc); err != nil {
+			return nil, fmt.Errorf("checking existing dog formula: %w", err)
+		} else if existing != nil {
+			return &DogDispatchInfo{
+				DogName:        targetDog.Name,
+				AgentID:        agentID,
+				Pane:           "",
+				Spawned:        spawned,
+				sessionDelayed: true,
+				townRoot:       townRoot,
+				workDesc:       opts.WorkDesc,
+				workStartedAt:  targetDog.WorkStartedAt,
+				agentOverride:  opts.AgentOverride,
+				rigsConfig:     rigsConfig,
+			}, nil
+		}
+		if targetDog.State == dog.StateWorking {
+			return nil, fmt.Errorf("dog %s is currently working: %w", targetDog.Name, dog.ErrDogWorking)
+		}
 	} else {
-		// Pool dispatch - find an idle dog
-		targetDog, err = mgr.GetIdleDog()
-		if err != nil {
-			return nil, fmt.Errorf("finding idle dog: %w", err)
+		if existing, existingDogName, err := findHookedFormulaForDogPool(townRoot, opts.WorkDesc); err != nil {
+			return nil, fmt.Errorf("checking existing dog formula: %w", err)
+		} else if existing != nil {
+			targetDog, err = mgr.Get(existingDogName)
+			if err != nil {
+				return nil, fmt.Errorf("loading dog for existing formula %s: %w", existing.ID, err)
+			}
+			agentID := fmt.Sprintf("deacon/dogs/%s", targetDog.Name)
+			return &DogDispatchInfo{
+				DogName:        targetDog.Name,
+				AgentID:        agentID,
+				Pane:           "",
+				Spawned:        false,
+				sessionDelayed: true,
+				townRoot:       townRoot,
+				workDesc:       opts.WorkDesc,
+				workStartedAt:  targetDog.WorkStartedAt,
+				agentOverride:  opts.AgentOverride,
+				rigsConfig:     rigsConfig,
+			}, nil
 		}
 
-		if targetDog == nil {
-			// No idle dogs - auto-create one if pool is under max size.
-			// Pool dispatch means "send to any available dog" - if none exist,
-			// spawning one is the natural behavior (see mol-deacon-patrol:
-			// "Spawn on demand when pool is empty").
-			dogs, listErr := mgr.List()
-			if listErr != nil {
-				return nil, fmt.Errorf("listing dogs: %w", listErr)
-			}
-			if len(dogs) >= maxDogPoolSize {
-				return nil, fmt.Errorf("no idle dogs available (pool at max %d, all busy)", maxDogPoolSize)
-			}
-			newName := generateDogName(mgr)
-			targetDog, err = mgr.Add(newName)
+		// Pool dispatch - find an idle dog
+		for {
+			targetDog, err = mgr.GetIdleDog()
 			if err != nil {
-				return nil, fmt.Errorf("creating dog %s: %w", newName, err)
+				return nil, fmt.Errorf("finding idle dog: %w", err)
 			}
-			fmt.Printf("✓ Auto-created dog %s (no idle dogs, pool %d/%d)\n", newName, len(dogs)+1, maxDogPoolSize)
-			spawned = true
+
+			if targetDog == nil {
+				// No idle dogs - auto-create one if pool is under max size.
+				// Pool dispatch means "send to any available dog" - if none exist,
+				// spawning one is the natural behavior (see mol-deacon-patrol:
+				// "Spawn on demand when pool is empty").
+				dogs, listErr := mgr.List()
+				if listErr != nil {
+					return nil, fmt.Errorf("listing dogs: %w", listErr)
+				}
+				if len(dogs) >= maxDogPoolSize {
+					return nil, fmt.Errorf("no idle dogs available (pool at max %d, all busy)", maxDogPoolSize)
+				}
+				newName := generateDogName(mgr)
+				targetDog, err = mgr.Add(newName)
+				if err != nil {
+					return nil, fmt.Errorf("creating dog %s: %w", newName, err)
+				}
+				fmt.Printf("✓ Auto-created dog %s (no idle dogs, pool %d/%d)\n", newName, len(dogs)+1, maxDogPoolSize)
+				spawned = true
+			}
+
+			assignedState, err := mgr.AssignWorkIfIdle(targetDog.Name, opts.WorkDesc)
+			if errors.Is(err, dog.ErrDogWorking) {
+				spawned = false
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("assigning idle dog work: %w", err)
+			}
+			workStartedAt = assignedState.WorkStartedAt
+			break
 		}
 	}
 
-	// Pool dispatch must reserve the dog atomically; GetIdleDog() is only a
-	// snapshot and can race another sling.
-	var workStartedAt time.Time
-	if dogName == "" {
-		assignedState, err := mgr.AssignWorkIfIdle(targetDog.Name, opts.WorkDesc)
-		if err != nil {
-			return nil, fmt.Errorf("assigning idle dog work: %w", err)
-		}
-		workStartedAt = assignedState.WorkStartedAt
-	} else {
+	if dogName != "" {
 		if err := mgr.AssignWork(targetDog.Name, opts.WorkDesc); err != nil {
 			return nil, fmt.Errorf("assigning work to dog: %w", err)
 		}
