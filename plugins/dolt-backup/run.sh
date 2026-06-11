@@ -38,6 +38,28 @@ log() {
   echo "[dolt-backup] $*"
 }
 
+backup_remote_exists() {
+  local db_dir="$1"
+  local backup_name="$2"
+
+  (cd "$db_dir" && dolt backup -v 2>/dev/null | awk -v name="$backup_name" '$1 == name { found=1 } END { exit found ? 0 : 1 }')
+}
+
+backup_target_has_data() {
+  local backup_path="$1"
+
+  [[ -d "$backup_path" ]] || return 1
+  [[ -n "$(find "$backup_path" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null || true)" ]]
+}
+
+touch_backup_dir() {
+  local backup_db_dir="$1"
+
+  if ! touch "$backup_db_dir" 2>/dev/null; then
+    log "  WARN: could not touch backup dir $backup_db_dir for freshness signal"
+  fi
+}
+
 # --- Step 1: Discover databases -----------------------------------------------
 
 # Use explicit list if provided, otherwise auto-discover by scanning
@@ -75,7 +97,9 @@ FAILED_DBS=""
 for DB in "${PROD_DBS[@]}"; do
   DB_DIR="$DOLT_DATA_DIR/$DB"
   BACKUP_NAME="${DB}-backup"
-  HASH_FILE="$BACKUP_DIR/${DB}/.last-backup-hash"
+  BACKUP_DB_DIR="$BACKUP_DIR/$DB"
+  BACKUP_PATH="$BACKUP_DB_DIR/$BACKUP_NAME"
+  HASH_FILE="$BACKUP_DB_DIR/.last-backup-hash"
 
   # Check DB dir exists
   if [[ ! -d "$DB_DIR/.dolt" ]]; then
@@ -98,9 +122,22 @@ for DB in "${PROD_DBS[@]}"; do
     LAST_HASH=$(cat "$HASH_FILE")
   fi
 
-  if [[ "$CURRENT_HASH" = "$LAST_HASH" ]] && [[ "$CURRENT_HASH" != "unknown" ]]; then
+  REMOTE_EXISTS=false
+  if backup_remote_exists "$DB_DIR" "$BACKUP_NAME"; then
+    REMOTE_EXISTS=true
+  fi
+
+  BACKUP_HAS_DATA=false
+  if backup_target_has_data "$BACKUP_PATH"; then
+    BACKUP_HAS_DATA=true
+  fi
+
+  if [[ "$CURRENT_HASH" = "$LAST_HASH" ]] && [[ "$CURRENT_HASH" != "unknown" ]] && $REMOTE_EXISTS && $BACKUP_HAS_DATA; then
     log "  $DB: unchanged ($CURRENT_HASH), skipping"
     SKIPPED=$((SKIPPED + 1))
+    # Signal liveness to the daemon's dir-mtime freshness check even when
+    # there is nothing to sync.
+    touch_backup_dir "$BACKUP_DB_DIR"
     continue
   fi
 
@@ -110,18 +147,44 @@ for DB in "${PROD_DBS[@]}"; do
     continue
   fi
 
+  if ! mkdir -p "$BACKUP_DB_DIR"; then
+    FAILED=$((FAILED + 1))
+    FAILED_DBS="$FAILED_DBS $DB(backup-dir)"
+    log "  $DB: FAILED to create backup dir $BACKUP_DB_DIR"
+    continue
+  fi
+
+  # Ensure the backup remote exists before syncing. Without this, towns
+  # that never ran `dolt backup add` fail every sync.
+  if ! $REMOTE_EXISTS; then
+    ADD_OUTPUT=""
+    log "  $DB: backup remote $BACKUP_NAME missing, adding -> file://$BACKUP_PATH"
+    if ADD_OUTPUT=$(cd "$DB_DIR" && dolt backup add "$BACKUP_NAME" "file://$BACKUP_PATH" 2>&1); then
+      REMOTE_EXISTS=true
+    else
+      FAILED=$((FAILED + 1))
+      FAILED_DBS="$FAILED_DBS $DB(add-remote)"
+      log "  $DB: FAILED to add backup remote: $ADD_OUTPUT"
+      continue
+    fi
+  fi
+
   # Sync backup with timeout
   log "  $DB: syncing ($LAST_HASH -> $CURRENT_HASH)..."
   SYNC_START=$(date +%s)
 
-  SYNC_OUTPUT=$(cd "$DB_DIR" && timeout "$BACKUP_TIMEOUT" dolt backup sync "$BACKUP_NAME" 2>&1) || true
-  SYNC_RC=${PIPESTATUS[0]:-$?}
+  # Capture the sync exit code directly. `... || true` masks failures and
+  # records hash markers for backups that never happened.
+  SYNC_RC=0
+  SYNC_OUTPUT=$(cd "$DB_DIR" && timeout "$BACKUP_TIMEOUT" dolt backup sync "$BACKUP_NAME" 2>&1) || SYNC_RC=$?
   SYNC_ELAPSED=$(( $(date +%s) - SYNC_START ))
 
   if [[ $SYNC_RC -eq 0 ]]; then
     # Record the hash we just backed up
     mkdir -p "$(dirname "$HASH_FILE")"
     echo "$CURRENT_HASH" > "$HASH_FILE"
+    # Bump dir mtime for the daemon's freshness check (see skip branch).
+    touch_backup_dir "$BACKUP_DB_DIR"
 
     DB_SIZE=$(du -sh "$BACKUP_DIR/$DB" 2>/dev/null | cut -f1 || echo "?")
     SYNCED=$((SYNCED + 1))
