@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -431,11 +432,10 @@ JSON
 	if err != nil {
 		t.Fatalf("read fake bd args: %v", err)
 	}
-	args := string(argsBytes)
-	for _, want := range []string{"list", "--status=in_progress,hooked", "--json", "--limit=0", "--flat"} {
-		if !strings.Contains(args, want) {
-			t.Fatalf("bd args missing %q in:\n%s", want, args)
-		}
+	gotArgs := strings.Split(strings.TrimSpace(string(argsBytes)), "\n")
+	wantArgs := []string{"list", "--status=in_progress,hooked", "--json", "--limit=0", "--flat"}
+	if !reflect.DeepEqual(gotArgs, wantArgs) {
+		t.Fatalf("bd args = %#v, want %#v", gotArgs, wantArgs)
 	}
 }
 
