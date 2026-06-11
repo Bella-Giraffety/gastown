@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/dog"
@@ -70,6 +72,7 @@ type DogDispatchInfo struct {
 	sessionDelayed bool
 	townRoot       string
 	workDesc       string
+	workStartedAt  time.Time
 	agentOverride  string
 	rigsConfig     *config.RigsConfig
 }
@@ -141,9 +144,24 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 		}
 	}
 
-	// Mark dog as working with the assigned work
-	if err := mgr.AssignWork(targetDog.Name, opts.WorkDesc); err != nil {
-		return nil, fmt.Errorf("assigning work to dog: %w", err)
+	// Pool dispatch must reserve the dog atomically; GetIdleDog() is only a
+	// snapshot and can race another sling.
+	var workStartedAt time.Time
+	if dogName == "" {
+		assignedState, err := mgr.AssignWorkIfIdle(targetDog.Name, opts.WorkDesc)
+		if err != nil {
+			return nil, fmt.Errorf("assigning idle dog work: %w", err)
+		}
+		workStartedAt = assignedState.WorkStartedAt
+	} else {
+		if err := mgr.AssignWork(targetDog.Name, opts.WorkDesc); err != nil {
+			return nil, fmt.Errorf("assigning work to dog: %w", err)
+		}
+		assignedDog, err := mgr.Get(targetDog.Name)
+		if err != nil {
+			return nil, fmt.Errorf("loading assigned dog state: %w", err)
+		}
+		workStartedAt = assignedDog.WorkStartedAt
 	}
 
 	// Build agent ID
@@ -160,6 +178,7 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 			sessionDelayed: true,
 			townRoot:       townRoot,
 			workDesc:       opts.WorkDesc,
+			workStartedAt:  workStartedAt,
 			agentOverride:  opts.AgentOverride,
 			rigsConfig:     rigsConfig,
 		}, nil
@@ -181,10 +200,11 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 	}
 
 	return &DogDispatchInfo{
-		DogName: targetDog.Name,
-		AgentID: agentID,
-		Pane:    pane,
-		Spawned: spawned,
+		DogName:       targetDog.Name,
+		AgentID:       agentID,
+		Pane:          pane,
+		Spawned:       spawned,
+		workStartedAt: workStartedAt,
 	}, nil
 }
 
@@ -205,12 +225,25 @@ func (d *DogDispatchInfo) StartDelayedSession() (string, error) {
 	}
 	pane, err := sessMgr.EnsureRunning(d.DogName, opts)
 	if err != nil {
+		if errors.Is(err, dog.ErrSessionRunning) {
+			d.Pane = ""
+			d.sessionDelayed = false
+			return "", nil
+		}
 		return "", fmt.Errorf("starting dog session: %w", err)
 	}
 
 	d.Pane = pane
 	d.sessionDelayed = false
 	return pane, nil
+}
+
+func (d *DogDispatchInfo) clearWorkIfMatches() (bool, error) {
+	if d == nil {
+		return false, nil
+	}
+	mgr := dog.NewManager(d.townRoot, d.rigsConfig)
+	return mgr.ClearWorkIfMatches(d.DogName, d.workDesc, d.workStartedAt)
 }
 
 // generateDogName creates a unique dog name for pool expansion.
