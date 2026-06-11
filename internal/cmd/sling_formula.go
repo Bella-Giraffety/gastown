@@ -97,6 +97,7 @@ func findHookedFormulaSingleton(workDir, targetAgent, formulaName string) (*bead
 		Assignee:  targetAgent,
 		Priority:  -1,
 		Ephemeral: true,
+		Limit:     0,
 	})
 	if err != nil {
 		return nil, err
@@ -113,6 +114,40 @@ func findHookedFormulaSingleton(workDir, targetAgent, formulaName string) (*bead
 }
 
 var findHookedFormulaSingletonFn = findHookedFormulaSingleton
+
+func findHookedFormulaForDogPool(workDir, formulaName string) (*beads.Issue, string, error) {
+	if workDir == "" || formulaName == "" {
+		return nil, "", nil
+	}
+
+	b := beads.New(workDir)
+	hookedBeads, err := b.List(beads.ListOptions{
+		Status:    beads.StatusHooked,
+		Priority:  -1,
+		Ephemeral: true,
+		Limit:     0,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	const dogAssigneePrefix = "deacon/dogs/"
+	for _, bead := range hookedBeads {
+		if !strings.HasPrefix(bead.Assignee, dogAssigneePrefix) {
+			continue
+		}
+		dogName := strings.TrimPrefix(bead.Assignee, dogAssigneePrefix)
+		if dogName == "" || strings.Contains(dogName, "/") {
+			continue
+		}
+		fields := beads.ParseAttachmentFields(bead)
+		if fields != nil && fields.AttachedFormula == formulaName {
+			return bead, dogName, nil
+		}
+	}
+
+	return nil, "", nil
+}
 
 // verifyFormulaExists checks that the formula exists using bd formula show.
 // Formulas are TOML files (.formula.toml).
