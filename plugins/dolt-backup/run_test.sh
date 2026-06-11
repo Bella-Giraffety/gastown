@@ -159,13 +159,27 @@ test_stale_hash_without_backup_forces_sync() {
   tmp="$(setup_case)"
   mkdir -p "$tmp/backup/hq"
   echo "hash1" > "$tmp/backup/hq/.last-backup-hash"
+  echo "hq-backup" > "$tmp/remotes/hq"
   if ! run_backup "$tmp"; then
     fail "stale hash repair should succeed"
   fi
-  assert_contains "$tmp/add.log" "backup add hq-backup file://$tmp/backup/hq/hq-backup"
+  assert_file_missing "$tmp/add.log"
   assert_contains "$tmp/sync.log" "backup sync hq-backup"
   assert_file_exists "$tmp/backup/hq/hq-backup/data"
   assert_contains "$tmp/backup/hq/.last-backup-hash" "hash1"
+  rm -rf "$tmp"
+}
+
+test_add_remote_failure_does_not_sync_or_write_hash() {
+  local tmp
+  tmp="$(setup_case)"
+  if run_backup "$tmp" DOLT_STUB_ADD_FAIL=1; then
+    fail "add remote failure should exit nonzero"
+  fi
+  assert_contains "$tmp/add.log" "backup add hq-backup file://$tmp/backup/hq/hq-backup"
+  assert_file_missing "$tmp/sync.log"
+  assert_file_missing "$tmp/backup/hq/.last-backup-hash"
+  assert_contains "$tmp/output.log" "FAILED to add backup remote"
   rm -rf "$tmp"
 }
 
@@ -193,6 +207,7 @@ echo "=== dolt-backup tests ==="
 test_failed_sync_does_not_write_hash
 test_missing_remote_is_added_before_sync
 test_stale_hash_without_backup_forces_sync
+test_add_remote_failure_does_not_sync_or_write_hash
 test_unchanged_real_backup_skips_and_touches
 
 if [[ $FAILURES -gt 0 ]]; then
