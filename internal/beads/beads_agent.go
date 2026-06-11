@@ -678,6 +678,7 @@ func (b *Beads) ListAgentBeadsFromWisps() (map[string]*Issue, error) {
 
 	result := make(map[string]*Issue)
 	townRoot := b.getTownRoot()
+	allowIDFallback := townRoot != "" && b.getResolvedBeadsDir() == ResolveBeadsDir(filepath.Join(townRoot, ".beads"))
 	for _, w := range wrapper.Wisps {
 		// Check by type/label first (works when fields are present)
 		if IsAgentBead(w) {
@@ -686,7 +687,7 @@ func (b *Beads) ListAgentBeadsFromWisps() (map[string]*Issue, error) {
 		}
 		// Fallback: wisps JSON may omit issue_type/labels fields.
 		// Only trust IDs that match the configured route owner.
-		if isRoutableAgentBeadID(townRoot, w.ID) {
+		if allowIDFallback && isRoutableAgentBeadID(townRoot, w.ID) {
 			result[w.ID] = w
 		}
 	}

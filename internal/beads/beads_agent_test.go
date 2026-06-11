@@ -374,6 +374,37 @@ func TestListAgentBeadsFromWispsUsesRouteAwareFallback(t *testing.T) {
 	}
 }
 
+func TestListAgentBeadsFromWispsDoesNotClassifyRigWorkWispsByID(t *testing.T) {
+	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	rigBeadsDir := filepath.Join(rigDir, ".beads")
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), townBeadsDir, rigBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRoutes(townBeadsDir, []Route{{Prefix: "hq-", Path: "."}, {Prefix: "gt-", Path: "gastown/mayor/rig"}}); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+	installMockBDWispList(t, `{"wisps":[{"id":"gt-gastown-polecat-cleanup"},{"id":"gt-gastown-polecat-real","issue_type":"agent","labels":["gt:agent"]}]}`)
+
+	bd := NewWithBeadsDir(rigDir, rigBeadsDir)
+	got, err := bd.ListAgentBeadsFromWisps()
+	if err != nil {
+		t.Fatalf("ListAgentBeadsFromWisps: %v", err)
+	}
+	if _, ok := got["gt-gastown-polecat-real"]; !ok {
+		t.Fatalf("expected metadata-backed agent wisp in result: %#v", got)
+	}
+	if _, ok := got["gt-gastown-polecat-cleanup"]; ok {
+		t.Fatalf("rig work wisp was misclassified by ID: %#v", got)
+	}
+}
+
 func installMockBDCreateRecorder(t *testing.T, logPath string) {
 	t.Helper()
 
@@ -704,7 +735,7 @@ func TestUpdate_AgentShapedWorkBeadUsesRigRootWhenTownRecordIsNotAgent(t *testin
 	}
 }
 
-func TestUpdate_AgentShapedWorkBeadFailsClosedOnTownLookupError(t *testing.T) {
+func TestUpdate_AgentShapedWorkBeadStopsOnTownLookupError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("path assertions are Unix-oriented")
 	}
@@ -731,19 +762,19 @@ func TestUpdate_AgentShapedWorkBeadFailsClosedOnTownLookupError(t *testing.T) {
 
 	bd := NewWithBeadsDir(rigDir, rigBeadsDir)
 	status := "in_progress"
-	if err := bd.Update("ho-homelab-polecat-cleanup", UpdateOptions{Status: &status}); err != nil {
-		t.Fatalf("Update: %v", err)
+	if err := bd.Update("ho-homelab-polecat-cleanup", UpdateOptions{Status: &status}); err == nil {
+		t.Fatal("Update succeeded despite town lookup error")
 	}
 
 	logOutput := readMockBDLog(t, logPath)
 	if strings.Contains(logOutput, "beads_dir="+rigBeadsDir) {
 		t.Fatalf("lookup error fell back to rig BEADS_DIR:\n%s", logOutput)
 	}
-	if !strings.Contains(logOutput, "beads_dir="+townBeadsDir) {
+	if !strings.Contains(logOutput, "call="+townBeadsDir+" args=show ho-homelab-polecat-cleanup --json") {
 		t.Fatalf("mock bd log missing town BEADS_DIR:\n%s", logOutput)
 	}
-	if !strings.Contains(logOutput, "call="+townBeadsDir+" args=update ho-homelab-polecat-cleanup --status=in_progress") {
-		t.Fatalf("mock bd log missing town update call:\n%s", logOutput)
+	if strings.Contains(logOutput, "args=update ho-homelab-polecat-cleanup") {
+		t.Fatalf("lookup error still attempted update:\n%s", logOutput)
 	}
 }
 

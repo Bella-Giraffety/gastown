@@ -477,24 +477,29 @@ func (b *Beads) targetBeadsDirForCreate(opts CreateOptions) (string, error) {
 // When noRoute is set (see ForAgentBead), routing is skipped: the wrapper is
 // returned unchanged. Used for agent-bead operations whose IDs share the rig
 // prefix but whose data lives in the town DB.
-func (b *Beads) forIssueID(id string) *Beads {
+func (b *Beads) forIssueID(id string) (*Beads, error) {
 	if b.noRoute {
-		return b
+		return b, nil
 	}
 	current := b.getResolvedBeadsDir()
 	townRoot := b.getTownRoot()
 	if isRoutableAgentBeadID(townRoot, id) {
 		// Agent-shaped work bead IDs still belong to their prefix route; only
 		// override to town when the town record exists and is an agent bead.
-		// On lookup errors other than not-found, fail closed against town so a
-		// transient town DB error cannot mutate an agent-shaped rig work bead.
-		if target, ok, err := b.agentBeadTargetStatus(id); ok || (err != nil && !errors.Is(err, ErrNotFound)) {
-			return target
+		// On lookup errors other than not-found, fail closed so a transient town
+		// DB error cannot mutate an agent-shaped rig work bead.
+		if target, ok, err := b.agentBeadTargetStatus(id); ok || err != nil {
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return nil, err
+			}
+			if ok {
+				return target, nil
+			}
 		}
 	}
 	resolved := ResolveBeadsDirForID(current, id)
 	if resolved == "" || resolved == current {
-		return b
+		return b, nil
 	}
 	return &Beads{
 		workDir:    filepath.Dir(resolved),
@@ -502,7 +507,7 @@ func (b *Beads) forIssueID(id string) *Beads {
 		isolated:   b.isolated,
 		serverPort: b.serverPort,
 		townRoot:   b.townRoot,
-	}
+	}, nil
 }
 
 func (b *Beads) agentBeadTargetStatus(id string) (*Beads, bool, error) {
@@ -1281,7 +1286,11 @@ func (b *Beads) ReadyWithType(issueType string) ([]*Issue, error) {
 
 // Show returns detailed information about an issue.
 func (b *Beads) Show(id string) (*Issue, error) {
-	if target := b.forIssueID(id); target != b {
+	target, err := b.forIssueID(id)
+	if err != nil {
+		return nil, err
+	}
+	if target != b {
 		return target.Show(id)
 	}
 
@@ -1648,7 +1657,11 @@ func normalizeBugTitle(title string) string {
 
 // Update updates an existing issue.
 func (b *Beads) Update(id string, opts UpdateOptions) error {
-	if target := b.forIssueID(id); target != b {
+	target, err := b.forIssueID(id)
+	if err != nil {
+		return err
+	}
+	if target != b {
 		return target.Update(id, opts)
 	}
 	if b.store != nil {
@@ -1686,7 +1699,7 @@ func (b *Beads) Update(id string, opts UpdateOptions) error {
 		}
 	}
 
-	_, err := b.run(args...)
+	_, err = b.run(args...)
 	return err
 }
 
