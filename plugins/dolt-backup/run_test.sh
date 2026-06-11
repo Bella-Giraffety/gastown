@@ -4,6 +4,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FAILURES=0
+TEST_TMP_ROOT="$(mktemp -d)"
+
+cleanup() {
+  rm -rf "$TEST_TMP_ROOT"
+}
+trap cleanup EXIT
 
 fail() {
   echo "FAIL: $*"
@@ -45,6 +51,7 @@ DB="$(basename "$PWD")"
 REMOTE_FILE="$DOLT_STUB_ROOT/remotes/$DB"
 ADD_LOG="$DOLT_STUB_ROOT/add.log"
 SYNC_LOG="$DOLT_STUB_ROOT/sync.log"
+OPS_LOG="$DOLT_STUB_ROOT/ops.log"
 
 case "${1:-}" in
   log)
@@ -61,6 +68,7 @@ case "${1:-}" in
         ;;
       add)
         echo "backup add $3 $4" >> "$ADD_LOG"
+        echo "add $3 $4" >> "$OPS_LOG"
         if [[ "${DOLT_STUB_ADD_FAIL:-0}" = "1" ]]; then
           echo "add failed"
           exit 17
@@ -70,6 +78,7 @@ case "${1:-}" in
         ;;
       sync)
         echo "backup sync $3" >> "$SYNC_LOG"
+        echo "sync $3" >> "$OPS_LOG"
         if [[ "${DOLT_STUB_SYNC_FAIL:-0}" = "1" ]]; then
           echo "sync failed"
           exit 42
@@ -105,7 +114,7 @@ STUB
 
 setup_case() {
   local tmp
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d "$TEST_TMP_ROOT/case.XXXXXX")"
   mkdir -p "$tmp/bin" "$tmp/data/hq/.dolt" "$tmp/backup" "$tmp/remotes"
   write_stubs "$tmp/bin"
   echo "$tmp"
@@ -148,6 +157,9 @@ test_missing_remote_is_added_before_sync() {
   after="$(stat -c %Y "$tmp/backup/hq")"
   assert_contains "$tmp/add.log" "backup add hq-backup file://$tmp/backup/hq/hq-backup"
   assert_contains "$tmp/sync.log" "backup sync hq-backup"
+  mapfile -t ops < "$tmp/ops.log"
+  [[ "${ops[0]:-}" = "add hq-backup file://$tmp/backup/hq/hq-backup" ]] || fail "backup add should be first operation"
+  [[ "${ops[1]:-}" = "sync hq-backup" ]] || fail "backup sync should follow backup add"
   assert_contains "$tmp/backup/hq/.last-backup-hash" "hash1"
   assert_file_exists "$tmp/backup/hq/hq-backup/data"
   [[ "$after" -gt "$before" ]] || fail "successful sync should touch backup dir mtime"
