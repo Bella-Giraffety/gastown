@@ -259,10 +259,10 @@ func TestResolveRoutingTarget(t *testing.T) {
 			expected: rigBeadsDir,
 		},
 		{
-			name:     "rig-prefixed agent bead routes to town",
+			name:     "rig-prefixed agent-shaped bead routes by prefix",
 			townRoot: tmpDir,
 			beadID:   "gt-gastown-polecat-Toast",
-			expected: beadsDir,
+			expected: rigBeadsDir,
 		},
 		{
 			name:     "same prefix work bead routes to owning rig",
@@ -271,10 +271,10 @@ func TestResolveRoutingTarget(t *testing.T) {
 			expected: homelabBeadsDir,
 		},
 		{
-			name:     "cross-rig agent bead routes to town",
+			name:     "cross-rig agent-shaped bead routes by prefix",
 			townRoot: tmpDir,
 			beadID:   "ho-homelab-polecat-furiosa",
-			expected: beadsDir,
+			expected: homelabBeadsDir,
 		},
 		{
 			name:     "agent-looking non-owner slug routes to rig",
@@ -295,10 +295,10 @@ func TestResolveRoutingTarget(t *testing.T) {
 			expected: rigBeadsDir,
 		},
 		{
-			name:     "hyphenated rig agent bead routes to town",
+			name:     "hyphenated rig agent-shaped bead routes by prefix",
 			townRoot: tmpDir,
 			beadID:   "mr-my-rig-polecat-nux",
-			expected: beadsDir,
+			expected: myRigBeadsDir,
 		},
 		{
 			name:     "hyphenated rig work bead routes to rig",
@@ -307,10 +307,10 @@ func TestResolveRoutingTarget(t *testing.T) {
 			expected: myRigBeadsDir,
 		},
 		{
-			name:     "collapsed hyphenated-name agent routes to town",
+			name:     "collapsed agent-shaped bead routes by prefix",
 			townRoot: tmpDir,
 			beadID:   "ff-polecat-war-boy",
-			expected: beadsDir,
+			expected: ffBeadsDir,
 		},
 		{
 			name:     "collapsed prefix work bead routes to rig",

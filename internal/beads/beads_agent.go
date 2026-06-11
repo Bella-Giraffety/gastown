@@ -677,6 +677,7 @@ func (b *Beads) ListAgentBeadsFromWisps() (map[string]*Issue, error) {
 	}
 
 	result := make(map[string]*Issue)
+	townRoot := b.getTownRoot()
 	for _, w := range wrapper.Wisps {
 		// Check by type/label first (works when fields are present)
 		if IsAgentBead(w) {
@@ -684,48 +685,13 @@ func (b *Beads) ListAgentBeadsFromWisps() (map[string]*Issue, error) {
 			continue
 		}
 		// Fallback: wisps JSON may omit issue_type/labels fields.
-		// Detect agent beads by ID pattern (prefix-rig-role format).
-		if isAgentBeadByID(w.ID) {
+		// Only trust IDs that match the configured route owner.
+		if isRoutableAgentBeadID(townRoot, w.ID) {
 			result[w.ID] = w
 		}
 	}
 
 	return result, nil
-}
-
-// isAgentBeadByID detects agent beads by their ID naming convention.
-// It intentionally validates the whole shape instead of checking for role
-// words anywhere in the slug, because ordinary work bead IDs can mention
-// roles such as polecat or witness.
-func isAgentBeadByID(id string) bool {
-	parts := strings.Split(id, "-")
-	if len(parts) < 2 {
-		return false
-	}
-
-	// Collapsed/town form: prefix-role[-name]. Keep this conservative because
-	// without routes we cannot distinguish a collapsed agent from a work slug.
-	if isTownLevelRole(parts[1]) || isRigLevelRole(parts[1]) {
-		return len(parts) == 2
-	}
-	if isTownLevelNamedRole(parts[1]) || isNamedRole(parts[1]) {
-		return len(parts) == 3 && parts[2] != ""
-	}
-
-	if len(parts) < 3 {
-		return false
-	}
-
-	// Full form: prefix-rig-role[-name], where rig may contain hyphens.
-	for i := len(parts) - 1; i >= 2; i-- {
-		if isTownLevelRole(parts[i]) || isRigLevelRole(parts[i]) {
-			return i == len(parts)-1
-		}
-		if isNamedRole(parts[i]) {
-			return i < len(parts)-1 && parts[i+1] != ""
-		}
-	}
-	return false
 }
 
 // isRoutableAgentBeadID returns true when an ID is an agent bead whose owning

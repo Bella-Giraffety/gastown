@@ -1040,6 +1040,8 @@ func TestWrapError(t *testing.T) {
 		{"gt-xyz not found", ErrNotFound, false},
 		{"database not found", nil, false},
 		{"table not found", nil, false},
+		{"database \"foo-bar\" not found", nil, false},
+		{"table 'agent-beads' not found", nil, false},
 	}
 
 	for _, tt := range tests {

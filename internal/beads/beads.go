@@ -391,8 +391,8 @@ func NewWithBeadsDir(workDir, beadsDir string) *Beads {
 // ForAgentBead bypasses that:
 //   - Re-roots the wrapper at the town's .beads directory (so bd CLI itself
 //     opens the town/hq Dolt database where agent beads live).
-//   - Sets noRoute=true so the Go-side routing helpers (Show,
-//     ResolveRoutingTarget, forIssueID) do not redirect lookups by prefix.
+//   - Sets noRoute=true so the Go-side routing helpers (Show, forIssueID) do
+//     not redirect lookups by prefix.
 //
 // If the town root cannot be determined, returns the original wrapper to
 // preserve current behavior.
@@ -731,6 +731,12 @@ func isIssueNotFoundError(stderr string) bool {
 	for i := 0; i+2 < len(fields); i++ {
 		id := strings.Trim(fields[i], " .,;:'\"")
 		if strings.Contains(id, "-") && fields[i+1] == "not" && strings.Trim(fields[i+2], " .,;:'\"") == "found" {
+			if i > 0 {
+				prev := strings.Trim(fields[i-1], " .,;:'\"")
+				if prev == "database" || prev == "table" {
+					return false
+				}
+			}
 			return true
 		}
 	}
