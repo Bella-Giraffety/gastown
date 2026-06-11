@@ -46,6 +46,7 @@ func TestDogDispatchInfoClearWorkIfMatchesUsesAssignmentTimestamp(t *testing.T) 
 		townRoot:      townRoot,
 		workDesc:      "mol-dog-reaper",
 		workStartedAt: workStarted.Add(time.Second),
+		ownsWork:      true,
 		rigsConfig:    rigsConfig,
 	}
 	cleared, err := staleDispatch.clearWorkIfMatches()
@@ -70,6 +71,7 @@ func TestDogDispatchInfoClearWorkIfMatchesUsesAssignmentTimestamp(t *testing.T) 
 		townRoot:      townRoot,
 		workDesc:      "mol-dog-reaper",
 		workStartedAt: workStarted,
+		ownsWork:      true,
 		rigsConfig:    rigsConfig,
 	}
 	cleared, err = matchingDispatch.clearWorkIfMatches()
@@ -85,5 +87,45 @@ func TestDogDispatchInfoClearWorkIfMatchesUsesAssignmentTimestamp(t *testing.T) 
 	}
 	if got.State != dog.StateIdle || got.Work != "" || !got.WorkStartedAt.IsZero() {
 		t.Fatalf("matching dispatch did not clear state: state=%q work=%q started=%v", got.State, got.Work, got.WorkStartedAt)
+	}
+}
+
+func TestDogDispatchInfoClearWorkIfMatchesSkipsReusedWork(t *testing.T) {
+	townRoot := t.TempDir()
+	rigsConfig := &config.RigsConfig{Version: 1, Rigs: map[string]config.RigEntry{}}
+	now := time.Now().Truncate(time.Second)
+	workStarted := now.Add(-time.Minute)
+	writeDogStateForDispatchTest(t, townRoot, "alpha", &dog.DogState{
+		Name:          "alpha",
+		State:         dog.StateWorking,
+		Work:          "mol-dog-reaper",
+		WorkStartedAt: workStarted,
+		LastActive:    now,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+
+	reusedDispatch := &DogDispatchInfo{
+		DogName:       "alpha",
+		townRoot:      townRoot,
+		workDesc:      "mol-dog-reaper",
+		workStartedAt: workStarted,
+		ownsWork:      false,
+		rigsConfig:    rigsConfig,
+	}
+	cleared, err := reusedDispatch.clearWorkIfMatches()
+	if err != nil {
+		t.Fatalf("clearWorkIfMatches reused dispatch error = %v", err)
+	}
+	if cleared {
+		t.Fatal("reused dispatch cleared dog work it did not create")
+	}
+
+	got, err := dog.NewManager(townRoot, rigsConfig).Get("alpha")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.State != dog.StateWorking || got.Work != "mol-dog-reaper" || !got.WorkStartedAt.Equal(workStarted) {
+		t.Fatalf("reused dispatch mutated dog state: state=%q work=%q started=%v", got.State, got.Work, got.WorkStartedAt)
 	}
 }

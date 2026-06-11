@@ -193,6 +193,15 @@ func runSlingFormula(ctx context.Context, args []string) (err error) {
 	if len(args) > 1 {
 		target = args[1]
 	}
+	if !slingDryRun {
+		if dogName, isDog := IsDogTarget(target); isDog && dogName == "" {
+			poolUnlock, poolLockErr := tryAcquireSlingAssigneeLock(townRoot, "deacon/dogs/"+formulaName)
+			if poolLockErr != nil {
+				return fmt.Errorf("serializing dog-pool formula sling for %s: %w", formulaName, poolLockErr)
+			}
+			defer poolUnlock()
+		}
+	}
 	resolved, err := resolveTarget(target, ResolveTargetOptions{
 		DryRun:   slingDryRun,
 		Force:    slingForce,

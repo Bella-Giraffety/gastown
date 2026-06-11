@@ -73,6 +73,7 @@ type DogDispatchInfo struct {
 	townRoot       string
 	workDesc       string
 	workStartedAt  time.Time
+	ownsWork       bool
 	agentOverride  string
 	rigsConfig     *config.RigsConfig
 }
@@ -130,12 +131,10 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 				townRoot:       townRoot,
 				workDesc:       opts.WorkDesc,
 				workStartedAt:  targetDog.WorkStartedAt,
+				ownsWork:       false,
 				agentOverride:  opts.AgentOverride,
 				rigsConfig:     rigsConfig,
 			}, nil
-		}
-		if targetDog.State == dog.StateWorking {
-			return nil, fmt.Errorf("dog %s is currently working: %w", targetDog.Name, dog.ErrDogWorking)
 		}
 	} else {
 		if existing, existingDogName, err := findHookedFormulaForDogPool(townRoot, opts.WorkDesc); err != nil {
@@ -155,6 +154,7 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 				townRoot:       townRoot,
 				workDesc:       opts.WorkDesc,
 				workStartedAt:  targetDog.WorkStartedAt,
+				ownsWork:       false,
 				agentOverride:  opts.AgentOverride,
 				rigsConfig:     rigsConfig,
 			}, nil
@@ -202,14 +202,11 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 	}
 
 	if dogName != "" {
-		if err := mgr.AssignWork(targetDog.Name, opts.WorkDesc); err != nil {
-			return nil, fmt.Errorf("assigning work to dog: %w", err)
-		}
-		assignedDog, err := mgr.Get(targetDog.Name)
+		assignedState, err := mgr.AssignWorkIfIdle(targetDog.Name, opts.WorkDesc)
 		if err != nil {
-			return nil, fmt.Errorf("loading assigned dog state: %w", err)
+			return nil, fmt.Errorf("assigning idle dog work: %w", err)
 		}
-		workStartedAt = assignedDog.WorkStartedAt
+		workStartedAt = assignedState.WorkStartedAt
 	}
 
 	// Build agent ID
@@ -227,6 +224,7 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 			townRoot:       townRoot,
 			workDesc:       opts.WorkDesc,
 			workStartedAt:  workStartedAt,
+			ownsWork:       true,
 			agentOverride:  opts.AgentOverride,
 			rigsConfig:     rigsConfig,
 		}, nil
@@ -253,6 +251,7 @@ func DispatchToDog(dogName string, opts DogDispatchOptions) (*DogDispatchInfo, e
 		Pane:          pane,
 		Spawned:       spawned,
 		workStartedAt: workStartedAt,
+		ownsWork:      true,
 	}, nil
 }
 
@@ -287,7 +286,7 @@ func (d *DogDispatchInfo) StartDelayedSession() (string, error) {
 }
 
 func (d *DogDispatchInfo) clearWorkIfMatches() (bool, error) {
-	if d == nil {
+	if d == nil || !d.ownsWork {
 		return false, nil
 	}
 	mgr := dog.NewManager(d.townRoot, d.rigsConfig)
