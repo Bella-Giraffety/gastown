@@ -165,7 +165,8 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 	}
 
 	webCfg := config.DefaultWebTimeoutsConfig()
-	workerCfg := config.DefaultWorkerStatusConfig()
+	defaultWorkerCfg := config.DefaultWorkerStatusConfig()
+	workerCfg := defaultWorkerCfg
 	if ts, err := config.LoadOrCreateTownSettings(config.TownSettingsPath(townRoot)); err == nil {
 		// Replace entire defaults — individual fields fall back via ParseDurationOrDefault
 		// (empty string → hardcoded default). Add explicit zero-value guards for non-duration fields.
@@ -186,6 +187,8 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 		registry = session.DefaultRegistry()
 	}
 
+	defaultStaleThreshold := config.ParseDurationOrDefault(defaultWorkerCfg.StaleThreshold, 15*time.Minute)
+
 	return &LiveConvoyFetcher{
 		townRoot:                townRoot,
 		townBeads:               filepath.Join(townRoot, ".beads"),
@@ -193,7 +196,7 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 		cmdTimeout:              config.ParseDurationOrDefault(webCfg.CmdTimeout, 15*time.Second),
 		ghCmdTimeout:            config.ParseDurationOrDefault(webCfg.GhCmdTimeout, 10*time.Second),
 		tmuxCmdTimeout:          config.ParseDurationOrDefault(webCfg.TmuxCmdTimeout, 2*time.Second),
-		staleThreshold:          config.ParseDurationOrDefault(workerCfg.StaleThreshold, 5*time.Minute),
+		staleThreshold:          config.ParseDurationOrDefault(workerCfg.StaleThreshold, defaultStaleThreshold),
 		stuckThreshold:          config.ParseDurationOrDefault(workerCfg.StuckThreshold, constants.GUPPViolationTimeout),
 		heartbeatFreshThreshold: config.ParseDurationOrDefault(workerCfg.HeartbeatFreshThreshold, 5*time.Minute),
 		mayorActiveThreshold:    config.ParseDurationOrDefault(workerCfg.MayorActiveThreshold, 5*time.Minute),
@@ -900,26 +903,28 @@ func (f *LiveConvoyFetcher) FetchWorkers() ([]WorkerRow, error) {
 
 // assignedIssue holds issue info for the assigned issues map.
 type assignedIssue struct {
-	ID    string
-	Title string
+	ID     string
+	Title  string
+	Status beads.IssueStatus
 }
 
 // getAssignedIssuesMap returns a map of assignee -> assigned issue.
-// Queries beads for all in_progress issues with assignees.
+// Queries beads for all assigned issues with assignees.
 func (f *LiveConvoyFetcher) getAssignedIssuesMap() map[string]assignedIssue {
 	result := make(map[string]assignedIssue)
 
-	// Query all in_progress issues (these are the ones being worked on)
-	stdout, err := f.runBdCmd(f.townRoot, "list", "--status=in_progress", "--json")
+	assignedStatuses := strings.Join([]string{string(beads.StatusInProgress), string(beads.IssueStatusHooked)}, ",")
+	stdout, err := f.runBdCmd(f.townRoot, "list", "--status="+assignedStatuses, "--json", "--limit=0")
 	if err != nil {
-		log.Printf("warning: bd list in_progress failed: %v", err)
+		log.Printf("warning: bd list assigned issues failed: %v", err)
 		return result
 	}
 
 	var issues []struct {
-		ID       string `json:"id"`
-		Title    string `json:"title"`
-		Assignee string `json:"assignee"`
+		ID       string            `json:"id"`
+		Title    string            `json:"title"`
+		Assignee string            `json:"assignee"`
+		Status   beads.IssueStatus `json:"status"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &issues); err != nil {
 		log.Printf("warning: parsing bd list output: %v", err)
@@ -927,15 +932,33 @@ func (f *LiveConvoyFetcher) getAssignedIssuesMap() map[string]assignedIssue {
 	}
 
 	for _, issue := range issues {
-		if issue.Assignee != "" {
-			result[issue.Assignee] = assignedIssue{
-				ID:    issue.ID,
-				Title: issue.Title,
-			}
+		if issue.Assignee == "" {
+			continue
+		}
+
+		candidate := assignedIssue{
+			ID:     issue.ID,
+			Title:  issue.Title,
+			Status: issue.Status,
+		}
+		current, exists := result[issue.Assignee]
+		if !exists || assignedIssueStatusPriority(candidate.Status) > assignedIssueStatusPriority(current.Status) {
+			result[issue.Assignee] = candidate
 		}
 	}
 
 	return result
+}
+
+func assignedIssueStatusPriority(status beads.IssueStatus) int {
+	switch status {
+	case beads.StatusInProgress:
+		return 2
+	case beads.IssueStatusHooked:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // calculateWorkerWorkStatus determines the worker's work status based on activity and assignment.
