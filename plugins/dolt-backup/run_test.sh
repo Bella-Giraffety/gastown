@@ -169,7 +169,7 @@ test_missing_remote_is_added_before_sync() {
 test_stale_hash_without_backup_forces_sync() {
   local tmp
   tmp="$(setup_case)"
-  mkdir -p "$tmp/backup/hq"
+  mkdir -p "$tmp/backup/hq/hq-backup"
   echo "hash1" > "$tmp/backup/hq/.last-backup-hash"
   echo "hq-backup" > "$tmp/remotes/hq"
   if ! run_backup "$tmp"; then
@@ -179,6 +179,21 @@ test_stale_hash_without_backup_forces_sync() {
   assert_contains "$tmp/sync.log" "backup sync hq-backup"
   assert_file_exists "$tmp/backup/hq/hq-backup/data"
   assert_contains "$tmp/backup/hq/.last-backup-hash" "hash1"
+  rm -rf "$tmp"
+}
+
+test_missing_databases_value_errors() {
+  local tmp
+  tmp="$(setup_case)"
+  if env \
+    PATH="$tmp/bin:$PATH" \
+    DOLT_DATA_DIR="$tmp/data" \
+    DOLT_BACKUP_DIR="$tmp/backup" \
+    DOLT_STUB_ROOT="$tmp" \
+    "$SCRIPT_DIR/run.sh" --databases > "$tmp/output.log" 2>&1; then
+    fail "missing --databases value should exit nonzero"
+  fi
+  assert_contains "$tmp/output.log" "ERROR: --databases requires a comma-separated value"
   rm -rf "$tmp"
 }
 
@@ -221,6 +236,7 @@ test_missing_remote_is_added_before_sync
 test_stale_hash_without_backup_forces_sync
 test_add_remote_failure_does_not_sync_or_write_hash
 test_unchanged_real_backup_skips_and_touches
+test_missing_databases_value_errors
 
 if [[ $FAILURES -gt 0 ]]; then
   echo "FAILED: $FAILURES test(s) failed"
