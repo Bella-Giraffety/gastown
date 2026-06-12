@@ -119,11 +119,12 @@ func TestStopPoller_StalePid(t *testing.T) {
 	}
 }
 
-func TestPollerAlive_LiveProcess(t *testing.T) {
+func TestPollerAlive_LiveNonPollerProcess(t *testing.T) {
 	townRoot := t.TempDir()
 	session := "gt-gastown-crew-test"
 
-	// Write our own PID — we're definitely alive.
+	// Write our own PID. The process is alive, but it is not this session's
+	// nudge-poller, so the PID file should be treated as stale.
 	pidDir := pollerPidDir(townRoot)
 	if err := os.MkdirAll(pidDir, 0755); err != nil {
 		t.Fatal(err)
@@ -134,12 +135,33 @@ func TestPollerAlive_LiveProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pid, alive := pollerAlive(townRoot, session)
-	if !alive {
-		t.Error("pollerAlive() returned false for live process")
+	_, alive := pollerAlive(townRoot, session)
+	if alive {
+		t.Error("pollerAlive() returned true for unrelated live process")
 	}
-	if pid != myPid {
-		t.Errorf("pollerAlive() pid = %d, want %d", pid, myPid)
+	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
+		t.Error("unrelated live PID file was not cleaned up")
+	}
+}
+
+func TestStopPoller_LiveNonPollerProcess(t *testing.T) {
+	townRoot := t.TempDir()
+	session := "gt-gastown-crew-test"
+
+	pidDir := pollerPidDir(townRoot)
+	if err := os.MkdirAll(pidDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	pidPath := pollerPidFile(townRoot, session)
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := StopPoller(townRoot, session); err != nil {
+		t.Errorf("StopPoller() unexpected error: %v", err)
+	}
+	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
+		t.Error("StopPoller did not clean up unrelated live PID file")
 	}
 }
 

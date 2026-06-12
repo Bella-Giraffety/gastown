@@ -84,6 +84,7 @@ func (m *Manager) Start(agentOverride string) error {
 	if running {
 		// Session exists - check if agent is actually running (healthy vs zombie)
 		if t.IsAgentAlive(sessionID) {
+			m.startNudgePoller(sessionID)
 			return ErrAlreadyRunning
 		}
 
@@ -184,6 +185,14 @@ func (m *Manager) Start(agentOverride string) error {
 
 	// Accept startup dialogs (workspace trust + bypass permissions) if they appear.
 	_ = t.AcceptStartupDialogs(sessionID)
+	m.startNudgePoller(sessionID)
+
+	time.Sleep(constants.ShutdownNotifyDelay)
+
+	return nil
+}
+
+func (m *Manager) startNudgePoller(sessionID string) {
 	startPoller := m.startPoller
 	if startPoller == nil {
 		startPoller = nudge.StartPoller
@@ -191,10 +200,6 @@ func (m *Manager) Start(agentOverride string) error {
 	if _, pollerErr := startPoller(m.townRoot, sessionID); pollerErr != nil {
 		fmt.Printf("warning: could not start nudge poller for deacon: %v\n", pollerErr)
 	}
-
-	time.Sleep(constants.ShutdownNotifyDelay)
-
-	return nil
 }
 
 // Stop stops the deacon session.

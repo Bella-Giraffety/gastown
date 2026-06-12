@@ -3,7 +3,9 @@
 package nudge
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"syscall"
 )
 
@@ -18,4 +20,18 @@ func pollerProcessAlive(pid int) bool {
 	}
 
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func pollerProcessMatches(pid int, session string) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "nudge-poller" && parts[i+1] == session {
+			return true
+		}
+	}
+	return false
 }

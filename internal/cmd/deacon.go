@@ -479,6 +479,9 @@ func runDeaconStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("checking session: %w", err)
 	}
 	if running {
+		if townRoot, err := workspace.FindFromCwdOrError(); err == nil {
+			startDeaconNudgePoller(townRoot, sessionName)
+		}
 		return fmt.Errorf("Deacon session already running. Attach with: gt deacon attach")
 	}
 
@@ -581,13 +584,17 @@ func startDeaconSession(t *tmux.Tmux, sessionName, agentOverride string) error {
 
 	time.Sleep(constants.ShutdownNotifyDelay)
 
-	if _, pollerErr := nudge.StartPoller(townRoot, sessionName); pollerErr != nil {
-		style.PrintWarning("could not start nudge poller for %s: %v", sessionName, pollerErr)
-	}
+	startDeaconNudgePoller(townRoot, sessionName)
 	fallbackConfig := config.ResolveRoleAgentConfig("deacon", townRoot, "")
 	_ = runtime.RunStartupFallback(t, sessionName, "deacon", fallbackConfig)
 
 	return nil
+}
+
+func startDeaconNudgePoller(townRoot, sessionName string) {
+	if _, pollerErr := nudge.StartPoller(townRoot, sessionName); pollerErr != nil {
+		style.PrintWarning("could not start nudge poller for %s: %v", sessionName, pollerErr)
+	}
 }
 
 func stopDeaconNudgePoller(sessionName string) {
@@ -647,6 +654,8 @@ func runDeaconAttach(cmd *cobra.Command, args []string) error {
 		if err := startDeaconSession(t, sessionName, deaconAgentOverride); err != nil {
 			return err
 		}
+	} else if townRoot, err := workspace.FindFromCwdOrError(); err == nil {
+		startDeaconNudgePoller(townRoot, sessionName)
 	}
 	// Session uses a respawn loop, so Claude restarts automatically if it exits
 

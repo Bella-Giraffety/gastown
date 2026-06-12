@@ -20,3 +20,7 @@ func pollerProcessAlive(pid int) bool {
 	_ = windows.CloseHandle(handle)
 	return true
 }
+
+func pollerProcessMatches(pid int, session string) bool {
+	return true
+}

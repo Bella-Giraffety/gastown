@@ -116,8 +116,8 @@ func StopPoller(townRoot, session string) error {
 		return nil // corrupt PID file, clean up
 	}
 
-	if !pollerProcessAlive(pid) {
-		// Process already dead.
+	if !pollerProcessAlive(pid) || !pollerProcessMatches(pid, session) {
+		// Process already dead, or PID was reused by an unrelated process.
 		_ = os.Remove(pidPath)
 		return nil
 	}
@@ -153,8 +153,8 @@ func pollerAlive(townRoot, session string) (int, bool) {
 		return 0, false
 	}
 
-	if !pollerProcessAlive(pid) {
-		// Stale PID file — clean up.
+	if !pollerProcessAlive(pid) || !pollerProcessMatches(pid, session) {
+		// Stale PID file, or PID was reused by an unrelated process.
 		_ = os.Remove(pidPath)
 		return 0, false
 	}
