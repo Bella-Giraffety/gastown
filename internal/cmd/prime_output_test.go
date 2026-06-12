@@ -180,3 +180,23 @@ func TestOutputRoleDirectives(t *testing.T) {
 		}
 	})
 }
+
+func TestOutputCommandQuickReference_BootBlocksRawTmux(t *testing.T) {
+	ctx := RoleContext{Role: RoleBoot}
+
+	out := captureStdout(t, func() {
+		outputCommandQuickReference(ctx)
+	})
+
+	if !strings.Contains(out, "~~tmux send-keys~~ (blocked)") {
+		t.Fatalf("Boot quick reference should mark raw tmux send-keys as blocked, got:\n%s", out)
+	}
+	if !strings.Contains(out, "gt nudge --mode=immediate deacon") {
+		t.Fatalf("Boot quick reference missing immediate gt nudge wake path, got:\n%s", out)
+	}
+	for _, forbidden := range []string{"Escape +", "escape + message"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("Boot quick reference must not contain %q, got:\n%s", forbidden, out)
+		}
+	}
+}
