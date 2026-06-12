@@ -285,12 +285,13 @@ func (d *DogDispatchInfo) StartDelayedSession() (string, error) {
 	return pane, nil
 }
 
-func (d *DogDispatchInfo) clearWorkIfMatches() (bool, error) {
+func (d *DogDispatchInfo) clearWorkIfMatches() error {
 	if d == nil || !d.ownsWork {
-		return false, nil
+		return nil
 	}
 	mgr := dog.NewManager(d.townRoot, d.rigsConfig)
-	return mgr.ClearWorkIfMatches(d.DogName, d.workDesc, d.workStartedAt)
+	_, err := mgr.ClearWorkIfMatches(d.DogName, d.workDesc, d.workStartedAt)
+	return err
 }
 
 // generateDogName creates a unique dog name for pool expansion.

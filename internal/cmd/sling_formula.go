@@ -75,7 +75,7 @@ func cleanupDelayedDogFormulaFailure(currentErr error, delayedDogInfo *DogDispat
 			cleanupErr = fmt.Errorf("cleaning failed dog formula wisp %s: %w", wispRootID, err)
 		}
 	}
-	if _, err := delayedDogInfo.clearWorkIfMatches(); err != nil {
+	if err := delayedDogInfo.clearWorkIfMatches(); err != nil {
 		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("clearing failed dog assignment: %w", err))
 	}
 	if cleanupErr == nil {
@@ -300,7 +300,7 @@ func runSlingFormula(ctx context.Context, args []string) (err error) {
 		if delayedDogInfo == nil {
 			return lockErr
 		}
-		if _, clearErr := delayedDogInfo.clearWorkIfMatches(); clearErr != nil {
+		if clearErr := delayedDogInfo.clearWorkIfMatches(); clearErr != nil {
 			return errors.Join(lockErr, fmt.Errorf("clearing failed dog assignment: %w", clearErr))
 		}
 		return lockErr
