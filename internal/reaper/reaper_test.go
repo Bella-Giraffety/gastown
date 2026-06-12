@@ -230,7 +230,7 @@ func TestClosedMoleculeStepSelector(t *testing.T) {
 	if !strings.Contains(join, "pm.status = 'closed'") {
 		t.Error("closedMoleculeStepJoin must require the parent molecule be closed")
 	}
-	if !strings.Contains(where, "w.status IN ('open', 'hooked', 'in_progress')") {
+	if !strings.Contains(where, "w.status IN ('open', 'hooked', 'in_progress', 'pinned')") {
 		t.Error("closedMoleculeStepWhere should only select open-ish step wisps")
 	}
 	if !strings.Contains(where, "w.issue_type != 'agent'") {
@@ -260,6 +260,7 @@ func TestReapClosesClosedMoleculeStepsWithoutDoubleCounting(t *testing.T) {
 		"epic-closed":      {id: "epic-closed", status: "closed", issueType: "epic"},
 		"step-young":       {id: "step-young", status: "open", issueType: "task", parentID: "mol-closed"},
 		"step-old":         {id: "step-old", status: "open", issueType: "task", parentID: "mol-closed", old: true},
+		"step-pinned":      {id: "step-pinned", status: "pinned", issueType: "task", parentID: "mol-closed"},
 		"open-parent-step": {id: "open-parent-step", status: "open", issueType: "task", parentID: "mol-open", old: true},
 		"epic-young":       {id: "epic-young", status: "open", issueType: "task", parentID: "epic-closed"},
 		"stale-orphan":     {id: "stale-orphan", status: "open", issueType: "task", old: true},
@@ -270,8 +271,8 @@ func TestReapClosesClosedMoleculeStepsWithoutDoubleCounting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}
-	if scan.MoleculeStepCandidates != 2 {
-		t.Fatalf("Scan molecule_step_candidates = %d, want 2", scan.MoleculeStepCandidates)
+	if scan.MoleculeStepCandidates != 3 {
+		t.Fatalf("Scan molecule_step_candidates = %d, want 3", scan.MoleculeStepCandidates)
 	}
 	if scan.ReapCandidates != 1 {
 		t.Fatalf("Scan reap_candidates = %d, want 1 stale non-molecule candidate", scan.ReapCandidates)
@@ -281,19 +282,19 @@ func TestReapClosesClosedMoleculeStepsWithoutDoubleCounting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry-run Reap() error = %v", err)
 	}
-	if dryRun.MoleculeStepsClosed != 2 || dryRun.Reaped != 1 {
-		t.Fatalf("dry-run Reap() counts = molecule_steps:%d reaped:%d, want 2 and 1", dryRun.MoleculeStepsClosed, dryRun.Reaped)
+	if dryRun.MoleculeStepsClosed != 3 || dryRun.Reaped != 1 {
+		t.Fatalf("dry-run Reap() counts = molecule_steps:%d reaped:%d, want 3 and 1", dryRun.MoleculeStepsClosed, dryRun.Reaped)
 	}
 
 	result, err := Reap(db, "testdb", time.Hour, false)
 	if err != nil {
 		t.Fatalf("Reap() error = %v", err)
 	}
-	if result.MoleculeStepsClosed != 2 || result.Reaped != 1 {
-		t.Fatalf("Reap() counts = molecule_steps:%d reaped:%d, want 2 and 1", result.MoleculeStepsClosed, result.Reaped)
+	if result.MoleculeStepsClosed != 3 || result.Reaped != 1 {
+		t.Fatalf("Reap() counts = molecule_steps:%d reaped:%d, want 3 and 1", result.MoleculeStepsClosed, result.Reaped)
 	}
 
-	for _, id := range []string{"step-young", "step-old", "stale-orphan"} {
+	for _, id := range []string{"step-young", "step-old", "step-pinned", "stale-orphan"} {
 		if state.wisps[id].status != "closed" {
 			t.Fatalf("%s status = %s, want closed", id, state.wisps[id].status)
 		}
@@ -462,7 +463,7 @@ func (c *fakeReaperConn) ExecContext(_ context.Context, query string, args []dri
 		closed := int64(0)
 		for _, arg := range args {
 			id, _ := arg.Value.(string)
-			if w := c.db.wisps[id]; w != nil && isOpenWispStatus(w.status) {
+			if w := c.db.wisps[id]; w != nil && isActiveMoleculeStepStatus(w.status) {
 				w.status = "closed"
 				closed++
 			}
@@ -491,7 +492,7 @@ func (db *fakeReaperDB) moleculeStepIDs() []string {
 	var ids []string
 	for _, w := range db.wisps {
 		parent := db.wisps[w.parentID]
-		if isOpenWispStatus(w.status) && w.issueType != "agent" && parent != nil && parent.issueType == "molecule" && parent.status == "closed" {
+		if isActiveMoleculeStepStatus(w.status) && w.issueType != "agent" && parent != nil && parent.issueType == "molecule" && parent.status == "closed" {
 			ids = append(ids, w.id)
 		}
 	}
@@ -529,6 +530,10 @@ func (db *fakeReaperDB) openCount() int {
 
 func isOpenWispStatus(status string) bool {
 	return status == "open" || status == "hooked" || status == "in_progress"
+}
+
+func isActiveMoleculeStepStatus(status string) bool {
+	return isOpenWispStatus(status) || status == "pinned"
 }
 
 type fakeRows struct {

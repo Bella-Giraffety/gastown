@@ -210,6 +210,7 @@ func parentExcludeJoin(dbName string) (joinClause, whereCondition string) {
 }
 
 const openWispStatuses = "('open', 'hooked', 'in_progress')"
+const activeMoleculeStepStatuses = "('open', 'hooked', 'in_progress', 'pinned')"
 
 // closedMoleculeStepJoin selects wisps whose parent molecule has already
 // completed. These are independent of the max-age stale reap: once the molecule
@@ -226,7 +227,7 @@ func closedMoleculeStepJoin(joinType string) string {
 }
 
 func closedMoleculeStepWhere() string {
-	return fmt.Sprintf("w.status IN %s AND w.issue_type != 'agent'", openWispStatuses)
+	return fmt.Sprintf("w.status IN %s AND w.issue_type != 'agent'", activeMoleculeStepStatuses)
 }
 
 func staleReapWhere(parentWhere string) string {
