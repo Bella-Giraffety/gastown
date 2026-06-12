@@ -250,6 +250,20 @@ func runSlingFormula(ctx context.Context, args []string) (err error) {
 	}
 
 	delayedDogComplete := false
+	// Serialize standalone formula slings per assignee so same-formula retries
+	// and handoffs cannot create duplicate hooked wisps for one target.
+	assigneeUnlock, assigneeLockErr := tryAcquireSlingAssigneeLock(townRoot, targetAgent)
+	if assigneeLockErr != nil {
+		lockErr := fmt.Errorf("serializing formula sling for %s: %w", targetAgent, assigneeLockErr)
+		if delayedDogInfo == nil {
+			return lockErr
+		}
+		if _, clearErr := delayedDogInfo.clearWorkIfMatches(); clearErr != nil {
+			return errors.Join(lockErr, fmt.Errorf("clearing failed dog assignment: %w", clearErr))
+		}
+		return lockErr
+	}
+	defer assigneeUnlock()
 	defer func() {
 		if delayedDogInfo == nil || delayedDogComplete {
 			return
@@ -277,14 +291,6 @@ func runSlingFormula(ctx context.Context, args []string) (err error) {
 			}
 		}
 	}()
-
-	// Serialize standalone formula slings per assignee so same-formula retries
-	// and handoffs cannot create duplicate hooked wisps for one target.
-	assigneeUnlock, assigneeLockErr := tryAcquireSlingAssigneeLock(townRoot, targetAgent)
-	if assigneeLockErr != nil {
-		return fmt.Errorf("serializing formula sling for %s: %w", targetAgent, assigneeLockErr)
-	}
-	defer assigneeUnlock()
 
 	existing, err := findHookedFormulaSingletonFn(formulaWorkDir, targetAgent, formulaName)
 	if err != nil {

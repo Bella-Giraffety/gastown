@@ -39,8 +39,14 @@ func TestRunSlingFormulaCleansDelayedDogFailure(t *testing.T) {
 		}
 	}
 
-	cleanupIdx := strings.Index(body, "cleanupFailedDogFormulaWisp(wispRootID, formulaWorkDir)")
-	clearIdx := strings.Index(body, "delayedDogInfo.clearWorkIfMatches()")
+	unlockDeferIdx := strings.Index(body, "defer assigneeUnlock()")
+	cleanupDeferIdx := strings.Index(body, "defer func()")
+	if unlockDeferIdx == -1 || cleanupDeferIdx == -1 || unlockDeferIdx > cleanupDeferIdx {
+		t.Fatal("dog formula cleanup must be deferred after assignee unlock so it runs before unlocking")
+	}
+	cleanupBody := body[cleanupDeferIdx:]
+	cleanupIdx := strings.Index(cleanupBody, "cleanupFailedDogFormulaWisp(wispRootID, formulaWorkDir)")
+	clearIdx := strings.Index(cleanupBody, "delayedDogInfo.clearWorkIfMatches()")
 	if cleanupIdx == -1 || clearIdx == -1 || cleanupIdx > clearIdx {
 		t.Fatal("runSlingFormula must close the wisp before clearing dog work")
 	}
