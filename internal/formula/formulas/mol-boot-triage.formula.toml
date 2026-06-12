@@ -102,7 +102,7 @@ Signs of working:
 **Output**: Record decision as one of:
 - NOTHING: Let Deacon continue
 - NUDGE: Gentle wake signal (gt nudge)
-- WAKE: Stronger wake (escape + message)
+- WAKE: Stronger wake via immediate gt nudge
 - INTERRUPT: Force restart needed
 - START: Session is dead, start fresh
 """

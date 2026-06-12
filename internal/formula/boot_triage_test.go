@@ -12,8 +12,9 @@ func TestBootTriageFormulaUsesNudgeForWake(t *testing.T) {
 	}
 
 	text := string(content)
+	lower := strings.ToLower(text)
 	for _, forbidden := range []string{"tmux send-keys", "Send escape", "Escape +"} {
-		if strings.Contains(text, forbidden) {
+		if strings.Contains(lower, strings.ToLower(forbidden)) {
 			t.Fatalf("Boot triage formula must not contain %q", forbidden)
 		}
 	}
