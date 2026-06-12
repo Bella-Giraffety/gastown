@@ -24,6 +24,7 @@ moving beads between repos and viewing beads by ID with automatic
 prefix-based routing.
 
 Subcommands:
+  fanout Create many rig-pinned beads from stdin
   move    Move a bead from one repository to another
   show    Show details of a bead (routes by prefix)
   read    Alias for show`,
