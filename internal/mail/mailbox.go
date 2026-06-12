@@ -178,7 +178,7 @@ func (m *Mailbox) listFromDir(beadsDir string) ([]*Message, error) {
 	}()
 	go func() {
 		defer wg.Done()
-		cc.messages, cc.err = m.queryIssueMessagesByCC(beadsDir, identities)
+		cc.messages = m.queryIssueMessagesByCC(beadsDir, identities)
 	}()
 	go func() {
 		defer wg.Done()
@@ -194,9 +194,7 @@ func (m *Mailbox) listFromDir(beadsDir string) ([]*Message, error) {
 	seen := make(map[string]bool)
 	messages := make([]*Message, 0, len(assignee.messages)+len(cc.messages)+len(wisps.messages))
 	messages = appendBeadsMessages(messages, seen, assignee.messages, true)
-	if cc.err == nil {
-		messages = appendBeadsMessages(messages, seen, cc.messages, false)
-	}
+	messages = appendBeadsMessages(messages, seen, cc.messages, false)
 	if wisps.err == nil {
 		messages = appendWispMessages(messages, seen, wisps.messages)
 	}
@@ -229,7 +227,7 @@ func (m *Mailbox) queryIssueMessagesByAssignee(beadsDir string, identities []str
 	return messages, nil
 }
 
-func (m *Mailbox) queryIssueMessagesByCC(beadsDir string, identities []string) ([]BeadsMessage, error) {
+func (m *Mailbox) queryIssueMessagesByCC(beadsDir string, identities []string) []BeadsMessage {
 	var messages []BeadsMessage
 	for _, id := range identities {
 		args := []string{"list",
@@ -251,7 +249,7 @@ func (m *Mailbox) queryIssueMessagesByCC(beadsDir string, identities []string) (
 		}
 		messages = append(messages, msgs...)
 	}
-	return messages, nil
+	return messages
 }
 
 func parseBeadsListOutput(stdout []byte) ([]BeadsMessage, error) {
