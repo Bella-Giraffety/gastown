@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os/exec"
-	"strings"
 
 	"golang.org/x/sys/windows"
 )
@@ -33,6 +32,5 @@ func pollerProcessMatches(pid int, session string) (bool, bool) {
 	if err != nil {
 		return false, false
 	}
-	cmdline := string(out)
-	return strings.Contains(cmdline, "nudge-poller") && strings.Contains(cmdline, session), true
+	return pollerCommandLineMatches(string(out), session), true
 }

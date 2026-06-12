@@ -147,6 +147,18 @@ func TestPollerAlive_LiveNonPollerProcess(t *testing.T) {
 	}
 }
 
+func TestPollerCommandLineMatches_RequiresAdjacentArgs(t *testing.T) {
+	if !pollerCommandLineMatches("/tmp/gt nudge-poller hq-deacon", "hq-deacon") {
+		t.Fatal("expected exact adjacent nudge-poller session args to match")
+	}
+	if pollerCommandLineMatches("/tmp/gt nudge-poller hq-deacon-extra", "hq-deacon") {
+		t.Fatal("session substring should not match")
+	}
+	if pollerCommandLineMatches("/tmp/gt something hq-deacon nudge-poller", "hq-deacon") {
+		t.Fatal("non-adjacent args should not match")
+	}
+}
+
 func TestStopPoller_LiveNonPollerProcess(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("process cmdline matching is Linux-only")

@@ -53,6 +53,16 @@ func pollerLockFile(townRoot, session string) string {
 	return pollerPidFile(townRoot, session) + ".lock"
 }
 
+func pollerCommandLineMatches(cmdline, session string) bool {
+	fields := strings.Fields(strings.ReplaceAll(cmdline, "\x00", " "))
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] == "nudge-poller" && fields[i+1] == session {
+			return true
+		}
+	}
+	return false
+}
+
 // StartPoller launches a background `gt nudge-poller <session>` process.
 // The process is detached (Setpgid) so it survives the caller's exit.
 // Returns the PID of the launched process, or an error.
