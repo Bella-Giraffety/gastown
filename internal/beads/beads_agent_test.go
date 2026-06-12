@@ -820,6 +820,48 @@ func TestUpdate_RigPrefixedWorkBeadUsesRigRoot(t *testing.T) {
 	}
 }
 
+func TestUpdate_RoutedPrefixStopsAtResolvedBeadsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("path assertions are Unix-oriented")
+	}
+
+	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	rigBeadsDir := filepath.Join(rigDir, ".beads")
+	poisonBeadsDir := filepath.Join(rigDir, "poison", ".beads")
+	for _, dir := range []string{townBeadsDir, rigBeadsDir, poisonBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := WriteRoutes(townBeadsDir, []Route{{Prefix: "gt-", Path: "gastown/mayor/rig"}}); err != nil {
+		t.Fatalf("write town routes: %v", err)
+	}
+	// The rig-local route is intentionally wrong. Once town routing resolves the
+	// rig DB, the operation must execute there instead of routing a second time.
+	if err := WriteRoutes(rigBeadsDir, []Route{{Prefix: "gt-", Path: "poison"}}); err != nil {
+		t.Fatalf("write rig routes: %v", err)
+	}
+
+	logPath := filepath.Join(townRoot, "bd.log")
+	installMockBDCreateRecorder(t, logPath)
+
+	bd := NewWithBeadsDir(townRoot, townBeadsDir)
+	status := "in_progress"
+	if err := bd.Update("gt-work-123", UpdateOptions{Status: &status}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	logOutput := readMockBDLog(t, logPath)
+	if !strings.Contains(logOutput, "call="+rigBeadsDir+" args=update gt-work-123 --status=in_progress") {
+		t.Fatalf("mock bd log missing terminal rig update call:\n%s", logOutput)
+	}
+	if strings.Contains(logOutput, poisonBeadsDir) {
+		t.Fatalf("routed update re-routed through rig-local routes:\n%s", logOutput)
+	}
+}
+
 func TestCreateOrReopenAgentBeadExistingUsesTownBeadsDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses Unix shell script mock for bd")

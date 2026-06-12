@@ -343,12 +343,10 @@ type Beads struct {
 	townRoot     string
 	townRootOnce sync.Once
 
-	// noRoute disables prefix-based routing for this Beads instance.
-	// Used for agent-bead operations: agent beads (gt:agent label) live in
-	// the town database regardless of their ID prefix, so prefix routing
-	// (which assumes "za-*" → zack DB) misroutes them. When set, Show()
-	// and forIssueID() skip ResolveRoutingTarget and operate against
-	// beadsDir directly.
+	// noRoute disables route resolution for this Beads instance.
+	// Used for agent-bead operations and already-resolved cross-rig targets:
+	// once a wrapper is bound to the authoritative beadsDir, Show(), Update(),
+	// and forIssueID() must operate there directly instead of re-routing by ID.
 	noRoute bool
 }
 
@@ -506,7 +504,8 @@ func (b *Beads) forIssueID(id string) (*Beads, error) {
 		beadsDir:   resolved,
 		isolated:   b.isolated,
 		serverPort: b.serverPort,
-		townRoot:   b.townRoot,
+		townRoot:   townRoot,
+		noRoute:    true,
 	}, nil
 }
 
