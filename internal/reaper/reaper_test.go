@@ -1,10 +1,16 @@
 package reaper
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestValidateDBName(t *testing.T) {
@@ -90,8 +96,7 @@ func TestReapQueryNoDatabaseNameInjection(t *testing.T) {
 	// Reproduce the exact Sprintf call from Reap() to verify no dbName injection.
 	dbName := "gt"
 	parentJoin, parentWhere := parentExcludeJoin(dbName)
-	whereClause := fmt.Sprintf(
-		"w.status IN ('open', 'hooked', 'in_progress') AND w.created_at < ? AND %s", parentWhere)
+	whereClause := staleReapWhere(parentWhere)
 
 	// This is the fixed query — dbName is NOT in the Sprintf args.
 	idQuery := fmt.Sprintf(
@@ -105,6 +110,9 @@ func TestReapQueryNoDatabaseNameInjection(t *testing.T) {
 	}
 	if !strings.Contains(idQuery, "LEFT JOIN") {
 		t.Errorf("Reap idQuery should contain LEFT JOIN from parentExcludeJoin, got: %s", idQuery)
+	}
+	if !strings.Contains(idQuery, "NOT (") || !strings.Contains(idQuery, "pm.issue_type = 'molecule'") {
+		t.Errorf("Reap idQuery should exclude closed-molecule step wisps, got: %s", idQuery)
 	}
 	if !strings.Contains(idQuery, fmt.Sprintf("LIMIT %d", DefaultBatchSize)) {
 		t.Errorf("Reap idQuery should end with LIMIT %d, got: %s", DefaultBatchSize, idQuery)
@@ -191,6 +199,289 @@ func TestIsNothingToCommit(t *testing.T) {
 	}
 }
 
+// TestClosedMoleculeStepPredicate verifies the molecule-step auto-close query is
+// scoped to open, non-agent step wisps whose parent is a closed molecule.
+func TestClosedMoleculeStepPredicate(t *testing.T) {
+	w := closedMoleculeStepPredicate
+
+	if !strings.Contains(w, "wisp_dependencies wd") {
+		t.Error("closedMoleculeStepPredicate should query wisp_dependencies")
+	}
+	if !strings.Contains(w, "wd.issue_id = w.id") {
+		t.Error("closedMoleculeStepPredicate should treat issue_id as the child step wisp")
+	}
+	if !strings.Contains(w, "pm.id = wd.depends_on_id") {
+		t.Error("closedMoleculeStepPredicate should join the parent through depends_on_id")
+	}
+	if strings.Contains(w, "depends_on_wisp_id") {
+		t.Error("closedMoleculeStepPredicate must not reference nonexistent depends_on_wisp_id")
+	}
+	if !strings.Contains(w, "wd.type = 'parent-child'") {
+		t.Error("closedMoleculeStepPredicate should filter parent-child dependencies")
+	}
+	if !strings.Contains(w, "pm.issue_type = 'molecule'") {
+		t.Error("closedMoleculeStepPredicate must scope to molecule parents")
+	}
+	if !strings.Contains(w, "pm.status = 'closed'") {
+		t.Error("closedMoleculeStepPredicate must require the parent molecule be closed")
+	}
+	if !strings.Contains(w, "w.status IN ('open', 'hooked', 'in_progress')") {
+		t.Error("closedMoleculeStepPredicate should only select open-ish step wisps")
+	}
+	if !strings.Contains(w, "w.issue_type != 'agent'") {
+		t.Error("closedMoleculeStepPredicate must exclude agent beads")
+	}
+}
+
+func TestStaleReapWhereExcludesClosedMoleculeSteps(t *testing.T) {
+	_, parentWhere := parentExcludeJoin("testdb")
+	w := staleReapWhere(parentWhere)
+
+	if !strings.Contains(w, "created_at < ?") {
+		t.Error("staleReapWhere should preserve max-age cutoff")
+	}
+	if !strings.Contains(w, "open_parent.issue_id IS NULL") {
+		t.Error("staleReapWhere should preserve parent eligibility filter")
+	}
+	if !strings.Contains(w, "AND NOT (") {
+		t.Fatalf("staleReapWhere should exclude closed-molecule step predicate, got: %s", w)
+	}
+	if !strings.Contains(w, "pm.issue_type = 'molecule'") || !strings.Contains(w, "pm.status = 'closed'") {
+		t.Errorf("staleReapWhere should exclude closed molecule children to prevent dry-run double counting, got: %s", w)
+	}
+}
+
+func TestReapClosesClosedMoleculeStepsWithoutDoubleCounting(t *testing.T) {
+	db, state := openFakeReaperDB(t, map[string]*fakeReaperWisp{
+		"mol-closed":       {id: "mol-closed", status: "closed", issueType: "molecule"},
+		"mol-open":         {id: "mol-open", status: "open", issueType: "molecule"},
+		"epic-closed":      {id: "epic-closed", status: "closed", issueType: "epic"},
+		"step-young":       {id: "step-young", status: "open", issueType: "task", parentID: "mol-closed"},
+		"step-old":         {id: "step-old", status: "open", issueType: "task", parentID: "mol-closed", old: true},
+		"open-parent-step": {id: "open-parent-step", status: "open", issueType: "task", parentID: "mol-open", old: true},
+		"epic-young":       {id: "epic-young", status: "open", issueType: "task", parentID: "epic-closed"},
+		"stale-orphan":     {id: "stale-orphan", status: "open", issueType: "task", old: true},
+		"agent-step":       {id: "agent-step", status: "open", issueType: "agent", parentID: "mol-closed", old: true},
+	})
+
+	scan, err := Scan(db, "testdb", time.Hour, time.Hour, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if scan.MoleculeStepCandidates != 2 {
+		t.Fatalf("Scan molecule_step_candidates = %d, want 2", scan.MoleculeStepCandidates)
+	}
+	if scan.ReapCandidates != 1 {
+		t.Fatalf("Scan reap_candidates = %d, want 1 stale non-molecule candidate", scan.ReapCandidates)
+	}
+
+	dryRun, err := Reap(db, "testdb", time.Hour, true)
+	if err != nil {
+		t.Fatalf("dry-run Reap() error = %v", err)
+	}
+	if dryRun.MoleculeStepsClosed != 2 || dryRun.Reaped != 1 {
+		t.Fatalf("dry-run Reap() counts = molecule_steps:%d reaped:%d, want 2 and 1", dryRun.MoleculeStepsClosed, dryRun.Reaped)
+	}
+
+	result, err := Reap(db, "testdb", time.Hour, false)
+	if err != nil {
+		t.Fatalf("Reap() error = %v", err)
+	}
+	if result.MoleculeStepsClosed != 2 || result.Reaped != 1 {
+		t.Fatalf("Reap() counts = molecule_steps:%d reaped:%d, want 2 and 1", result.MoleculeStepsClosed, result.Reaped)
+	}
+
+	for _, id := range []string{"step-young", "step-old", "stale-orphan"} {
+		if state.wisps[id].status != "closed" {
+			t.Fatalf("%s status = %s, want closed", id, state.wisps[id].status)
+		}
+	}
+	for _, id := range []string{"open-parent-step", "epic-young", "agent-step"} {
+		if state.wisps[id].status != "open" {
+			t.Fatalf("%s status = %s, want open", id, state.wisps[id].status)
+		}
+	}
+}
+
+var (
+	fakeReaperDriverOnce sync.Once
+	fakeReaperDBsMu      sync.Mutex
+	fakeReaperDBs        = map[string]*fakeReaperDB{}
+)
+
+type fakeReaperWisp struct {
+	id        string
+	status    string
+	issueType string
+	parentID  string
+	old       bool
+}
+
+type fakeReaperDB struct {
+	wisps map[string]*fakeReaperWisp
+}
+
+func openFakeReaperDB(t *testing.T, wisps map[string]*fakeReaperWisp) (*sql.DB, *fakeReaperDB) {
+	t.Helper()
+	fakeReaperDriverOnce.Do(func() {
+		sql.Register("reaper_fake", fakeReaperDriver{})
+	})
+	name := strings.ReplaceAll(t.Name(), "/", "_")
+	state := &fakeReaperDB{wisps: wisps}
+	fakeReaperDBsMu.Lock()
+	fakeReaperDBs[name] = state
+	fakeReaperDBsMu.Unlock()
+
+	db, err := sql.Open("reaper_fake", name)
+	if err != nil {
+		t.Fatalf("open fake db: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+		fakeReaperDBsMu.Lock()
+		delete(fakeReaperDBs, name)
+		fakeReaperDBsMu.Unlock()
+	})
+	return db, state
+}
+
+type fakeReaperDriver struct{}
+
+func (fakeReaperDriver) Open(name string) (driver.Conn, error) {
+	fakeReaperDBsMu.Lock()
+	state := fakeReaperDBs[name]
+	fakeReaperDBsMu.Unlock()
+	if state == nil {
+		state = &fakeReaperDB{wisps: map[string]*fakeReaperWisp{}}
+	}
+	return &fakeReaperConn{db: state}, nil
+}
+
+type fakeReaperConn struct {
+	db *fakeReaperDB
+}
+
+func (c *fakeReaperConn) Prepare(string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (c *fakeReaperConn) Close() error              { return nil }
+func (c *fakeReaperConn) Begin() (driver.Tx, error) { return nil, fmt.Errorf("not implemented") }
+
+func (c *fakeReaperConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	switch {
+	case strings.Contains(query, "SELECT COUNT(*) FROM wisps w") && strings.Contains(query, "created_at < ?"):
+		return fakeRowsFromCount(len(c.db.staleIDs())), nil
+	case strings.Contains(query, "SELECT COUNT(*) FROM wisps w") && strings.Contains(query, "pm.issue_type = 'molecule'"):
+		return fakeRowsFromCount(len(c.db.moleculeStepIDs())), nil
+	case strings.Contains(query, "SELECT COUNT(*) FROM wisps w") && strings.Contains(query, "w.status = 'closed'"):
+		return fakeRowsFromCount(0), nil
+	case strings.Contains(query, "SELECT COUNT(*) FROM issues"):
+		return fakeRowsFromCount(0), nil
+	case strings.Contains(query, "SELECT COUNT(*) FROM wisp_dependencies"):
+		return fakeRowsFromCount(0), nil
+	case strings.Contains(query, "SELECT COUNT(*) FROM wisps WHERE status IN"):
+		return fakeRowsFromCount(c.db.openCount()), nil
+	case strings.Contains(query, "SELECT w.id FROM wisps w") && strings.Contains(query, "pm.issue_type = 'molecule'") && !strings.Contains(query, "created_at < ?"):
+		return fakeRowsFromIDs(c.db.moleculeStepIDs()), nil
+	case strings.Contains(query, "SELECT w.id FROM wisps w") && strings.Contains(query, "created_at < ?"):
+		return fakeRowsFromIDs(c.db.staleIDs()), nil
+	default:
+		return nil, fmt.Errorf("unexpected fake query: %s", query)
+	}
+}
+
+func (c *fakeReaperConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	if strings.HasPrefix(query, "UPDATE wisps SET status='closed'") {
+		closed := int64(0)
+		for _, arg := range args {
+			id, _ := arg.Value.(string)
+			if w := c.db.wisps[id]; w != nil && isOpenWispStatus(w.status) {
+				w.status = "closed"
+				closed++
+			}
+		}
+		return driver.RowsAffected(closed), nil
+	}
+	if strings.HasPrefix(query, "SET @@autocommit") || query == "ROLLBACK" || query == "COMMIT" || strings.HasPrefix(query, "CALL DOLT_COMMIT") {
+		return driver.RowsAffected(0), nil
+	}
+	return nil, fmt.Errorf("unexpected fake exec: %s", query)
+}
+
+func (db *fakeReaperDB) moleculeStepIDs() []string {
+	var ids []string
+	for _, w := range db.wisps {
+		parent := db.wisps[w.parentID]
+		if isOpenWispStatus(w.status) && w.issueType != "agent" && parent != nil && parent.issueType == "molecule" && parent.status == "closed" {
+			ids = append(ids, w.id)
+		}
+	}
+	return ids
+}
+
+func (db *fakeReaperDB) staleIDs() []string {
+	var ids []string
+	for _, w := range db.wisps {
+		if !isOpenWispStatus(w.status) || !w.old || w.issueType == "agent" || db.isClosedMoleculeStep(w) {
+			continue
+		}
+		parent := db.wisps[w.parentID]
+		if parent == nil || !isOpenWispStatus(parent.status) {
+			ids = append(ids, w.id)
+		}
+	}
+	return ids
+}
+
+func (db *fakeReaperDB) isClosedMoleculeStep(w *fakeReaperWisp) bool {
+	parent := db.wisps[w.parentID]
+	return parent != nil && parent.issueType == "molecule" && parent.status == "closed"
+}
+
+func (db *fakeReaperDB) openCount() int {
+	count := 0
+	for _, w := range db.wisps {
+		if isOpenWispStatus(w.status) {
+			count++
+		}
+	}
+	return count
+}
+
+func isOpenWispStatus(status string) bool {
+	return status == "open" || status == "hooked" || status == "in_progress"
+}
+
+type fakeRows struct {
+	columns []string
+	values  [][]driver.Value
+	index   int
+}
+
+func fakeRowsFromCount(count int) *fakeRows {
+	return &fakeRows{columns: []string{"count"}, values: [][]driver.Value{{int64(count)}}}
+}
+
+func fakeRowsFromIDs(ids []string) *fakeRows {
+	rows := &fakeRows{columns: []string{"id"}}
+	for _, id := range ids {
+		rows.values = append(rows.values, []driver.Value{id})
+	}
+	return rows
+}
+
+func (r *fakeRows) Columns() []string { return r.columns }
+func (r *fakeRows) Close() error      { return nil }
+
+func (r *fakeRows) Next(dest []driver.Value) error {
+	if r.index >= len(r.values) {
+		return io.EOF
+	}
+	copy(dest, r.values[r.index])
+	r.index++
+	return nil
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
 }
@@ -242,7 +533,10 @@ func TestScanExcludesAgentBeads(t *testing.T) {
 		t.Fatalf("could not isolate Scan() body in %s", sourcePath)
 	}
 	scanBody := source[scanStart:reapStart]
-	if !strings.Contains(scanBody, "w.issue_type != 'agent'") {
-		t.Fatalf("expected Scan() eligibility to exclude agent beads, scan body was:\n%s", scanBody)
+	if !strings.Contains(scanBody, "staleReapWhere") {
+		t.Fatalf("expected Scan() to use shared staleReapWhere eligibility, scan body was:\n%s", scanBody)
+	}
+	if !strings.Contains(staleReapWhere("open_parent.issue_id IS NULL"), "w.issue_type != 'agent'") {
+		t.Fatal("expected shared staleReapWhere eligibility to exclude agent beads")
 	}
 }

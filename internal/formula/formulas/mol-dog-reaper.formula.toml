@@ -80,7 +80,9 @@ gt reaper scan --db=<name> --port={{dolt_port}} \\
 - If `open_wisps` exceeds {{alert_threshold}}, escalate
 
 **4. Decide whether to proceed:**
-- If no candidates found across all databases, skip remaining steps
+- If `reap_candidates`, `molecule_step_candidates`, `purge_candidates`,
+  `mail_candidates`, and `stale_candidates` are all zero across all databases,
+  skip remaining steps
 - If anomalies are severe, consider escalating before proceeding
 
 **Exit criteria:** Scan complete, candidates identified, anomalies flagged."""
@@ -90,9 +92,10 @@ id = "reap"
 title = "Reap stale wisps"
 needs = ["scan"]
 description = """
-Close wisps past max_age whose parent molecule is closed or missing.
+Close wisps past max_age whose parent molecule is closed or missing, and
+immediately close step wisps whose parent molecule is already closed.
 
-**1. For each database with reap candidates:**
+**1. For each database with reap or molecule-step candidates:**
 ```bash
 gt reaper reap --db=<name> --port={{dolt_port}} \\
   --max-age={{max_age}} {{#if dry_run}}--dry-run{{/if}} --json
