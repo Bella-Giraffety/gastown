@@ -1,11 +1,13 @@
 package mail
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBdError_Error(t *testing.T) {
@@ -164,6 +166,48 @@ func TestBdError_ImplementsErrorInterface(t *testing.T) {
 	}
 
 	_ = err.Error() // Should compile and not panic
+}
+
+func TestParseBeadsListOutput(t *testing.T) {
+	created := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
+	valid, err := json.Marshal([]BeadsMessage{{
+		ID:        "msg-1",
+		Title:     "Hello",
+		Status:    "open",
+		Priority:  2,
+		CreatedAt: created,
+		Labels:    []string{"gt:message", "from:mayor/"},
+	}})
+	if err != nil {
+		t.Fatalf("marshal valid message: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		input   []byte
+		wantLen int
+		wantErr bool
+	}{
+		{name: "empty", input: nil},
+		{name: "plain no issues", input: []byte("No issues found.\n")},
+		{name: "null", input: []byte("null\n")},
+		{name: "empty array", input: []byte("[]\n")},
+		{name: "valid array", input: valid, wantLen: 1},
+		{name: "non json", input: []byte("warning: no rows")},
+		{name: "malformed json", input: []byte("[{bad json]"), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseBeadsListOutput(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseBeadsListOutput() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if len(got) != tt.wantLen {
+				t.Fatalf("parseBeadsListOutput() returned %d messages, want %d", len(got), tt.wantLen)
+			}
+		})
+	}
 }
 
 func TestBdError_WithAllFields(t *testing.T) {
