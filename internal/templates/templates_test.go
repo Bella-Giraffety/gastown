@@ -127,6 +127,37 @@ func TestRenderRole_Deacon(t *testing.T) {
 	}
 }
 
+func TestRenderRole_Boot_NoRawTmuxSendKeys(t *testing.T) {
+	tmpl, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	data := RoleData{
+		Role:          "boot",
+		TownRoot:      "/test/town",
+		TownName:      "town",
+		WorkDir:       "/test/town/deacon/dogs/boot",
+		DefaultBranch: "main",
+		MayorSession:  "gt-town-mayor",
+		DeaconSession: "gt-town-deacon",
+	}
+
+	output, err := tmpl.RenderRole("boot", data)
+	if err != nil {
+		t.Fatalf("RenderRole() error = %v", err)
+	}
+	if strings.Contains(output, "tmux send-keys") {
+		t.Fatal("Boot template must not instruct raw tmux send-keys")
+	}
+	if strings.Contains(output, "Escape +") {
+		t.Fatal("Boot template must not instruct Escape + nudge wakeups")
+	}
+	if !strings.Contains(output, "gt nudge --mode=immediate deacon") {
+		t.Fatal("Boot template missing immediate gt nudge wake path")
+	}
+}
+
 func TestRenderRole_Refinery_DefaultBranch(t *testing.T) {
 	tmpl, err := New()
 	if err != nil {

@@ -166,7 +166,7 @@ func resolveAndSubstitute(provider, hooksFile, role string) ([]byte, error) {
 
 // writeTemplate resolves a template, substitutes placeholders, and writes it to targetPath.
 func writeTemplate(provider, role, hooksFile, targetPath string) error {
-	content, err := resolveAndSubstitute(provider, hooksFile, role)
+	content, err := resolveInstallContent(provider, hooksFile, role)
 	if err != nil {
 		return err
 	}
@@ -185,6 +185,30 @@ func writeTemplate(provider, role, hooksFile, targetPath string) error {
 	}
 
 	return nil
+}
+
+func resolveInstallContent(provider, hooksFile, role string) ([]byte, error) {
+	content, err := resolveAndSubstitute(provider, hooksFile, role)
+	if err != nil {
+		return nil, err
+	}
+	if provider == "claude" && role == "boot" && isSettingsFile(hooksFile) {
+		return mergeManagedHooks(content, "boot")
+	}
+	return content, nil
+}
+
+func mergeManagedHooks(content []byte, target string) ([]byte, error) {
+	settings, err := UnmarshalSettings(content)
+	if err != nil {
+		return nil, fmt.Errorf("parsing settings template: %w", err)
+	}
+	expected, err := ComputeExpected(target)
+	if err != nil {
+		return nil, fmt.Errorf("computing managed hooks for %s: %w", target, err)
+	}
+	settings.Hooks = *expected
+	return MarshalSettings(settings)
 }
 
 // resolveTemplate finds the right template for a provider+role combination.

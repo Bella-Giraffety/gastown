@@ -410,7 +410,11 @@ func outputCommandQuickReference(ctx RoleContext) {
 		fmt.Println("|------------|----------------|----------------|")
 		fmt.Printf("| Run triage | `%s boot triage` | ~~gt deacon heartbeat~~ (that's Deacon's job) |\n", c)
 		fmt.Printf("| Check Deacon health | `%s deacon status` | ~~gt status~~ (town-wide, not Deacon-specific) |\n", c)
-		fmt.Printf("| Nudge the Deacon | `%s nudge deacon \"msg\"` | ~~tmux send-keys~~ (unreliable) |\n", c)
+		fmt.Printf("| Message the Deacon | `%s nudge deacon \"msg\"` | ~~tmux send-keys~~ (blocked) |\n", c)
+		fmt.Println()
+		fmt.Println("**Never use raw `tmux send-keys` against the Deacon.**")
+		fmt.Println("It can leave an unsubmitted draft staged in the Deacon TUI.")
+		fmt.Printf("Use `%s nudge deacon \"msg\"`; for a true wake use `%s nudge --mode=immediate deacon \"msg\"`.\n", c, c)
 	}
 
 	fmt.Println()

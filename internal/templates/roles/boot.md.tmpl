@@ -92,9 +92,13 @@ Execute the decided action:
 
 - **NOTHING**: Log and exit
 - **NUDGE**: `{{ cmd }} nudge deacon "Boot check-in: you have pending work"`
-- **WAKE**: Escape + `{{ cmd }} nudge deacon "Boot wake: check your inbox"`
+- **WAKE**: `{{ cmd }} nudge --mode=immediate deacon "Boot wake: check your inbox"`
 - **INTERRUPT**: Mail the Deacon requesting restart consideration
 - **START**: Log detection (daemon handles restart)
+
+Never inject raw tmux keystrokes against the Deacon. It can leave an
+unsubmitted draft staged in the Deacon TUI; `{{ cmd }} nudge` is the sanctioned
+delivery path.
 
 ### Step 4: Clean
 

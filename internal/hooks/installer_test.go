@@ -48,6 +48,32 @@ func TestInstallForRole_RoleAware(t *testing.T) {
 	}
 }
 
+func TestInstallForRole_BootMergesManagedHooks(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	dir := t.TempDir()
+
+	if err := InstallForRole("claude", dir, dir, "boot", ".claude", "settings.json", true); err != nil {
+		t.Fatalf("InstallForRole: %v", err)
+	}
+
+	path := filepath.Join(dir, ".claude", "settings.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading settings.json: %v", err)
+	}
+	settings, err := UnmarshalSettings(data)
+	if err != nil {
+		t.Fatalf("unmarshaling settings.json: %v", err)
+	}
+	guard, found := findPreToolUseMatcher(&settings.Hooks, bootRawTmuxSendKeysMatcher)
+	if !found {
+		t.Fatalf("boot install missing raw tmux send-keys guard %q", bootRawTmuxSendKeysMatcher)
+	}
+	if len(guard.Hooks) == 0 || !strings.Contains(guard.Hooks[0].Command, "exit 2") {
+		t.Fatalf("boot guard must block with exit 2, got %#v", guard.Hooks)
+	}
+}
+
 func TestInstallForRole_RoleAgnostic(t *testing.T) {
 	// OpenCode, Pi, OMP have single templates
 	tests := []struct {

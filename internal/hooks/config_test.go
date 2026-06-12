@@ -154,6 +154,15 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 }
 
+func findPreToolUseMatcher(cfg *HooksConfig, matcher string) (HookEntry, bool) {
+	for _, entry := range cfg.PreToolUse {
+		if entry.Matcher == matcher {
+			return entry, true
+		}
+	}
+	return HookEntry{}, false
+}
+
 func TestValidTarget(t *testing.T) {
 	tests := []struct {
 		target string
@@ -166,12 +175,16 @@ func TestValidTarget(t *testing.T) {
 		{"polecat", true},
 		{"mayor", true},
 		{"deacon", true},
+		{"boot", true},
 		{"rig", false},
 		{"gastown/rig", false},
 		{"gastown/crew", true},
 		{"beads/witness", true},
 		{"sky/polecats", true},
 		{"wyvern/refinery", true},
+		{"gastown/boot", false},
+		{"deacon/boot", false},
+		{"deacon/dogs/boot", false},
 		{"", false},
 		{"invalid", false},
 		{"gastown/invalid", false},
@@ -200,6 +213,10 @@ func TestNormalizeTarget(t *testing.T) {
 		{"gastown/polecats", "gastown/polecats", true},
 		{"gastown/polecat", "gastown/polecats", true},
 		{"mayor", "mayor", true},
+		{"boot", "boot", true},
+		{"gastown/boot", "", false},
+		{"deacon/boot", "", false},
+		{"deacon/dogs/boot", "", false},
 		{"invalid", "", false},
 		{"gastown/invalid", "", false},
 	}
@@ -636,6 +653,25 @@ func TestComputeExpectedNoBase(t *testing.T) {
 		}
 	}
 
+	// Boot should get DefaultBase + built-in raw tmux send-keys guard.
+	boot, err := ComputeExpected("boot")
+	if err != nil {
+		t.Fatalf("ComputeExpected(boot) failed: %v", err)
+	}
+	if len(boot.SessionStart) != len(defaultBase.SessionStart) {
+		t.Error("expected boot to inherit SessionStart from DefaultBase")
+	}
+	bootGuard, found := findPreToolUseMatcher(boot, bootRawTmuxSendKeysMatcher)
+	if !found {
+		t.Fatalf("boot missing tmux-send-keys guard matcher: %s", bootRawTmuxSendKeysMatcher)
+	}
+	if len(bootGuard.Hooks) == 0 || !strings.Contains(bootGuard.Hooks[0].Command, "exit 2") {
+		t.Fatalf("boot tmux-send-keys guard must block with exit 2, got %#v", bootGuard.Hooks)
+	}
+	if _, found := findPreToolUseMatcher(expected, bootRawTmuxSendKeysMatcher); found {
+		t.Fatal("mayor must not receive Boot's raw tmux send-keys guard")
+	}
+
 	// Refinery should get DefaultBase + built-in patrol-formula-guard (same as witness)
 	refinery, err := ComputeExpected("refinery")
 	if err != nil {
@@ -814,6 +850,7 @@ func TestDiscoverTargets(t *testing.T) {
 
 	os.MkdirAll(filepath.Join(tmpDir, "mayor"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "deacon"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, "deacon", "dogs", "boot"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "testrig", "crew", "alice"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "testrig", "crew", "bob"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "testrig", "witness"), 0755)
@@ -835,9 +872,18 @@ func TestDiscoverTargets(t *testing.T) {
 		found[tgt.DisplayKey()] = true
 	}
 
-	for _, expected := range []string{"mayor", "deacon", "testrig/crew", "testrig/witness"} {
+	for _, expected := range []string{"mayor", "deacon", "boot", "testrig/crew", "testrig/witness"} {
 		if !found[expected] {
 			t.Errorf("expected target %q not found", expected)
+		}
+	}
+
+	for _, tgt := range targets {
+		if tgt.Key == "boot" {
+			wantPath := filepath.Join(tmpDir, "deacon", "dogs", "boot", ".claude", "settings.json")
+			if tgt.Path != wantPath {
+				t.Errorf("boot target path = %q, want %q", tgt.Path, wantPath)
+			}
 		}
 	}
 }
@@ -847,6 +893,7 @@ func TestDiscoverTargets_RoleNames(t *testing.T) {
 
 	os.MkdirAll(filepath.Join(tmpDir, "mayor"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "deacon"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, "deacon", "dogs", "boot"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "rig1", "crew", "alice"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "rig1", "polecats", "toast"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "rig1", "witness"), 0755)
@@ -866,6 +913,7 @@ func TestDiscoverTargets_RoleNames(t *testing.T) {
 	expected := map[string]string{
 		"mayor":         "mayor",
 		"deacon":        "deacon",
+		"boot":          "boot",
 		"rig1/crew":     "crew",
 		"rig1/polecats": "polecat",
 		"rig1/witness":  "witness",
@@ -918,6 +966,7 @@ func TestDiscoverRoleLocations(t *testing.T) {
 
 	os.MkdirAll(filepath.Join(tmpDir, "mayor"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "deacon"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, "deacon", "dogs", "boot"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "rig1", "crew", "alice"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "rig1", "polecats", "toast"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "rig1", "witness"), 0755)
@@ -940,6 +989,7 @@ func TestDiscoverRoleLocations(t *testing.T) {
 	}{
 		{"", "mayor"},
 		{"", "deacon"},
+		{"", "boot"},
 		{"rig1", "crew"},
 		{"rig1", "polecat"},
 		{"rig1", "witness"},

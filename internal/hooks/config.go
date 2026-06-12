@@ -173,7 +173,7 @@ type Target struct {
 	Path     string // Full path to .claude/settings.json or .gemini/settings.json
 	Key      string // Override key: "gastown/crew", "mayor", etc.
 	Rig      string // Rig name or empty for town-level
-	Role     string // Informational only — does NOT participate in override resolution (Key does). Singular form matching RoleSettingsDir: crew, witness, refinery, polecat, mayor, deacon.
+	Role     string // Informational only — does NOT participate in override resolution (Key does). Singular form matching RoleSettingsDir: crew, witness, refinery, polecat, mayor, deacon, boot.
 	Provider string // Hook provider: "claude" (default/empty) or "gemini", etc.
 }
 
@@ -240,6 +240,19 @@ func DefaultOverrides() map[string]*HooksConfig {
 							Command: hookChain(pathSetup, "gt handoff --cycle --reason compaction"),
 						},
 					},
+				},
+			},
+		},
+		// Boot watchdog: block raw tmux keystroke injection. Boot should
+		// communicate with Deacon through gt nudge so delivery is serialized and submitted.
+		"boot": {
+			PreToolUse: []HookEntry{
+				{
+					Matcher: bootRawTmuxSendKeysMatcher,
+					Hooks: []Hook{{
+						Type:    "command",
+						Command: bootRawTmuxSendKeysCommand,
+					}},
 				},
 			},
 		},
@@ -350,6 +363,11 @@ func DefaultOverrides() map[string]*HooksConfig {
 	}
 }
 
+const (
+	bootRawTmuxSendKeysMatcher = "Bash(*tmux*send-keys*)"
+	bootRawTmuxSendKeysCommand = "printf '%s\\n' 'BLOCKED: Boot must not use raw tmux send-keys; it can leave staged input in the Deacon TUI.' 'Use: gt nudge deacon \"<message>\" (add --mode=immediate only for a true wake/interrupt).' >&2; exit 2"
+)
+
 // ComputeExpected computes the expected HooksConfig for a target by loading
 // the base config and applying all applicable overrides in order of specificity.
 // If no base config exists, uses DefaultBase().
@@ -417,6 +435,14 @@ func DiscoverTargets(townRoot string) ([]Target, error) {
 		Key:  "deacon",
 		Role: "deacon",
 	})
+	bootDir := filepath.Join(townRoot, "deacon", "dogs", "boot")
+	if info, err := os.Stat(bootDir); err == nil && info.IsDir() {
+		targets = append(targets, Target{
+			Path: filepath.Join(bootDir, ".claude", "settings.json"),
+			Key:  "boot",
+			Role: "boot",
+		})
+	}
 
 	// Scan rigs
 	entries, err := os.ReadDir(townRoot)
@@ -510,6 +536,10 @@ func DiscoverRoleLocations(townRoot string) ([]RoleLocation, error) {
 		if info, err := os.Stat(dir); err == nil && info.IsDir() {
 			locations = append(locations, RoleLocation{Dir: dir, Role: role})
 		}
+	}
+	bootDir := filepath.Join(townRoot, "deacon", "dogs", "boot")
+	if info, err := os.Stat(bootDir); err == nil && info.IsDir() {
+		locations = append(locations, RoleLocation{Dir: bootDir, Role: "boot"})
 	}
 
 	// Scan rigs
@@ -813,6 +843,10 @@ func NormalizeTarget(target string) (string, bool) {
 	validRoles := map[string]bool{
 		"crew": true, "witness": true, "refinery": true,
 		"polecats": true, "mayor": true, "deacon": true,
+	}
+
+	if target == "boot" {
+		return target, true
 	}
 
 	// Simple role target

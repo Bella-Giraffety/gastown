@@ -125,14 +125,8 @@ gt nudge --mode=queue deacon "Boot check-in: you have pending work"
 
 **WAKE**
 ```bash
-# Send escape to break any tool waiting
-tmux send-keys -t hq-deacon Escape
-
-# Brief pause
-sleep 1
-
-# Send wake message
-gt nudge deacon "Boot wake: please check your inbox and pending work"
+# Immediate mode is reserved for true wake-ups; never inject raw tmux keystrokes.
+gt nudge --mode=immediate deacon "Boot wake: please check your inbox and pending work"
 ```
 
 **INTERRUPT**
