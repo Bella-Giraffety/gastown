@@ -211,36 +211,39 @@ func parentExcludeJoin(dbName string) (joinClause, whereCondition string) {
 
 const openWispStatuses = "('open', 'hooked', 'in_progress')"
 
-// closedMoleculeStepPredicate selects open step wisps whose parent molecule has
-// already completed. These are independent of the max-age stale reap: once the
-// molecule is closed, its step wisps are no longer actionable.
-const closedMoleculeStepPredicate = `w.status IN ('open', 'hooked', 'in_progress')
-	AND w.issue_type != 'agent'
-	AND EXISTS (
-		SELECT 1
+// closedMoleculeStepJoin selects wisps whose parent molecule has already
+// completed. These are independent of the max-age stale reap: once the molecule
+// is closed, its step wisps are no longer actionable.
+func closedMoleculeStepJoin(joinType string) string {
+	return fmt.Sprintf(`%s JOIN (
+		SELECT DISTINCT wd.issue_id
 		FROM wisp_dependencies wd
 		INNER JOIN wisps pm ON pm.id = wd.depends_on_id
-		WHERE wd.issue_id = w.id
-		  AND wd.type = 'parent-child'
-		  AND pm.issue_type = 'molecule'
-		  AND pm.status = 'closed'
-	)`
+		WHERE wd.type = 'parent-child'
+		AND pm.issue_type = 'molecule'
+		AND pm.status = 'closed'
+	) closed_molecule_step ON closed_molecule_step.issue_id = w.id`, joinType)
+}
+
+func closedMoleculeStepWhere() string {
+	return fmt.Sprintf("w.status IN %s AND w.issue_type != 'agent'", openWispStatuses)
+}
 
 func staleReapWhere(parentWhere string) string {
 	return fmt.Sprintf(
-		"w.status IN %s AND w.created_at < ? AND w.issue_type != 'agent' AND %s AND NOT (%s)",
-		openWispStatuses, parentWhere, closedMoleculeStepPredicate)
+		"w.status IN %s AND w.created_at < ? AND w.issue_type != 'agent' AND %s AND closed_molecule_step.issue_id IS NULL",
+		openWispStatuses, parentWhere)
 }
 
 func countClosedMoleculeSteps(ctx context.Context, db *sql.DB) (int, error) {
-	query := fmt.Sprintf("SELECT COUNT(*) FROM wisps w WHERE %s", closedMoleculeStepPredicate)
+	query := fmt.Sprintf("SELECT COUNT(*) FROM wisps w %s WHERE %s", closedMoleculeStepJoin("INNER"), closedMoleculeStepWhere())
 	var count int
 	err := db.QueryRowContext(ctx, query).Scan(&count)
 	return count, err
 }
 
 func reapClosedMoleculeSteps(ctx context.Context, conn *sql.Conn) (int, error) {
-	idQuery := fmt.Sprintf("SELECT w.id FROM wisps w WHERE %s LIMIT %d", closedMoleculeStepPredicate, DefaultBatchSize)
+	idQuery := fmt.Sprintf("SELECT w.id FROM wisps w %s WHERE %s LIMIT %d", closedMoleculeStepJoin("INNER"), closedMoleculeStepWhere(), DefaultBatchSize)
 
 	total := 0
 	for {
@@ -257,6 +260,10 @@ func reapClosedMoleculeSteps(ctx context.Context, conn *sql.Conn) (int, error) {
 				return total, fmt.Errorf("scan molecule-step id: %w", err)
 			}
 			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return total, fmt.Errorf("iterate molecule-step ids: %w", err)
 		}
 		rows.Close()
 
@@ -316,9 +323,10 @@ func Scan(db *sql.DB, dbName string, maxAge, purgeAge, mailDeleteAge, staleIssue
 	// agent beads, otherwise scan can report candidates that reap will never close.
 	// Uses LEFT JOIN anti-pattern instead of correlated EXISTS to avoid O(n*m) cost (gt-jd1z).
 	whereClause := staleReapWhere(parentWhere)
+	closedMoleculeStepExcludeJoin := closedMoleculeStepJoin("LEFT")
 	reapQuery := fmt.Sprintf(
-		"SELECT COUNT(*) FROM wisps w %s WHERE %s",
-		parentJoin, whereClause)
+		"SELECT COUNT(*) FROM wisps w %s %s WHERE %s",
+		parentJoin, closedMoleculeStepExcludeJoin, whereClause)
 	if err := db.QueryRowContext(ctx, reapQuery, now.Add(-maxAge)).Scan(&result.ReapCandidates); err != nil {
 		return nil, fmt.Errorf("count reap candidates: %w", err)
 	}
@@ -408,6 +416,7 @@ func Reap(db *sql.DB, dbName string, maxAge time.Duration, dryRun bool) (*ReapRe
 	// Exclude agent beads (issue_type='agent') from reaping — they have persistent
 	// identity and should not be closed by the wisp reaper regardless of age.
 	whereClause := staleReapWhere(parentWhere)
+	closedMoleculeStepExcludeJoin := closedMoleculeStepJoin("LEFT")
 
 	result := &ReapResult{Database: dbName, DryRun: dryRun}
 
@@ -418,7 +427,7 @@ func Reap(db *sql.DB, dbName string, maxAge time.Duration, dryRun bool) (*ReapRe
 		}
 		result.MoleculeStepsClosed = moleculeSteps
 
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM wisps w %s WHERE %s", parentJoin, whereClause)
+		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM wisps w %s %s WHERE %s", parentJoin, closedMoleculeStepExcludeJoin, whereClause)
 		if err := db.QueryRowContext(ctx, countQuery, cutoff).Scan(&result.Reaped); err != nil {
 			return nil, fmt.Errorf("dry-run count: %w", err)
 		}
@@ -456,8 +465,8 @@ func Reap(db *sql.DB, dbName string, maxAge time.Duration, dryRun bool) (*ReapRe
 	// This avoids holding a write lock on the entire table for minutes.
 	// Uses LEFT JOIN anti-pattern instead of correlated EXISTS to avoid O(n*m) cost (gt-jd1z).
 	idQuery := fmt.Sprintf(
-		"SELECT w.id FROM wisps w %s WHERE %s LIMIT %d",
-		parentJoin, whereClause, DefaultBatchSize)
+		"SELECT w.id FROM wisps w %s %s WHERE %s LIMIT %d",
+		parentJoin, closedMoleculeStepExcludeJoin, whereClause, DefaultBatchSize)
 
 	totalReaped := 0
 	for {
@@ -474,6 +483,10 @@ func Reap(db *sql.DB, dbName string, maxAge time.Duration, dryRun bool) (*ReapRe
 				return nil, fmt.Errorf("scan wisp id: %w", err)
 			}
 			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("iterate reap ids: %w", err)
 		}
 		rows.Close()
 

@@ -97,11 +97,12 @@ func TestReapQueryNoDatabaseNameInjection(t *testing.T) {
 	dbName := "gt"
 	parentJoin, parentWhere := parentExcludeJoin(dbName)
 	whereClause := staleReapWhere(parentWhere)
+	closedMoleculeStepExcludeJoin := closedMoleculeStepJoin("LEFT")
 
 	// This is the fixed query — dbName is NOT in the Sprintf args.
 	idQuery := fmt.Sprintf(
-		"SELECT w.id FROM wisps w %s WHERE %s LIMIT %d",
-		parentJoin, whereClause, DefaultBatchSize)
+		"SELECT w.id FROM wisps w %s %s WHERE %s LIMIT %d",
+		parentJoin, closedMoleculeStepExcludeJoin, whereClause, DefaultBatchSize)
 
 	// The query must NOT contain the literal database name as a bare token.
 	// Before the fix, "gt" appeared between "wisps w" and "WHERE".
@@ -111,7 +112,7 @@ func TestReapQueryNoDatabaseNameInjection(t *testing.T) {
 	if !strings.Contains(idQuery, "LEFT JOIN") {
 		t.Errorf("Reap idQuery should contain LEFT JOIN from parentExcludeJoin, got: %s", idQuery)
 	}
-	if !strings.Contains(idQuery, "NOT (") || !strings.Contains(idQuery, "pm.issue_type = 'molecule'") {
+	if !strings.Contains(idQuery, "closed_molecule_step.issue_id IS NULL") || !strings.Contains(idQuery, "pm.issue_type = 'molecule'") {
 		t.Errorf("Reap idQuery should exclude closed-molecule step wisps, got: %s", idQuery)
 	}
 	if !strings.Contains(idQuery, fmt.Sprintf("LIMIT %d", DefaultBatchSize)) {
@@ -199,37 +200,41 @@ func TestIsNothingToCommit(t *testing.T) {
 	}
 }
 
-// TestClosedMoleculeStepPredicate verifies the molecule-step auto-close query is
+// TestClosedMoleculeStepSelector verifies the molecule-step auto-close query is
 // scoped to open, non-agent step wisps whose parent is a closed molecule.
-func TestClosedMoleculeStepPredicate(t *testing.T) {
-	w := closedMoleculeStepPredicate
+func TestClosedMoleculeStepSelector(t *testing.T) {
+	join := closedMoleculeStepJoin("INNER")
+	where := closedMoleculeStepWhere()
 
-	if !strings.Contains(w, "wisp_dependencies wd") {
-		t.Error("closedMoleculeStepPredicate should query wisp_dependencies")
+	if strings.Contains(join, "EXISTS") {
+		t.Error("closedMoleculeStepJoin should use join-based selection, not correlated EXISTS")
 	}
-	if !strings.Contains(w, "wd.issue_id = w.id") {
-		t.Error("closedMoleculeStepPredicate should treat issue_id as the child step wisp")
+	if !strings.Contains(join, "wisp_dependencies wd") {
+		t.Error("closedMoleculeStepJoin should query wisp_dependencies")
 	}
-	if !strings.Contains(w, "pm.id = wd.depends_on_id") {
-		t.Error("closedMoleculeStepPredicate should join the parent through depends_on_id")
+	if !strings.Contains(join, "SELECT DISTINCT wd.issue_id") || !strings.Contains(join, "closed_molecule_step.issue_id = w.id") {
+		t.Error("closedMoleculeStepJoin should treat issue_id as the child step wisp")
 	}
-	if strings.Contains(w, "depends_on_wisp_id") {
-		t.Error("closedMoleculeStepPredicate must not reference nonexistent depends_on_wisp_id")
+	if !strings.Contains(join, "pm.id = wd.depends_on_id") {
+		t.Error("closedMoleculeStepJoin should join the parent through depends_on_id")
 	}
-	if !strings.Contains(w, "wd.type = 'parent-child'") {
-		t.Error("closedMoleculeStepPredicate should filter parent-child dependencies")
+	if strings.Contains(join, "depends_on_wisp_id") {
+		t.Error("closedMoleculeStepJoin must not reference nonexistent depends_on_wisp_id")
 	}
-	if !strings.Contains(w, "pm.issue_type = 'molecule'") {
-		t.Error("closedMoleculeStepPredicate must scope to molecule parents")
+	if !strings.Contains(join, "wd.type = 'parent-child'") {
+		t.Error("closedMoleculeStepJoin should filter parent-child dependencies")
 	}
-	if !strings.Contains(w, "pm.status = 'closed'") {
-		t.Error("closedMoleculeStepPredicate must require the parent molecule be closed")
+	if !strings.Contains(join, "pm.issue_type = 'molecule'") {
+		t.Error("closedMoleculeStepJoin must scope to molecule parents")
 	}
-	if !strings.Contains(w, "w.status IN ('open', 'hooked', 'in_progress')") {
-		t.Error("closedMoleculeStepPredicate should only select open-ish step wisps")
+	if !strings.Contains(join, "pm.status = 'closed'") {
+		t.Error("closedMoleculeStepJoin must require the parent molecule be closed")
 	}
-	if !strings.Contains(w, "w.issue_type != 'agent'") {
-		t.Error("closedMoleculeStepPredicate must exclude agent beads")
+	if !strings.Contains(where, "w.status IN ('open', 'hooked', 'in_progress')") {
+		t.Error("closedMoleculeStepWhere should only select open-ish step wisps")
+	}
+	if !strings.Contains(where, "w.issue_type != 'agent'") {
+		t.Error("closedMoleculeStepWhere must exclude agent beads")
 	}
 }
 
@@ -243,11 +248,8 @@ func TestStaleReapWhereExcludesClosedMoleculeSteps(t *testing.T) {
 	if !strings.Contains(w, "open_parent.issue_id IS NULL") {
 		t.Error("staleReapWhere should preserve parent eligibility filter")
 	}
-	if !strings.Contains(w, "AND NOT (") {
-		t.Fatalf("staleReapWhere should exclude closed-molecule step predicate, got: %s", w)
-	}
-	if !strings.Contains(w, "pm.issue_type = 'molecule'") || !strings.Contains(w, "pm.status = 'closed'") {
-		t.Errorf("staleReapWhere should exclude closed molecule children to prevent dry-run double counting, got: %s", w)
+	if !strings.Contains(w, "closed_molecule_step.issue_id IS NULL") {
+		t.Fatalf("staleReapWhere should exclude closed-molecule step join to prevent double counting, got: %s", w)
 	}
 }
 
@@ -303,6 +305,62 @@ func TestReapClosesClosedMoleculeStepsWithoutDoubleCounting(t *testing.T) {
 	}
 }
 
+func TestReapDoltCommitFailureReturnsError(t *testing.T) {
+	db, state := openFakeReaperDB(t, map[string]*fakeReaperWisp{
+		"mol-closed": {id: "mol-closed", status: "closed", issueType: "molecule"},
+		"step":       {id: "step", status: "open", issueType: "task", parentID: "mol-closed"},
+	})
+	state.doltCommitErr = fmt.Errorf("boom")
+
+	_, err := Reap(db, "testdb", time.Hour, false)
+	if err == nil || !strings.Contains(err.Error(), "dolt commit: boom") {
+		t.Fatalf("Reap() error = %v, want dolt commit failure", err)
+	}
+	if state.execIndex("CALL DOLT_COMMIT") == -1 {
+		t.Fatalf("expected DOLT_COMMIT attempt, execs: %v", state.execs)
+	}
+	if state.execIndex("ROLLBACK") != -1 {
+		t.Fatalf("ROLLBACK should not run after SQL COMMIT, execs: %v", state.execs)
+	}
+}
+
+func TestReapReturnsMoleculeStepRowsErrBeforeUpdate(t *testing.T) {
+	db, state := openFakeReaperDB(t, map[string]*fakeReaperWisp{
+		"mol-closed": {id: "mol-closed", status: "closed", issueType: "molecule"},
+		"step":       {id: "step", status: "open", issueType: "task", parentID: "mol-closed"},
+	})
+	state.moleculeStepRowsErr = fmt.Errorf("cursor boom")
+
+	_, err := Reap(db, "testdb", time.Hour, false)
+	if err == nil || !strings.Contains(err.Error(), "iterate molecule-step ids: cursor boom") {
+		t.Fatalf("Reap() error = %v, want molecule-step cursor failure", err)
+	}
+	if state.wisps["step"].status != "open" {
+		t.Fatalf("step status = %s, want open", state.wisps["step"].status)
+	}
+	if state.execIndex("COMMIT") != -1 || state.execIndex("CALL DOLT_COMMIT") != -1 {
+		t.Fatalf("should not commit after cursor error, execs: %v", state.execs)
+	}
+}
+
+func TestReapReturnsStaleRowsErrBeforeUpdate(t *testing.T) {
+	db, state := openFakeReaperDB(t, map[string]*fakeReaperWisp{
+		"stale-orphan": {id: "stale-orphan", status: "open", issueType: "task", old: true},
+	})
+	state.staleRowsErr = fmt.Errorf("cursor boom")
+
+	_, err := Reap(db, "testdb", time.Hour, false)
+	if err == nil || !strings.Contains(err.Error(), "iterate reap ids: cursor boom") {
+		t.Fatalf("Reap() error = %v, want stale cursor failure", err)
+	}
+	if state.wisps["stale-orphan"].status != "open" {
+		t.Fatalf("stale-orphan status = %s, want open", state.wisps["stale-orphan"].status)
+	}
+	if state.execIndex("COMMIT") != -1 || state.execIndex("CALL DOLT_COMMIT") != -1 {
+		t.Fatalf("should not commit after cursor error, execs: %v", state.execs)
+	}
+}
+
 var (
 	fakeReaperDriverOnce sync.Once
 	fakeReaperDBsMu      sync.Mutex
@@ -318,7 +376,11 @@ type fakeReaperWisp struct {
 }
 
 type fakeReaperDB struct {
-	wisps map[string]*fakeReaperWisp
+	wisps               map[string]*fakeReaperWisp
+	moleculeStepRowsErr error
+	staleRowsErr        error
+	doltCommitErr       error
+	execs               []string
 }
 
 func openFakeReaperDB(t *testing.T, wisps map[string]*fakeReaperWisp) (*sql.DB, *fakeReaperDB) {
@@ -382,15 +444,20 @@ func (c *fakeReaperConn) QueryContext(_ context.Context, query string, _ []drive
 	case strings.Contains(query, "SELECT COUNT(*) FROM wisps WHERE status IN"):
 		return fakeRowsFromCount(c.db.openCount()), nil
 	case strings.Contains(query, "SELECT w.id FROM wisps w") && strings.Contains(query, "pm.issue_type = 'molecule'") && !strings.Contains(query, "created_at < ?"):
-		return fakeRowsFromIDs(c.db.moleculeStepIDs()), nil
+		rows := fakeRowsFromIDs(c.db.moleculeStepIDs())
+		rows.err = c.db.moleculeStepRowsErr
+		return rows, nil
 	case strings.Contains(query, "SELECT w.id FROM wisps w") && strings.Contains(query, "created_at < ?"):
-		return fakeRowsFromIDs(c.db.staleIDs()), nil
+		rows := fakeRowsFromIDs(c.db.staleIDs())
+		rows.err = c.db.staleRowsErr
+		return rows, nil
 	default:
 		return nil, fmt.Errorf("unexpected fake query: %s", query)
 	}
 }
 
 func (c *fakeReaperConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	c.db.execs = append(c.db.execs, query)
 	if strings.HasPrefix(query, "UPDATE wisps SET status='closed'") {
 		closed := int64(0)
 		for _, arg := range args {
@@ -402,10 +469,22 @@ func (c *fakeReaperConn) ExecContext(_ context.Context, query string, args []dri
 		}
 		return driver.RowsAffected(closed), nil
 	}
+	if strings.HasPrefix(query, "CALL DOLT_COMMIT") && c.db.doltCommitErr != nil {
+		return nil, c.db.doltCommitErr
+	}
 	if strings.HasPrefix(query, "SET @@autocommit") || query == "ROLLBACK" || query == "COMMIT" || strings.HasPrefix(query, "CALL DOLT_COMMIT") {
 		return driver.RowsAffected(0), nil
 	}
 	return nil, fmt.Errorf("unexpected fake exec: %s", query)
+}
+
+func (db *fakeReaperDB) execIndex(prefix string) int {
+	for i, query := range db.execs {
+		if strings.HasPrefix(query, prefix) {
+			return i
+		}
+	}
+	return -1
 }
 
 func (db *fakeReaperDB) moleculeStepIDs() []string {
@@ -456,6 +535,7 @@ type fakeRows struct {
 	columns []string
 	values  [][]driver.Value
 	index   int
+	err     error
 }
 
 func fakeRowsFromCount(count int) *fakeRows {
@@ -475,6 +555,11 @@ func (r *fakeRows) Close() error      { return nil }
 
 func (r *fakeRows) Next(dest []driver.Value) error {
 	if r.index >= len(r.values) {
+		if r.err != nil {
+			err := r.err
+			r.err = nil
+			return err
+		}
 		return io.EOF
 	}
 	copy(dest, r.values[r.index])
