@@ -165,8 +165,7 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 	}
 
 	webCfg := config.DefaultWebTimeoutsConfig()
-	defaultWorkerCfg := config.DefaultWorkerStatusConfig()
-	workerCfg := defaultWorkerCfg
+	workerCfg := config.DefaultWorkerStatusConfig()
 	if ts, err := config.LoadOrCreateTownSettings(config.TownSettingsPath(townRoot)); err == nil {
 		// Replace entire defaults — individual fields fall back via ParseDurationOrDefault
 		// (empty string → hardcoded default). Add explicit zero-value guards for non-duration fields.
@@ -177,6 +176,7 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 			workerCfg = ts.WorkerStatus
 		}
 	}
+	staleThreshold, stuckThreshold, heartbeatFreshThreshold, mayorActiveThreshold := resolveWorkerStatusThresholds(workerCfg)
 
 	// Build a local prefix registry from the town's rigs.json so session
 	// name parsing works regardless of whether the package-level
@@ -187,8 +187,6 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 		registry = session.DefaultRegistry()
 	}
 
-	defaultStaleThreshold := config.ParseDurationOrDefault(defaultWorkerCfg.StaleThreshold, 15*time.Minute)
-
 	return &LiveConvoyFetcher{
 		townRoot:                townRoot,
 		townBeads:               filepath.Join(townRoot, ".beads"),
@@ -196,11 +194,28 @@ func NewLiveConvoyFetcher() (*LiveConvoyFetcher, error) {
 		cmdTimeout:              config.ParseDurationOrDefault(webCfg.CmdTimeout, 15*time.Second),
 		ghCmdTimeout:            config.ParseDurationOrDefault(webCfg.GhCmdTimeout, 10*time.Second),
 		tmuxCmdTimeout:          config.ParseDurationOrDefault(webCfg.TmuxCmdTimeout, 2*time.Second),
-		staleThreshold:          config.ParseDurationOrDefault(workerCfg.StaleThreshold, defaultStaleThreshold),
-		stuckThreshold:          config.ParseDurationOrDefault(workerCfg.StuckThreshold, constants.GUPPViolationTimeout),
-		heartbeatFreshThreshold: config.ParseDurationOrDefault(workerCfg.HeartbeatFreshThreshold, 5*time.Minute),
-		mayorActiveThreshold:    config.ParseDurationOrDefault(workerCfg.MayorActiveThreshold, 5*time.Minute),
+		staleThreshold:          staleThreshold,
+		stuckThreshold:          stuckThreshold,
+		heartbeatFreshThreshold: heartbeatFreshThreshold,
+		mayorActiveThreshold:    mayorActiveThreshold,
 	}, nil
+}
+
+func resolveWorkerStatusThresholds(workerCfg *config.WorkerStatusConfig) (stale, stuck, heartbeatFresh, mayorActive time.Duration) {
+	defaults := config.DefaultWorkerStatusConfig()
+	if workerCfg == nil {
+		workerCfg = defaults
+	}
+
+	defaultStale := config.ParseDurationOrDefault(defaults.StaleThreshold, 0)
+	defaultStuck := config.ParseDurationOrDefault(defaults.StuckThreshold, constants.GUPPViolationTimeout)
+	defaultHeartbeatFresh := config.ParseDurationOrDefault(defaults.HeartbeatFreshThreshold, 0)
+	defaultMayorActive := config.ParseDurationOrDefault(defaults.MayorActiveThreshold, 0)
+
+	return config.ParseDurationOrDefault(workerCfg.StaleThreshold, defaultStale),
+		config.ParseDurationOrDefault(workerCfg.StuckThreshold, defaultStuck),
+		config.ParseDurationOrDefault(workerCfg.HeartbeatFreshThreshold, defaultHeartbeatFresh),
+		config.ParseDurationOrDefault(workerCfg.MayorActiveThreshold, defaultMayorActive)
 }
 
 // FetchConvoys fetches all open convoys with their activity data.
