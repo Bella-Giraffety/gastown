@@ -600,10 +600,14 @@ func startDeaconNudgePoller(townRoot, sessionName string) {
 
 func repairDeaconRuntimeEnv(t *tmux.Tmux, townRoot, sessionName, agentOverride string) {
 	runtimeConfig := config.ResolveRoleAgentConfig("deacon", townRoot, filepath.Join(townRoot, "deacon"))
+	agent := agentOverride
+	if agent == "" {
+		agent, _ = t.GetEnvironment(sessionName, "GT_AGENT")
+	}
 	envVars := config.AgentEnv(config.AgentEnvConfig{
 		Role:        "deacon",
 		TownRoot:    townRoot,
-		Agent:       agentOverride,
+		Agent:       agent,
 		SessionName: sessionName,
 	})
 	envVars = session.MergeRuntimeLivenessEnv(envVars, runtimeConfig)

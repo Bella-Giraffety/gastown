@@ -29,6 +29,7 @@ type tmuxOps interface {
 	NewSessionWithCommand(name, workDir, command string) error
 	SetRemainOnExit(pane string, on bool) error
 	SetEnvironment(session, key, value string) error
+	GetEnvironment(session, key string) (string, error)
 	GetPaneID(session string) (string, error)
 	ConfigureGasTownSession(session string, theme *tmux.Theme, rig, worker, role string) error
 	WaitForCommand(session string, excludeCommands []string, timeout time.Duration) error
@@ -196,10 +197,14 @@ func (m *Manager) startNudgePoller(sessionID string) {
 func (m *Manager) setRuntimeEnv(sessionID string, runtimeConfig *config.RuntimeConfig, agentOverride string) {
 	// Set environment variables (non-fatal: session works without these)
 	// Use centralized AgentEnv for consistency across all role startup paths.
+	agent := agentOverride
+	if agent == "" {
+		agent, _ = m.tmux.GetEnvironment(sessionID, "GT_AGENT")
+	}
 	envVars := config.AgentEnv(config.AgentEnvConfig{
 		Role:        "deacon",
 		TownRoot:    m.townRoot,
-		Agent:       agentOverride,
+		Agent:       agent,
 		SessionName: sessionID,
 	})
 	envVars = session.MergeRuntimeLivenessEnv(envVars, runtimeConfig)

@@ -135,9 +135,18 @@ func StopPoller(townRoot, session string) error {
 		return nil // corrupt PID file, clean up
 	}
 
-	if !pollerProcessAlive(pid) || !pollerProcessMatches(pid, session) {
-		// Process already dead, or PID was reused by an unrelated process.
+	if !pollerProcessAlive(pid) {
+		// Process already dead.
 		_ = os.Remove(pidPath)
+		return nil
+	}
+	if match, verified := pollerProcessMatches(pid, session); verified && !match {
+		// PID was reused by an unrelated process. Do not signal it.
+		_ = os.Remove(pidPath)
+		return nil
+	} else if !verified {
+		// If we cannot verify the command line, leave the PID file in place and
+		// let the poller exit when its tmux session disappears.
 		return nil
 	}
 
@@ -152,7 +161,10 @@ func StopPoller(townRoot, session string) error {
 		_ = os.Remove(pidPath)
 		return fmt.Errorf("sending SIGTERM to poller (pid %d): %w", pid, err)
 	}
-	for i := 0; i < 10 && pollerProcessAlive(pid) && pollerProcessMatches(pid, session); i++ {
+	for i := 0; i < 10 && pollerProcessAlive(pid); i++ {
+		if match, verified := pollerProcessMatches(pid, session); verified && !match {
+			break
+		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
@@ -175,7 +187,12 @@ func pollerAlive(townRoot, session string) (int, bool) {
 		return 0, false
 	}
 
-	if !pollerProcessAlive(pid) || !pollerProcessMatches(pid, session) {
+	if !pollerProcessAlive(pid) {
+		// Stale PID file.
+		_ = os.Remove(pidPath)
+		return 0, false
+	}
+	if match, verified := pollerProcessMatches(pid, session); verified && !match {
 		// Stale PID file, or PID was reused by an unrelated process.
 		_ = os.Remove(pidPath)
 		return 0, false

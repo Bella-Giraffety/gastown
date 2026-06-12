@@ -21,6 +21,6 @@ func pollerProcessAlive(pid int) bool {
 	return true
 }
 
-func pollerProcessMatches(pid int, session string) bool {
-	return true
+func pollerProcessMatches(pid int, session string) (bool, bool) {
+	return false, false
 }

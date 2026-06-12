@@ -20,6 +20,7 @@ type mockTmux struct {
 	sessionInfo      *tmux.SessionInfo
 	sessionInfoErr   error
 	sendKeysErr      error
+	env              map[string]string
 
 	// Call tracking
 	killCalls       []string
@@ -45,8 +46,15 @@ func (m *mockTmux) NewSessionWithCommand(_, _, _ string) error {
 }
 
 func (m *mockTmux) SetRemainOnExit(_ string, _ bool) error { return nil }
-func (m *mockTmux) SetEnvironment(_, _, _ string) error    { return nil }
-func (m *mockTmux) GetPaneID(_ string) (string, error)     { return "%0", nil }
+func (m *mockTmux) SetEnvironment(_, key, value string) error {
+	if m.env == nil {
+		m.env = make(map[string]string)
+	}
+	m.env[key] = value
+	return nil
+}
+func (m *mockTmux) GetEnvironment(_, key string) (string, error) { return m.env[key], nil }
+func (m *mockTmux) GetPaneID(_ string) (string, error)           { return "%0", nil }
 func (m *mockTmux) ConfigureGasTownSession(_ string, _ *tmux.Theme, _, _, _ string) error {
 	return nil
 }
@@ -106,6 +114,7 @@ func TestStart_AlreadyRunning(t *testing.T) {
 	mock := &mockTmux{
 		hasSessionResult: true,
 		agentAlive:       true,
+		env:              map[string]string{"GT_AGENT": "codex"},
 	}
 	m := newTestManager(t.TempDir(), mock)
 	startPollerCalls := 0
@@ -120,6 +129,9 @@ func TestStart_AlreadyRunning(t *testing.T) {
 	}
 	if startPollerCalls != 1 {
 		t.Errorf("startPoller called %d times, want 1", startPollerCalls)
+	}
+	if got := mock.env["GT_AGENT"]; got != "codex" {
+		t.Errorf("GT_AGENT = %q, want existing explicit agent", got)
 	}
 }
 
