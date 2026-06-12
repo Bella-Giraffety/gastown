@@ -49,12 +49,8 @@ func TestDogDispatchInfoClearWorkIfMatchesUsesAssignmentTimestamp(t *testing.T) 
 		ownsWork:      true,
 		rigsConfig:    rigsConfig,
 	}
-	cleared, err := staleDispatch.clearWorkIfMatches()
-	if err != nil {
+	if err := staleDispatch.clearWorkIfMatches(); err != nil {
 		t.Fatalf("clearWorkIfMatches stale dispatch error = %v", err)
-	}
-	if cleared {
-		t.Fatal("stale dispatch cleared dog work with a newer assignment timestamp")
 	}
 
 	mgr := dog.NewManager(townRoot, rigsConfig)
@@ -74,12 +70,8 @@ func TestDogDispatchInfoClearWorkIfMatchesUsesAssignmentTimestamp(t *testing.T) 
 		ownsWork:      true,
 		rigsConfig:    rigsConfig,
 	}
-	cleared, err = matchingDispatch.clearWorkIfMatches()
-	if err != nil {
+	if err := matchingDispatch.clearWorkIfMatches(); err != nil {
 		t.Fatalf("clearWorkIfMatches matching dispatch error = %v", err)
-	}
-	if !cleared {
-		t.Fatal("matching dispatch did not clear dog work")
 	}
 	got, err = mgr.Get("alpha")
 	if err != nil {
@@ -113,12 +105,8 @@ func TestDogDispatchInfoClearWorkIfMatchesSkipsReusedWork(t *testing.T) {
 		ownsWork:      false,
 		rigsConfig:    rigsConfig,
 	}
-	cleared, err := reusedDispatch.clearWorkIfMatches()
-	if err != nil {
+	if err := reusedDispatch.clearWorkIfMatches(); err != nil {
 		t.Fatalf("clearWorkIfMatches reused dispatch error = %v", err)
-	}
-	if cleared {
-		t.Fatal("reused dispatch cleared dog work it did not create")
 	}
 
 	got, err := dog.NewManager(townRoot, rigsConfig).Get("alpha")
