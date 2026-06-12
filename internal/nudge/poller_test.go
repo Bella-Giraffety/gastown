@@ -120,6 +120,9 @@ func TestStopPoller_StalePid(t *testing.T) {
 }
 
 func TestPollerAlive_LiveNonPollerProcess(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("process cmdline matching is Linux-only")
+	}
 	townRoot := t.TempDir()
 	session := "gt-gastown-crew-test"
 
@@ -145,6 +148,9 @@ func TestPollerAlive_LiveNonPollerProcess(t *testing.T) {
 }
 
 func TestStopPoller_LiveNonPollerProcess(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("process cmdline matching is Linux-only")
+	}
 	townRoot := t.TempDir()
 	session := "gt-gastown-crew-test"
 

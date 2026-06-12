@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/gofrs/flock"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/util"
 )
@@ -48,6 +49,10 @@ func pollerPidFile(townRoot, session string) string {
 	return filepath.Join(pollerPidDir(townRoot), safe+".pid")
 }
 
+func pollerLockFile(townRoot, session string) string {
+	return pollerPidFile(townRoot, session) + ".lock"
+}
+
 // StartPoller launches a background `gt nudge-poller <session>` process.
 // The process is detached (Setpgid) so it survives the caller's exit.
 // Returns the PID of the launched process, or an error.
@@ -56,6 +61,11 @@ func StartPoller(townRoot, session string) (int, error) {
 	if err := os.MkdirAll(pidDir, 0755); err != nil {
 		return 0, fmt.Errorf("creating poller pid dir: %w", err)
 	}
+	lock := flock.New(pollerLockFile(townRoot, session))
+	if err := lock.Lock(); err != nil {
+		return 0, fmt.Errorf("locking poller pid file: %w", err)
+	}
+	defer func() { _ = lock.Unlock() }()
 
 	// Check if a poller is already running for this session.
 	if pid, alive := pollerAlive(townRoot, session); alive {
@@ -100,6 +110,15 @@ func buildPollerCommand(gtBin, townRoot, session string) *exec.Cmd {
 
 // StopPoller terminates the nudge-poller for a session, if running.
 func StopPoller(townRoot, session string) error {
+	if err := os.MkdirAll(pollerPidDir(townRoot), 0755); err != nil {
+		return fmt.Errorf("creating poller pid dir: %w", err)
+	}
+	lock := flock.New(pollerLockFile(townRoot, session))
+	if err := lock.Lock(); err != nil {
+		return fmt.Errorf("locking poller pid file: %w", err)
+	}
+	defer func() { _ = lock.Unlock() }()
+
 	pidPath := pollerPidFile(townRoot, session)
 
 	data, err := os.ReadFile(pidPath)
@@ -132,6 +151,9 @@ func StopPoller(townRoot, session string) error {
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
 		_ = os.Remove(pidPath)
 		return fmt.Errorf("sending SIGTERM to poller (pid %d): %w", pid, err)
+	}
+	for i := 0; i < 10 && pollerProcessAlive(pid) && pollerProcessMatches(pid, session); i++ {
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	_ = os.Remove(pidPath)

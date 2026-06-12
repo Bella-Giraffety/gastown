@@ -480,6 +480,7 @@ func runDeaconStart(cmd *cobra.Command, args []string) error {
 	}
 	if running {
 		if townRoot, err := workspace.FindFromCwdOrError(); err == nil {
+			repairDeaconRuntimeEnv(t, townRoot, sessionName, deaconAgentOverride)
 			startDeaconNudgePoller(townRoot, sessionName)
 		}
 		return fmt.Errorf("Deacon session already running. Attach with: gt deacon attach")
@@ -597,6 +598,20 @@ func startDeaconNudgePoller(townRoot, sessionName string) {
 	}
 }
 
+func repairDeaconRuntimeEnv(t *tmux.Tmux, townRoot, sessionName, agentOverride string) {
+	runtimeConfig := config.ResolveRoleAgentConfig("deacon", townRoot, filepath.Join(townRoot, "deacon"))
+	envVars := config.AgentEnv(config.AgentEnvConfig{
+		Role:        "deacon",
+		TownRoot:    townRoot,
+		Agent:       agentOverride,
+		SessionName: sessionName,
+	})
+	envVars = session.MergeRuntimeLivenessEnv(envVars, runtimeConfig)
+	for k, v := range envVars {
+		_ = t.SetEnvironment(sessionName, k, v)
+	}
+}
+
 func stopDeaconNudgePoller(sessionName string) {
 	townRoot, err := workspace.FindFromCwdOrError()
 	if err != nil {
@@ -655,6 +670,7 @@ func runDeaconAttach(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	} else if townRoot, err := workspace.FindFromCwdOrError(); err == nil {
+		repairDeaconRuntimeEnv(t, townRoot, sessionName, deaconAgentOverride)
 		startDeaconNudgePoller(townRoot, sessionName)
 	}
 	// Session uses a respawn loop, so Claude restarts automatically if it exits

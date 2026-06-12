@@ -108,10 +108,18 @@ func TestStart_AlreadyRunning(t *testing.T) {
 		agentAlive:       true,
 	}
 	m := newTestManager(t.TempDir(), mock)
+	startPollerCalls := 0
+	m.startPoller = func(string, string) (int, error) {
+		startPollerCalls++
+		return 0, nil
+	}
 
 	err := m.Start("")
 	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Errorf("Start() error = %v, want ErrAlreadyRunning", err)
+	}
+	if startPollerCalls != 1 {
+		t.Errorf("startPoller called %d times, want 1", startPollerCalls)
 	}
 }
 

@@ -84,6 +84,8 @@ func (m *Manager) Start(agentOverride string) error {
 	if running {
 		// Session exists - check if agent is actually running (healthy vs zombie)
 		if t.IsAgentAlive(sessionID) {
+			runtimeConfig := config.ResolveRoleAgentConfig("deacon", m.townRoot, m.deaconDir())
+			m.setRuntimeEnv(sessionID, runtimeConfig, agentOverride)
 			m.startNudgePoller(sessionID)
 			return ErrAlreadyRunning
 		}
@@ -139,18 +141,7 @@ func (m *Manager) Start(agentOverride string) error {
 	// The pane will show "[Exited]" status but remain available for respawn.
 	_ = t.SetRemainOnExit(sessionID, true)
 
-	// Set environment variables (non-fatal: session works without these)
-	// Use centralized AgentEnv for consistency across all role startup paths
-	envVars := config.AgentEnv(config.AgentEnvConfig{
-		Role:        "deacon",
-		TownRoot:    m.townRoot,
-		Agent:       agentOverride,
-		SessionName: sessionID,
-	})
-	envVars = session.MergeRuntimeLivenessEnv(envVars, runtimeConfig)
-	for k, v := range envVars {
-		_ = t.SetEnvironment(sessionID, k, v)
-	}
+	m.setRuntimeEnv(sessionID, runtimeConfig, agentOverride)
 
 	// Record agent's pane_id for ZFC-compliant liveness checks (gt-qmsx).
 	if paneID, err := t.GetPaneID(sessionID); err == nil {
@@ -199,6 +190,21 @@ func (m *Manager) startNudgePoller(sessionID string) {
 	}
 	if _, pollerErr := startPoller(m.townRoot, sessionID); pollerErr != nil {
 		fmt.Printf("warning: could not start nudge poller for deacon: %v\n", pollerErr)
+	}
+}
+
+func (m *Manager) setRuntimeEnv(sessionID string, runtimeConfig *config.RuntimeConfig, agentOverride string) {
+	// Set environment variables (non-fatal: session works without these)
+	// Use centralized AgentEnv for consistency across all role startup paths.
+	envVars := config.AgentEnv(config.AgentEnvConfig{
+		Role:        "deacon",
+		TownRoot:    m.townRoot,
+		Agent:       agentOverride,
+		SessionName: sessionID,
+	})
+	envVars = session.MergeRuntimeLivenessEnv(envVars, runtimeConfig)
+	for k, v := range envVars {
+		_ = m.tmux.SetEnvironment(sessionID, k, v)
 	}
 }
 
