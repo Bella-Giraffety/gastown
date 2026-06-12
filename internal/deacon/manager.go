@@ -86,7 +86,7 @@ func (m *Manager) Start(agentOverride string) error {
 		// Session exists - check if agent is actually running (healthy vs zombie)
 		if t.IsAgentAlive(sessionID) {
 			runtimeConfig := config.ResolveRoleAgentConfig("deacon", m.townRoot, m.deaconDir())
-			m.setRuntimeEnv(sessionID, runtimeConfig, agentOverride)
+			m.setRuntimeEnv(sessionID, runtimeConfig, "")
 			m.startNudgePoller(sessionID)
 			return ErrAlreadyRunning
 		}

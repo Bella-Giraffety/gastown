@@ -480,7 +480,7 @@ func runDeaconStart(cmd *cobra.Command, args []string) error {
 	}
 	if running {
 		if townRoot, err := workspace.FindFromCwdOrError(); err == nil {
-			repairDeaconRuntimeEnv(t, townRoot, sessionName, deaconAgentOverride)
+			repairDeaconRuntimeEnv(t, townRoot, sessionName, "")
 			startDeaconNudgePoller(townRoot, sessionName)
 		}
 		return fmt.Errorf("Deacon session already running. Attach with: gt deacon attach")
@@ -674,7 +674,7 @@ func runDeaconAttach(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	} else if townRoot, err := workspace.FindFromCwdOrError(); err == nil {
-		repairDeaconRuntimeEnv(t, townRoot, sessionName, deaconAgentOverride)
+		repairDeaconRuntimeEnv(t, townRoot, sessionName, "")
 		startDeaconNudgePoller(townRoot, sessionName)
 	}
 	// Session uses a respawn loop, so Claude restarts automatically if it exits

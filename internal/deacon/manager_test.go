@@ -123,7 +123,7 @@ func TestStart_AlreadyRunning(t *testing.T) {
 		return 0, nil
 	}
 
-	err := m.Start("")
+	err := m.Start("gemini")
 	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Errorf("Start() error = %v, want ErrAlreadyRunning", err)
 	}

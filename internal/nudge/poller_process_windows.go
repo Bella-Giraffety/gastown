@@ -3,7 +3,10 @@
 package nudge
 
 import (
+	"fmt"
 	"math"
+	"os/exec"
+	"strings"
 
 	"golang.org/x/sys/windows"
 )
@@ -22,5 +25,14 @@ func pollerProcessAlive(pid int) bool {
 }
 
 func pollerProcessMatches(pid int, session string) (bool, bool) {
-	return false, false
+	filter := fmt.Sprintf("ProcessId=%d", pid)
+	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", fmt.Sprintf("(Get-CimInstance Win32_Process -Filter '%s').CommandLine", filter)).Output()
+	if err != nil || len(out) == 0 {
+		out, err = exec.Command("wmic", "process", "where", filter, "get", "CommandLine", "/value").Output()
+	}
+	if err != nil {
+		return false, false
+	}
+	cmdline := string(out)
+	return strings.Contains(cmdline, "nudge-poller") && strings.Contains(cmdline, session), true
 }

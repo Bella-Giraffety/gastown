@@ -167,6 +167,11 @@ func StopPoller(townRoot, session string) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	if pollerProcessAlive(pid) {
+		if match, verified := pollerProcessMatches(pid, session); !verified || match {
+			return nil
+		}
+	}
 
 	_ = os.Remove(pidPath)
 	return nil
