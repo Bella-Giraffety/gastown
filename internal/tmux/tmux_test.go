@@ -2035,6 +2035,14 @@ func TestShouldSendEscape_LivePane(t *testing.T) {
 	}
 }
 
+func TestShouldSendEscape_CaptureErrorSuppressesEscape(t *testing.T) {
+	tm := newTestTmux(t)
+
+	if tm.shouldSendEscape("missing-session-for-escape-check") {
+		t.Fatal("shouldSendEscape on missing target = true, want false")
+	}
+}
+
 func TestDefaultReadyPromptPrefix(t *testing.T) {
 	t.Parallel()
 	// Verify the constant is set correctly

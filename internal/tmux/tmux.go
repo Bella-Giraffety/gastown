@@ -1685,6 +1685,19 @@ func (t *Tmux) NudgeSessionWithOpts(session, message string, opts NudgeOpts) err
 	// 2. Sanitize control characters that corrupt delivery
 	sanitized := sanitizeNudgeMessage(message)
 
+	if !opts.SkipEscape {
+		// Auto-skip Escape for Copilot CLI sessions. Escape cancels in-flight
+		// generation in Copilot CLI (like Gemini), leaving the nudge text
+		// stranded in the input field without Enter being processed. (hq-isz)
+		agentType, _ := t.GetEnvironment(session, "GT_AGENT")
+		if agentType == "copilot" {
+			opts.SkipEscape = true
+		}
+	}
+	// Snapshot before typing the nudge so the message text itself cannot look
+	// like the agent's busy indicator.
+	sendEscape := !opts.SkipEscape && t.shouldSendEscape(target)
+
 	// 3. Send text via send-keys -l. Messages > 512 bytes are chunked
 	//    with 10ms inter-chunk delays to avoid argument length limits.
 	if err := t.sendMessageToTarget(target, sanitized); err != nil {
@@ -1695,23 +1708,7 @@ func (t *Tmux) NudgeSessionWithOpts(session, message string, opts NudgeOpts) err
 	// enough time to process all chunks under load. (GH#gt-0b5)
 	time.Sleep(adaptiveTextDelay(len(sanitized)))
 
-	if !opts.SkipEscape {
-		// Auto-skip Escape for Copilot CLI sessions. Escape cancels in-flight
-		// generation in Copilot CLI (like Gemini), leaving the nudge text
-		// stranded in the input field without Enter being processed. (hq-isz)
-		agentType, _ := t.GetEnvironment(session, "GT_AGENT")
-		if agentType == "copilot" {
-			opts.SkipEscape = true
-		}
-	}
-
-	// Only send the vim-mode Escape when the agent is NOT actively generating.
-	// In Claude Code, Escape cancels in-flight generation — the status bar reads
-	// "esc to interrupt" while the agent is working — so sending it mid-turn
-	// would interrupt the agent's current work (e.g. the Mayor). When the agent
-	// is idle, Escape harmlessly exits a vim-mode composer's INSERT mode so the
-	// following Enter submits (GH#307).
-	if !opts.SkipEscape && t.shouldSendEscape(target) {
+	if sendEscape {
 		// 5. Send Escape to exit vim INSERT mode if enabled (harmless in normal mode)
 		// See: https://github.com/anthropics/gastown/issues/307
 		_, _ = t.run("send-keys", "-t", target, "Escape")
@@ -1775,6 +1772,9 @@ func (t *Tmux) NudgePane(pane, message string) error {
 
 	// 2. Sanitize control characters that corrupt delivery
 	sanitized := sanitizeNudgeMessage(message)
+	// Snapshot before typing the nudge so the message text itself cannot look
+	// like the agent's busy indicator.
+	sendEscape := t.shouldSendEscape(pane)
 
 	// 3. Send text via send-keys -l. Messages > 512 bytes are chunked
 	//    with 10ms inter-chunk delays to avoid argument length limits.
@@ -1785,11 +1785,7 @@ func (t *Tmux) NudgePane(pane, message string) error {
 	// 4. Adaptive post-text delay: scales with message length. (GH#gt-0b5)
 	time.Sleep(adaptiveTextDelay(len(sanitized)))
 
-	// Only send the vim-mode Escape when the agent is NOT actively generating —
-	// in Claude Code, Escape cancels in-flight generation ("esc to interrupt"),
-	// so sending it mid-turn would interrupt the agent's current work. When idle
-	// it harmlessly exits a vim-mode composer's INSERT mode. (GH#307)
-	if t.shouldSendEscape(pane) {
+	if sendEscape {
 		// 5. Send Escape to exit vim INSERT mode if enabled (harmless in normal mode)
 		// See: https://github.com/anthropics/gastown/issues/307
 		_, _ = t.run("send-keys", "-t", pane, "Escape")
@@ -2871,10 +2867,12 @@ func shouldSendEscapeForLines(lines []string) bool {
 }
 
 // shouldSendEscape captures the target's pane and reports whether the vim-mode
-// Escape is safe to send right now (see shouldSendEscapeForLines). On capture
-// failure it returns false: when we cannot confirm the agent is idle, skipping
-// the Escape is the safe default — it avoids interrupting an active agent and
-// is harmless for the common (non-vim) case where Enter alone submits.
+// Escape is safe to send right now (see shouldSendEscapeForLines). Callers
+// snapshot before writing nudge text so the message itself cannot masquerade as
+// the busy indicator. On capture failure it returns false: when we cannot
+// confirm the agent is idle, skipping the Escape is the safe default — it avoids
+// interrupting an active agent and is harmless for the common (non-vim) case
+// where Enter alone submits.
 func (t *Tmux) shouldSendEscape(target string) bool {
 	lines, err := t.CapturePaneLines(target, 5)
 	if err != nil {
