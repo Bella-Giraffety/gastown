@@ -218,11 +218,11 @@ func (m *Mailbox) queryIssueMessagesByAssignee(beadsDir string, identities []str
 		stdout, err := runBdCommand(ctx, args, m.workDir, beadsDir)
 		cancel()
 		if err != nil {
-			continue
+			return nil, err
 		}
 		msgs, err := parseBeadsListOutput(stdout)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		messages = append(messages, msgs...)
 	}
@@ -243,11 +243,11 @@ func (m *Mailbox) queryIssueMessagesByCC(beadsDir string, identities []string) (
 		stdout, err := runBdCommand(ctx, args, m.workDir, beadsDir)
 		cancel()
 		if err != nil {
-			return nil, err
+			continue
 		}
 		msgs, err := parseBeadsListOutput(stdout)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		messages = append(messages, msgs...)
 	}
