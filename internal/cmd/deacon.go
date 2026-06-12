@@ -584,7 +584,8 @@ func startDeaconSession(t *tmux.Tmux, sessionName, agentOverride string) error {
 	if _, pollerErr := nudge.StartPoller(townRoot, sessionName); pollerErr != nil {
 		style.PrintWarning("could not start nudge poller for %s: %v", sessionName, pollerErr)
 	}
-	_ = runtime.RunStartupFallback(t, sessionName, "deacon", runtimeConfig)
+	fallbackConfig := config.ResolveRoleAgentConfig("deacon", townRoot, "")
+	_ = runtime.RunStartupFallback(t, sessionName, "deacon", fallbackConfig)
 
 	return nil
 }
