@@ -532,6 +532,81 @@ exit 1
 	}
 }
 
+func TestQueryWispMessagesEscapesIdentitySQLLiterals(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fake bd is POSIX-only")
+	}
+
+	binDir := t.TempDir()
+	sqlLogPath := filepath.Join(t.TempDir(), "bd-sql.log")
+	fakeBD := filepath.Join(binDir, "bd")
+	script := `#!/bin/sh
+if [ "$1" = "sql" ]; then
+  printf '%s\n' "$3" >> "$BD_SQL_LOG"
+  printf '%s\n' '[]'
+  exit 0
+fi
+printf 'unexpected bd args: %s\n' "$*" >&2
+exit 1
+`
+	if err := os.WriteFile(fakeBD, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BD_SQL_LOG", sqlLogPath)
+
+	m := NewMailboxWithBeadsDir("mayor/", t.TempDir(), t.TempDir())
+	_, err := m.queryWispMessages(t.TempDir(), []string{"mayor/", "mayor", `rig/o\'malley`})
+	if err != nil {
+		t.Fatalf("queryWispMessages: %v", err)
+	}
+
+	sqlLog, err := os.ReadFile(sqlLogPath)
+	if err != nil {
+		t.Fatalf("read SQL log: %v", err)
+	}
+	queries := strings.Split(strings.TrimSpace(string(sqlLog)), "\n")
+	if len(queries) != 1 {
+		t.Fatalf("bd sql calls = %d, want 1; log:\n%s", len(queries), string(sqlLog))
+	}
+	sql := queries[0]
+	for _, want := range []string{
+		`'mayor/'`,
+		`'mayor'`,
+		`'cc:mayor/'`,
+		`'cc:mayor'`,
+		`'rig/o\\''malley'`,
+		`'cc:rig/o\\''malley'`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("generated SQL missing %q:\n%s", want, sql)
+		}
+	}
+}
+
+func TestSQLStringListEscapesSQLLiterals(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []string
+		want   string
+	}{
+		{name: "plain", values: []string{"mayor"}, want: `'mayor'`},
+		{name: "quote", values: []string{"o'brien"}, want: `'o''brien'`},
+		{name: "backslash", values: []string{`rig\agent`}, want: `'rig\\agent'`},
+		{name: "trailing backslash", values: []string{`rig\`}, want: `'rig\\'`},
+		{name: "quote after backslash", values: []string{`rig/o\'malley`}, want: `'rig/o\\''malley'`},
+		{name: "list", values: []string{"mayor/", `rig/o\'malley`}, want: `'mayor/','rig/o\\''malley'`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sqlStringList(tt.values); got != tt.want {
+				t.Fatalf("sqlStringList(%#v) = %q, want %q", tt.values, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMailboxLegacyMultipleOperations(t *testing.T) {
 	tmpDir := t.TempDir()
 	m := NewMailbox(tmpDir)

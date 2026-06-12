@@ -350,7 +350,7 @@ type wispSQLRow struct {
 	CCHit       int    `json:"cc_match"`
 }
 
-// runWispSQL executes a bd sql --json query and converts results to BeadsMessages.
+// runWispSQL executes a bd sql --json query and converts results to wisp query messages.
 func (m *Mailbox) runWispSQL(beadsDir, query string) ([]wispQueryMessage, error) {
 	args := []string{"sql", "--json", query}
 	ctx, cancel := bdReadCtx()
@@ -404,8 +404,9 @@ func sqlStringList(values []string) string {
 	return strings.Join(quoted, ",")
 }
 
-// escapeSQLString escapes single quotes for SQL string literals.
+// escapeSQLString escapes backslashes and single quotes for Dolt/MySQL SQL string literals.
 func escapeSQLString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
 	return strings.ReplaceAll(s, "'", "''")
 }
 

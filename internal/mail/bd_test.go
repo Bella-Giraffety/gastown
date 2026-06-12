@@ -208,6 +208,23 @@ func TestParseBeadsListOutput(t *testing.T) {
 			}
 		})
 	}
+
+	got, err := parseBeadsListOutput(valid)
+	if err != nil {
+		t.Fatalf("parse valid output: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("parse valid output returned %d messages, want 1", len(got))
+	}
+	if got[0].ID != "msg-1" || got[0].Title != "Hello" || got[0].Status != "open" || got[0].Priority != 2 {
+		t.Fatalf("parse valid output returned unexpected message: %#v", got[0])
+	}
+	if !got[0].CreatedAt.Equal(created) {
+		t.Fatalf("CreatedAt = %v, want %v", got[0].CreatedAt, created)
+	}
+	if len(got[0].Labels) != 2 || got[0].Labels[0] != "gt:message" || got[0].Labels[1] != "from:mayor/" {
+		t.Fatalf("Labels = %#v, want gt:message/from:mayor/", got[0].Labels)
+	}
 }
 
 func TestBdError_WithAllFields(t *testing.T) {
