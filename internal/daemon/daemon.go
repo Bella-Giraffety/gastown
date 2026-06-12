@@ -33,6 +33,7 @@ import (
 	"github.com/steveyegge/gastown/internal/feed"
 	gitpkg "github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/mayor"
+	"github.com/steveyegge/gastown/internal/nudge"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/refinery"
 	"github.com/steveyegge/gastown/internal/rig"
@@ -1513,7 +1514,6 @@ func (d *Daemon) checkDeaconHeartbeat() {
 	}
 }
 
-
 // restartStuckDeacon kills a stuck Deacon session and respawns it.
 // Uses RestartTracker for exponential backoff and crash-loop prevention.
 // Notifies via gt-notify (zero token cost) if the notify script exists.
@@ -1536,6 +1536,9 @@ func (d *Daemon) restartStuckDeacon(sessionName, reason string) {
 
 	// Kill the stuck session
 	d.logger.Printf("Stuck-agent-dog: killing stuck Deacon session %s (reason: %s)", sessionName, reason)
+	if err := nudge.StopPoller(d.config.TownRoot, sessionName); err != nil {
+		d.logger.Printf("Stuck-agent-dog: error stopping nudge poller for %s: %v", sessionName, err)
+	}
 	if err := d.tmux.KillSession(sessionName); err != nil {
 		d.logger.Printf("Stuck-agent-dog: error killing session %s: %v", sessionName, err)
 		// Continue — session may already be dead
@@ -1788,6 +1791,11 @@ func (d *Daemon) killDeaconSessions() {
 		exists, _ := d.tmux.HasSession(name)
 		if exists {
 			d.logger.Printf("Killing leftover %s session (patrol disabled)", name)
+			if name == session.DeaconSessionName() {
+				if err := nudge.StopPoller(d.config.TownRoot, name); err != nil {
+					d.logger.Printf("Error stopping nudge poller for %s: %v", name, err)
+				}
+			}
 			if err := d.tmux.KillSessionWithProcesses(name); err != nil {
 				d.logger.Printf("Error killing %s session: %v", name, err)
 			}
@@ -2694,7 +2702,7 @@ Restart deferred to stuck-agent-dog plugin for context-aware recovery.`,
 	cmd := exec.Command(d.gtPath, "mail", "send", witnessAddr, "-s", subject, "-m", body) //nolint:gosec // G204: args are constructed internally
 	setSysProcAttr(cmd)
 	cmd.Dir = d.config.TownRoot
-	cmd.Env = append(os.Environ(), "BD_ACTOR=daemon")// Identify as daemon, not overseer
+	cmd.Env = append(os.Environ(), "BD_ACTOR=daemon") // Identify as daemon, not overseer
 	if err := cmd.Run(); err != nil {
 		d.logger.Printf("Warning: failed to notify witness of crashed polecat: %v", err)
 	}

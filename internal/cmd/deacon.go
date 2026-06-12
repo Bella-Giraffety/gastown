@@ -16,6 +16,7 @@ import (
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/deacon"
+	"github.com/steveyegge/gastown/internal/nudge"
 	"github.com/steveyegge/gastown/internal/runtime"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/style"
@@ -553,7 +554,9 @@ func startDeaconSession(t *tmux.Tmux, sessionName, agentOverride string) error {
 		TownRoot:         townRoot,
 		RuntimeConfigDir: runtimeConfigDir,
 		Agent:            agentOverride,
+		SessionName:      sessionName,
 	})
+	envVars = session.MergeRuntimeLivenessEnv(envVars, runtimeConfig)
 	for k, v := range envVars {
 		_ = t.SetEnvironment(sessionName, k, v)
 	}
@@ -578,11 +581,22 @@ func startDeaconSession(t *tmux.Tmux, sessionName, agentOverride string) error {
 
 	time.Sleep(constants.ShutdownNotifyDelay)
 
-	deaconTownRoot, _ := workspace.FindFromCwdOrError()
-	runtimeCfg := config.ResolveRoleAgentConfig("deacon", deaconTownRoot, "")
-	_ = runtime.RunStartupFallback(t, sessionName, "deacon", runtimeCfg)
+	if _, pollerErr := nudge.StartPoller(townRoot, sessionName); pollerErr != nil {
+		style.PrintWarning("could not start nudge poller for %s: %v", sessionName, pollerErr)
+	}
+	_ = runtime.RunStartupFallback(t, sessionName, "deacon", runtimeConfig)
 
 	return nil
+}
+
+func stopDeaconNudgePoller(sessionName string) {
+	townRoot, err := workspace.FindFromCwdOrError()
+	if err != nil {
+		return
+	}
+	if pollerErr := nudge.StopPoller(townRoot, sessionName); pollerErr != nil {
+		style.PrintWarning("could not stop nudge poller for %s: %v", sessionName, pollerErr)
+	}
 }
 
 func runDeaconStop(cmd *cobra.Command, args []string) error {
@@ -607,6 +621,7 @@ func runDeaconStop(cmd *cobra.Command, args []string) error {
 
 	// Kill the session.
 	// Use KillSessionWithProcesses to ensure all descendant processes are killed.
+	stopDeaconNudgePoller(sessionName)
 	if err := t.KillSessionWithProcesses(sessionName); err != nil {
 		return fmt.Errorf("killing session: %w", err)
 	}
@@ -789,6 +804,7 @@ func runDeaconRestart(cmd *cobra.Command, args []string) error {
 	if running {
 		// Kill existing session.
 		// Use KillSessionWithProcesses to ensure all descendant processes are killed.
+		stopDeaconNudgePoller(sessionName)
 		if err := t.KillSessionWithProcesses(sessionName); err != nil {
 			style.PrintWarning("failed to kill session: %v", err)
 		}

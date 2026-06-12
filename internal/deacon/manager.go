@@ -9,6 +9,7 @@ import (
 
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/nudge"
 	"github.com/steveyegge/gastown/internal/runtime"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/tmux"
@@ -41,15 +42,17 @@ type tmuxOps interface {
 
 // Manager handles deacon lifecycle operations.
 type Manager struct {
-	townRoot string
-	tmux     tmuxOps
+	townRoot    string
+	tmux        tmuxOps
+	startPoller func(string, string) (int, error)
 }
 
 // NewManager creates a new deacon manager for a town.
 func NewManager(townRoot string) *Manager {
 	return &Manager{
-		townRoot: townRoot,
-		tmux:     tmux.NewTmux(),
+		townRoot:    townRoot,
+		tmux:        tmux.NewTmux(),
+		startPoller: nudge.StartPoller,
 	}
 }
 
@@ -88,6 +91,9 @@ func (m *Manager) Start(agentOverride string) error {
 		// The auto-respawn hook (SetAutoRespawnHook) handles clean exits at the
 		// tmux level — Go doesn't need to distinguish dead pane vs zombie shell.
 		// Use KillSessionWithProcesses to ensure all descendant processes are killed.
+		if err := nudge.StopPoller(m.townRoot, sessionID); err != nil {
+			fmt.Printf("warning: failed to stop nudge poller for deacon: %v\n", err)
+		}
 		if err := t.KillSessionWithProcesses(sessionID); err != nil {
 			return fmt.Errorf("killing zombie session: %w", err)
 		}
@@ -178,6 +184,13 @@ func (m *Manager) Start(agentOverride string) error {
 
 	// Accept startup dialogs (workspace trust + bypass permissions) if they appear.
 	_ = t.AcceptStartupDialogs(sessionID)
+	startPoller := m.startPoller
+	if startPoller == nil {
+		startPoller = nudge.StartPoller
+	}
+	if _, pollerErr := startPoller(m.townRoot, sessionID); pollerErr != nil {
+		fmt.Printf("warning: could not start nudge poller for deacon: %v\n", pollerErr)
+	}
 
 	time.Sleep(constants.ShutdownNotifyDelay)
 
@@ -205,6 +218,9 @@ func (m *Manager) Stop() error {
 	// Kill the session.
 	// Use KillSessionWithProcesses to ensure all descendant processes are killed.
 	// This prevents orphan bash processes from Claude's Bash tool surviving session termination.
+	if err := nudge.StopPoller(m.townRoot, sessionID); err != nil {
+		fmt.Printf("warning: failed to stop nudge poller for deacon: %v\n", err)
+	}
 	if err := t.KillSessionWithProcesses(sessionID); err != nil {
 		return fmt.Errorf("killing session: %w", err)
 	}

@@ -66,8 +66,9 @@ func (m *mockTmux) GetSessionInfo(_ string) (*tmux.SessionInfo, error) {
 
 func newTestManager(townRoot string, mock *mockTmux) *Manager {
 	return &Manager{
-		townRoot: townRoot,
-		tmux:     mock,
+		townRoot:    townRoot,
+		tmux:        mock,
+		startPoller: func(string, string) (int, error) { return 0, nil },
 	}
 }
 
