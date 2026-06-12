@@ -472,9 +472,9 @@ func (b *Beads) targetBeadsDirForCreate(opts CreateOptions) (string, error) {
 // the given issue ID. This is needed for cross-rig write operations that use an
 // ID to determine the owning database.
 //
-// When noRoute is set (see ForAgentBead), routing is skipped: the wrapper is
-// returned unchanged. Used for agent-bead operations whose IDs share the rig
-// prefix but whose data lives in the town DB.
+// When noRoute is set, routing is skipped and the wrapper is returned unchanged.
+// Agent-bead wrappers and prefix-routed targets both use this once they are
+// already bound to the authoritative database for the current operation.
 func (b *Beads) forIssueID(id string) (*Beads, error) {
 	if b.noRoute {
 		return b, nil
