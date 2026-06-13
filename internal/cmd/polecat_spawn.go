@@ -129,22 +129,35 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		witness.RecordBeadRespawn(townRoot, opts.HookBead)
 	}
 
-	// Per-rig directory cap: prevent unbounded worktree accumulation even when
-	// polecats die quickly (tmux session count stays low).
-	const maxPolecatDirsPerRig = 30
-	rigPolecatDir := filepath.Join(townRoot, rigName, "polecats")
-	if entries, err := os.ReadDir(rigPolecatDir); err == nil {
-		dirCount := 0
-		for _, e := range entries {
-			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-				dirCount++
+	// Determine base branch once for both idle reuse and fresh allocation.
+	baseBranch := opts.BaseBranch
+	if baseBranch == "" && opts.HookBead != "" {
+		// Auto-detect: check if the hooked bead's parent epic has an integration branch
+		settingsPath := filepath.Join(r.Path, "settings", "config.json")
+		polecatIntegrationEnabled := true
+		if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
+			polecatIntegrationEnabled = settings.MergeQueue.IsPolecatIntegrationEnabled()
+		}
+		if polecatIntegrationEnabled {
+			repoGit, repoErr := getRigGit(r.Path)
+			if repoErr == nil {
+				bd := beads.New(r.Path)
+				detected, detectErr := beads.DetectIntegrationBranch(bd, repoGit, opts.HookBead)
+				if detectErr == nil && detected != "" {
+					baseBranch = "origin/" + detected
+					fmt.Printf("  Auto-detected integration branch: %s\n", detected)
+				}
 			}
 		}
-		if dirCount >= maxPolecatDirsPerRig {
-			return nil, fmt.Errorf("rig %s has %d polecat directories (max %d). "+
-				"Nuke idle polecats first: gt polecat nuke %s/<name> --force",
-				rigName, dirCount, maxPolecatDirsPerRig, rigName)
-		}
+	}
+	if baseBranch != "" && !strings.HasPrefix(baseBranch, "origin/") {
+		baseBranch = "origin/" + baseBranch
+	}
+
+	// Build add options with hook_bead set atomically at spawn/reuse time.
+	addOpts := polecat.AddOptions{
+		HookBead:   opts.HookBead,
+		BaseBranch: baseBranch,
 	}
 
 	// Persistent polecat model (gt-4ac): try to reuse an idle polecat first.
@@ -153,50 +166,47 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 	idlePolecat, findErr := polecatMgr.FindIdlePolecat()
 	if findErr == nil && idlePolecat != nil {
 		polecatName := idlePolecat.Name
-		fmt.Printf("Reusing idle polecat: %s\n", polecatName)
-
-		// Determine base branch
-		baseBranch := opts.BaseBranch
-		if baseBranch == "" && opts.HookBead != "" {
-			settingsPath := filepath.Join(r.Path, "settings", "config.json")
-			polecatIntegrationEnabled := true
-			if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
-				polecatIntegrationEnabled = settings.MergeQueue.IsPolecatIntegrationEnabled()
+		canReuse := true
+		idleForReuse, err := polecatMgr.Get(polecatName)
+		if err != nil {
+			return nil, fmt.Errorf("getting idle polecat before reuse: %w", err)
+		}
+		if idleForReuse.State != polecat.StateIdle || idleForReuse.Issue != "" {
+			canReuse = false
+			fmt.Printf("  Idle polecat %s is no longer idle; allocating fresh\n", polecatName)
+		} else if err := verifyWorktreeExists(idleForReuse.ClonePath); err != nil {
+			canReuse = false
+			latest, latestErr := polecatMgr.Get(polecatName)
+			if latestErr != nil {
+				return nil, fmt.Errorf("rechecking idle polecat before nuke: %w", latestErr)
 			}
-			if polecatIntegrationEnabled {
-				repoGit, repoErr := getRigGit(r.Path)
-				if repoErr == nil {
-					bd := beads.New(r.Path)
-					detected, detectErr := beads.DetectIntegrationBranch(bd, repoGit, opts.HookBead)
-					if detectErr == nil && detected != "" {
-						baseBranch = "origin/" + detected
-						fmt.Printf("  Auto-detected integration branch: %s\n", detected)
-					}
+			if latest.State != polecat.StateIdle || latest.Issue != "" {
+				fmt.Printf("  Idle polecat %s changed state before repair; allocating fresh\n", polecatName)
+			} else {
+				fmt.Printf("  Worktree broken for idle polecat %s: %v; nuking and allocating fresh\n", polecatName, err)
+				if nukeErr := nukePolecatFull(polecatName, rigName, polecatMgr, r); nukeErr != nil {
+					return nil, fmt.Errorf("nuking broken idle polecat %s before fresh allocation: %w (verification: %w)", polecatName, nukeErr, err)
 				}
 			}
-		}
-		if baseBranch != "" && !strings.HasPrefix(baseBranch, "origin/") {
-			baseBranch = "origin/" + baseBranch
 		}
 
 		// Reuse the idle polecat with branch-only operations (no worktree add/remove).
 		// Phase 3 of persistent-polecat-pool: eliminates ~5s worktree creation overhead.
 		// Falls back to full worktree repair if branch-only reuse fails.
-		addOpts := polecat.AddOptions{
-			HookBead:   opts.HookBead,
-			BaseBranch: baseBranch,
-		}
 		reuseOK := false
-		if _, err := polecatMgr.ReuseIdlePolecat(polecatName, addOpts); err != nil {
-			// Branch-only reuse failed — try full worktree repair as fallback
-			fmt.Printf("  Branch-only reuse failed for idle polecat %s: %v, trying full repair...\n", polecatName, err)
-			if _, err := polecatMgr.RepairWorktreeWithOptions(polecatName, true, addOpts); err != nil {
-				fmt.Printf("  Full repair also failed for %s: %v, allocating new...\n", polecatName, err)
+		if canReuse {
+			fmt.Printf("Reusing idle polecat: %s\n", polecatName)
+			if _, err := polecatMgr.ReuseIdlePolecat(polecatName, addOpts); err != nil {
+				// Branch-only reuse failed — try full worktree repair as fallback
+				fmt.Printf("  Branch-only reuse failed for idle polecat %s: %v, trying full repair...\n", polecatName, err)
+				if _, err := polecatMgr.RepairWorktreeWithOptions(polecatName, true, addOpts); err != nil {
+					fmt.Printf("  Full repair also failed for %s: %v, allocating new...\n", polecatName, err)
+				} else {
+					reuseOK = true
+				}
 			} else {
 				reuseOK = true
 			}
-		} else {
-			reuseOK = true
 		}
 
 		if reuseOK {
@@ -233,35 +243,23 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		}
 	}
 
-	// Determine base branch for polecat worktree
-	baseBranch := opts.BaseBranch
-	if baseBranch == "" && opts.HookBead != "" {
-		// Auto-detect: check if the hooked bead's parent epic has an integration branch
-		settingsPath := filepath.Join(r.Path, "settings", "config.json")
-		polecatIntegrationEnabled := true
-		if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
-			polecatIntegrationEnabled = settings.MergeQueue.IsPolecatIntegrationEnabled()
-		}
-		if polecatIntegrationEnabled {
-			repoGit, repoErr := getRigGit(r.Path)
-			if repoErr == nil {
-				bd := beads.New(r.Path)
-				detected, detectErr := beads.DetectIntegrationBranch(bd, repoGit, opts.HookBead)
-				if detectErr == nil && detected != "" {
-					baseBranch = "origin/" + detected
-					fmt.Printf("  Auto-detected integration branch: %s\n", detected)
-				}
+	// Per-rig directory cap: prevent unbounded worktree accumulation even when
+	// polecats die quickly (tmux session count stays low). Enforce this after
+	// idle reuse/repair so a healthy or auto-nuked idle slot can avoid the cap.
+	const maxPolecatDirsPerRig = 30
+	rigPolecatDir := filepath.Join(townRoot, rigName, "polecats")
+	if entries, err := os.ReadDir(rigPolecatDir); err == nil {
+		dirCount := 0
+		for _, e := range entries {
+			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+				dirCount++
 			}
 		}
-	}
-	if baseBranch != "" && !strings.HasPrefix(baseBranch, "origin/") {
-		baseBranch = "origin/" + baseBranch
-	}
-
-	// Build add options with hook_bead set atomically at spawn time
-	addOpts := polecat.AddOptions{
-		HookBead:   opts.HookBead,
-		BaseBranch: baseBranch,
+		if dirCount >= maxPolecatDirsPerRig {
+			return nil, fmt.Errorf("rig %s has %d polecat directories (max %d). "+
+				"Nuke idle polecats first: gt polecat nuke %s/<name> --force",
+				rigName, dirCount, maxPolecatDirsPerRig, rigName)
+		}
 	}
 
 	// No idle polecat available — allocate and create atomically (GH#2215).
