@@ -49,6 +49,7 @@ func TestInstallForRole_RoleAware(t *testing.T) {
 }
 
 func TestInstallForRole_BootMergesManagedHooks(t *testing.T) {
+	t.Setenv("GT_HOME", "")
 	setTestHome(t, t.TempDir())
 	dir := t.TempDir()
 
@@ -71,6 +72,76 @@ func TestInstallForRole_BootMergesManagedHooks(t *testing.T) {
 	}
 	if len(guard.Hooks) == 0 || !strings.Contains(guard.Hooks[0].Command, "exit 2") {
 		t.Fatalf("boot guard must block with exit 2, got %#v", guard.Hooks)
+	}
+}
+
+func TestInstallForRole_BootUpdatesExistingManagedHooks(t *testing.T) {
+	t.Setenv("GT_HOME", "")
+	setTestHome(t, t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("creating settings dir: %v", err)
+	}
+
+	existing := []byte(`{
+  "customField": {"keep": true},
+  "enabledPlugins": {"existing": true},
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash(git status)", "hooks": [{"type": "command", "command": "printf git"}]}
+    ]
+  }
+}`)
+	if err := os.WriteFile(path, existing, 0644); err != nil {
+		t.Fatalf("writing existing settings.json: %v", err)
+	}
+	if needsUpgrade(existing) {
+		t.Fatal("test fixture unexpectedly exercises stale-template upgrade path")
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := InstallForRole("claude", dir, dir, "boot", ".claude", "settings.json", true); err != nil {
+			t.Fatalf("InstallForRole pass %d: %v", i+1, err)
+		}
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading settings.json: %v", err)
+	}
+	settings, err := UnmarshalSettings(data)
+	if err != nil {
+		t.Fatalf("unmarshaling settings.json: %v", err)
+	}
+
+	guardCount := 0
+	for _, entry := range settings.Hooks.PreToolUse {
+		if entry.Matcher != bootRawTmuxSendKeysMatcher {
+			continue
+		}
+		guardCount++
+		if len(entry.Hooks) != 1 || entry.Hooks[0].Type != "command" || entry.Hooks[0].Command != bootRawTmuxSendKeysCommand {
+			t.Fatalf("boot guard mismatch: %#v", entry.Hooks)
+		}
+	}
+	if guardCount != 1 {
+		t.Fatalf("expected exactly one boot raw tmux guard, got %d in %#v", guardCount, settings.Hooks.PreToolUse)
+	}
+	if !settings.EnabledPlugins["existing"] {
+		t.Fatalf("enabledPlugins not preserved: %#v", settings.EnabledPlugins)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshaling raw settings: %v", err)
+	}
+	var custom map[string]bool
+	if err := json.Unmarshal(raw["customField"], &custom); err != nil {
+		t.Fatalf("customField not preserved: %v", err)
+	}
+	if !custom["keep"] {
+		t.Fatalf("customField keep flag not preserved: %#v", custom)
 	}
 }
 

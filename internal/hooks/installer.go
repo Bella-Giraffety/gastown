@@ -52,6 +52,16 @@ func InstallForRole(provider, settingsDir, workDir, role, hooksDir, hooksFile st
 	targetPath := installTargetPath(settingsDir, workDir, hooksDir, hooksFile, useSettingsDir)
 
 	if existing, err := os.ReadFile(targetPath); err == nil {
+		if provider == "claude" && role == "boot" && isSettingsFile(hooksFile) {
+			merged, err := mergeManagedHooks(existing, "boot")
+			if err != nil {
+				return err
+			}
+			if !TemplateContentEqual(existing, merged) {
+				return writeContent(targetPath, hooksFile, merged)
+			}
+			return nil
+		}
 		if !needsUpgrade(existing) {
 			return nil // File exists and is current — don't overwrite
 		}
@@ -170,7 +180,10 @@ func writeTemplate(provider, role, hooksFile, targetPath string) error {
 	if err != nil {
 		return err
 	}
+	return writeContent(targetPath, hooksFile, content)
+}
 
+func writeContent(targetPath, hooksFile string, content []byte) error {
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 		return fmt.Errorf("creating hooks directory: %w", err)
 	}
