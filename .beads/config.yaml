@@ -45,3 +45,7 @@ types.custom: "agent,role,rig,convoy,slot,queue,event,message,molecule,gate,merg
 prefix: 
 issue-prefix: 
 dolt.idle-timeout: "0"
+
+storage.backend: dolt
+dolt.server: "127.0.0.1"
+dolt.port: 3307
