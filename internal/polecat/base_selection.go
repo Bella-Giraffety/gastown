@@ -52,6 +52,12 @@ func polecatDefaultBranch(r *rig.Rig, repoGit *git.Git) string {
 		}
 	}
 	if repoGit != nil {
+		if exists, _ := repoGit.RefExists("origin/main"); exists {
+			return "main"
+		}
+		if exists, _ := repoGit.RefExists("origin/master"); exists {
+			return "master"
+		}
 		if branch := strings.TrimSpace(repoGit.RemoteDefaultBranch()); branch != "" {
 			return branch
 		}
