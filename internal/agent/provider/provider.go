@@ -197,6 +197,7 @@ func ExtractToolCalls(msg Message) []ToolCallInfo {
 	for _, block := range msg.Content {
 		if block.Type == ContentTypeToolUse {
 			calls = append(calls, ToolCallInfo{
+				ID:    block.ID,
 				Name:  block.Name,
 				Input: block.Input,
 			})
@@ -206,6 +207,7 @@ func ExtractToolCalls(msg Message) []ToolCallInfo {
 }
 
 type ToolCallInfo struct {
+	ID    string          `json:"id,omitempty"`
 	Name  string          `json:"name"`
 	Input json.RawMessage `json:"input"`
 }

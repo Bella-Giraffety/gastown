@@ -51,6 +51,9 @@ func TestNewToolUseContent(t *testing.T) {
 	if content.Type != ContentTypeToolUse {
 		t.Errorf("expected type %s, got %s", ContentTypeToolUse, content.Type)
 	}
+	if content.ID != "tool-123" {
+		t.Errorf("expected id 'tool-123', got %s", content.ID)
+	}
 	if content.Name != "read_file" {
 		t.Errorf("expected name 'read_file', got %s", content.Name)
 	}
@@ -322,6 +325,7 @@ func TestExtractToolCalls(t *testing.T) {
 			NewTextContent("Let me read that file"),
 			{
 				Type:  ContentTypeToolUse,
+				ID:    "tool-123",
 				Name:  "read_file",
 				Input: input,
 			},
@@ -333,6 +337,9 @@ func TestExtractToolCalls(t *testing.T) {
 	}
 	if calls[0].Name != "read_file" {
 		t.Errorf("expected tool name 'read_file', got %s", calls[0].Name)
+	}
+	if calls[0].ID != "tool-123" {
+		t.Errorf("expected tool id 'tool-123', got %s", calls[0].ID)
 	}
 }
 
@@ -400,22 +407,28 @@ func TestMessagesRoundTripPreservesAssistantReasoningContentWithToolCalls(t *tes
 	if msg["reasoning_content"] != "kept reasoning" {
 		t.Fatalf("reasoning_content = %v, want preserved value", msg["reasoning_content"])
 	}
-	if _, ok := msg["tool_calls"].([]any); !ok {
+	toolCalls, ok := msg["tool_calls"].([]any)
+	if !ok {
 		t.Fatalf("tool_calls not preserved: %v", msg["tool_calls"])
+	}
+	call := toolCalls[0].(map[string]any)
+	if call["id"] != "call_1" || call["type"] != "function" {
+		t.Fatalf("tool call metadata not preserved: %v", call)
+	}
+	function := call["function"].(map[string]any)
+	if function["name"] != "lookup" || function["arguments"] != "{}" {
+		t.Fatalf("tool call function not preserved: %v", function)
 	}
 	if msg["content"] != nil {
 		t.Fatalf("content = %v, want null preserved", msg["content"])
 	}
 }
 
-func TestMessagesRoundTripPreservesThinkingBlocks(t *testing.T) {
-	input := []byte(`[{"role":"assistant","content":[{"type":"thinking","thinking":"private chain","signature":"sig_123"},{"type":"tool_use","id":"tool_1","name":"read","input":{"path":"README.md"}}]}]`)
+func TestMessagesRoundTripPreservesExtendedThinkingToolHistory(t *testing.T) {
+	input := []byte(`[{"role":"assistant","content":[{"type":"thinking","thinking":"private chain","signature":"sig_123","provider_extra":{"kept":true}},{"type":"tool_use","id":"tool_1","name":"read","input":{"path":"README.md"},"cache_control":{"type":"ephemeral"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_1","content":"done"}]}]`)
 	parsed, err := MessagesFromJSON(input)
 	if err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
-	}
-	if parsed[0].Content[0].Thinking != "private chain" {
-		t.Fatalf("thinking field not decoded")
 	}
 	if parsed[0].Content[1].ID != "tool_1" {
 		t.Fatalf("tool_use id not decoded")
@@ -434,9 +447,22 @@ func TestMessagesRoundTripPreservesThinkingBlocks(t *testing.T) {
 	if thinking["thinking"] != "private chain" || thinking["signature"] != "sig_123" {
 		t.Fatalf("thinking block not preserved: %v", thinking)
 	}
+	extra := thinking["provider_extra"].(map[string]any)
+	if extra["kept"] != true {
+		t.Fatalf("unknown thinking metadata not preserved: %v", thinking)
+	}
 	toolUse := content[1].(map[string]any)
 	if toolUse["id"] != "tool_1" {
 		t.Fatalf("tool_use id not preserved: %v", toolUse)
+	}
+	cacheControl := toolUse["cache_control"].(map[string]any)
+	if cacheControl["type"] != "ephemeral" {
+		t.Fatalf("unknown tool_use metadata not preserved: %v", toolUse)
+	}
+	resultContent := roundTripped[1]["content"].([]any)
+	toolResult := resultContent[0].(map[string]any)
+	if toolResult["tool_use_id"] != "tool_1" {
+		t.Fatalf("tool_result link not preserved: %v", toolResult)
 	}
 }
 

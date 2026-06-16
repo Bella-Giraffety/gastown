@@ -26,7 +26,6 @@ const (
 	ContentTypeToolUse    ContentType = "tool_use"
 	ContentTypeToolResult ContentType = "tool_result"
 	ContentTypeImage      ContentType = "image"
-	ContentTypeThinking   ContentType = "thinking"
 )
 
 type ToolType string
@@ -71,13 +70,6 @@ type ContentBlock struct {
 	IsError bool            `json:"is_error,omitempty"`
 	Source  *ImageSource    `json:"source,omitempty"`
 
-	// Extended-thinking providers attach signed thinking blocks to assistant
-	// messages. Preserve these fields when conversation history is round-tripped;
-	// dropping them can make later tool-call requests fail validation.
-	Thinking         string `json:"thinking,omitempty"`
-	Signature        string `json:"signature,omitempty"`
-	ReasoningContent string `json:"reasoning_content,omitempty"`
-
 	extra map[string]json.RawMessage `json:"-"`
 }
 
@@ -95,13 +87,11 @@ func (b *ContentBlock) UnmarshalJSON(data []byte) error {
 	}
 	for _, key := range []string{
 		"type", "text", "id", "tool_use_id", "name", "input", "content",
-		"is_error", "source", "thinking", "signature", "reasoning_content",
+		"is_error", "source",
 	} {
 		delete(raw, key)
 	}
-	if len(raw) > 0 {
-		b.extra = raw
-	}
+	b.extra = rawExtraFields(raw)
 	return nil
 }
 
@@ -111,16 +101,7 @@ func (b ContentBlock) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var merged map[string]json.RawMessage
-	if err := json.Unmarshal(data, &merged); err != nil {
-		return nil, err
-	}
-	for key, value := range b.extra {
-		if _, exists := merged[key]; !exists {
-			merged[key] = value
-		}
-	}
-	return json.Marshal(merged)
+	return mergeJSONFields(data, b.extra)
 }
 
 type ImageSource struct {
@@ -161,12 +142,12 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 
 	delete(raw, "role")
 	delete(raw, "content")
-	if len(raw) > 0 {
-		m.extra = raw
-	}
+	m.extra = rawExtraFields(raw)
 	return nil
 }
 
+// MarshalJSON is manual because provider histories can contain non-array
+// content values such as null alongside opaque provider metadata.
 func (m Message) MarshalJSON() ([]byte, error) {
 	merged := make(map[string]json.RawMessage, len(m.extra)+2)
 	for key, value := range m.extra {
@@ -188,6 +169,29 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		merged["content"] = m.contentRaw
 	} else {
 		merged["content"] = json.RawMessage("null")
+	}
+	return json.Marshal(merged)
+}
+
+func rawExtraFields(raw map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return raw
+}
+
+func mergeJSONFields(data []byte, extra map[string]json.RawMessage) ([]byte, error) {
+	if len(extra) == 0 {
+		return data, nil
+	}
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for key, value := range extra {
+		if _, exists := merged[key]; !exists {
+			merged[key] = value
+		}
 	}
 	return json.Marshal(merged)
 }
