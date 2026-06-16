@@ -31,7 +31,7 @@ hook_bead_for() {
   local pcat="$2"
   local hook_output=""
 
-  hook_output=$(gt hook show "$rig/polecats/$pcat" 2>/dev/null | head -1)
+  hook_output=$(gt hook show "$rig/polecats/$pcat" 2>/dev/null | head -1 || true)
   echo "$hook_output" | grep -v '(empty)' | awk '{print $2}' || true
 }
 
@@ -135,52 +135,38 @@ while IFS='|' read -r RIG PREFIX; do
     PCAT_NAME=$(basename "$PCAT_PATH")
     SESSION_NAME="${PREFIX}-${PCAT_NAME}"
 
-    if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-      # Session dead — check hook
-      HOOK_BEAD=$(hook_bead_for "$RIG" "$PCAT_NAME")
-
-      if [ -n "$HOOK_BEAD" ]; then
-        if ! hook_is_restartable "$HOOK_BEAD"; then
-          log "  SKIP $SESSION_NAME: bead closed (completed normally)"
-          continue
+    # Use central runtime-aware liveness. This reads GT_PROCESS_NAMES/GT_AGENT
+    # from tmux and handles OpenCode/Bun, wrappers, and descendant processes in
+    # one place, including the session-dead check.
+    HEALTH_STATUS=$(session_health_status "$SESSION_NAME" || true)
+    case "$HEALTH_STATUS" in
+      healthy)
+        HEALTHY=$((HEALTHY + 1))
+        ;;
+      agent-dead|agent_dead)
+        HOOK_BEAD=$(hook_bead_for "$RIG" "$PCAT_NAME")
+        if [ -n "$HOOK_BEAD" ] && hook_is_restartable "$HOOK_BEAD"; then
+          STUCK+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD|agent_dead")
+          log "  ZOMBIE: $SESSION_NAME (agent runtime dead, hook=$HOOK_BEAD)"
         fi
-        CRASHED+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD")
-        log "  CRASHED: $SESSION_NAME (hook=$HOOK_BEAD)"
-      fi
-    else
-      # Session alive — use central runtime-aware liveness. This reads
-      # GT_PROCESS_NAMES/GT_AGENT from tmux and handles OpenCode/Bun, wrappers,
-      # and descendant processes in one place.
-      HEALTH_STATUS=$(session_health_status "$SESSION_NAME" || true)
-      case "$HEALTH_STATUS" in
-        healthy)
-          HEALTHY=$((HEALTHY + 1))
-          ;;
-        agent-dead|agent_dead)
-          HOOK_BEAD=$(hook_bead_for "$RIG" "$PCAT_NAME")
-          if [ -n "$HOOK_BEAD" ] && hook_is_restartable "$HOOK_BEAD"; then
-            STUCK+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD|agent_dead")
-            log "  ZOMBIE: $SESSION_NAME (agent runtime dead, hook=$HOOK_BEAD)"
-          fi
-          ;;
-        agent-hung|agent_hung)
-          # A live runtime with quiet output can be a long research turn. Do not
-          # kill it here; operators can tune the threshold and inspect manually.
-          HEALTHY=$((HEALTHY + 1))
-          log "  OBSERVE: $SESSION_NAME runtime alive but inactive beyond $POLECAT_MAX_INACTIVITY; not restarting"
-          ;;
-        session-dead|session_dead)
-          HOOK_BEAD=$(hook_bead_for "$RIG" "$PCAT_NAME")
-          if [ -n "$HOOK_BEAD" ] && hook_is_restartable "$HOOK_BEAD"; then
-            CRASHED+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD")
-            log "  CRASHED: $SESSION_NAME (hook=$HOOK_BEAD)"
-          fi
-          ;;
-        *)
-          log "  SKIP $SESSION_NAME: central liveness probe inconclusive"
-          ;;
-      esac
-    fi
+        ;;
+      agent-hung|agent_hung)
+        # A live runtime with quiet output can be a long research turn. Do not
+        # kill it here; operators can tune the threshold and inspect manually.
+        HEALTHY=$((HEALTHY + 1))
+        log "  OBSERVE: $SESSION_NAME runtime alive but inactive beyond $POLECAT_MAX_INACTIVITY; not restarting"
+        ;;
+      session-dead|session_dead)
+        HOOK_BEAD=$(hook_bead_for "$RIG" "$PCAT_NAME")
+        if [ -n "$HOOK_BEAD" ] && hook_is_restartable "$HOOK_BEAD"; then
+          CRASHED+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD")
+          log "  CRASHED: $SESSION_NAME (hook=$HOOK_BEAD)"
+        fi
+        ;;
+      *)
+        log "  SKIP $SESSION_NAME: central liveness probe inconclusive"
+        ;;
+    esac
   done
 done <<< "$RIG_PREFIX_MAP"
 

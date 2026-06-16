@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -104,6 +106,56 @@ func TestSessionHealthReportJSONContract(t *testing.T) {
 	}
 	if parsed["max_inactivity_seconds"] != float64(1800) {
 		t.Errorf("max_inactivity_seconds = %v, want 1800", parsed["max_inactivity_seconds"])
+	}
+}
+
+func TestRunSessionHealthJSONSessionDead(t *testing.T) {
+	oldJSON := sessionHealthJSON
+	oldMaxInactivity := sessionHealthMaxInactivity
+	oldStdout := os.Stdout
+	t.Cleanup(func() {
+		sessionHealthJSON = oldJSON
+		sessionHealthMaxInactivity = oldMaxInactivity
+		os.Stdout = oldStdout
+	})
+
+	sessionHealthJSON = true
+	sessionHealthMaxInactivity = 0
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe failed: %v", err)
+	}
+	os.Stdout = w
+
+	err = runSessionHealth(sessionHealthCmd, []string{"gt-session-health-test-nonexistent"})
+	if closeErr := w.Close(); closeErr != nil {
+		t.Fatalf("closing pipe writer: %v", closeErr)
+	}
+	os.Stdout = oldStdout
+	if err != nil {
+		t.Fatalf("runSessionHealth failed: %v", err)
+	}
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("reading stdout pipe: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v\noutput: %s", err, string(data))
+	}
+	if parsed["session"] != "gt-session-health-test-nonexistent" {
+		t.Errorf("session = %v, want gt-session-health-test-nonexistent", parsed["session"])
+	}
+	if parsed["status"] != "session-dead" {
+		t.Errorf("status = %v, want session-dead", parsed["status"])
+	}
+	if parsed["healthy"] != false {
+		t.Errorf("healthy = %v, want false", parsed["healthy"])
+	}
+	if parsed["zombie"] != false {
+		t.Errorf("zombie = %v, want false", parsed["zombie"])
 	}
 }
 

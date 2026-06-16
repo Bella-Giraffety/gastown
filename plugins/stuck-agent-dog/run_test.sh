@@ -255,12 +255,14 @@ test_healthy_runtime() {
 
 test_long_research_active_pane() {
   setup_case
-  add_polecat research healthy
+  export GT_STUCK_AGENT_DOG_MAX_INACTIVITY=30m
+  add_polecat research agent-hung
   run_script
 
   assert_file_empty "$TEST_STATE/kill.log" "active research: no session kill"
   assert_file_empty "$TEST_STATE/mail.log" "active research: no restart mail"
   assert_file_empty "$TEST_STATE/escalate.log" "active research: no mass-death escalation"
+  assert_file_contains "$TEST_STATE/output.log" "OBSERVE: gt-research runtime alive" "active research: observed live runtime"
   assert_file_contains "$TEST_STATE/output.log" "0 crashed, 0 stuck, 1 healthy" "active research: counted healthy"
 }
 
