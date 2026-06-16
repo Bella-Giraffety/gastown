@@ -1306,6 +1306,7 @@ func (b *Beads) FindLatestIssueByTitleAndAssignee(title, assignee string) (*Issu
 
 // ShowMultiple fetches multiple issues by ID, grouped by routed database.
 // Returns a map of ID to Issue. Missing IDs are not included in the map.
+// If one routed group fails, successful groups are returned with the error.
 func (b *Beads) ShowMultiple(ids []string) (map[string]*Issue, error) {
 	if len(ids) == 0 {
 		return make(map[string]*Issue), nil
