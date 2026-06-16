@@ -138,16 +138,19 @@ func (r *Resolver) validateAgentAddress(address string) error {
 	}
 
 	rawAddress := strings.TrimSpace(address)
-	normalized := normalizeAddress(strings.TrimSuffix(rawAddress, "/"))
-
-	// Well-known town-level singletons always valid
-	switch normalized {
+	rawNormalized := normalizeAddress(rawAddress)
+	// Well-known town-level singletons always valid. Check the raw normalized
+	// form first so malformed reserved paths like mayor// are not accepted by
+	// trimming down to mayor/.
+	switch rawNormalized {
 	case constants.RoleMayor + "/", constants.RoleMayor, constants.RoleDeacon + "/", constants.RoleDeacon, "overseer":
 		return nil
 	}
-	if isInvalidReservedTownSubaddress(normalizeAddress(rawAddress)) {
+	if isInvalidReservedTownSubaddress(rawNormalized) {
 		return fmt.Errorf("%w: %s (invalid reserved town address)", ErrUnknownRecipient, address)
 	}
+
+	normalized := normalizeAddress(strings.TrimSuffix(rawAddress, "/"))
 
 	parts := strings.SplitN(normalized, "/", 3)
 	if len(parts) < 2 || parts[1] == "" {
@@ -478,6 +481,9 @@ func AgentBeadIDToAddress(id string) string {
 		rest = strings.TrimPrefix(id, "gt-")
 	} else if strings.HasPrefix(id, "hq-") {
 		rest = strings.TrimPrefix(id, "hq-")
+		if strings.HasPrefix(rest, "dog-") {
+			return constants.RoleDeacon + "/dogs/" + strings.TrimPrefix(rest, "dog-")
+		}
 	} else {
 		return ""
 	}
@@ -485,12 +491,6 @@ func AgentBeadIDToAddress(id string) string {
 	// Agent bead IDs include the role explicitly: <prefix>-<rig>-<role>[-<name>]
 	// Scan from right for known role markers to handle hyphenated rig names.
 	parts := strings.Split(rest, "-")
-	if len(parts) > 0 && parts[0] == "dog" {
-		if len(parts) > 1 {
-			return constants.RoleDeacon + "/dogs/" + strings.Join(parts[1:], "-")
-		}
-		return constants.RoleDeacon + "/dogs/"
-	}
 
 	if len(parts) == 1 {
 		// Town-level: gt-mayor → mayor/

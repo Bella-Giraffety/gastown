@@ -1005,6 +1005,11 @@ func TestAgentBeadToAddress(t *testing.T) {
 			want: "beads/my-agent",
 		},
 		{
+			name: "legacy dog role marker",
+			bead: &agentBead{ID: "gt-town-dog-alpha"},
+			want: "deacon/dogs/alpha",
+		},
+		{
 			name: "empty ID",
 			bead: &agentBead{ID: ""},
 			want: "",

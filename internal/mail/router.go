@@ -413,12 +413,12 @@ func agentBeadToAddress(bead *agentBead) string {
 			}
 			return rig + "/"
 		case "dog":
-			// Town-level named: gt-dog-alpha
+			// Town-level named dog role marker.
 			if i+1 < len(parts) {
 				name := strings.Join(parts[i+1:], "-")
-				return "dog/" + name
+				return constants.RoleDeacon + "/dogs/" + name
 			}
-			return "dog/"
+			return constants.RoleDeacon + "/dogs/"
 		}
 	}
 
@@ -1125,6 +1125,15 @@ func (r *Router) sendToSingle(msg *Message) error {
 	}
 
 	// Convert addresses to beads identities
+	rawTo := normalizeAddress(strings.TrimSpace(msg.To))
+	switch rawTo {
+	case constants.RoleMayor + "/", constants.RoleMayor, constants.RoleDeacon + "/", constants.RoleDeacon, "overseer":
+		// Well-known town-level addresses are valid.
+	default:
+		if isInvalidReservedTownSubaddress(rawTo) {
+			return fmt.Errorf("invalid recipient %q: invalid reserved town address", msg.To)
+		}
+	}
 	toIdentity := AddressToIdentity(msg.To)
 	// Expand crew/polecats shorthand (e.g., "crew/bob" → "pata/bob")
 	toIdentity = r.resolveCrewShorthand(toIdentity)

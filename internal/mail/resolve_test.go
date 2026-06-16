@@ -63,10 +63,8 @@ func TestAgentBeadIDToAddress(t *testing.T) {
 		{"hq-dog-alpha", "deacon/dogs/alpha"},
 		{"hq-dog-my-dog", "deacon/dogs/my-dog"},
 
-		// Legacy town-level dog IDs
-		{"gt-dog-alpha", "deacon/dogs/alpha"},
-
 		// Rig singletons
+		{"gt-dog-witness", "dog/witness"},
 		{"gt-gastown-witness", "gastown/witness"},
 		{"gt-gastown-refinery", "gastown/refinery"},
 		{"gt-beads-witness", "beads/witness"},
@@ -128,6 +126,8 @@ func TestResolverValidateAgentAddressReservedTownAndWorkspace(t *testing.T) {
 		{"dog extra segment", "deacon/dogs/fido/extra", true},
 		{"reserved deacon subpath", "deacon/foo", true},
 		{"reserved mayor subpath", "mayor/foo", true},
+		{"reserved deacon double slash", "deacon//", true},
+		{"reserved mayor double slash", "mayor//", true},
 		{"crew parent dir", "rig/crew/..", true},
 		{"crew extra segment", "rig/crew/alice/extra", true},
 		{"crew backslash name", "rig/crew/bad\\name", true},
