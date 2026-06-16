@@ -400,7 +400,7 @@ func TestParsePluginMD_GitHubSheriff(t *testing.T) {
 	}
 }
 
-func TestParsePluginMD_StuckAgentDogUsesCanonicalHeartbeatPath(t *testing.T) {
+func TestParsePluginMD_StuckAgentDogDocumentsCentralLiveness(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("..", "..", "plugins", "stuck-agent-dog", "plugin.md"))
 	if err != nil {
 		t.Skipf("stuck-agent-dog plugin not found (expected in plugins/): %v", err)
@@ -420,23 +420,23 @@ func TestParsePluginMD_StuckAgentDogUsesCanonicalHeartbeatPath(t *testing.T) {
 	if strings.Contains(plugin.Instructions, ".deacon-heartbeat") {
 		t.Fatalf("did not expect legacy heartbeat path in instructions, got:\n%s", plugin.Instructions)
 	}
-	if !strings.Contains(plugin.Instructions, "Fallback for older/runtime-copied layouts") {
-		t.Fatalf("expected rigs.json fallback guidance in instructions, got:\n%s", plugin.Instructions)
+	if !strings.Contains(plugin.Instructions, "gt session health <tmux-session> --json") {
+		t.Fatalf("expected central session health command in instructions, got:\n%s", plugin.Instructions)
 	}
-	if !strings.Contains(plugin.Instructions, "RIGS_JSON_PATH=\"${TOWN_ROOT}/rigs.json\"") {
-		t.Fatalf("expected town-root rigs.json as canonical source in instructions, got:\n%s", plugin.Instructions)
+	if !strings.Contains(plugin.Instructions, "GT_PROCESS_NAMES") {
+		t.Fatalf("expected GT_PROCESS_NAMES guidance in instructions, got:\n%s", plugin.Instructions)
 	}
-	if !strings.Contains(plugin.Instructions, "$TOWN_ROOT/mayor/rigs.json") {
-		t.Fatalf("expected mayor/ fallback in instructions, got:\n%s", plugin.Instructions)
+	if !strings.Contains(plugin.Instructions, "opencode") || !strings.Contains(plugin.Instructions, "bun") {
+		t.Fatalf("expected OpenCode/Bun process guidance in instructions, got:\n%s", plugin.Instructions)
 	}
-	if !strings.Contains(plugin.Instructions, "Filter out any malformed/blank rows") {
-		t.Fatalf("expected fail-safe blank/malformed rigs row handling in instructions, got:\n%s", plugin.Instructions)
+	if strings.Contains(plugin.Instructions, "claude|node|anthropic") {
+		t.Fatalf("did not expect stale Claude-only process regex in instructions, got:\n%s", plugin.Instructions)
 	}
-	if !strings.Contains(plugin.Instructions, "could not parse rigs.json") {
-		t.Fatalf("expected fail-safe rigs.json parse handling in instructions, got:\n%s", plugin.Instructions)
+	if !strings.Contains(plugin.Instructions, "GT_STUCK_AGENT_DOG_MAX_INACTIVITY") {
+		t.Fatalf("expected configurable inactivity threshold in instructions, got:\n%s", plugin.Instructions)
 	}
-	if !strings.Contains(plugin.Instructions, ">20m threshold") {
-		t.Fatalf("expected canonical deacon very-stale threshold in instructions, got:\n%s", plugin.Instructions)
+	if !strings.Contains(plugin.Instructions, "Mass death: escalate and skip all per-agent restart/kill actions") {
+		t.Fatalf("expected mass-death no-restart guidance in instructions, got:\n%s", plugin.Instructions)
 	}
 }
 

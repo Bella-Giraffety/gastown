@@ -24,15 +24,15 @@ import (
 
 // Session command flags
 var (
-	sessionIssue      string
-	sessionForce      bool
-	sessionLines      int
-	sessionMessage    string
-	sessionFile       string
-	sessionRigFilter  string
-	sessionListJSON   bool
-	sessionStatusJSON bool
-	sessionHealthJSON bool
+	sessionIssue               string
+	sessionForce               bool
+	sessionLines               int
+	sessionMessage             string
+	sessionFile                string
+	sessionRigFilter           string
+	sessionListJSON            bool
+	sessionStatusJSON          bool
+	sessionHealthJSON          bool
 	sessionHealthMaxInactivity time.Duration
 )
 
@@ -233,11 +233,11 @@ func init() {
 }
 
 type sessionHealthReport struct {
-	Session                string `json:"session"`
-	Status                 string `json:"status"`
-	Healthy                bool   `json:"healthy"`
-	Zombie                 bool   `json:"zombie"`
-	MaxInactivitySeconds   int64  `json:"max_inactivity_seconds"`
+	Session              string `json:"session"`
+	Status               string `json:"status"`
+	Healthy              bool   `json:"healthy"`
+	Zombie               bool   `json:"zombie"`
+	MaxInactivitySeconds int64  `json:"max_inactivity_seconds"`
 }
 
 func newSessionHealthReport(session string, status tmux.ZombieStatus, maxInactivity time.Duration) sessionHealthReport {

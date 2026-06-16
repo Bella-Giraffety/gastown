@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/gastown/internal/polecat"
+	"github.com/steveyegge/gastown/internal/tmux"
 )
 
 func TestSessionInfoJSONOutput(t *testing.T) {
@@ -53,6 +54,56 @@ func TestSessionStatusCmdJSONFlagWiring(t *testing.T) {
 	}
 	if f.DefValue != "false" {
 		t.Errorf("--json default = %q, want \"false\"", f.DefValue)
+	}
+}
+
+func TestSessionHealthCmdFlagWiring(t *testing.T) {
+	if sessionCmd.Commands() == nil {
+		t.Fatal("session command has no subcommands")
+	}
+
+	f := sessionHealthCmd.Flags().Lookup("json")
+	if f == nil {
+		t.Fatal("session health command missing --json flag")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--json default = %q, want \"false\"", f.DefValue)
+	}
+
+	f = sessionHealthCmd.Flags().Lookup("max-inactivity")
+	if f == nil {
+		t.Fatal("session health command missing --max-inactivity flag")
+	}
+	if f.DefValue != "0s" {
+		t.Errorf("--max-inactivity default = %q, want \"0s\"", f.DefValue)
+	}
+}
+
+func TestSessionHealthReportJSONContract(t *testing.T) {
+	report := newSessionHealthReport("gt-vault", tmux.AgentDead, 30*time.Minute)
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if parsed["session"] != "gt-vault" {
+		t.Errorf("session = %v, want gt-vault", parsed["session"])
+	}
+	if parsed["status"] != "agent-dead" {
+		t.Errorf("status = %v, want agent-dead", parsed["status"])
+	}
+	if parsed["healthy"] != false {
+		t.Errorf("healthy = %v, want false", parsed["healthy"])
+	}
+	if parsed["zombie"] != true {
+		t.Errorf("zombie = %v, want true", parsed["zombie"])
+	}
+	if parsed["max_inactivity_seconds"] != float64(1800) {
+		t.Errorf("max_inactivity_seconds = %v, want 1800", parsed["max_inactivity_seconds"])
 	}
 }
 
