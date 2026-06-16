@@ -57,6 +57,181 @@ func makeExternalTrackingTownWorkspace(t *testing.T) (string, string, string) {
 	return townRoot, townBeads, expectedWD
 }
 
+func TestGetIssueDetailsBatchRoutesTrackedIDsByPrefix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	townRoot, _, expectedTownWD := makeExternalTrackingTownWorkspace(t)
+	rigDir := filepath.Join(townRoot, "worker", "mayor", "rig")
+	if err := os.MkdirAll(filepath.Join(rigDir, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir rig beads: %v", err)
+	}
+	routes := `{"prefix":"hq-","path":"."}
+{"prefix":"ws-","path":"worker/mayor/rig"}
+`
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+	chdirExternalTrackingTest(t, townRoot)
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "wrong-db")
+
+	expectedRigWD := rigDir
+	if resolved, err := filepath.EvalSymlinks(rigDir); err == nil && resolved != "" {
+		expectedRigWD = resolved
+	}
+	logPath := filepath.Join(t.TempDir(), "bd-calls.log")
+	scriptBody := fmt.Sprintf(`
+printf '%%s|%%s|%%s\n' "$PWD" "$BEADS_DIR" "$*" >> %q
+
+case "$*" in
+  "--allow-stale version")
+    exit 0
+    ;;
+  "show hq-town --json"|"--allow-stale show hq-town --json")
+    if [ "$PWD" != "%s" ]; then
+      echo "expected town dir, got $PWD" >&2
+      exit 1
+    fi
+    if [ "$BEADS_DIR" != "%s/.beads" ]; then
+      echo "expected town BEADS_DIR, got $BEADS_DIR" >&2
+      exit 1
+    fi
+    echo '[{"id":"hq-town","title":"Town task","status":"open","issue_type":"task","assignee":"mayor","labels":["kind/bug"]}]'
+    ;;
+  "show ws-rig --json"|"--allow-stale show ws-rig --json")
+    if [ "$PWD" != "%s" ]; then
+      echo "expected rig dir, got $PWD" >&2
+      exit 1
+    fi
+    if [ "$BEADS_DIR" != "%s/.beads" ]; then
+      echo "expected rig BEADS_DIR, got $BEADS_DIR" >&2
+      exit 1
+    fi
+    echo '[{"id":"ws-rig","title":"Rig task","status":"closed","issue_type":"task","assignee":"gastown/polecats/chrome","labels":["cleanup"],"dependencies":[{"id":"ws-blocker","status":"open","dependency_type":"blocks"}]}]'
+    ;;
+  *"show hq-town ws-rig --json"*|*"show ws-rig hq-town --json"*)
+    echo "mixed-prefix batch should not be used" >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected bd args: $*" >&2
+    exit 1
+    ;;
+esac
+`, logPath, expectedTownWD, expectedTownWD, expectedRigWD, expectedRigWD)
+	writeExternalTrackingBdStub(t, scriptBody)
+
+	got := getIssueDetailsBatch([]string{"hq-town", "ws-rig"})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 details, got %d: %#v", len(got), got)
+	}
+	if got["hq-town"] == nil || got["hq-town"].Status != "open" || got["hq-town"].Assignee != "mayor" {
+		t.Fatalf("town detail not resolved through town route: %#v", got["hq-town"])
+	}
+	if got["ws-rig"] == nil || got["ws-rig"].Status != "closed" || got["ws-rig"].IssueType != "task" {
+		t.Fatalf("rig detail not resolved through rig route: %#v", got["ws-rig"])
+	}
+	if !got["ws-rig"].IsBlocked() {
+		t.Fatalf("rig dependencies were not preserved: %#v", got["ws-rig"])
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd call log: %v", err)
+	}
+	log := string(logBytes)
+	if strings.Contains(log, "show hq-town ws-rig --json") || strings.Contains(log, "show ws-rig hq-town --json") {
+		t.Fatalf("mixed-prefix batch call was used:\n%s", log)
+	}
+}
+
+func TestGetTrackedIssues_RoutesShowByPrefix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	townRoot, townBeads, expectedTownWD := makeExternalTrackingTownWorkspace(t)
+	rigDir := filepath.Join(townRoot, "worker", "mayor", "rig")
+	if err := os.MkdirAll(filepath.Join(rigDir, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir rig beads: %v", err)
+	}
+	routes := `{"prefix":"hq-","path":"."}
+{"prefix":"ws-","path":"worker/mayor/rig"}
+`
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+	chdirExternalTrackingTest(t, townRoot)
+	t.Setenv("BEADS_DIR", "/wrong/.beads")
+
+	expectedRigWD := rigDir
+	if resolved, err := filepath.EvalSymlinks(rigDir); err == nil && resolved != "" {
+		expectedRigWD = resolved
+	}
+	scriptBody := fmt.Sprintf(`
+case "$*" in
+  "--allow-stale version")
+    exit 0
+    ;;
+  *sql*dependencies*)
+    echo '[{"depends_on_id":"ws-123"},{"depends_on_id":"hq-456"}]'
+    ;;
+  "show ws-123 --json"|"--allow-stale show ws-123 --json")
+    if [ "$PWD" != "%s" ]; then
+      echo "expected rig dir, got $PWD" >&2
+      exit 1
+    fi
+    if [ "$BEADS_DIR" != "%s/.beads" ]; then
+      echo "expected rig BEADS_DIR, got $BEADS_DIR" >&2
+      exit 1
+    fi
+    echo '[{"id":"ws-123","title":"Worker issue","status":"open","issue_type":"task"}]'
+    ;;
+  "show hq-456 --json"|"--allow-stale show hq-456 --json")
+    if [ "$PWD" != "%s" ]; then
+      echo "expected town dir, got $PWD" >&2
+      exit 1
+    fi
+    if [ "$BEADS_DIR" != "%s/.beads" ]; then
+      echo "expected town BEADS_DIR, got $BEADS_DIR" >&2
+      exit 1
+    fi
+    echo '[{"id":"hq-456","title":"Town issue","status":"closed","issue_type":"task"}]'
+    ;;
+  *"show ws-123 hq-456 --json"*|*"show hq-456 ws-123 --json"*)
+    echo "mixed-prefix batch should not be used" >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected bd args: $*" >&2
+    exit 1
+    ;;
+esac
+`, expectedRigWD, expectedRigWD, expectedTownWD, expectedTownWD)
+	writeExternalTrackingBdStub(t, scriptBody)
+
+	tracked, err := getTrackedIssues(townBeads, "hq-cv-route")
+	if err != nil {
+		t.Fatalf("getTrackedIssues: %v", err)
+	}
+	if len(tracked) != 2 {
+		t.Fatalf("expected 2 tracked issues, got %d: %#v", len(tracked), tracked)
+	}
+
+	statusByID := map[string]string{}
+	for _, item := range tracked {
+		statusByID[item.ID] = item.Status
+	}
+	if statusByID["ws-123"] != "open" {
+		t.Fatalf("ws-123 status = %q, want %q", statusByID["ws-123"], "open")
+	}
+	if statusByID["hq-456"] != "closed" {
+		t.Fatalf("hq-456 status = %q, want %q", statusByID["hq-456"], "closed")
+	}
+}
+
 func TestGetTrackedIssues_FallsBackToShowTrackedDependencies(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping on windows - shell stubs")
