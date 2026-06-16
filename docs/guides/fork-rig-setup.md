@@ -92,8 +92,8 @@ review work:
 
 ```bash
 cd <town>/<rig>/mayor/rig
-git fetch origin main
-git fetch upstream main
+git fetch origin +refs/heads/main:refs/remotes/origin/main
+git fetch upstream +refs/heads/main:refs/remotes/upstream/main
 git rev-list --left-right --count origin/main...upstream/main
 ```
 
@@ -131,7 +131,8 @@ upstream.
 
    ```bash
    cd <town>/<rig>/mayor/rig
-   git fetch upstream
+   git fetch origin +refs/heads/main:refs/remotes/origin/main
+   git fetch upstream +refs/heads/main:refs/remotes/upstream/main
    git log --oneline --graph upstream/main...origin/main
    ```
 

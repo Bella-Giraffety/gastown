@@ -334,6 +334,11 @@ func logicalSlingBaseBranch(baseBranch, defaultBranch string) string {
 			return branch
 		}
 	}
+	if strings.HasPrefix(baseBranch, "refs/heads/") {
+		if branch := strings.TrimPrefix(baseBranch, "refs/heads/"); branch != "" {
+			return branch
+		}
+	}
 	if remote, branch, ok := strings.Cut(baseBranch, "/"); ok && (remote == "origin" || remote == "upstream") && branch != "" {
 		return branch
 	}

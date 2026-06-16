@@ -231,6 +231,10 @@ func (m *SessionManager) canonicalSessionStartPoint(g *git.Git) (polecatBaseSele
 	return resolvePolecatStartPoint(m.rig, g, "")
 }
 
+func (m *SessionManager) canonicalSessionBranch(g *git.Git) string {
+	return polecatDefaultBranch(m.rig, g)
+}
+
 // shouldCreateFreshSessionBranch decides whether the session manager should
 // replace the worktree's current branch with a new polecat branch based on
 // the canonical remote base. Decisions are made from structured data —
@@ -261,6 +265,15 @@ func (m *SessionManager) ensureCanonicalSessionBranch(g *git.Git, polecat string
 		return "", nil
 	}
 
+	canonicalBranch := m.canonicalSessionBranch(g)
+	if canonicalBranch == "" {
+		debugSession("canonical session start point unresolved", fmt.Errorf("no default branch in rig config or remote"))
+		return currentBranch, nil
+	}
+	if !shouldCreateFreshSessionBranch(currentBranch, opts.Issue, canonicalBranch) {
+		return currentBranch, nil
+	}
+
 	selection, err := m.canonicalSessionStartPoint(g)
 	if err != nil {
 		debugSession("canonical session start point", err)
@@ -269,10 +282,6 @@ func (m *SessionManager) ensureCanonicalSessionBranch(g *git.Git, polecat string
 	startPoint := selection.StartPoint
 	if startPoint == "" {
 		debugSession("canonical session start point unresolved", fmt.Errorf("no default branch in rig config or remote"))
-		return currentBranch, nil
-	}
-	canonicalBranch := selection.LogicalBranch
-	if !shouldCreateFreshSessionBranch(currentBranch, opts.Issue, canonicalBranch) {
 		return currentBranch, nil
 	}
 

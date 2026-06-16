@@ -946,7 +946,7 @@ func validateFetchRefPart(kind, value string, allowSlash bool) error {
 	if value == "" {
 		return fmt.Errorf("invalid %s: empty", kind)
 	}
-	if strings.HasPrefix(value, "-") || strings.Contains(value, "..") || strings.ContainsAny(value, " \t\n\r:") {
+	if strings.HasPrefix(value, "-") || strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.ContainsAny(value, " \t\n\r:*?[~^\\") {
 		return fmt.Errorf("invalid %s %q", kind, value)
 	}
 	if !allowSlash && strings.Contains(value, "/") {

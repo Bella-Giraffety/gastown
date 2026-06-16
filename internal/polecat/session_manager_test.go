@@ -404,6 +404,23 @@ func TestEnsureCanonicalSessionBranch_KeepsCurrentIssueBranch(t *testing.T) {
 	}
 }
 
+func TestEnsureCanonicalSessionBranch_KeepsNonDefaultBranchWithoutForkMainGuard(t *testing.T) {
+	mgr, _, _ := setupForkBranchManagerTest(t, true)
+	p, err := mgr.AddWithOptions("toast", AddOptions{BaseBranch: "integration/review"})
+	if err != nil {
+		t.Fatalf("AddWithOptions on non-default base: %v", err)
+	}
+
+	sm := NewSessionManager(tmux.NewTmux(), mgr.rig)
+	branch, err := sm.ensureCanonicalSessionBranch(git.NewGit(p.ClonePath), "toast", SessionStartOptions{})
+	if err != nil {
+		t.Fatalf("ensureCanonicalSessionBranch should not guard default main when keeping current branch: %v", err)
+	}
+	if branch != p.Branch {
+		t.Fatalf("ensureCanonicalSessionBranch changed non-default polecat branch: got %q want %q", branch, p.Branch)
+	}
+}
+
 // TestSessionManager_resolveBeadsDir verifies that SessionManager correctly
 // resolves the beads directory for cross-rig issues via routes.jsonl.
 // This is a regression test for GitHub issue #1056.

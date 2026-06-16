@@ -77,6 +77,13 @@ func normalizePolecatBase(repoGit *git.Git, baseBranch, defaultBranch string) (p
 		}
 		return polecatBaseSelection{StartPoint: baseBranch, LogicalBranch: branch, Remote: remote, Branch: branch}, nil
 	}
+	if strings.HasPrefix(baseBranch, "refs/heads/") {
+		branch := strings.TrimPrefix(baseBranch, "refs/heads/")
+		if branch == "" {
+			return polecatBaseSelection{}, fmt.Errorf("invalid local base ref %q", baseBranch)
+		}
+		return polecatBaseSelection{StartPoint: "origin/" + branch, LogicalBranch: branch, Remote: "origin", Branch: branch}, nil
+	}
 	if strings.HasPrefix(baseBranch, "refs/") {
 		return polecatBaseSelection{StartPoint: baseBranch, LogicalBranch: baseBranch}, nil
 	}
@@ -143,29 +150,50 @@ func guardForkDefaultBranchMirror(r *rig.Rig, repoGit *git.Git, branch string) e
 }
 
 func ensurePolecatUpstreamRemote(r *rig.Rig, repoGit *git.Git) (bool, error) {
+	configuredURL := configuredUpstreamURL(r)
 	hasUpstream, err := repoGit.HasUpstreamRemote()
 	if err != nil {
 		return false, fmt.Errorf("checking upstream remote: %w", err)
 	}
-	if hasUpstream {
-		return true, nil
-	}
-	upstreamURL := ""
-	if r != nil {
-		upstreamURL = strings.TrimSpace(r.UpstreamURL)
-		if upstreamURL == "" && r.Path != "" {
-			if cfg, err := rig.LoadRigConfig(r.Path); err == nil {
-				upstreamURL = strings.TrimSpace(cfg.UpstreamURL)
+	if configuredURL != "" {
+		if hasUpstream {
+			current, err := repoGit.GetUpstreamURL()
+			if err != nil {
+				return false, fmt.Errorf("reading upstream remote: %w", err)
+			}
+			if current == configuredURL {
+				return true, nil
 			}
 		}
+		if err := repoGit.AddUpstreamRemote(configuredURL); err != nil {
+			return false, fmt.Errorf("configuring upstream remote from upstream_url: %w", err)
+		}
+		return true, nil
 	}
-	if upstreamURL == "" {
+	if !hasUpstream {
 		return false, nil
 	}
-	if err := repoGit.AddUpstreamRemote(upstreamURL); err != nil {
-		return false, fmt.Errorf("configuring upstream remote from upstream_url: %w", err)
+	originURL, originErr := repoGit.RemoteURL("origin")
+	upstreamURL, upstreamErr := repoGit.GetUpstreamURL()
+	if originErr != nil || upstreamErr != nil || strings.TrimSpace(originURL) == "" || strings.TrimSpace(upstreamURL) == "" {
+		return false, nil
 	}
-	return true, nil
+	return strings.TrimSpace(originURL) != strings.TrimSpace(upstreamURL), nil
+}
+
+func configuredUpstreamURL(r *rig.Rig) string {
+	if r == nil {
+		return ""
+	}
+	if upstreamURL := strings.TrimSpace(r.UpstreamURL); upstreamURL != "" {
+		return upstreamURL
+	}
+	if r.Path != "" {
+		if cfg, err := rig.LoadRigConfig(r.Path); err == nil {
+			return strings.TrimSpace(cfg.UpstreamURL)
+		}
+	}
+	return ""
 }
 
 func forkBaseError(r *rig.Rig, branch, format string, args ...any) error {
