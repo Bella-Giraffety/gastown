@@ -92,16 +92,17 @@ review work:
 
 ```bash
 cd <town>/<rig>/mayor/rig
-git fetch origin +refs/heads/main:refs/remotes/origin/main
+FORK_URL=$(git remote get-url --push origin)
+git fetch "$FORK_URL" +refs/heads/main:refs/remotes/fork/main
 git fetch upstream +refs/heads/main:refs/remotes/upstream/main
-git rev-list --left-right --count origin/main...upstream/main
+git rev-list --left-right --count refs/remotes/fork/main...refs/remotes/upstream/main
 ```
 
 The count must be `0 0`. If it is not, inspect fork-only commits before
 rewriting anything:
 
 ```bash
-git log --oneline --graph origin/main...upstream/main
+git log --oneline --graph refs/remotes/fork/main...refs/remotes/upstream/main
 ```
 
 After confirming fork-only commits are disposable, sync only the fork by pushing
@@ -131,12 +132,13 @@ upstream.
 
    ```bash
    cd <town>/<rig>/mayor/rig
-   git fetch origin +refs/heads/main:refs/remotes/origin/main
+   FORK_URL=$(git remote get-url --push origin)
+   git fetch "$FORK_URL" +refs/heads/main:refs/remotes/fork/main
    git fetch upstream +refs/heads/main:refs/remotes/upstream/main
-   git log --oneline --graph upstream/main...origin/main
+   git log --oneline --graph refs/remotes/upstream/main...refs/remotes/fork/main
    ```
 
-2. Confirm every commit on `origin/main` that is *not* on `upstream/main`
+2. Confirm every commit on `refs/remotes/fork/main` that is *not* on `refs/remotes/upstream/main`
    is safe to discard (it's refinery merge noise, not real work). Salvage
    anything you need onto a separate branch first.
 

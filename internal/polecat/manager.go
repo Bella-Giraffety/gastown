@@ -768,6 +768,10 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 	}
 
 	if opts.ResumeBranch != "" {
+		if err := validateDefaultResumeBranch(m.rig, repoGit, opts.ResumeBranch); err != nil {
+			cleanupOnError()
+			return nil, err
+		}
 		// Resume an existing branch (gh#3602). Make sure we have the latest tip
 		// for the named branch, then attach the worktree directly. WorktreeAddExistingForce
 		// handles the case where another worktree previously had this branch checked out.
@@ -962,6 +966,10 @@ func (m *Manager) AddWithOptions(name string, opts AddOptions) (_ *Polecat, retE
 	}
 
 	if opts.ResumeBranch != "" {
+		if err := validateDefaultResumeBranch(m.rig, repoGit, opts.ResumeBranch); err != nil {
+			cleanupOnError()
+			return nil, err
+		}
 		// Resume an existing branch (gh#3602): attach the worktree directly to the
 		// named branch. WorktreeAddExistingForce tolerates the branch being checked
 		// out elsewhere (stale worktree), and the explicit fetch ensures we have
@@ -1491,6 +1499,9 @@ func (m *Manager) RepairWorktreeWithOptions(name string, force bool, opts AddOpt
 	_ = os.RemoveAll(tmpClonePath) // clean up any leftover temp dir
 
 	if opts.ResumeBranch != "" {
+		if err := validateDefaultResumeBranch(m.rig, repoGit, opts.ResumeBranch); err != nil {
+			return nil, err
+		}
 		// Resume an existing branch: fetch and attach the temp worktree directly
 		// to the named branch instead of creating a fresh polecat/<name>/<bead>@<ts>.
 		if err := repoGit.FetchBranch("origin", opts.ResumeBranch); err != nil {
@@ -1717,6 +1728,13 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 	var startPoint string
 	switch {
 	case opts.ResumeBranch != "":
+		baseGit := repoGit
+		if baseGit == nil {
+			baseGit = polecatGit
+		}
+		if err := validateDefaultResumeBranch(m.rig, baseGit, opts.ResumeBranch); err != nil {
+			return nil, err
+		}
 		// Fetch the resume branch directly so origin/<branch> is up-to-date even
 		// on shallow / single-branch reference clones.
 		if repoGit != nil {

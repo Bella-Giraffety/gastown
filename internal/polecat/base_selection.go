@@ -36,7 +36,7 @@ func resolvePolecatStartPoint(r *rig.Rig, repoGit *git.Git, baseBranch string) (
 		}
 		// Keep formulas/refinery on the logical default branch. They use origin/<branch>,
 		// so default-branch work is allowed only after origin is proven upstream-equivalent.
-		selection.StartPoint = "origin/" + defaultBranch
+		selection.StartPoint = git.RemoteTrackingRef("origin", defaultBranch)
 		selection.Remote = "origin"
 		selection.Branch = defaultBranch
 		selection.LogicalBranch = defaultBranch
@@ -52,17 +52,32 @@ func polecatDefaultBranch(r *rig.Rig, repoGit *git.Git) string {
 		}
 	}
 	if repoGit != nil {
-		if exists, _ := repoGit.RefExists("origin/main"); exists {
-			return "main"
-		}
-		if exists, _ := repoGit.RefExists("origin/master"); exists {
-			return "master"
-		}
 		if branch := strings.TrimSpace(repoGit.RemoteDefaultBranch()); branch != "" {
 			return branch
 		}
 	}
 	return "main"
+}
+
+func (m *Manager) ValidateResumeBranch(resumeBranch string) error {
+	repoGit, err := m.repoBase()
+	if err != nil {
+		return fmt.Errorf("finding repo base: %w", err)
+	}
+	return validateDefaultResumeBranch(m.rig, repoGit, resumeBranch)
+}
+
+func validateDefaultResumeBranch(r *rig.Rig, repoGit *git.Git, resumeBranch string) error {
+	selection, err := normalizePolecatBase(repoGit, strings.TrimSpace(resumeBranch), polecatDefaultBranch(r, repoGit))
+	if err != nil {
+		return err
+	}
+	defaultBranch := polecatDefaultBranch(r, repoGit)
+	if selection.Branch != defaultBranch || (selection.Remote != "origin" && selection.Remote != "upstream") {
+		return nil
+	}
+	_, err = resolvePolecatStartPoint(r, repoGit, defaultBranch)
+	return err
 }
 
 func normalizePolecatBase(repoGit *git.Git, baseBranch, defaultBranch string) (polecatBaseSelection, error) {
@@ -208,7 +223,7 @@ func forkBaseError(r *rig.Rig, branch, format string, args ...any) error {
 		}
 	}
 	detail := fmt.Sprintf(format, args...)
-	return fmt.Errorf("%s\n\nPolecats for upstream PR work must start from origin/%s only when it exactly mirrors upstream/%s.\n\nInspect:\n  git -C %s/mayor/rig fetch origin %s\n  git -C %s/mayor/rig fetch upstream %s\n  git -C %s/mayor/rig log --oneline --graph origin/%s...upstream/%s\n\nSafe remediation, after confirming fork-only commits are disposable:\n  git -C %s/mayor/rig push --force-with-lease origin refs/remotes/upstream/%s:refs/heads/%s\n\nThen retry the sling for rig %s.", detail, branch, branch, rigPath, branch, rigPath, branch, rigPath, branch, branch, rigPath, branch, branch, rigName)
+	return fmt.Errorf("%s\n\nPolecats for upstream PR work must start from origin/%s only when it exactly mirrors upstream/%s.\n\nInspect:\n  git -C %s/mayor/rig fetch origin +refs/heads/%s:refs/remotes/origin/%s\n  git -C %s/mayor/rig fetch upstream +refs/heads/%s:refs/remotes/upstream/%s\n  git -C %s/mayor/rig log --oneline --graph refs/remotes/origin/%s...refs/remotes/upstream/%s\n\nSafe remediation, after confirming fork-only commits are disposable:\n  git -C %s/mayor/rig push --force-with-lease origin refs/remotes/upstream/%s:refs/heads/%s\n\nThen retry the sling for rig %s.", detail, branch, branch, rigPath, branch, branch, rigPath, branch, branch, rigPath, branch, branch, rigPath, branch, branch, rigName)
 }
 
 func shortSHA(sha string) string {

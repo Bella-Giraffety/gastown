@@ -128,6 +128,8 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		if _, err := polecatMgr.ResolveStartPoint(baseBranch); err != nil {
 			return nil, fmt.Errorf("validating polecat base: %w", err)
 		}
+	} else if err := polecatMgr.ValidateResumeBranch(opts.ResumeBranch); err != nil {
+		return nil, fmt.Errorf("validating polecat resume branch: %w", err)
 	}
 
 	var admission *polecatAdmissionHandle

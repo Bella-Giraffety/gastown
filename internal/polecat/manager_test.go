@@ -167,6 +167,10 @@ func setupCanonicalBranchManagerTest(t *testing.T) (*Manager, string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git update-ref: %v\n%s", err, out)
 	}
+	configJSON := `{"type":"rig","version":1,"name":"rig","default_branch":"main"}`
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(configJSON), 0644); err != nil {
+		t.Fatalf("write rig config: %v", err)
+	}
 
 	r := &rig.Rig{Name: "rig", Path: root}
 	return NewManager(r, git.NewGit(root), nil), mayorRig
@@ -259,9 +263,6 @@ func setupForkBranchManagerTest(t *testing.T, diverged bool) (*Manager, string, 
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git clone fork: %v\n%s", err, out)
 	}
-	runSeedGit(t, mayorRig, "remote", "add", "upstream", upstreamBare)
-	runSeedGit(t, mayorRig, "fetch", "upstream", "main")
-
 	rigBeads := filepath.Join(root, ".beads")
 	mayorBeads := filepath.Join(mayorRig, ".beads")
 	if err := os.MkdirAll(rigBeads, 0755); err != nil {
@@ -1373,7 +1374,7 @@ func TestAddWithOptions_BlocksDivergentForkMain(t *testing.T) {
 
 func TestAddWithOptions_AllowsMirroredForkMain(t *testing.T) {
 	mgr, _, _ := setupForkBranchManagerTest(t, false)
-	baseSHA, err := git.NewGit(filepath.Join(mgr.rig.Path, "mayor", "rig")).Rev("upstream/main")
+	baseSHA, err := git.NewGit(filepath.Join(mgr.rig.Path, "mayor", "rig")).Rev("origin/main")
 	if err != nil {
 		t.Fatalf("resolve upstream/main: %v", err)
 	}
