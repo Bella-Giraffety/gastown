@@ -208,6 +208,8 @@ func TestAddressToSessionIDs(t *testing.T) {
 		{"", nil},         // Empty address
 		{"deacon/dogs", nil},
 		{"deacon/dogs/", nil},
+		{"deacon/dogs/.", nil},
+		{"deacon/dogs/..", nil},
 		{"deacon/dogs/alpha/extra", nil},
 		{"deacon/foo", nil},
 		{"mayor/foo", nil},
@@ -1285,6 +1287,8 @@ func TestValidateRecipient(t *testing.T) {
 		{"bare name", "ruby", true, "no agent found"},
 		{"dog pool without name", "deacon/dogs", true, "invalid reserved town address"},
 		{"dog with empty name", "deacon/dogs/", true, "invalid reserved town address"},
+		{"dog dot name", "deacon/dogs/.", true, "invalid reserved town address"},
+		{"dog dotdot name", "deacon/dogs/..", true, "invalid reserved town address"},
 		{"reserved deacon subpath", "deacon/foo", true, "invalid reserved town address"},
 		{"reserved mayor subpath", "mayor/foo", true, "invalid reserved town address"},
 		{"nonexistent rig agent", "testrig/nonexistent", true, "no agent found"},
@@ -1330,6 +1334,8 @@ func TestValidateAgentWorkspaceDog(t *testing.T) {
 		{"dog not exists", "deacon/dogs/ghost", false},
 		{"dog pool without name", "deacon/dogs", false},
 		{"dog with empty name", "deacon/dogs/", false},
+		{"dog dot name", "deacon/dogs/.", false},
+		{"dog dotdot name", "deacon/dogs/..", false},
 		{"dog path with extra segment", "deacon/dogs/fido/extra", false},
 		{"not a dog path", "deacon/cats/fido", false},
 	}
@@ -1440,6 +1446,16 @@ func TestAddressToAgentBeadID(t *testing.T) {
 		{
 			name:     "dog with empty name",
 			address:  "deacon/dogs/",
+			expected: "",
+		},
+		{
+			name:     "dog dot name",
+			address:  "deacon/dogs/.",
+			expected: "",
+		},
+		{
+			name:     "dog dotdot name",
+			address:  "deacon/dogs/..",
 			expected: "",
 		},
 		{
