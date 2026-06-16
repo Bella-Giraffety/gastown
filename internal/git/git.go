@@ -921,6 +921,67 @@ func (g *Git) FetchBranch(remote, branch string) error {
 	return err
 }
 
+// RemoteTrackingRef returns the fully-qualified remote-tracking ref for a remote branch.
+func RemoteTrackingRef(remote, branch string) string {
+	return fmt.Sprintf("refs/remotes/%s/%s", remote, branch)
+}
+
+// FetchRemoteTrackingBranch fetches a remote branch into its remote-tracking ref.
+func (g *Git) FetchRemoteTrackingBranch(remote, branch string) error {
+	if err := validateFetchRefPart("remote", remote, false); err != nil {
+		return err
+	}
+	if err := validateFetchRefPart("branch", branch, true); err != nil {
+		return err
+	}
+	refspec := fmt.Sprintf("+refs/heads/%s:%s", branch, RemoteTrackingRef(remote, branch))
+	_, err := g.run("fetch", "--no-tags", remote, refspec)
+	if err != nil {
+		return fmt.Errorf("fetching %s/%s: %w", remote, branch, err)
+	}
+	return nil
+}
+
+func validateFetchRefPart(kind, value string, allowSlash bool) error {
+	if value == "" {
+		return fmt.Errorf("invalid %s: empty", kind)
+	}
+	if strings.HasPrefix(value, "-") || strings.Contains(value, "..") || strings.ContainsAny(value, " \t\n\r:") {
+		return fmt.Errorf("invalid %s %q", kind, value)
+	}
+	if !allowSlash && strings.Contains(value, "/") {
+		return fmt.Errorf("invalid %s %q", kind, value)
+	}
+	return nil
+}
+
+// RefDivergence is the left/right commit count for a symmetric diff.
+type RefDivergence struct {
+	LeftOnly  int
+	RightOnly int
+}
+
+// CountRefDivergence counts commits reachable only from leftRef or rightRef.
+func (g *Git) CountRefDivergence(leftRef, rightRef string) (RefDivergence, error) {
+	if _, err := g.run("rev-parse", "--verify", leftRef+"^{commit}"); err != nil {
+		return RefDivergence{}, fmt.Errorf("verifying %s: %w", leftRef, err)
+	}
+	if _, err := g.run("rev-parse", "--verify", rightRef+"^{commit}"); err != nil {
+		return RefDivergence{}, fmt.Errorf("verifying %s: %w", rightRef, err)
+	}
+	out, err := g.run("rev-list", "--left-right", "--count", leftRef+"..."+rightRef)
+	if err != nil {
+		return RefDivergence{}, err
+	}
+	var div RefDivergence
+	if _, err := fmt.Sscanf(out, "%d\t%d", &div.LeftOnly, &div.RightOnly); err != nil {
+		if _, err := fmt.Sscanf(out, "%d %d", &div.LeftOnly, &div.RightOnly); err != nil {
+			return RefDivergence{}, fmt.Errorf("parsing rev-list count output %q: %w", out, err)
+		}
+	}
+	return div, nil
+}
+
 // FetchBranchShallow fetches a single branch with --depth 1 and creates the
 // remote tracking ref (e.g. origin/<branch>). Use this on shallow single-branch
 // clones to add a branch that wasn't included in the initial clone.

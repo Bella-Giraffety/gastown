@@ -361,7 +361,10 @@ func TestEnsureCanonicalSessionBranch_UsesOriginDefaultBranch(t *testing.T) {
 	}
 
 	sm := NewSessionManager(tmux.NewTmux(), &rig.Rig{Name: "gastown", Path: workDir})
-	branch := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	branch, err := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	if err != nil {
+		t.Fatalf("ensureCanonicalSessionBranch: %v", err)
+	}
 	if !strings.Contains(branch, "/gt-9qb@") {
 		t.Fatalf("fresh session branch = %q, want issue-scoped branch", branch)
 	}
@@ -392,7 +395,10 @@ func TestEnsureCanonicalSessionBranch_KeepsCurrentIssueBranch(t *testing.T) {
 	}
 
 	sm := NewSessionManager(tmux.NewTmux(), &rig.Rig{Name: "gastown", Path: workDir})
-	branch := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	branch, err := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	if err != nil {
+		t.Fatalf("ensureCanonicalSessionBranch: %v", err)
+	}
 	if branch != currentBranch {
 		t.Fatalf("ensureCanonicalSessionBranch changed active issue branch: got %q want %q", branch, currentBranch)
 	}
@@ -642,9 +648,9 @@ func TestPromptlessFallbackIncludesPrimeAndWorkInstructions(t *testing.T) {
 // not auto-submitted; the condition triggers verifyStartupNudgeDelivery as a safety net.
 func TestModeABeaconVerificationCondition(t *testing.T) {
 	tests := []struct {
-		name            string
-		rc              *config.RuntimeConfig
-		wantModeA       bool // !SendBeaconNudge && !SendStartupNudge
+		name      string
+		rc        *config.RuntimeConfig
+		wantModeA bool // !SendBeaconNudge && !SendStartupNudge
 	}{
 		{
 			name: "Claude hook+prompt agent triggers Mode A verification",
@@ -895,11 +901,11 @@ func TestParseFreshBranchName_Rejects(t *testing.T) {
 		"master",
 		"develop",
 		"feature/x",
-		"polecat/",          // empty tail
-		"polecat/alpha",     // no ts or issue
-		"polecat/alpha-",    // trailing dash, no ts
-		"polecat//gt-abc@1", // empty polecat name
-		"polecat/alpha/@1",  // empty issue
+		"polecat/",              // empty tail
+		"polecat/alpha",         // no ts or issue
+		"polecat/alpha-",        // trailing dash, no ts
+		"polecat//gt-abc@1",     // empty polecat name
+		"polecat/alpha/@1",      // empty issue
 		"polecat/alpha/gt-abc@", // empty ts
 		"",
 	}

@@ -780,16 +780,12 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 		}
 		worktreeCreated = true
 	} else {
-		var startPoint string
-		if opts.BaseBranch != "" {
-			startPoint = opts.BaseBranch
-		} else {
-			defaultBranch := "main"
-			if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-				defaultBranch = rigCfg.DefaultBranch
-			}
-			startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		selection, err := resolvePolecatStartPoint(m.rig, repoGit, opts.BaseBranch)
+		if err != nil {
+			cleanupOnError()
+			return nil, err
 		}
+		startPoint := selection.StartPoint
 
 		if exists, err := repoGit.RefExists(startPoint); err != nil {
 			cleanupOnError()
@@ -979,17 +975,12 @@ func (m *Manager) AddWithOptions(name string, opts AddOptions) (_ *Polecat, retE
 		}
 		worktreeCreated = true
 	} else {
-		// Determine the start point for the new worktree
-		var startPoint string
-		if opts.BaseBranch != "" {
-			startPoint = opts.BaseBranch
-		} else {
-			defaultBranch := "main"
-			if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-				defaultBranch = rigCfg.DefaultBranch
-			}
-			startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		selection, err := resolvePolecatStartPoint(m.rig, repoGit, opts.BaseBranch)
+		if err != nil {
+			cleanupOnError()
+			return nil, err
 		}
+		startPoint := selection.StartPoint
 
 		// Validate that startPoint ref exists before attempting worktree creation
 		if exists, err := repoGit.RefExists(startPoint); err != nil {
@@ -1509,17 +1500,11 @@ func (m *Manager) RepairWorktreeWithOptions(name string, force bool, opts AddOpt
 			return nil, fmt.Errorf("creating fresh worktree on existing branch %s: %w", opts.ResumeBranch, err)
 		}
 	} else {
-		// Determine the start point for the new worktree
-		var startPoint string
-		if opts.BaseBranch != "" {
-			startPoint = opts.BaseBranch
-		} else {
-			defaultBranch := "main"
-			if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-				defaultBranch = rigCfg.DefaultBranch
-			}
-			startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		selection, err := resolvePolecatStartPoint(m.rig, repoGit, opts.BaseBranch)
+		if err != nil {
+			return nil, err
 		}
+		startPoint := selection.StartPoint
 
 		// Validate that startPoint ref exists before attempting worktree creation
 		if exists, err := repoGit.RefExists(startPoint); err != nil {
@@ -1744,13 +1729,25 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		}
 		startPoint = "origin/" + opts.ResumeBranch
 	case opts.BaseBranch != "":
-		startPoint = opts.BaseBranch
-	default:
-		defaultBranch := "main"
-		if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-			defaultBranch = rigCfg.DefaultBranch
+		baseGit := repoGit
+		if baseGit == nil {
+			baseGit = polecatGit
 		}
-		startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		selection, err := resolvePolecatStartPoint(m.rig, baseGit, opts.BaseBranch)
+		if err != nil {
+			return nil, err
+		}
+		startPoint = selection.StartPoint
+	default:
+		baseGit := repoGit
+		if baseGit == nil {
+			baseGit = polecatGit
+		}
+		selection, err := resolvePolecatStartPoint(m.rig, baseGit, "")
+		if err != nil {
+			return nil, err
+		}
+		startPoint = selection.StartPoint
 	}
 
 	// Validate that startPoint ref exists

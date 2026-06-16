@@ -84,6 +84,37 @@ Until then, for strict PR-only behavior:
 - Use the polecat → feature branch → manual PR path. Push the branch to
   your fork and open the PR by hand.
 
+## Safe fork-main sync before slinging
+
+For fork-based rigs, default-branch polecats are allowed only when fork `main`
+exactly mirrors upstream `main`. Verify this before dispatching upstream PR
+review work:
+
+```bash
+cd <town>/<rig>/mayor/rig
+git fetch origin main
+git fetch upstream main
+git rev-list --left-right --count origin/main...upstream/main
+```
+
+The count must be `0 0`. If it is not, inspect fork-only commits before
+rewriting anything:
+
+```bash
+git log --oneline --graph origin/main...upstream/main
+```
+
+After confirming fork-only commits are disposable, sync only the fork by pushing
+the fetched upstream ref through `origin`'s push URL:
+
+```bash
+git push --force-with-lease origin refs/remotes/upstream/main:refs/heads/main
+```
+
+This does not push to the `upstream` remote. It updates your fork's `main` via
+the configured `origin` push URL, then future polecats can safely start from
+`origin/main` because it is upstream-equivalent.
+
 ## Recovery: a polluted fork `main`
 
 If you added a rig **without** the fork-routing flags, the refinery may
@@ -108,12 +139,10 @@ upstream.
    is safe to discard (it's refinery merge noise, not real work). Salvage
    anything you need onto a separate branch first.
 
-3. Reset `main` to track upstream and force-publish to your fork:
+3. Force-publish upstream `main` to your fork without touching upstream:
 
    ```bash
-   git checkout main
-   git reset --hard upstream/main
-   git push --force-with-lease origin main
+   git push --force-with-lease origin refs/remotes/upstream/main:refs/heads/main
    ```
 
 4. Re-add the rig **with** the fork-routing flags (see [Setup](#setup)) so

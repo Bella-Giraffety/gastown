@@ -172,6 +172,125 @@ func setupCanonicalBranchManagerTest(t *testing.T) (*Manager, string) {
 	return NewManager(r, git.NewGit(root), nil), mayorRig
 }
 
+func setupForkBranchManagerTest(t *testing.T, diverged bool) (*Manager, string, string) {
+	t.Helper()
+	installMockBd(t)
+
+	root := t.TempDir()
+	upstreamBare := filepath.Join(root, "upstream.git")
+	forkBare := filepath.Join(root, "fork.git")
+	for _, dir := range []string{upstreamBare, forkBare} {
+		cmd := exec.Command("git", "init", "--bare", "--initial-branch=main", dir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git init --bare %s: %v\n%s", dir, err, out)
+		}
+	}
+
+	seed := filepath.Join(root, "seed")
+	if err := os.MkdirAll(seed, 0755); err != nil {
+		t.Fatalf("mkdir seed: %v", err)
+	}
+	cmd := exec.Command("git", "init", "-b", "main")
+	cmd.Dir = seed
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init seed: %v\n%s", err, out)
+	}
+	seedGit := git.NewGit(seed)
+	if err := os.WriteFile(filepath.Join(seed, "README.md"), []byte("# Fork Test\n"), 0644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	if err := seedGit.Add("README.md"); err != nil {
+		t.Fatalf("git add README: %v", err)
+	}
+	if err := seedGit.Commit("Initial commit"); err != nil {
+		t.Fatalf("git commit initial: %v", err)
+	}
+	initialSHA, err := seedGit.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("resolve initial sha: %v", err)
+	}
+	runSeedGit(t, seed, "remote", "add", "upstream", upstreamBare)
+	runSeedGit(t, seed, "remote", "add", "fork", forkBare)
+	runSeedGit(t, seed, "push", "upstream", "main")
+	runSeedGit(t, seed, "push", "fork", "main")
+
+	if diverged {
+		if err := os.WriteFile(filepath.Join(seed, "upstream.txt"), []byte("upstream\n"), 0644); err != nil {
+			t.Fatalf("write upstream marker: %v", err)
+		}
+		if err := seedGit.Add("upstream.txt"); err != nil {
+			t.Fatalf("git add upstream marker: %v", err)
+		}
+		if err := seedGit.Commit("Upstream main commit"); err != nil {
+			t.Fatalf("git commit upstream marker: %v", err)
+		}
+		runSeedGit(t, seed, "push", "upstream", "HEAD:main")
+
+		runSeedGit(t, seed, "checkout", "-B", "fork-main", initialSHA)
+		if err := os.WriteFile(filepath.Join(seed, "fork.txt"), []byte("fork\n"), 0644); err != nil {
+			t.Fatalf("write fork marker: %v", err)
+		}
+		if err := seedGit.Add("fork.txt"); err != nil {
+			t.Fatalf("git add fork marker: %v", err)
+		}
+		if err := seedGit.Commit("Fork main commit"); err != nil {
+			t.Fatalf("git commit fork marker: %v", err)
+		}
+		runSeedGit(t, seed, "push", "fork", "HEAD:main")
+
+		runSeedGit(t, seed, "checkout", "-B", "integration/review", initialSHA)
+		if err := os.WriteFile(filepath.Join(seed, "integration.txt"), []byte("integration\n"), 0644); err != nil {
+			t.Fatalf("write integration marker: %v", err)
+		}
+		if err := seedGit.Add("integration.txt"); err != nil {
+			t.Fatalf("git add integration marker: %v", err)
+		}
+		if err := seedGit.Commit("Integration branch commit"); err != nil {
+			t.Fatalf("git commit integration marker: %v", err)
+		}
+		runSeedGit(t, seed, "push", "fork", "HEAD:integration/review")
+	}
+
+	mayorRig := filepath.Join(root, "mayor", "rig")
+	if err := os.MkdirAll(filepath.Dir(mayorRig), 0755); err != nil {
+		t.Fatalf("mkdir mayor parent: %v", err)
+	}
+	cmd = exec.Command("git", "clone", forkBare, mayorRig)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone fork: %v\n%s", err, out)
+	}
+	runSeedGit(t, mayorRig, "remote", "add", "upstream", upstreamBare)
+	runSeedGit(t, mayorRig, "fetch", "upstream", "main")
+
+	rigBeads := filepath.Join(root, ".beads")
+	mayorBeads := filepath.Join(mayorRig, ".beads")
+	if err := os.MkdirAll(rigBeads, 0755); err != nil {
+		t.Fatalf("mkdir rig .beads: %v", err)
+	}
+	if err := os.MkdirAll(mayorBeads, 0755); err != nil {
+		t.Fatalf("mkdir mayor .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rigBeads, "redirect"), []byte("mayor/rig/.beads\n"), 0644); err != nil {
+		t.Fatalf("write redirect: %v", err)
+	}
+	configJSON := fmt.Sprintf(`{"type":"rig","version":1,"name":"rig","git_url":%q,"upstream_url":%q,"default_branch":"main"}`, forkBare, upstreamBare)
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(configJSON), 0644); err != nil {
+		t.Fatalf("write rig config: %v", err)
+	}
+
+	r := &rig.Rig{Name: "rig", Path: root, GitURL: forkBare, UpstreamURL: upstreamBare}
+	return NewManager(r, git.NewGit(root), nil), forkBare, upstreamBare
+}
+
+func runSeedGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
 func createStalePolecatCommit(t *testing.T, repoPath, startPoint, branchName string) string {
 	t.Helper()
 
@@ -1232,6 +1351,74 @@ func TestAddWithOptions_UsesCanonicalOriginDefaultBranch(t *testing.T) {
 	}
 	if !baseAncestor {
 		t.Fatalf("new polecat branch %q should descend from origin/main commit %s", polecat.Branch, baseSHA)
+	}
+}
+
+func TestAddWithOptions_BlocksDivergentForkMain(t *testing.T) {
+	mgr, _, _ := setupForkBranchManagerTest(t, true)
+
+	_, err := mgr.AddWithOptions("toast", AddOptions{})
+	if err == nil {
+		t.Fatal("AddWithOptions should block divergent fork main")
+	}
+	for _, want := range []string{"origin/main", "upstream/main", "ahead", "behind", "push --force-with-lease"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(mgr.rig.Path, "polecats", "toast")); !os.IsNotExist(statErr) {
+		t.Fatalf("polecat directory should be cleaned up after base guard failure, stat err=%v", statErr)
+	}
+}
+
+func TestAddWithOptions_AllowsMirroredForkMain(t *testing.T) {
+	mgr, _, _ := setupForkBranchManagerTest(t, false)
+	baseSHA, err := git.NewGit(filepath.Join(mgr.rig.Path, "mayor", "rig")).Rev("upstream/main")
+	if err != nil {
+		t.Fatalf("resolve upstream/main: %v", err)
+	}
+
+	polecat, err := mgr.AddWithOptions("toast", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+
+	worktreeGit := git.NewGit(polecat.ClonePath)
+	baseAncestor, err := worktreeGit.IsAncestor(baseSHA, polecat.Branch)
+	if err != nil {
+		t.Fatalf("check upstream ancestry: %v", err)
+	}
+	if !baseAncestor {
+		t.Fatalf("new polecat branch %q should descend from mirrored upstream/main commit %s", polecat.Branch, baseSHA)
+	}
+}
+
+func TestAddWithOptions_ExplicitDefaultBranchTriggersForkGuard(t *testing.T) {
+	for _, baseBranch := range []string{"main", "origin/main"} {
+		t.Run(baseBranch, func(t *testing.T) {
+			mgr, _, _ := setupForkBranchManagerTest(t, true)
+			_, err := mgr.AddWithOptions("toast", AddOptions{BaseBranch: baseBranch})
+			if err == nil {
+				t.Fatalf("AddWithOptions with BaseBranch %q should block divergent fork main", baseBranch)
+			}
+			if !strings.Contains(err.Error(), "origin/main") || !strings.Contains(err.Error(), "upstream/main") {
+				t.Fatalf("error %q should mention compared refs", err.Error())
+			}
+		})
+	}
+}
+
+func TestAddWithOptions_ExplicitNonDefaultBaseBypassesForkMainGuard(t *testing.T) {
+	mgr, _, _ := setupForkBranchManagerTest(t, true)
+
+	polecat, err := mgr.AddWithOptions("toast", AddOptions{BaseBranch: "integration/review"})
+	if err != nil {
+		t.Fatalf("AddWithOptions should allow explicit non-default base: %v", err)
+	}
+
+	worktreeGit := git.NewGit(polecat.ClonePath)
+	if _, err := worktreeGit.Rev("HEAD:integration.txt"); err != nil {
+		t.Fatalf("polecat branch should start from integration/review marker: %v", err)
 	}
 }
 
