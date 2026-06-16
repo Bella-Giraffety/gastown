@@ -15,7 +15,11 @@ func writeExternalTrackingBdStub(t *testing.T, scriptBody string) {
 
 	binDir := t.TempDir()
 	bdPath := filepath.Join(binDir, "bd")
-	script := "#!/bin/sh\n" + scriptBody
+	script := "#!/bin/sh\n" + `
+if [ "${1:-}" = "--allow-stale" ]; then
+  shift
+fi
+` + scriptBody
 	if err := os.WriteFile(bdPath, []byte(script), 0755); err != nil {
 		t.Fatalf("write bd stub: %v", err)
 	}
@@ -341,9 +345,9 @@ func TestGetTrackedIssues_FallsBackToShowTrackedDependencies(t *testing.T) {
 
 	scriptBody := fmt.Sprintf(`
 case "$*" in
-  "--allow-stale version")
-    exit 0
-    ;;
+	"version")
+		exit 0
+		;;
   "dep list hq-cv-ext --direction=down --type=tracks --json")
     echo '[]'
     ;;
@@ -410,9 +414,9 @@ func TestGetTrackedIssues_UnknownStatusForUnreachableCrossRig(t *testing.T) {
 	// must still return the tracked dep, with Status = trackedStatusUnknown.
 	scriptBody := `
 case "$*" in
-  "--allow-stale version")
-    exit 0
-    ;;
+	"version")
+		exit 0
+		;;
   *sql*dependencies*)
     echo '[{"depends_on_id":"ws-foo"}]'
     ;;

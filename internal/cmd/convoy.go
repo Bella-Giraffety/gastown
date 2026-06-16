@@ -2490,7 +2490,6 @@ func getIssueDetailsBatch(issueIDs []string) map[string]*issueDetails {
 	if len(issueIDs) == 0 {
 		return result
 	}
-
 	client := convoyIssueClient()
 	if client == nil {
 		return result
