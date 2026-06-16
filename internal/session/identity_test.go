@@ -463,6 +463,31 @@ func TestParseAddress(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "invalid dog dot name",
+			address: "deacon/dogs/.",
+			wantErr: true,
+		},
+		{
+			name:    "invalid dog dotdot name",
+			address: "deacon/dogs/..",
+			wantErr: true,
+		},
+		{
+			name:    "invalid dog dotted name",
+			address: "deacon/dogs/bad.name",
+			wantErr: true,
+		},
+		{
+			name:    "invalid dog backslash name",
+			address: "deacon/dogs/bad\\name",
+			wantErr: true,
+		},
+		{
+			name:    "invalid dog space name",
+			address: "deacon/dogs/bad name",
+			wantErr: true,
+		},
+		{
 			name:    "invalid dog extra segment",
 			address: "deacon/dogs/alpha/extra",
 			wantErr: true,

@@ -46,7 +46,7 @@ func ParseAddress(address string) (*AgentIdentity, error) {
 	}
 	if strings.HasPrefix(address, string(RoleDeacon)+"/dogs/") {
 		name := strings.TrimPrefix(address, string(RoleDeacon)+"/dogs/")
-		if name == "" || strings.Contains(name, "/") {
+		if !isValidDogAddressName(name) {
 			return nil, fmt.Errorf("invalid address %q", address)
 		}
 		return &AgentIdentity{Role: RoleDog, Name: name}, nil
@@ -90,6 +90,10 @@ func ParseAddress(address string) (*AgentIdentity, error) {
 	default:
 		return nil, fmt.Errorf("invalid address %q", address)
 	}
+}
+
+func isValidDogAddressName(name string) bool {
+	return name != "" && !strings.ContainsAny(name, "/\\. ")
 }
 
 // ParseSessionName parses a tmux session name into an AgentIdentity.
