@@ -1322,6 +1322,10 @@ func TestValidateAgentWorkspaceDog(t *testing.T) {
 	if err := os.MkdirAll(dogDir, 0755); err != nil {
 		t.Fatalf("creating dog dir: %v", err)
 	}
+	crewDir := filepath.Join(tmpDir, "rig", "crew", "alice")
+	if err := os.MkdirAll(crewDir, 0755); err != nil {
+		t.Fatalf("creating crew dir: %v", err)
+	}
 
 	r := &Router{townRoot: tmpDir}
 
@@ -1338,6 +1342,13 @@ func TestValidateAgentWorkspaceDog(t *testing.T) {
 		{"dog dotdot name", "deacon/dogs/..", false},
 		{"dog path with extra segment", "deacon/dogs/fido/extra", false},
 		{"not a dog path", "deacon/cats/fido", false},
+		{"crew exists", "rig/crew/alice", true},
+		{"rig parent traversal", "rig/..", false},
+		{"crew current dir", "rig/crew/.", false},
+		{"crew parent traversal", "rig/crew/..", false},
+		{"crew empty name", "rig/crew/", false},
+		{"relative rig traversal", "../dogs", false},
+		{"backslash segment", "rig/crew/bad\\name", false},
 	}
 
 	for _, tt := range tests {

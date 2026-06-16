@@ -1013,6 +1013,9 @@ func (r *Router) validateAgentWorkspace(identity string) bool {
 	}
 
 	parts := strings.Split(identity, "/")
+	if !validWorkspaceIdentityParts(parts) {
+		return false
+	}
 
 	switch len(parts) {
 	case 1:
@@ -1997,4 +2000,13 @@ func isInvalidReservedTownSubaddress(address string) bool {
 	}
 	identity, err := session.ParseAddress(address)
 	return err != nil || identity.Role != session.RoleDog
+}
+
+func validWorkspaceIdentityParts(parts []string) bool {
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, "/\\") {
+			return false
+		}
+	}
+	return true
 }
