@@ -81,6 +81,61 @@ func TestSetAttachmentFieldsPreservesMode(t *testing.T) {
 	}
 }
 
+func TestAttachmentFormulaVarsRoundTrip(t *testing.T) {
+	fields := &AttachmentFields{
+		AttachedFormula: "mol-polecat-work",
+		FormulaVars:     "feature=Bug to fix\nissue=gt-abc123\nbase_branch=main",
+	}
+
+	formatted := FormatAttachmentFields(fields)
+	if !strings.Contains(formatted, `formula_vars: ["feature=Bug to fix","issue=gt-abc123","base_branch=main"]`) {
+		t.Fatalf("formula_vars should use single-line JSON array, got:\n%s", formatted)
+	}
+	if strings.Contains(formatted, "\nissue=gt-abc123") {
+		t.Fatalf("formula_vars leaked continuation lines:\n%s", formatted)
+	}
+
+	parsed := ParseAttachmentFields(&Issue{Description: formatted})
+	if parsed == nil {
+		t.Fatal("round-trip parse returned nil")
+	}
+	want := "feature=Bug to fix\nissue=gt-abc123\nbase_branch=main"
+	if parsed.FormulaVars != want {
+		t.Fatalf("FormulaVars = %q, want %q", parsed.FormulaVars, want)
+	}
+}
+
+func TestParseAttachmentFieldsLegacyFormulaVarsContinuations(t *testing.T) {
+	desc := "formula_vars: feature=Bug to fix\nissue=gt-abc123\nbase_branch=main\nmode: ralph"
+	fields := ParseAttachmentFields(&Issue{Description: desc})
+	if fields == nil {
+		t.Fatal("ParseAttachmentFields returned nil")
+	}
+	want := "feature=Bug to fix\nissue=gt-abc123\nbase_branch=main"
+	if fields.FormulaVars != want {
+		t.Fatalf("FormulaVars = %q, want %q", fields.FormulaVars, want)
+	}
+	if fields.Mode != "ralph" {
+		t.Fatalf("Mode = %q, want ralph", fields.Mode)
+	}
+}
+
+func TestSetAttachmentFieldsRemovesLegacyFormulaVarsContinuations(t *testing.T) {
+	issue := &Issue{Description: "formula_vars: old=1\nissue=old\nbase_branch=old\n\nBody"}
+	fields := &AttachmentFields{FormulaVars: "feature=New\nissue=gt-new"}
+
+	newDesc := SetAttachmentFields(issue, fields)
+	if strings.Contains(newDesc, "\nissue=old") || strings.Contains(newDesc, "base_branch=old") {
+		t.Fatalf("legacy continuation lines should be removed, got:\n%s", newDesc)
+	}
+	if !strings.Contains(newDesc, `formula_vars: ["feature=New","issue=gt-new"]`) {
+		t.Fatalf("new formula_vars missing, got:\n%s", newDesc)
+	}
+	if !strings.Contains(newDesc, "Body") {
+		t.Fatalf("prose should be preserved, got:\n%s", newDesc)
+	}
+}
+
 // --- AgentFields Mode round-trip ---
 
 func TestAgentFieldsModeRoundTrip(t *testing.T) {

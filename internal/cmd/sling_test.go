@@ -2390,6 +2390,25 @@ exit /b 0
 			"This is required for gt hook to recognize the molecule attachment.\n"+
 			"Log output:\n%s\nAttached log:\n%s", string(logBytes), attachedLog)
 	}
+
+	descBytes, err := os.ReadFile(attachedLogPath)
+	if err != nil {
+		t.Fatalf("read attached log: %v", err)
+	}
+	attachment := beads.ParseAttachmentFields(&beads.Issue{Description: string(descBytes)})
+	if attachment == nil {
+		t.Fatalf("parse attached fields returned nil:\n%s", string(descBytes))
+	}
+	vars := map[string]string{}
+	for _, kv := range attachmentFormulaVars(attachment) {
+		key, value, ok := strings.Cut(kv, "=")
+		if ok {
+			vars[key] = value
+		}
+	}
+	if vars["feature"] != "Bug to fix" || vars["issue"] != "gt-abc123" {
+		t.Fatalf("formula vars did not roundtrip through attached bead description: %#v\nDescription:\n%s", vars, string(descBytes))
+	}
 }
 
 // TestSlingNoMergeFlag verifies that gt sling --no-merge stores the no_merge flag

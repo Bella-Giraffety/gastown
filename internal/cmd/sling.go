@@ -932,6 +932,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 
 	// Formula-on-bead mode: instantiate formula and bond to original bead
 	formulaVarsForAttachment := strings.Join(slingVars, "\n")
+	varsForAttachment := append([]string(nil), slingVars...)
 	if formulaName != "" {
 		fmt.Printf("  Instantiating formula %s...\n", formulaName)
 
@@ -939,6 +940,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		if parts := strings.SplitN(targetAgent, "/", 2); len(parts) >= 1 && parts[0] != "" {
 			rigCmdVars := loadRigCommandVars(townRoot, parts[0])
 			slingVars = append(rigCmdVars, slingVars...)
+			varsForAttachment = append([]string(nil), slingVars...)
+			formulaVarsForAttachment = strings.Join(slingVars, "\n")
 		}
 
 		result, err := InstantiateFormulaOnBead(ctx, formulaName, beadID, info.Title, hookWorkDir, townRoot, false, slingVars)
@@ -969,6 +972,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		// - Compound resolution: base bead -> attached_molecule -> wisp
 		attachedMoleculeID = result.WispRootID
 		if len(result.FormulaVars) > 0 {
+			varsForAttachment = append([]string(nil), result.FormulaVars...)
 			formulaVarsForAttachment = strings.Join(result.FormulaVars, "\n")
 		}
 
@@ -1037,7 +1041,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	fieldUpdates := buildSlingFieldUpdates(
 		actor,
 		slingArgs,
-		append([]string(nil), slingVars...),
+		varsForAttachment,
 		attachedMoleculeID,
 		formulaName,
 		slingNoMerge,
@@ -1062,9 +1066,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			fmt.Printf("%s Review-only mode: assignee must evaluate and report back, NOT merge/commit/push\n", style.Bold.Render("⚠"))
 		}
 	}
-	if mode != "" {
-		updateAgentMode(targetAgent, mode, hookWorkDir, townBeadsDir)
-	}
+	updateAgentMode(targetAgent, mode, hookWorkDir, townBeadsDir)
 
 	// Start delayed dog session now that hook is set
 	// This ensures dog sees the hook when gt prime runs on session start
