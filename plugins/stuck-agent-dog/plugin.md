@@ -32,7 +32,7 @@ Reference: WAR-ROOM-SERIAL-KILLER.md, commit f3d47a96.
 ## Scope — What You May and May NOT Touch
 
 **IN SCOPE** (these are the ONLY sessions this plugin may inspect or act on):
-- Polecat sessions (`<rig>-polecat-<name>`)
+- Polecat sessions (`<prefix>-<name>`, e.g. `gt-minuteman`)
 - Deacon session (`hq-deacon`)
 
 **OUT OF SCOPE — NEVER touch these, under any circumstances:**
@@ -68,7 +68,7 @@ fi
 
 # Read rigs.json for rig names and beads prefixes
 # CRITICAL: We need both the rig name (for filesystem paths like $TOWN_ROOT/$RIG/polecats/)
-# and the beads prefix (for tmux session names like $PREFIX-polecat-$NAME).
+# and the beads prefix (for tmux session names like $PREFIX-$NAME).
 # These can differ — e.g. rig "cfutons" may have prefix "CF".
 if [ ! -f "$RIGS_JSON_PATH" ]; then
   echo "SKIP: rigs.json not found at $RIGS_JSON_PATH"
@@ -99,7 +99,13 @@ fi
 For each rig, enumerate polecats and check their session status.
 A polecat is a concern if:
 - It has hooked work (hook_bead is set)
-- Its tmux session is dead OR the agent process is dead
+- Its central runtime-aware health is `session-dead` OR `agent-dead`
+
+Polecat liveness must use `gt session health`, which wraps the central
+`tmux.CheckSessionHealth` path. That path reads `GT_PROCESS_NAMES`, `GT_AGENT`,
+and `GT_PANE_ID`, so opencode/node/bun detection stays in the shared runtime
+configuration instead of a plugin-local process regex. Treat `agent-hung` as
+observe-only for polecats; quiet OpenCode research can be legitimate live work.
 
 ```bash
 CRASHED=()
@@ -116,54 +122,39 @@ while IFS='|' read -r RIG PREFIX; do
     [ -d "$PCAT_PATH" ] || continue
     PCAT_NAME=$(basename "$PCAT_PATH")
     # Use beads prefix (not rig name) for tmux session name
-    SESSION_NAME="${PREFIX}-polecat-${PCAT_NAME}"
+    SESSION_NAME="${PREFIX}-${PCAT_NAME}"
 
-    # Check if session exists
-    if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-      # Session dead — check if it has hooked work
-      HOOK_BEAD=$(bd show "$RIG/polecats/$PCAT_NAME" --json 2>/dev/null \
-        | jq -r '.hook_bead // empty' 2>/dev/null)
+    HEALTH_STATUS=$(gt session health "$SESSION_NAME" --json --max-inactivity "${GT_STUCK_AGENT_DOG_MAX_INACTIVITY:-0s}" 2>/dev/null \
+      | jq -r '.status // empty' 2>/dev/null || true)
 
-      if [ -n "$HOOK_BEAD" ]; then
-        # Check agent_state to avoid false alerts for intentional shutdowns
-        AGENT_STATE=$(bd show "$RIG/polecats/$PCAT_NAME" --json 2>/dev/null \
-          | jq -r '.agent_state // empty' 2>/dev/null)
-        if [ "$AGENT_STATE" = "spawning" ]; then
-          echo "  SKIP $SESSION_NAME: agent_state=spawning (sling in progress)"
-          continue
-        fi
-        if [ "$AGENT_STATE" = "done" ] || [ "$AGENT_STATE" = "nuked" ]; then
-          echo "  SKIP $SESSION_NAME: agent_state=$AGENT_STATE (intentional shutdown, not a crash)"
-          continue
-        fi
-        CRASHED+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD")
-        echo "  CRASHED: $SESSION_NAME (hook=$HOOK_BEAD)"
-      fi
-    else
-      # Session alive — check for agent process liveness
-      # Capture last 5 lines of pane output to check for signs of life
-      PANE_OUTPUT=$(tmux capture-pane -t "$SESSION_NAME" -p -S -5 2>/dev/null || echo "")
-
-      # Check if agent process is running in the session
-      PANE_PID=$(tmux list-panes -t "$SESSION_NAME" -F '#{pane_pid}' 2>/dev/null | head -1)
-      if [ -n "$PANE_PID" ]; then
-        # Check if Claude or another agent process is a descendant
-        AGENT_ALIVE=$(pgrep -P "$PANE_PID" -f 'claude|node|anthropic' 2>/dev/null | head -1)
-        if [ -z "$AGENT_ALIVE" ]; then
-          # Agent process dead but session alive — zombie session
-          HOOK_BEAD=$(bd show "$RIG/polecats/$PCAT_NAME" --json 2>/dev/null \
-            | jq -r '.hook_bead // empty' 2>/dev/null)
-          if [ -n "$HOOK_BEAD" ]; then
-            STUCK+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD|agent_dead")
-            echo "  ZOMBIE: $SESSION_NAME (agent dead, session alive, hook=$HOOK_BEAD)"
-          fi
-        else
-          HEALTHY=$((HEALTHY + 1))
-        fi
-      else
+    case "$HEALTH_STATUS" in
+      healthy)
         HEALTHY=$((HEALTHY + 1))
-      fi
-    fi
+        ;;
+      session-dead)
+        # Check hook/status through the target rig workspace before acting.
+        # Only open/hooked/in_progress work is restartable.
+        HOOK_BEAD=$(rig_hook_bead "$RIG" "$PCAT_NAME")
+        if [ -n "$HOOK_BEAD" ] && bead_restartable "$SESSION_NAME" "$RIG" "$HOOK_BEAD"; then
+          CRASHED+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD")
+          echo "  CRASHED: $SESSION_NAME (hook=$HOOK_BEAD)"
+        fi
+        ;;
+      agent-dead)
+        HOOK_BEAD=$(rig_hook_bead "$RIG" "$PCAT_NAME")
+        if [ -n "$HOOK_BEAD" ] && bead_restartable "$SESSION_NAME" "$RIG" "$HOOK_BEAD"; then
+          STUCK+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD|agent_dead")
+          echo "  ZOMBIE: $SESSION_NAME (agent runtime dead, hook=$HOOK_BEAD)"
+        fi
+        ;;
+      agent-hung)
+        HEALTHY=$((HEALTHY + 1))
+        echo "  OBSERVE: $SESSION_NAME runtime alive but inactive; not restarting"
+        ;;
+      *)
+        echo "  SKIP $SESSION_NAME: central liveness probe inconclusive"
+        ;;
+    esac
   done
 done <<< "$RIG_PREFIX_MAP"
 
@@ -243,12 +234,28 @@ For DEACON stuck (stale heartbeat):
   for stale-heartbeat events; do not include the age seconds in the fingerprint.
 
 **Decision framework:**
-1. If agent is clearly dead (no process, no output) → restart
-2. If agent shows recent activity in pane → nudge first, check again next cycle
-3. If agent has been stuck for >15 minutes with no pane activity → restart
-4. If mass death detected (>3 crashes in same cycle) → escalate, don't restart
+1. If central health is `session-dead` and hook status is actionable → request restart
+2. If central health is `agent-dead` and hook status is actionable → clear zombie, request restart
+3. If central health is `agent-hung` → observe/report only; do not restart polecat research sessions
+4. If mass death detected (threshold default 3) → escalate and skip all per-agent actions
 
-## Step 5: Take action
+## Step 5: Mass death check
+
+If multiple agents crashed in the same cycle, this may indicate a systemic
+issue (Dolt outage, OOM, etc.). Escalate instead of blindly restarting all.
+The executable script checks this before per-agent actions and skips all
+restart/kill loops for that cycle.
+
+```bash
+TOTAL_ISSUES=$(( ${#CRASHED[@]} + ${#STUCK[@]} ))
+if [ "$TOTAL_ISSUES" -ge "${GT_STUCK_AGENT_DOG_MASS_DEATH_THRESHOLD:-3}" ]; then
+  echo "MASS DEATH: $TOTAL_ISSUES agents down in same cycle — escalating"
+  gt escalate "Mass agent death: $TOTAL_ISSUES agents down" -s CRITICAL
+  echo "Skipping per-agent restart/kill actions during mass-death escalation"
+fi
+```
+
+## Step 6: Take action
 
 For each agent requiring restart:
 
@@ -301,24 +308,6 @@ if [ -n "$DEACON_ISSUE" ]; then
   gt escalate "Deacon $DEACON_ISSUE detected by stuck-agent-dog" \
     -s HIGH \
     --reason "Deacon issue: $DEACON_ISSUE. Context inspection completed."
-fi
-```
-
-## Step 6: Mass death check
-
-If multiple agents crashed in the same cycle, this may indicate a systemic
-issue (Dolt outage, OOM, etc.). Escalate instead of blindly restarting all.
-
-```bash
-TOTAL_ISSUES=$(( ${#CRASHED[@]} + ${#STUCK[@]} ))
-if [ "$TOTAL_ISSUES" -ge 3 ]; then
-  echo "MASS DEATH: $TOTAL_ISSUES agents down in same cycle — escalating"
-  gt escalate "Mass agent death: $TOTAL_ISSUES agents down" \
-    -s CRITICAL \
-    --reason "stuck-agent-dog detected $TOTAL_ISSUES agents down simultaneously.
-Crashed: ${CRASHED[*]}
-Stuck: ${STUCK[*]}
-This may indicate a systemic issue (Dolt, OOM, infra). Investigate before mass restart."
 fi
 ```
 
