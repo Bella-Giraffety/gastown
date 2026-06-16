@@ -1760,6 +1760,19 @@ func TestAddRig_UpstreamURL(t *testing.T) {
 		}
 	})
 
+	t.Run("loaded rig exposes upstream_url", func(t *testing.T) {
+		loaded, err := manager.GetRig("forkrig")
+		if err != nil {
+			t.Fatalf("GetRig: %v", err)
+		}
+		if loaded.UpstreamURL != upstreamURL {
+			t.Errorf("Rig.UpstreamURL = %q, want %q", loaded.UpstreamURL, upstreamURL)
+		}
+		if rig.UpstreamURL != upstreamURL {
+			t.Errorf("returned Rig.UpstreamURL = %q, want %q", rig.UpstreamURL, upstreamURL)
+		}
+	})
+
 	_ = rig
 }
 

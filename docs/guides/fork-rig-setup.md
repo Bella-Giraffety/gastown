@@ -84,6 +84,37 @@ Until then, for strict PR-only behavior:
 - Use the polecat → feature branch → manual PR path. Push the branch to
   your fork and open the PR by hand.
 
+## Safe fork-main verification/sync
+
+Before slinging upstream PR work, fork `main` must exactly mirror upstream
+`main`. Never push to the `upstream` remote. Fetch the fork and upstream into
+separate tracking refs, then compare them:
+
+```bash
+cd <town>/<rig>/mayor/rig
+FORK_URL=$(git remote get-url --push origin)
+git remote -v  # confirm origin (push) is your fork, not upstream
+git fetch upstream +refs/heads/main:refs/remotes/upstream/main
+git fetch "$FORK_URL" +refs/heads/main:refs/remotes/fork/main
+git rev-list --left-right --count refs/remotes/upstream/main...refs/remotes/fork/main
+```
+
+The count must be `0 0`. If not, inspect before rewriting history:
+
+```bash
+git log --oneline --graph --left-right refs/remotes/upstream/main...refs/remotes/fork/main
+```
+
+After confirming fork-only commits are disposable, sync only the fork:
+
+```bash
+git push --force-with-lease origin refs/remotes/upstream/main:refs/heads/main
+git fetch "$FORK_URL" +refs/heads/main:refs/remotes/fork/main
+git rev-list --left-right --count refs/remotes/upstream/main...refs/remotes/fork/main
+```
+
+The final count must be `0 0` before spawning polecats from `main`.
+
 ## Recovery: a polluted fork `main`
 
 If you added a rig **without** the fork-routing flags, the refinery may
@@ -100,20 +131,22 @@ upstream.
 
    ```bash
    cd <town>/<rig>/mayor/rig
-   git fetch upstream
-   git log --oneline --graph upstream/main...origin/main
+   FORK_URL=$(git remote get-url --push origin)
+   git remote -v  # confirm origin (push) is your fork, not upstream
+   git fetch upstream +refs/heads/main:refs/remotes/upstream/main
+   git fetch "$FORK_URL" +refs/heads/main:refs/remotes/fork/main
+   git log --oneline --graph --left-right refs/remotes/upstream/main...refs/remotes/fork/main
    ```
 
-2. Confirm every commit on `origin/main` that is *not* on `upstream/main`
-   is safe to discard (it's refinery merge noise, not real work). Salvage
-   anything you need onto a separate branch first.
+2. Confirm every commit on fork `main` that is *not* on `upstream/main` is
+   safe to discard (it's refinery merge noise, not real work). Salvage anything
+   you need onto a separate branch first.
 
-3. Reset `main` to track upstream and force-publish to your fork:
+3. Force-publish upstream `main` to your fork without checking out or resetting
+   a local branch:
 
    ```bash
-   git checkout main
-   git reset --hard upstream/main
-   git push --force-with-lease origin main
+   git push --force-with-lease origin refs/remotes/upstream/main:refs/heads/main
    ```
 
 4. Re-add the rig **with** the fork-routing flags (see [Setup](#setup)) so

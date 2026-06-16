@@ -768,28 +768,32 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 	}
 
 	if opts.ResumeBranch != "" {
+		if err := validateDefaultResumeBranch(m.rig, repoGit, opts.ResumeBranch); err != nil {
+			cleanupOnError()
+			return nil, err
+		}
 		// Resume an existing branch (gh#3602). Make sure we have the latest tip
 		// for the named branch, then attach the worktree directly. WorktreeAddExistingForce
 		// handles the case where another worktree previously had this branch checked out.
-		if err := repoGit.FetchBranch("origin", opts.ResumeBranch); err != nil {
+		if err := repoGit.FetchRemoteTrackingBranch("origin", opts.ResumeBranch); err != nil {
 			style.PrintWarning("could not fetch resume branch %s: %v", opts.ResumeBranch, err)
 		}
 		if err := repoGit.WorktreeAddExistingForce(clonePath, opts.ResumeBranch); err != nil {
 			cleanupOnError()
 			return nil, fmt.Errorf("creating worktree on existing branch %s: %w", opts.ResumeBranch, err)
 		}
+		if err := git.NewGit(clonePath).ResetHard("origin/" + opts.ResumeBranch); err != nil {
+			cleanupOnError()
+			return nil, fmt.Errorf("resetting resume branch %s to origin tip: %w", opts.ResumeBranch, err)
+		}
 		worktreeCreated = true
 	} else {
-		var startPoint string
-		if opts.BaseBranch != "" {
-			startPoint = opts.BaseBranch
-		} else {
-			defaultBranch := "main"
-			if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-				defaultBranch = rigCfg.DefaultBranch
-			}
-			startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		selection, err := resolvePolecatStartPoint(m.rig, repoGit, opts.BaseBranch)
+		if err != nil {
+			cleanupOnError()
+			return nil, err
 		}
+		startPoint := selection.StartPoint
 
 		if exists, err := repoGit.RefExists(startPoint); err != nil {
 			cleanupOnError()
@@ -966,30 +970,33 @@ func (m *Manager) AddWithOptions(name string, opts AddOptions) (_ *Polecat, retE
 	}
 
 	if opts.ResumeBranch != "" {
+		if err := validateDefaultResumeBranch(m.rig, repoGit, opts.ResumeBranch); err != nil {
+			cleanupOnError()
+			return nil, err
+		}
 		// Resume an existing branch (gh#3602): attach the worktree directly to the
 		// named branch. WorktreeAddExistingForce tolerates the branch being checked
 		// out elsewhere (stale worktree), and the explicit fetch ensures we have
 		// the latest tip before checkout.
-		if err := repoGit.FetchBranch("origin", opts.ResumeBranch); err != nil {
+		if err := repoGit.FetchRemoteTrackingBranch("origin", opts.ResumeBranch); err != nil {
 			style.PrintWarning("could not fetch resume branch %s: %v", opts.ResumeBranch, err)
 		}
 		if err := repoGit.WorktreeAddExistingForce(clonePath, opts.ResumeBranch); err != nil {
 			cleanupOnError()
 			return nil, fmt.Errorf("creating worktree on existing branch %s: %w", opts.ResumeBranch, err)
 		}
+		if err := git.NewGit(clonePath).ResetHard("origin/" + opts.ResumeBranch); err != nil {
+			cleanupOnError()
+			return nil, fmt.Errorf("resetting resume branch %s to origin tip: %w", opts.ResumeBranch, err)
+		}
 		worktreeCreated = true
 	} else {
-		// Determine the start point for the new worktree
-		var startPoint string
-		if opts.BaseBranch != "" {
-			startPoint = opts.BaseBranch
-		} else {
-			defaultBranch := "main"
-			if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-				defaultBranch = rigCfg.DefaultBranch
-			}
-			startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		selection, err := resolvePolecatStartPoint(m.rig, repoGit, opts.BaseBranch)
+		if err != nil {
+			cleanupOnError()
+			return nil, err
 		}
+		startPoint := selection.StartPoint
 
 		// Validate that startPoint ref exists before attempting worktree creation
 		if exists, err := repoGit.RefExists(startPoint); err != nil {
@@ -1500,26 +1507,28 @@ func (m *Manager) RepairWorktreeWithOptions(name string, force bool, opts AddOpt
 	_ = os.RemoveAll(tmpClonePath) // clean up any leftover temp dir
 
 	if opts.ResumeBranch != "" {
+		if err := validateDefaultResumeBranch(m.rig, repoGit, opts.ResumeBranch); err != nil {
+			return nil, err
+		}
 		// Resume an existing branch: fetch and attach the temp worktree directly
 		// to the named branch instead of creating a fresh polecat/<name>/<bead>@<ts>.
-		if err := repoGit.FetchBranch("origin", opts.ResumeBranch); err != nil {
+		if err := repoGit.FetchRemoteTrackingBranch("origin", opts.ResumeBranch); err != nil {
 			style.PrintWarning("could not fetch resume branch %s: %v", opts.ResumeBranch, err)
 		}
 		if err := repoGit.WorktreeAddExistingForce(tmpClonePath, opts.ResumeBranch); err != nil {
 			return nil, fmt.Errorf("creating fresh worktree on existing branch %s: %w", opts.ResumeBranch, err)
 		}
-	} else {
-		// Determine the start point for the new worktree
-		var startPoint string
-		if opts.BaseBranch != "" {
-			startPoint = opts.BaseBranch
-		} else {
-			defaultBranch := "main"
-			if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-				defaultBranch = rigCfg.DefaultBranch
-			}
-			startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		if err := git.NewGit(tmpClonePath).ResetHard("origin/" + opts.ResumeBranch); err != nil {
+			_ = repoGit.WorktreeRemove(tmpClonePath, true)
+			_ = os.RemoveAll(tmpClonePath)
+			return nil, fmt.Errorf("resetting resume branch %s to origin tip: %w", opts.ResumeBranch, err)
 		}
+	} else {
+		selection, err := resolvePolecatStartPoint(m.rig, repoGit, opts.BaseBranch)
+		if err != nil {
+			return nil, err
+		}
+		startPoint := selection.StartPoint
 
 		// Validate that startPoint ref exists before attempting worktree creation
 		if exists, err := repoGit.RefExists(startPoint); err != nil {
@@ -1681,6 +1690,65 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 			current.State = StateIdle
 		}
 	}
+	clonePath := m.clonePath(name)
+	var polecatGit *git.Git
+	var startPoint string
+	resolveStartPoint := func() error {
+		polecatGit = git.NewGit(clonePath)
+
+		// Fetch latest from origin (non-fatal: may be offline)
+		repoGit, repoErr := m.repoBase()
+		if repoErr == nil {
+			_ = repoGit.Fetch("origin")
+		}
+		// Also fetch in the worktree itself so it has the latest refs
+		_ = polecatGit.Fetch("origin")
+
+		// Determine the start point before killing/cleaning the idle sandbox. Fork
+		// default-branch guard failures must fail before any destructive reuse action.
+		switch {
+		case opts.ResumeBranch != "":
+			baseGit := repoGit
+			if baseGit == nil {
+				baseGit = polecatGit
+			}
+			if err := validateDefaultResumeBranch(m.rig, baseGit, opts.ResumeBranch); err != nil {
+				return err
+			}
+			// When resuming an existing branch (gh#3602), the start point IS that
+			// branch's remote tip — we want HEAD on the named branch, not a detached
+			// fresh ref.
+			// Fetch the resume branch directly so origin/<branch> is up-to-date even
+			// on shallow / single-branch reference clones.
+			if repoGit != nil {
+				if err := repoGit.FetchRemoteTrackingBranch("origin", opts.ResumeBranch); err != nil {
+					style.PrintWarning("could not fetch resume branch %s on bare repo: %v", opts.ResumeBranch, err)
+				}
+			}
+			if err := polecatGit.FetchRemoteTrackingBranch("origin", opts.ResumeBranch); err != nil {
+				style.PrintWarning("could not fetch resume branch %s in worktree: %v", opts.ResumeBranch, err)
+			}
+			startPoint = "origin/" + opts.ResumeBranch
+		default:
+			baseGit := repoGit
+			if baseGit == nil {
+				baseGit = polecatGit
+			}
+			selection, err := resolvePolecatStartPoint(m.rig, baseGit, opts.BaseBranch)
+			if err != nil {
+				return err
+			}
+			startPoint = selection.StartPoint
+		}
+		return nil
+	}
+
+	if _, err := os.Stat(clonePath); err == nil {
+		if err := resolveStartPoint(); err != nil {
+			return nil, err
+		}
+	}
+
 	if current.State == StateIdle {
 		// A live session with no active work is a dead prompt, not preserved work.
 		// Clear it before evaluating reuse so recovery-blocked idle slots don't
@@ -1694,9 +1762,13 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 	}
 
 	// Get worktree path (must already exist for reuse)
-	clonePath := m.clonePath(name)
-	if _, err := os.Stat(clonePath); err != nil {
-		return nil, fmt.Errorf("idle polecat worktree not found at %s: %w", clonePath, err)
+	if polecatGit == nil {
+		if _, err := os.Stat(clonePath); err != nil {
+			return nil, fmt.Errorf("idle polecat worktree not found at %s: %w", clonePath, err)
+		}
+		if err := resolveStartPoint(); err != nil {
+			return nil, err
+		}
 	}
 
 	// hq-x0v7v: per-bead target/ clean hook.
@@ -1714,43 +1786,6 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		} else if msg != "" {
 			fmt.Println(msg)
 		}
-	}
-
-	polecatGit := git.NewGit(clonePath)
-
-	// Fetch latest from origin (non-fatal: may be offline)
-	repoGit, err := m.repoBase()
-	if err == nil {
-		_ = repoGit.Fetch("origin")
-	}
-	// Also fetch in the worktree itself so it has the latest refs
-	_ = polecatGit.Fetch("origin")
-
-	// Determine the start point for the new branch.
-	// When resuming an existing branch (gh#3602), the start point IS that branch's
-	// remote tip — we want HEAD on the named branch, not on a detached fresh ref.
-	var startPoint string
-	switch {
-	case opts.ResumeBranch != "":
-		// Fetch the resume branch directly so origin/<branch> is up-to-date even
-		// on shallow / single-branch reference clones.
-		if repoGit != nil {
-			if err := repoGit.FetchBranch("origin", opts.ResumeBranch); err != nil {
-				style.PrintWarning("could not fetch resume branch %s on bare repo: %v", opts.ResumeBranch, err)
-			}
-		}
-		if err := polecatGit.FetchBranch("origin", opts.ResumeBranch); err != nil {
-			style.PrintWarning("could not fetch resume branch %s in worktree: %v", opts.ResumeBranch, err)
-		}
-		startPoint = "origin/" + opts.ResumeBranch
-	case opts.BaseBranch != "":
-		startPoint = opts.BaseBranch
-	default:
-		defaultBranch := "main"
-		if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-			defaultBranch = rigCfg.DefaultBranch
-		}
-		startPoint = fmt.Sprintf("origin/%s", defaultBranch)
 	}
 
 	// Validate that startPoint ref exists

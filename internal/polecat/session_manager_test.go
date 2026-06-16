@@ -79,6 +79,21 @@ func setupSessionBranchTestRepo(t *testing.T) (string, *git.Git) {
 	return workDir, repoGit
 }
 
+func configureForkUpstreamForSession(t *testing.T, workDir string) string {
+	t.Helper()
+	upstream := filepath.Join(t.TempDir(), "upstream.git")
+	cmd := exec.Command("git", "clone", "--bare", workDir, upstream)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone --bare: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "remote", "add", "upstream", upstream)
+	cmd.Dir = workDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add upstream: %v\n%s", err, out)
+	}
+	return upstream
+}
+
 func TestSessionName(t *testing.T) {
 	setupTestRegistryForSession(t)
 
@@ -361,7 +376,10 @@ func TestEnsureCanonicalSessionBranch_UsesOriginDefaultBranch(t *testing.T) {
 	}
 
 	sm := NewSessionManager(tmux.NewTmux(), &rig.Rig{Name: "gastown", Path: workDir})
-	branch := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	branch, err := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	if err != nil {
+		t.Fatalf("ensureCanonicalSessionBranch: %v", err)
+	}
 	if !strings.Contains(branch, "/gt-9qb@") {
 		t.Fatalf("fresh session branch = %q, want issue-scoped branch", branch)
 	}
@@ -392,9 +410,49 @@ func TestEnsureCanonicalSessionBranch_KeepsCurrentIssueBranch(t *testing.T) {
 	}
 
 	sm := NewSessionManager(tmux.NewTmux(), &rig.Rig{Name: "gastown", Path: workDir})
-	branch := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	branch, err := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	if err != nil {
+		t.Fatalf("ensureCanonicalSessionBranch: %v", err)
+	}
 	if branch != currentBranch {
 		t.Fatalf("ensureCanonicalSessionBranch changed active issue branch: got %q want %q", branch, currentBranch)
+	}
+}
+
+func TestEnsureCanonicalSessionBranch_BlocksDivergentForkMain(t *testing.T) {
+	workDir, repoGit := setupSessionBranchTestRepo(t)
+	upstream := configureForkUpstreamForSession(t, workDir)
+
+	if err := repoGit.Checkout("main"); err != nil {
+		t.Fatalf("checkout main: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "fork-main.txt"), []byte("fork-only\n"), 0644); err != nil {
+		t.Fatalf("write fork-main.txt: %v", err)
+	}
+	if err := repoGit.Add("fork-main.txt"); err != nil {
+		t.Fatalf("git add fork-main.txt: %v", err)
+	}
+	if err := repoGit.Commit("pollute fork main"); err != nil {
+		t.Fatalf("git commit fork-main.txt: %v", err)
+	}
+	if err := repoGit.CheckoutNewBranch("polecat/toast-old", "main"); err != nil {
+		t.Fatalf("checkout stale polecat branch: %v", err)
+	}
+
+	sm := NewSessionManager(tmux.NewTmux(), &rig.Rig{Name: "gastown", Path: workDir, UpstreamURL: upstream})
+	_, err := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	if err == nil {
+		t.Fatal("ensureCanonicalSessionBranch should block divergent fork main")
+	}
+	if !strings.Contains(err.Error(), "divergent fork main") {
+		t.Fatalf("error = %q, want divergent fork main", err.Error())
+	}
+	branch, branchErr := repoGit.CurrentBranch()
+	if branchErr != nil {
+		t.Fatalf("current branch after guard: %v", branchErr)
+	}
+	if branch != "polecat/toast-old" {
+		t.Fatalf("session branch changed despite guard: got %q", branch)
 	}
 }
 
@@ -642,9 +700,9 @@ func TestPromptlessFallbackIncludesPrimeAndWorkInstructions(t *testing.T) {
 // not auto-submitted; the condition triggers verifyStartupNudgeDelivery as a safety net.
 func TestModeABeaconVerificationCondition(t *testing.T) {
 	tests := []struct {
-		name            string
-		rc              *config.RuntimeConfig
-		wantModeA       bool // !SendBeaconNudge && !SendStartupNudge
+		name      string
+		rc        *config.RuntimeConfig
+		wantModeA bool // !SendBeaconNudge && !SendStartupNudge
 	}{
 		{
 			name: "Claude hook+prompt agent triggers Mode A verification",
@@ -895,11 +953,11 @@ func TestParseFreshBranchName_Rejects(t *testing.T) {
 		"master",
 		"develop",
 		"feature/x",
-		"polecat/",          // empty tail
-		"polecat/alpha",     // no ts or issue
-		"polecat/alpha-",    // trailing dash, no ts
-		"polecat//gt-abc@1", // empty polecat name
-		"polecat/alpha/@1",  // empty issue
+		"polecat/",              // empty tail
+		"polecat/alpha",         // no ts or issue
+		"polecat/alpha-",        // trailing dash, no ts
+		"polecat//gt-abc@1",     // empty polecat name
+		"polecat/alpha/@1",      // empty issue
 		"polecat/alpha/gt-abc@", // empty ts
 		"",
 	}

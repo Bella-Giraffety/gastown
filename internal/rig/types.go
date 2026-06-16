@@ -20,6 +20,9 @@ type Rig struct {
 	// When set, polecats push here instead of to GitURL (e.g., personal fork).
 	PushURL string `json:"push_url,omitempty"`
 
+	// UpstreamURL is the canonical upstream repository URL for fork workflows.
+	UpstreamURL string `json:"upstream_url,omitempty"`
+
 	// LocalRepo is an optional local repository used for reference clones.
 	LocalRepo string `json:"local_repo,omitempty"`
 

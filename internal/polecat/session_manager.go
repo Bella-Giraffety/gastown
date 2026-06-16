@@ -227,18 +227,12 @@ func parseFreshBranchName(branch string) freshBranchMeta {
 	return freshBranchMeta{polecat: rest[:dash], ok: true}
 }
 
-func (m *SessionManager) canonicalSessionStartPoint(g *git.Git) string {
-	defaultBranch := ""
-	if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-		defaultBranch = rigCfg.DefaultBranch
-	}
-	if defaultBranch == "" {
-		defaultBranch = g.RemoteDefaultBranch()
-	}
-	if defaultBranch == "" {
-		return ""
-	}
-	return fmt.Sprintf("origin/%s", defaultBranch)
+func (m *SessionManager) canonicalSessionStartPoint(g *git.Git) (BaseSelection, error) {
+	return resolvePolecatStartPoint(m.rig, g, "")
+}
+
+func (m *SessionManager) canonicalSessionBranch(g *git.Git) string {
+	return polecatDefaultBranch(m.rig, g)
 }
 
 // shouldCreateFreshSessionBranch decides whether the session manager should
@@ -265,20 +259,30 @@ func shouldCreateFreshSessionBranch(currentBranch, issue, canonicalBranch string
 	return issue != "" && meta.ok
 }
 
-func (m *SessionManager) ensureCanonicalSessionBranch(g *git.Git, polecat string, opts SessionStartOptions) string {
+func (m *SessionManager) ensureCanonicalSessionBranch(g *git.Git, polecat string, opts SessionStartOptions) (string, error) {
 	currentBranch, err := g.CurrentBranch()
 	if err != nil {
-		return ""
+		return "", nil
 	}
 
-	startPoint := m.canonicalSessionStartPoint(g)
+	canonicalBranch := m.canonicalSessionBranch(g)
+	if canonicalBranch == "" {
+		debugSession("canonical session start point unresolved", fmt.Errorf("no default branch in rig config or remote"))
+		return currentBranch, nil
+	}
+	if !shouldCreateFreshSessionBranch(currentBranch, opts.Issue, canonicalBranch) {
+		return currentBranch, nil
+	}
+
+	selection, err := m.canonicalSessionStartPoint(g)
+	if err != nil {
+		debugSession("canonical session start point", err)
+		return "", err
+	}
+	startPoint := selection.StartPoint
 	if startPoint == "" {
 		debugSession("canonical session start point unresolved", fmt.Errorf("no default branch in rig config or remote"))
-		return currentBranch
-	}
-	canonicalBranch := strings.TrimPrefix(startPoint, "origin/")
-	if !shouldCreateFreshSessionBranch(currentBranch, opts.Issue, canonicalBranch) {
-		return currentBranch
+		return currentBranch, nil
 	}
 
 	// Refresh origin refs before branching so recovered sessions start from the
@@ -290,20 +294,20 @@ func (m *SessionManager) ensureCanonicalSessionBranch(g *git.Git, polecat string
 	exists, err := g.RefExists(startPoint)
 	if err != nil {
 		debugSession("check canonical session start point", err)
-		return currentBranch
+		return currentBranch, nil
 	}
 	if !exists {
 		debugSession("missing canonical session start point", fmt.Errorf("%s", startPoint))
-		return currentBranch
+		return currentBranch, nil
 	}
 
 	newBranch := m.freshBranchName(polecat, opts.Issue)
 	if err := g.CheckoutNewBranch(newBranch, startPoint); err != nil {
 		debugSession("auto-checkout fresh branch on canonical base", err)
-		return currentBranch
+		return currentBranch, nil
 	}
 
-	return newBranch
+	return newBranch, nil
 }
 
 // hasPolecat checks if the polecat exists in this rig.
@@ -462,7 +466,11 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// working directory.
 	polecatGitBranch := ""
 	if g := git.NewGit(workDir); g != nil {
-		polecatGitBranch = m.ensureCanonicalSessionBranch(g, polecat, opts)
+		var branchErr error
+		polecatGitBranch, branchErr = m.ensureCanonicalSessionBranch(g, polecat, opts)
+		if branchErr != nil {
+			return fmt.Errorf("preparing canonical session branch: %w", branchErr)
+		}
 	}
 	// Generate the GASTA run ID — the root identifier for all telemetry emitted
 	// by this polecat session and its subprocesses (bd, mail, …).

@@ -457,7 +457,7 @@ func protectedWorktreeTargets(cmd string, args []string, baseDir string) []strin
 	protected := make([]string, 0, len(targets))
 	for _, target := range targets {
 		abs := gitPathAbs(target, baseDir)
-		if protectedTownRuntimePath(abs) {
+		if _, ok := protectedTownRuntimePath(abs); ok {
 			protected = append(protected, abs)
 		}
 	}
@@ -532,16 +532,16 @@ func resolveExistingSymlinkAncestors(path string) string {
 	}
 }
 
-func protectedTownRuntimePath(path string) bool {
+func protectedTownRuntimePath(path string) (string, bool) {
 	abs := filepath.Clean(path)
 	for dir := abs; ; dir = filepath.Dir(dir) {
 		if isTownRoot(dir) {
 			if samePath(abs, dir) {
-				return true
+				return dir, true
 			}
 			rel, err := filepath.Rel(dir, abs)
 			if err != nil {
-				return false
+				return "", false
 			}
 			first := rel
 			if idx := strings.IndexRune(rel, filepath.Separator); idx >= 0 {
@@ -549,14 +549,14 @@ func protectedTownRuntimePath(path string) bool {
 			}
 			switch first {
 			case "mayor", ".dolt-data", ".runtime", ".beads", "daemon":
-				return true
+				return dir, true
 			default:
-				return false
+				return "", false
 			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return false
+			return "", false
 		}
 	}
 }
@@ -608,7 +608,7 @@ type cloneOptions struct {
 // to dest, and applies post-clone configuration (hooks or refspec).
 func (g *Git) cloneInternal(url, dest string, opts cloneOptions) error {
 	dest = gitPathAbs(dest, "")
-	if protectedTownRuntimePath(dest) {
+	if _, ok := protectedTownRuntimePath(dest); ok {
 		return fmt.Errorf("%w: clone destination %s", ErrUnsafeTownRootGitMutation, dest)
 	}
 
@@ -919,6 +919,87 @@ func (g *Git) FetchPrune(remote string) error {
 func (g *Git) FetchBranch(remote, branch string) error {
 	_, err := g.run("fetch", remote, branch)
 	return err
+}
+
+// RemoteTrackingRef returns the fully-qualified remote-tracking ref for a branch.
+func RemoteTrackingRef(remote, branch string) string {
+	return fmt.Sprintf("refs/remotes/%s/%s", remote, branch)
+}
+
+// FetchRemoteTrackingBranch fetches a remote branch into its tracking ref.
+func (g *Git) FetchRemoteTrackingBranch(remote, branch string) error {
+	return g.FetchRemoteTrackingBranchFrom(remote, remote, branch)
+}
+
+// FetchRemoteTrackingBranchFrom fetches a branch from a remote or URL into the
+// tracking namespace for trackingRemote.
+func (g *Git) FetchRemoteTrackingBranchFrom(remote, trackingRemote, branch string) error {
+	if remote == "" || strings.HasPrefix(remote, "-") {
+		return fmt.Errorf("invalid remote %q", remote)
+	}
+	if err := validateFetchRefPart("tracking remote", trackingRemote, false); err != nil {
+		return err
+	}
+	if err := validateFetchRefPart("remote", remote, false); err != nil {
+		// URLs contain slashes/colons and are safe here because they are passed as a
+		// single argv element. Still reject option-like values above.
+		if !strings.Contains(remote, "://") && !strings.HasPrefix(remote, "git@") && !strings.HasPrefix(remote, "/") && !strings.HasPrefix(remote, "./") && !strings.HasPrefix(remote, "../") {
+			return err
+		}
+	}
+	if err := validateFetchRefPart("branch", branch, true); err != nil {
+		return err
+	}
+	refspec := fmt.Sprintf("+refs/heads/%s:%s", branch, RemoteTrackingRef(trackingRemote, branch))
+	if _, err := g.run("fetch", "--no-tags", remote, refspec); err != nil {
+		return fmt.Errorf("fetching %s/%s: %w", remote, branch, err)
+	}
+	return nil
+}
+
+func validateFetchRefPart(kind, value string, allowSlash bool) error {
+	if value == "" {
+		return fmt.Errorf("invalid %s: empty", kind)
+	}
+	if strings.HasPrefix(value, "-") || strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.ContainsAny(value, " \t\n\r:*?[~^\\") {
+		return fmt.Errorf("invalid %s %q", kind, value)
+	}
+	if !allowSlash && strings.Contains(value, "/") {
+		return fmt.Errorf("invalid %s %q", kind, value)
+	}
+	return nil
+}
+
+// RefDivergence is the left/right commit count for a symmetric diff.
+type RefDivergence struct {
+	LeftOnly  int
+	RightOnly int
+}
+
+// CountRefDivergence counts commits reachable only from leftRef or rightRef.
+func (g *Git) CountRefDivergence(leftRef, rightRef string) (RefDivergence, error) {
+	if _, err := g.run("rev-parse", "--verify", leftRef+"^{commit}"); err != nil {
+		return RefDivergence{}, fmt.Errorf("verifying %s: %w", leftRef, err)
+	}
+	if _, err := g.run("rev-parse", "--verify", rightRef+"^{commit}"); err != nil {
+		return RefDivergence{}, fmt.Errorf("verifying %s: %w", rightRef, err)
+	}
+	out, err := g.run("rev-list", "--left-right", "--count", leftRef+"..."+rightRef)
+	if err != nil {
+		return RefDivergence{}, err
+	}
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return RefDivergence{}, fmt.Errorf("parsing rev-list count output %q", out)
+	}
+	var div RefDivergence
+	if _, err := fmt.Sscanf(fields[0], "%d", &div.LeftOnly); err != nil {
+		return RefDivergence{}, fmt.Errorf("parsing left count %q: %w", fields[0], err)
+	}
+	if _, err := fmt.Sscanf(fields[1], "%d", &div.RightOnly); err != nil {
+		return RefDivergence{}, fmt.Errorf("parsing right count %q: %w", fields[1], err)
+	}
+	return div, nil
 }
 
 // FetchBranchShallow fetches a single branch with --depth 1 and creates the
@@ -1240,10 +1321,9 @@ func (g *Git) RemoteDefaultBranch() string {
 	// Try to get from origin/HEAD symbolic ref
 	out, err := g.run("symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil && out != "" {
-		// Returns refs/remotes/origin/main -> extract branch name
-		parts := strings.Split(out, "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1]
+		// Returns refs/remotes/origin/<branch>; preserve slash-containing branches.
+		if branch := strings.TrimPrefix(out, "refs/remotes/origin/"); branch != out && branch != "" {
+			return branch
 		}
 	}
 

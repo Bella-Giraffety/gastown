@@ -138,6 +138,9 @@ func setupCanonicalBranchManagerTest(t *testing.T) (*Manager, string) {
 	if err := os.WriteFile(filepath.Join(rigBeads, "redirect"), []byte("mayor/rig/.beads\n"), 0644); err != nil {
 		t.Fatalf("write rig redirect: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"type":"rig","version":1,"name":"rig","git_url":"","default_branch":"main"}`), 0644); err != nil {
+		t.Fatalf("write rig config: %v", err)
+	}
 
 	cmd := exec.Command("git", "init", "-b", "main")
 	cmd.Dir = mayorRig
@@ -195,6 +198,82 @@ func createStalePolecatCommit(t *testing.T, repoPath, startPoint, branchName str
 	if err != nil {
 		t.Fatalf("resolve stale branch commit: %v", err)
 	}
+	return sha
+}
+
+func cloneBareRemoteFrom(t *testing.T, sourceRepo string) string {
+	t.Helper()
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	cmd := exec.Command("git", "clone", "--bare", sourceRepo, remotePath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone --bare: %v\n%s", err, out)
+	}
+	return remotePath
+}
+
+func addRemoteToRepo(t *testing.T, repoPath, name, url string) {
+	t.Helper()
+	cmd := exec.Command("git", "remote", "add", name, url)
+	cmd.Dir = repoPath
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add %s: %v\n%s", name, err, out)
+	}
+}
+
+func commitFileOnBranch(t *testing.T, repoPath, branch, fileName, contents string) string {
+	t.Helper()
+	repoGit := git.NewGit(repoPath)
+	if err := repoGit.Checkout(branch); err != nil {
+		t.Fatalf("checkout %s: %v", branch, err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, fileName), []byte(contents), 0644); err != nil {
+		t.Fatalf("write %s: %v", fileName, err)
+	}
+	if err := repoGit.Add(fileName); err != nil {
+		t.Fatalf("git add %s: %v", fileName, err)
+	}
+	if err := repoGit.Commit("Update " + fileName); err != nil {
+		t.Fatalf("git commit %s: %v", fileName, err)
+	}
+	sha, err := repoGit.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("resolve HEAD: %v", err)
+	}
+	return sha
+}
+
+func configureForkUpstreamForManager(t *testing.T, mgr *Manager, mayorRig string) string {
+	t.Helper()
+	upstream := cloneBareRemoteFrom(t, mayorRig)
+	addRemoteToRepo(t, mayorRig, "upstream", upstream)
+	mgr.rig.UpstreamURL = upstream
+	return upstream
+}
+
+func polluteForkMain(t *testing.T, mayorRig string) string {
+	t.Helper()
+	return commitFileOnBranch(t, mayorRig, "main", "fork-main.txt", "fork-only\n")
+}
+
+func polluteBareRemoteMain(t *testing.T, remote string) string {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "fork-work")
+	cmd := exec.Command("git", "clone", remote, work)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone fork remote: %v\n%s", err, out)
+	}
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = work
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("config", "user.email", "test@test.com")
+	run("config", "user.name", "Test User")
+	sha := commitFileOnBranch(t, work, "main", "fork-only.txt", "fork-only\n")
+	run("push", "origin", "main")
 	return sha
 }
 
@@ -1235,6 +1314,141 @@ func TestAddWithOptions_UsesCanonicalOriginDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestAddWithOptions_BlocksDivergentForkMain(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	configureForkUpstreamForManager(t, mgr, mayorRig)
+	polluteForkMain(t, mayorRig)
+
+	_, err := mgr.AddWithOptions("forked", AddOptions{})
+	if err == nil {
+		t.Fatal("AddWithOptions should block divergent fork main")
+	}
+	if !strings.Contains(err.Error(), "divergent fork main") {
+		t.Fatalf("error = %q, want divergent fork main", err.Error())
+	}
+	if _, statErr := os.Stat(filepath.Join(mgr.rig.Path, "polecats", "forked")); !os.IsNotExist(statErr) {
+		t.Fatalf("polecat dir leaked after fork guard failure: %v", statErr)
+	}
+}
+
+func TestAddWithOptions_BlocksDivergentForkPushMain(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	upstream := cloneBareRemoteFrom(t, mayorRig)
+	fork := cloneBareRemoteFrom(t, mayorRig)
+	addRemoteToRepo(t, mayorRig, "upstream", upstream)
+	cmd := exec.Command("git", "remote", "set-url", "origin", upstream)
+	cmd.Dir = mayorRig
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("set origin fetch URL: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "remote", "set-url", "--push", "origin", fork)
+	cmd.Dir = mayorRig
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("set origin push URL: %v\n%s", err, out)
+	}
+	mgr.rig.PushURL = fork
+	polluteBareRemoteMain(t, fork)
+
+	_, err := mgr.AddWithOptions("forkpush", AddOptions{})
+	if err == nil {
+		t.Fatal("AddWithOptions should block divergent fork push main")
+	}
+	if !strings.Contains(err.Error(), "fork main") {
+		t.Fatalf("error = %q, want fork main divergence", err.Error())
+	}
+}
+
+func TestAddWithOptions_DistinctUpstreamRemoteTriggersForkGuard(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	upstream := cloneBareRemoteFrom(t, mayorRig)
+	addRemoteToRepo(t, mayorRig, "upstream", upstream)
+	polluteForkMain(t, mayorRig)
+
+	_, err := mgr.AddWithOptions("implicit", AddOptions{})
+	if err == nil {
+		t.Fatal("AddWithOptions should guard distinct upstream remote")
+	}
+	if !strings.Contains(err.Error(), "divergent fork main") {
+		t.Fatalf("error = %q, want divergent fork main", err.Error())
+	}
+}
+
+func TestAddWithOptions_AllowsMirroredForkMain(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	configureForkUpstreamForManager(t, mgr, mayorRig)
+
+	mayorGit := git.NewGit(mayorRig)
+	baseSHA, err := mayorGit.Rev("origin/main")
+	if err != nil {
+		t.Fatalf("resolve origin/main: %v", err)
+	}
+
+	polecat, err := mgr.AddWithOptions("mirrored", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	worktreeGit := git.NewGit(polecat.ClonePath)
+	baseAncestor, err := worktreeGit.IsAncestor(baseSHA, polecat.Branch)
+	if err != nil {
+		t.Fatalf("check base ancestry: %v", err)
+	}
+	if !baseAncestor {
+		t.Fatalf("new polecat branch %q should descend from mirrored origin/main %s", polecat.Branch, baseSHA)
+	}
+}
+
+func TestAddWithOptions_ExplicitDefaultBaseTriggersForkGuard(t *testing.T) {
+	for _, baseBranch := range []string{"main", "origin/main", "upstream/main"} {
+		t.Run(baseBranch, func(t *testing.T) {
+			mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+			configureForkUpstreamForManager(t, mgr, mayorRig)
+			polluteForkMain(t, mayorRig)
+
+			_, err := mgr.AddWithOptions("forked", AddOptions{BaseBranch: baseBranch})
+			if err == nil {
+				t.Fatalf("AddWithOptions(%q) should block divergent fork main", baseBranch)
+			}
+			if !strings.Contains(err.Error(), "divergent fork main") {
+				t.Fatalf("error = %q, want divergent fork main", err.Error())
+			}
+		})
+	}
+}
+
+func TestAddWithOptions_ExplicitNonDefaultBaseBypassesForkGuard(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	configureForkUpstreamForManager(t, mgr, mayorRig)
+	polluteForkMain(t, mayorRig)
+	integrationSHA := createStalePolecatCommit(t, mayorRig, "main", "integration/review")
+
+	polecat, err := mgr.AddWithOptions("integrator", AddOptions{BaseBranch: "integration/review"})
+	if err != nil {
+		t.Fatalf("AddWithOptions explicit non-default base: %v", err)
+	}
+	worktreeGit := git.NewGit(polecat.ClonePath)
+	integrationAncestor, err := worktreeGit.IsAncestor(integrationSHA, polecat.Branch)
+	if err != nil {
+		t.Fatalf("check integration ancestry: %v", err)
+	}
+	if !integrationAncestor {
+		t.Fatalf("new polecat branch %q should descend from integration branch %s", polecat.Branch, integrationSHA)
+	}
+
+	upstreamTopicSHA := createStalePolecatCommit(t, mayorRig, "main", "upstream/topic")
+	upstreamTopic, err := mgr.AddWithOptions("upstreamtopic", AddOptions{BaseBranch: "upstream/topic"})
+	if err != nil {
+		t.Fatalf("AddWithOptions slash branch with upstream prefix: %v", err)
+	}
+	upstreamTopicGit := git.NewGit(upstreamTopic.ClonePath)
+	upstreamTopicAncestor, err := upstreamTopicGit.IsAncestor(upstreamTopicSHA, upstreamTopic.Branch)
+	if err != nil {
+		t.Fatalf("check upstream/topic ancestry: %v", err)
+	}
+	if !upstreamTopicAncestor {
+		t.Fatalf("new polecat branch %q should descend from upstream/topic branch %s", upstreamTopic.Branch, upstreamTopicSHA)
+	}
+}
+
 func TestAllocateAndAdd_RunsWispSetupCommand(t *testing.T) {
 	mgr, _ := setupCanonicalBranchManagerTest(t)
 	writeWispSetupCommand(t, mgr, setupCommandWriteMarker("setup-marker"))
@@ -1387,6 +1601,55 @@ func TestReuseIdlePolecat_UsesCanonicalOriginDefaultBranch(t *testing.T) {
 	}
 	if baseSHA == "" {
 		t.Fatal("base SHA unexpectedly empty")
+	}
+}
+
+func TestReuseIdlePolecat_BlocksDivergentForkMainBeforeBranchSwitch(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	polecat, err := mgr.AddWithOptions("toast", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	worktreeGit := git.NewGit(polecat.ClonePath)
+	_ = worktreeGit.CleanForce()
+	beforeBranch, err := worktreeGit.CurrentBranch()
+	if err != nil {
+		t.Fatalf("current branch before reuse: %v", err)
+	}
+
+	configureForkUpstreamForManager(t, mgr, mayorRig)
+	polluteForkMain(t, mayorRig)
+
+	_, err = mgr.ReuseIdlePolecat("toast", AddOptions{HookBead: "gt-next"})
+	if err == nil {
+		t.Fatal("ReuseIdlePolecat should block divergent fork main")
+	}
+	if !strings.Contains(err.Error(), "divergent fork main") {
+		t.Fatalf("error = %q, want divergent fork main", err.Error())
+	}
+	afterBranch, err := worktreeGit.CurrentBranch()
+	if err != nil {
+		t.Fatalf("current branch after reuse: %v", err)
+	}
+	if afterBranch != beforeBranch {
+		t.Fatalf("reuse switched branch before fork guard failure: got %q want %q", afterBranch, beforeBranch)
+	}
+}
+
+func TestRepairWorktreeWithOptions_BlocksDivergentForkMain(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	if _, err := mgr.AddWithOptions("toast", AddOptions{}); err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	configureForkUpstreamForManager(t, mgr, mayorRig)
+	polluteForkMain(t, mayorRig)
+
+	_, err := mgr.RepairWorktreeWithOptions("toast", true, AddOptions{})
+	if err == nil {
+		t.Fatal("RepairWorktreeWithOptions should block divergent fork main")
+	}
+	if !strings.Contains(err.Error(), "divergent fork main") {
+		t.Fatalf("error = %q, want divergent fork main", err.Error())
 	}
 }
 
