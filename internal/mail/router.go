@@ -938,6 +938,9 @@ func (r *Router) validateRecipient(identity string) error {
 	case "mayor", "mayor/", "deacon", "deacon/":
 		return nil
 	}
+	if isInvalidReservedTownSubaddress(identity) {
+		return fmt.Errorf("invalid reserved town address")
+	}
 
 	// Well-known rig-level singletons (rig/witness, rig/refinery) always
 	// valid — these agents are ephemeral and may not have an active session,
@@ -1005,6 +1008,10 @@ func (r *Router) validateRecipient(identity string) error {
 // validateAgentWorkspace checks if an agent's workspace directory exists on disk.
 // Used as a fallback when the agent isn't found in the bead registry.
 func (r *Router) validateAgentWorkspace(identity string) bool {
+	if isInvalidReservedTownSubaddress(identity) {
+		return false
+	}
+
 	parts := strings.Split(identity, "/")
 
 	switch len(parts) {
@@ -1030,7 +1037,8 @@ func (r *Router) validateAgentWorkspace(identity string) bool {
 			return dirExists(filepath.Join(r.townRoot, parts[0], parts[1], parts[2]))
 		}
 		// Dog addresses: deacon/dogs/<name>
-		if dirExists(filepath.Join(r.townRoot, parts[0], parts[1], parts[2])) {
+		if parts[0] == constants.RoleDeacon && parts[1] == "dogs" && parts[2] != "" &&
+			dirExists(filepath.Join(r.townRoot, parts[0], parts[1], parts[2])) {
 			return true
 		}
 	}
@@ -1981,4 +1989,12 @@ func townOrDogSessionName(address string) (string, bool) {
 
 func isReservedTownSubaddress(address string) bool {
 	return strings.HasPrefix(address, constants.RoleMayor+"/") || strings.HasPrefix(address, constants.RoleDeacon+"/")
+}
+
+func isInvalidReservedTownSubaddress(address string) bool {
+	if !isReservedTownSubaddress(address) {
+		return false
+	}
+	identity, err := session.ParseAddress(address)
+	return err != nil || identity.Role != session.RoleDog
 }
