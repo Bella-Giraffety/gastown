@@ -1066,7 +1066,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			fmt.Printf("%s Review-only mode: assignee must evaluate and report back, NOT merge/commit/push\n", style.Bold.Render("⚠"))
 		}
 	}
-	updateAgentMode(targetAgent, mode, hookWorkDir, townBeadsDir)
+	if mode != "" {
+		updateAgentMode(targetAgent, mode, hookWorkDir, townBeadsDir)
+	}
 
 	// Start delayed dog session now that hook is set
 	// This ensures dog sees the hook when gt prime runs on session start

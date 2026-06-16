@@ -106,7 +106,7 @@ func TestAttachmentFormulaVarsRoundTrip(t *testing.T) {
 }
 
 func TestParseAttachmentFieldsLegacyFormulaVarsContinuations(t *testing.T) {
-	desc := "formula_vars: feature=Bug to fix\nissue=gt-abc123\nbase_branch=main\nmode: ralph"
+	desc := "formula_vars: feature=Bug to fix\nissue=gt-abc123\nbase_branch=main\nexample=value\nmode: ralph"
 	fields := ParseAttachmentFields(&Issue{Description: desc})
 	if fields == nil {
 		t.Fatal("ParseAttachmentFields returned nil")
@@ -115,13 +115,16 @@ func TestParseAttachmentFieldsLegacyFormulaVarsContinuations(t *testing.T) {
 	if fields.FormulaVars != want {
 		t.Fatalf("FormulaVars = %q, want %q", fields.FormulaVars, want)
 	}
+	if strings.Contains(fields.FormulaVars, "example=value") {
+		t.Fatalf("prose-like key=value line should not be parsed as formula var: %q", fields.FormulaVars)
+	}
 	if fields.Mode != "ralph" {
 		t.Fatalf("Mode = %q, want ralph", fields.Mode)
 	}
 }
 
 func TestSetAttachmentFieldsRemovesLegacyFormulaVarsContinuations(t *testing.T) {
-	issue := &Issue{Description: "formula_vars: old=1\nissue=old\nbase_branch=old\n\nBody"}
+	issue := &Issue{Description: "formula_vars: old=1\nissue=old\nbase_branch=old\nexample=value\n\nBody"}
 	fields := &AttachmentFields{FormulaVars: "feature=New\nissue=gt-new"}
 
 	newDesc := SetAttachmentFields(issue, fields)
@@ -130,6 +133,9 @@ func TestSetAttachmentFieldsRemovesLegacyFormulaVarsContinuations(t *testing.T) 
 	}
 	if !strings.Contains(newDesc, `formula_vars: ["feature=New","issue=gt-new"]`) {
 		t.Fatalf("new formula_vars missing, got:\n%s", newDesc)
+	}
+	if !strings.Contains(newDesc, "example=value") {
+		t.Fatalf("adjacent prose-like key=value line should be preserved, got:\n%s", newDesc)
 	}
 	if !strings.Contains(newDesc, "Body") {
 		t.Fatalf("prose should be preserved, got:\n%s", newDesc)

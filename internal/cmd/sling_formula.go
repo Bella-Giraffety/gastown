@@ -299,7 +299,9 @@ func runSlingFormula(ctx context.Context, args []string) error {
 	} else if slingArgs != "" {
 		fmt.Printf("%s Args stored in bead (durable)\n", style.Bold.Render("✓"))
 	}
-	updateAgentMode(targetAgent, mode, "", townBeadsDir)
+	if mode != "" {
+		updateAgentMode(targetAgent, mode, "", townBeadsDir)
+	}
 
 	// Start delayed dog session now that hook is set
 	// This ensures dog sees the hook when gt prime runs on session start

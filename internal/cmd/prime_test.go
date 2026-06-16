@@ -919,6 +919,47 @@ func TestCheckSlungWork_StandaloneFormulaUsesWorkflowOutput(t *testing.T) {
 	}
 }
 
+func TestCheckSlungWork_RalphModeUsesLoopDirective(t *testing.T) {
+	configDir := t.TempDir()
+	pluginsDir := filepath.Join(configDir, "plugins")
+	if err := os.MkdirAll(pluginsDir, 0755); err != nil {
+		t.Fatalf("mkdir plugins: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginsDir, "installed_plugins.json"), []byte(`{"plugins":{"ralph-loop@claude-plugins-official":{}}}`), 0644); err != nil {
+		t.Fatalf("write plugin manifest: %v", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+
+	ctx := RoleContext{Role: RoleCrew}
+	hookedBead := &beads.Issue{
+		ID:    "gt-wisp-ralph",
+		Title: "Ralph workflow",
+		Description: strings.Join([]string{
+			"attached_molecule: gt-wisp-ralph",
+			"attached_args: do the loop",
+			"mode: ralph",
+		}, "\n"),
+	}
+
+	var found bool
+	var gotErr error
+	output := captureStdout(t, func() {
+		found, gotErr = checkSlungWork(ctx, hookedBead)
+	})
+	if gotErr != nil {
+		t.Fatalf("checkSlungWork() error = %v", gotErr)
+	}
+	if !found {
+		t.Fatalf("checkSlungWork() = false, want true")
+	}
+	if !strings.Contains(output, "/ralph-loop ") || !strings.Contains(output, "--completion-promise DONE") {
+		t.Fatalf("expected ralph-loop directive, got:\n%s", output)
+	}
+	if strings.Contains(output, "Formula Checklist") {
+		t.Fatalf("ralph mode should emit plugin directive instead of inline checklist, got:\n%s", output)
+	}
+}
+
 // TestCompactResumeReminder_PolecatGetsGtDone verifies that polecats get a
 // gt done reminder after context compaction. This is the regression test for
 // the polecats-no-gt-done bug: after long work sessions, compaction drops the

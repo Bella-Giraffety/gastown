@@ -380,8 +380,10 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		fmt.Printf("  %s Could not store fields in bead: %v\n", style.Dim.Render("Warning:"), err)
 	}
 
-	// Keep agent-bead mode aligned with the hooked work so stale Ralph thresholds clear.
-	updateAgentMode(targetAgent, params.Mode, hookWorkDir, beadsDir)
+	// Update agent bead mode for stuck-detector Ralph thresholds. Reuse/reset clears stale mode.
+	if params.Mode != "" {
+		updateAgentMode(targetAgent, params.Mode, hookWorkDir, beadsDir)
+	}
 
 	// 11. Start polecat session
 	pane, err := spawnInfo.StartSession()

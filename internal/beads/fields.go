@@ -564,7 +564,15 @@ func splitFormulaVars(raw string) []string {
 func looksLikeFormulaVarLine(line string) bool {
 	key, _, ok := strings.Cut(strings.TrimSpace(line), "=")
 	key = strings.TrimSpace(key)
-	return ok && key != "" && !strings.ContainsAny(key, " \t:")
+	if !ok || key == "" || strings.ContainsAny(key, " \t:") {
+		return false
+	}
+	switch key {
+	case "feature", "issue", "base_branch", "resume_branch", "prior_branch", "previous_branch", "branch", "target", "source_issue", "review_id", "problem", "context", "project", "repo", "rig":
+		return true
+	default:
+		return strings.HasSuffix(key, "_branch") || strings.HasSuffix(key, "_issue")
+	}
 }
 
 func isFormulaVarsAttachmentKey(key string) bool {
