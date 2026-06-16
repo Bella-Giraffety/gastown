@@ -159,6 +159,79 @@ esac
 	}
 }
 
+func TestGetIssueDetailsBatchPreservesSuccessfulRouteGroupsOnFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	townRoot, _, _ := makeExternalTrackingTownWorkspace(t)
+	rigDir := filepath.Join(townRoot, "worker", "mayor", "rig")
+	if err := os.MkdirAll(filepath.Join(rigDir, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir rig beads: %v", err)
+	}
+	routes := `{"prefix":"hq-","path":"."}
+{"prefix":"ws-","path":"worker/mayor/rig"}
+`
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+	chdirExternalTrackingTest(t, townRoot)
+
+	logPath := filepath.Join(t.TempDir(), "bd-calls.log")
+	scriptBody := fmt.Sprintf(`
+printf '%%s\n' "$*" >> %q
+
+case "$*" in
+  "--allow-stale version")
+    echo 'bd 1.0.0'
+    exit 0
+    ;;
+  "show --json hq-town"|"--allow-stale show --json hq-town")
+    echo '[{"id":"hq-town","title":"Town task","status":"open","issue_type":"task"}]'
+    ;;
+  "show --json ws-one ws-missing"|"--allow-stale show --json ws-one ws-missing")
+    echo "missing issue in routed batch" >&2
+    exit 1
+    ;;
+  "show ws-one --json"|"--allow-stale show ws-one --json")
+    echo '[{"id":"ws-one","title":"Recovered worker task","status":"open","issue_type":"task"}]'
+    ;;
+  "show ws-missing --json"|"--allow-stale show ws-missing --json")
+    echo "missing issue" >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected bd args: $*" >&2
+    exit 1
+    ;;
+esac
+`, logPath)
+	writeExternalTrackingBdStub(t, scriptBody)
+
+	got := getIssueDetailsBatch([]string{"hq-town", "ws-one", "ws-missing"})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 recovered details, got %d: %#v", len(got), got)
+	}
+	if got["hq-town"] == nil || got["hq-town"].Status != "open" {
+		t.Fatalf("town detail was not preserved from successful route group: %#v", got["hq-town"])
+	}
+	if got["ws-one"] == nil || got["ws-one"].Title != "Recovered worker task" {
+		t.Fatalf("worker detail was not recovered through single lookup: %#v", got["ws-one"])
+	}
+	if got["ws-missing"] != nil {
+		t.Fatalf("missing issue should be omitted, got %#v", got["ws-missing"])
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd call log: %v", err)
+	}
+	log := string(logBytes)
+	if strings.Count(log, "show --json hq-town") != 1 || strings.Contains(log, "show hq-town --json") {
+		t.Fatalf("successful town route group should not be retried:\n%s", log)
+	}
+}
+
 func TestGetTrackedIssues_RoutesShowByPrefix(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping on windows - shell stubs")

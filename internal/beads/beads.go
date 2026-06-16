@@ -1321,6 +1321,7 @@ func (b *Beads) ShowMultiple(ids []string) (map[string]*Issue, error) {
 
 		if len(groups) > 1 || groups[fallbackDir] == nil {
 			result := make(map[string]*Issue, len(ids))
+			var firstErr error
 			for targetDir, groupIDs := range groups {
 				target := b
 				if targetDir != fallbackDir {
@@ -1328,13 +1329,16 @@ func (b *Beads) ShowMultiple(ids []string) (map[string]*Issue, error) {
 				}
 				issues, err := target.showMultipleLocal(groupIDs)
 				if err != nil {
-					return nil, err
+					if firstErr == nil {
+						firstErr = err
+					}
+					continue
 				}
 				for id, issue := range issues {
 					result[id] = issue
 				}
 			}
-			return result, nil
+			return result, firstErr
 		}
 	}
 
