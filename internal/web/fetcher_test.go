@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -347,7 +348,7 @@ func TestParseActivityTimestamp(t *testing.T) {
 // --- calculateWorkerWorkStatus with configurable thresholds ---
 
 func TestCalculateWorkerWorkStatus_DefaultThresholds(t *testing.T) {
-	stale := 5 * time.Minute
+	stale := 15 * time.Minute
 	stuck := 30 * time.Minute
 
 	tests := []struct {
@@ -364,7 +365,7 @@ func TestCalculateWorkerWorkStatus_DefaultThresholds(t *testing.T) {
 		{"very recent is working", 1 * time.Second, "gt-123", "dag", "working"},
 		{"just under stale is working", stale - 1*time.Second, "gt-123", "dag", "working"},
 		{"at stale boundary is stale", stale, "gt-123", "dag", "stale"},
-		{"between stale and stuck is stale", 15 * time.Minute, "gt-123", "dag", "stale"},
+		{"between stale and stuck is stale", stale + (stuck-stale)/2, "gt-123", "dag", "stale"},
 		{"just under stuck is stale", stuck - 1*time.Second, "gt-123", "dag", "stale"},
 		{"at stuck boundary is stuck", stuck, "gt-123", "dag", "stuck"},
 		{"well past stuck is stuck", 2 * time.Hour, "gt-123", "dag", "stuck"},
@@ -431,6 +432,40 @@ func TestCalculateWorkerWorkStatus_ZeroThresholds(t *testing.T) {
 	got := calculateWorkerWorkStatus(0, "gt-1", "dag", 0, 0)
 	if got != "stuck" {
 		t.Errorf("0 age with 0/0 thresholds should be stuck, got %q", got)
+	}
+}
+
+func TestResolveWorkerStatusThresholds_UsesConfigDefaults(t *testing.T) {
+	stale, stuck, heartbeatFresh, mayorActive := resolveWorkerStatusThresholds(&config.WorkerStatusConfig{})
+	if stale != 15*time.Minute {
+		t.Errorf("stale = %v, want 15m", stale)
+	}
+	if stuck != 30*time.Minute {
+		t.Errorf("stuck = %v, want 30m", stuck)
+	}
+	if heartbeatFresh != 5*time.Minute {
+		t.Errorf("heartbeatFresh = %v, want 5m", heartbeatFresh)
+	}
+	if mayorActive != 5*time.Minute {
+		t.Errorf("mayorActive = %v, want 5m", mayorActive)
+	}
+
+	stale, stuck, heartbeatFresh, mayorActive = resolveWorkerStatusThresholds(&config.WorkerStatusConfig{
+		StaleThreshold:          "2m",
+		StuckThreshold:          "garbage",
+		HeartbeatFreshThreshold: "3m",
+	})
+	if stale != 2*time.Minute {
+		t.Errorf("custom stale = %v, want 2m", stale)
+	}
+	if stuck != 30*time.Minute {
+		t.Errorf("invalid stuck = %v, want default 30m", stuck)
+	}
+	if heartbeatFresh != 3*time.Minute {
+		t.Errorf("custom heartbeatFresh = %v, want 3m", heartbeatFresh)
+	}
+	if mayorActive != 5*time.Minute {
+		t.Errorf("empty mayorActive = %v, want default 5m", mayorActive)
 	}
 }
 
@@ -574,6 +609,65 @@ esac
 			t.Fatalf("expected timeout error, got: %v", err)
 		}
 	})
+}
+
+func TestGetAssignedIssuesMapIncludesAssignedStatuses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based command test")
+	}
+
+	binDir := t.TempDir()
+	argsPath := filepath.Join(binDir, "bd.args")
+	bdPath := filepath.Join(binDir, "bd")
+	script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$@" > %q
+cat <<'JSON'
+[
+  {"id":"gt-active","title":"Active work","assignee":"gastown/polecats/alpha","status":"in_progress"},
+  {"id":"gt-hooked","title":"Hooked work","assignee":"gastown/polecats/bravo","status":"hooked"},
+  {"id":"gt-empty","title":"No assignee","assignee":"","status":"hooked"},
+  {"id":"gt-dupe-hooked-first","title":"Hooked first","assignee":"gastown/polecats/dupe","status":"hooked"},
+  {"id":"gt-dupe-active-second","title":"Active second","assignee":"gastown/polecats/dupe","status":"in_progress"},
+  {"id":"gt-dupe-active-first","title":"Active first","assignee":"gastown/polecats/dupe2","status":"in_progress"},
+  {"id":"gt-dupe-hooked-second","title":"Hooked second","assignee":"gastown/polecats/dupe2","status":"hooked"}
+]
+JSON
+`, argsPath)
+	if err := os.WriteFile(bdPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+
+	f := &LiveConvoyFetcher{townRoot: t.TempDir(), cmdTimeout: 5 * time.Second, bdBin: bdPath}
+	issues := f.getAssignedIssuesMap()
+
+	if got := len(issues); got != 4 {
+		t.Fatalf("assigned issues count = %d, want 4: %#v", got, issues)
+	}
+	if got := issues["gastown/polecats/alpha"].ID; got != "gt-active" {
+		t.Fatalf("alpha issue = %q, want gt-active", got)
+	}
+	if got := issues["gastown/polecats/bravo"].ID; got != "gt-hooked" {
+		t.Fatalf("bravo issue = %q, want gt-hooked", got)
+	}
+	if got := issues["gastown/polecats/dupe"].ID; got != "gt-dupe-active-second" {
+		t.Fatalf("dupe issue = %q, want gt-dupe-active-second", got)
+	}
+	if got := issues["gastown/polecats/dupe2"].ID; got != "gt-dupe-active-first" {
+		t.Fatalf("dupe2 issue = %q, want gt-dupe-active-first", got)
+	}
+	if _, ok := issues[""]; ok {
+		t.Fatalf("empty assignee should not be keyed: %#v", issues)
+	}
+
+	argsBytes, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read fake bd args: %v", err)
+	}
+	gotArgs := strings.Split(strings.TrimSpace(string(argsBytes)), "\n")
+	wantArgs := []string{"list", "--status=in_progress,hooked", "--json", "--limit=0", "--flat"}
+	if !reflect.DeepEqual(gotArgs, wantArgs) {
+		t.Fatalf("bd args = %#v, want %#v", gotArgs, wantArgs)
+	}
 }
 
 func TestFetchConvoysBreakerBacksOffAfterBdFailures(t *testing.T) {
