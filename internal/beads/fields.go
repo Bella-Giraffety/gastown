@@ -38,20 +38,12 @@ func ParseAttachmentFields(issue *Issue) *AttachmentFields {
 	fields := &AttachmentFields{}
 	hasFields := false
 	var formulaVars []string
-	collectFormulaVarContinuations := false
 
 	for _, line := range strings.Split(issue.Description, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
-			collectFormulaVarContinuations = false
 			continue
 		}
-		if collectFormulaVarContinuations && looksLikeFormulaVarLine(line) {
-			formulaVars = append(formulaVars, line)
-			hasFields = true
-			continue
-		}
-		collectFormulaVarContinuations = false
 
 		// Look for "key: value" pattern
 		colonIdx := strings.Index(line, ":")
@@ -105,7 +97,6 @@ func ParseAttachmentFields(issue *Issue) *AttachmentFields {
 			hasFields = true
 		case "formula_vars", "formula-vars", "formulavars":
 			formulaVars = append(formulaVars, splitFormulaVars(parseFormulaVars(value))...)
-			collectFormulaVarContinuations = !strings.HasPrefix(strings.TrimSpace(value), "[")
 			hasFields = true
 		}
 	}
@@ -222,19 +213,13 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 	// Collect non-attachment lines from existing description
 	var otherLines []string
 	if issue != nil && issue.Description != "" {
-		skipFormulaVarContinuations := false
 		for _, line := range strings.Split(issue.Description, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" {
-				skipFormulaVarContinuations = false
 				// Preserve blank lines in content
 				otherLines = append(otherLines, line)
 				continue
 			}
-			if skipFormulaVarContinuations && looksLikeFormulaVarLine(trimmed) {
-				continue
-			}
-			skipFormulaVarContinuations = false
 
 			// Check if this is an attachment field line
 			colonIdx := strings.Index(trimmed, ":")
@@ -246,8 +231,6 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 			key := strings.ToLower(strings.TrimSpace(trimmed[:colonIdx]))
 			if !attachmentKeys[key] {
 				otherLines = append(otherLines, line)
-			} else if isFormulaVarsAttachmentKey(key) {
-				skipFormulaVarContinuations = true
 			}
 			// Skip attachment field lines - they'll be replaced
 		}
@@ -559,29 +542,6 @@ func splitFormulaVars(raw string) []string {
 		}
 	}
 	return out
-}
-
-func looksLikeFormulaVarLine(line string) bool {
-	key, _, ok := strings.Cut(strings.TrimSpace(line), "=")
-	key = strings.TrimSpace(key)
-	if !ok || key == "" || strings.ContainsAny(key, " \t:") {
-		return false
-	}
-	switch key {
-	case "feature", "issue", "base_branch", "resume_branch", "prior_branch", "previous_branch", "branch", "target", "source_issue", "review_id", "problem", "context", "project", "repo", "rig":
-		return true
-	default:
-		return strings.HasSuffix(key, "_branch") || strings.HasSuffix(key, "_issue")
-	}
-}
-
-func isFormulaVarsAttachmentKey(key string) bool {
-	switch key {
-	case "formula_vars", "formula-vars", "formulavars":
-		return true
-	default:
-		return false
-	}
 }
 
 // SetConvoyFields updates an issue's description with the given convoy fields.

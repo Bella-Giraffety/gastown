@@ -197,12 +197,28 @@ func runSlingFormula(ctx context.Context, args []string) error {
 		return fmt.Errorf("serializing formula sling for %s: %w", targetAgent, assigneeLockErr)
 	}
 	defer assigneeUnlock()
+	mode := ""
+	if slingRalph {
+		mode = "ralph"
+	}
 
 	existing, err := findHookedFormulaSingletonFn(formulaWorkDir, targetAgent, formulaName)
 	if err != nil {
 		return fmt.Errorf("checking existing hooked formulas for %s: %w", targetAgent, err)
 	}
 	if existing != nil && !slingForce {
+		existingMode := ""
+		if fields := beads.ParseAttachmentFields(existing); fields != nil {
+			existingMode = fields.Mode
+		}
+		if existingMode != mode {
+			if err := storeFieldsInBead(existing.ID, beadFieldUpdates{Mode: &mode}); err != nil {
+				return fmt.Errorf("updating existing formula mode: %w", err)
+			}
+			if mode != "" || existingMode != "" {
+				updateAgentMode(targetAgent, mode, "", townBeadsDir)
+			}
+		}
 		fmt.Printf("%s Formula %s already hooked to %s via %s, no-op\n",
 			style.Dim.Render("○"), formulaName, targetAgent, existing.ID)
 		return nil
@@ -282,10 +298,6 @@ func runSlingFormula(ctx context.Context, args []string) error {
 	// attached_molecule as a self-reference (the wisp's own ID pointing to itself
 	// is meaningless). attached_molecule is only meaningful when a formula-on-bead
 	// creates a wisp that's bonded to a separate base bead.
-	mode := ""
-	if slingRalph {
-		mode = "ralph"
-	}
 	fieldUpdates := beadFieldUpdates{
 		Dispatcher:      actor,
 		Args:            slingArgs,

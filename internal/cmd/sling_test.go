@@ -1708,6 +1708,81 @@ exit /b 0
 	}
 }
 
+func TestRunSlingFormulaUpdatesModeWhenSameFormulaAlreadyHooked(t *testing.T) {
+	townRoot := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	bdScript := `#!/bin/sh
+exit 0
+`
+	bdScriptWindows := `@echo off
+exit /b 0
+`
+	_ = writeBDStub(t, binDir, bdScript, bdScriptWindows)
+
+	attachedLogPath := filepath.Join(townRoot, "attached-molecule.log")
+	t.Setenv("GT_TEST_ATTACHED_MOLECULE_LOG", attachedLogPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(EnvGTRole, "mayor")
+	t.Setenv("GT_POLECAT", "")
+	t.Setenv("GT_CREW", "")
+	t.Setenv("TMUX_PANE", "")
+	t.Setenv("GT_TEST_NO_NUDGE", "1")
+	t.Setenv("GT_TEST_SKIP_HOOK_VERIFY", "1")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevDryRun := slingDryRun
+	prevNoBoot := slingNoBoot
+	prevForce := slingForce
+	prevRalph := slingRalph
+	prevFindSingleton := findHookedFormulaSingletonFn
+	t.Cleanup(func() {
+		slingDryRun = prevDryRun
+		slingNoBoot = prevNoBoot
+		slingForce = prevForce
+		slingRalph = prevRalph
+		findHookedFormulaSingletonFn = prevFindSingleton
+	})
+
+	slingDryRun = false
+	slingNoBoot = true
+	slingForce = false
+	slingRalph = false
+	findHookedFormulaSingletonFn = func(workDir, targetAgent, formulaName string) (*beads.Issue, error) {
+		return &beads.Issue{ID: "gt-wisp-existing", Description: "attached_formula: mol-anything\nmode: ralph"}, nil
+	}
+
+	if err := runSlingFormula(context.Background(), []string{"mol-anything"}); err != nil {
+		t.Fatalf("runSlingFormula: %v", err)
+	}
+
+	attachmentBytes, err := os.ReadFile(attachedLogPath)
+	if err != nil {
+		t.Fatalf("read attachment log: %v", err)
+	}
+	if strings.Contains(string(attachmentBytes), "mode: ralph") {
+		t.Fatalf("same-formula normal sling should clear stale ralph mode, got:\n%s", string(attachmentBytes))
+	}
+}
+
 // TestSlingFormulaOnBeadPassesFeatureAndIssueVars verifies that when using
 // gt sling <formula> --on <bead>, both --var feature=<title> and --var issue=<beadID>
 // are passed to the bd mol wisp command.
