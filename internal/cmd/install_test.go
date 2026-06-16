@@ -22,15 +22,15 @@ func TestBuildBdInitArgs_AlwaysIncludesServerPortWithoutReinit(t *testing.T) {
 	t.Setenv("BEADS_DOLT_PORT", "")
 
 	args := buildBdInitArgs(townDir)
+	want := []string{"init", "--prefix", "hq", "--server", "--server-port", "3307"}
 
-	if len(args) != 6 {
-		t.Fatalf("expected 6 args, got %d: %v", len(args), args)
+	if len(args) != len(want) {
+		t.Fatalf("expected %d args, got %d: %v", len(want), len(args), args)
 	}
-	if args[4] != "--server-port" {
-		t.Fatalf("expected args[4] = --server-port, got %q", args[4])
-	}
-	if args[5] != "3307" {
-		t.Fatalf("expected default port 3307, got %q", args[5])
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("expected args[%d] = %q, got %q; full args: %v", i, want[i], args[i], args)
+		}
 	}
 	for _, arg := range args {
 		if arg == "--force" || arg == "--reinit-local" {

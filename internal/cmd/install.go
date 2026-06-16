@@ -698,8 +698,6 @@ func initTownBeads(townPath string) error {
 	// Filter inherited BEADS_DIR so bd init targets this town, not a parent .beads.
 	// Always pass --server-port so bd connects to the correct Dolt server.
 	// DefaultConfig resolves the port from config.yaml > GT_DOLT_PORT env > default (3307).
-	// Forward GT_DOLT_PORT so bd connects to the correct server when a
-	// non-default port is configured (e.g., ephemeral test servers in CI).
 	bdInitArgs := buildBdInitArgs(townPath)
 	cmd := exec.Command("bd", bdInitArgs...)
 	cmd.Dir = townPath
