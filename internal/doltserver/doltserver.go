@@ -2725,7 +2725,11 @@ func EnsureRigIssuePrefix(townRoot, rigName string, serverMode bool) error {
 	if err != nil {
 		return fmt.Errorf("opening beads database: %w", err)
 	}
-	defer func() { _ = store.Close() }()
+	defer func() {
+		if err := store.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not close beads store after issue_prefix seed: %v\n", err)
+		}
+	}()
 
 	if err := store.SetConfig(ctx, "issue_prefix", prefix); err != nil {
 		return fmt.Errorf("setting issue_prefix: %w", err)
