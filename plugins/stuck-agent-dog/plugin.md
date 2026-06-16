@@ -56,7 +56,7 @@ Default polecat checking is process-liveness only (`GT_STUCK_AGENT_DOG_MAX_INACT
 - Inconclusive health probe: fail safe by skipping action for that session.
 - Mass death: escalate and skip all per-agent restart/kill actions for that cycle.
 
-Deacon checks use heartbeat age plus tmux activity cross-checking. A stale heartbeat with recent tmux activity is treated as heartbeat write divergence, not as stuck.
+Deacon checks use `deacon/heartbeat.json` age plus tmux activity cross-checking. A stale heartbeat with recent tmux activity is treated as heartbeat write divergence, not as stuck.
 
 ## Recording
 
