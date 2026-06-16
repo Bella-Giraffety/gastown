@@ -86,32 +86,41 @@ func TestGetIssueDetailsBatchRoutesTrackedIDsByPrefix(t *testing.T) {
 printf '%%s|%%s|%%s\n' "$PWD" "$BEADS_DIR" "$*" >> %q
 
 case "$*" in
-  "--allow-stale version")
-    exit 0
-    ;;
-  "show hq-town --json"|"--allow-stale show hq-town --json")
+	  "--allow-stale version")
+	    echo 'bd 1.0.0'
+	    exit 0
+	    ;;
+	  "show --json hq-town"|"--allow-stale show --json hq-town"|"show hq-town --json"|"--allow-stale show hq-town --json")
     if [ "$PWD" != "%s" ]; then
       echo "expected town dir, got $PWD" >&2
       exit 1
     fi
-    if [ "$BEADS_DIR" != "%s/.beads" ]; then
-      echo "expected town BEADS_DIR, got $BEADS_DIR" >&2
-      exit 1
-    fi
-    echo '[{"id":"hq-town","title":"Town task","status":"open","issue_type":"task","assignee":"mayor","labels":["kind/bug"]}]'
-    ;;
-  "show ws-rig --json"|"--allow-stale show ws-rig --json")
+	    if [ "$BEADS_DIR" != "%s/.beads" ]; then
+	      echo "expected town BEADS_DIR, got $BEADS_DIR" >&2
+	      exit 1
+	    fi
+	    if [ "$BEADS_DOLT_SERVER_DATABASE" = "wrong-db" ]; then
+	      echo "stale Dolt database leaked" >&2
+	      exit 1
+	    fi
+	    echo '[{"id":"hq-town","title":"Town task","status":"open","issue_type":"task","assignee":"mayor","labels":["kind/bug"]}]'
+	    ;;
+	  "show --json ws-rig"|"--allow-stale show --json ws-rig"|"show ws-rig --json"|"--allow-stale show ws-rig --json")
     if [ "$PWD" != "%s" ]; then
       echo "expected rig dir, got $PWD" >&2
       exit 1
     fi
-    if [ "$BEADS_DIR" != "%s/.beads" ]; then
-      echo "expected rig BEADS_DIR, got $BEADS_DIR" >&2
-      exit 1
-    fi
-    echo '[{"id":"ws-rig","title":"Rig task","status":"closed","issue_type":"task","assignee":"gastown/polecats/chrome","labels":["cleanup"],"dependencies":[{"id":"ws-blocker","status":"open","dependency_type":"blocks"}]}]'
-    ;;
-  *"show hq-town ws-rig --json"*|*"show ws-rig hq-town --json"*)
+	    if [ "$BEADS_DIR" != "%s/.beads" ]; then
+	      echo "expected rig BEADS_DIR, got $BEADS_DIR" >&2
+	      exit 1
+	    fi
+	    if [ "$BEADS_DOLT_SERVER_DATABASE" = "wrong-db" ]; then
+	      echo "stale Dolt database leaked" >&2
+	      exit 1
+	    fi
+	    echo '[{"id":"ws-rig","title":"Rig task","status":"closed","issue_type":"task","assignee":"gastown/polecats/chrome","labels":["cleanup"],"dependencies":[{"id":"ws-blocker","status":"open","dependency_type":"blocks"}]}]'
+	    ;;
+	  *"show hq-town ws-rig --json"*|*"show ws-rig hq-town --json"*|*"show --json hq-town ws-rig"*|*"show --json ws-rig hq-town"*)
     echo "mixed-prefix batch should not be used" >&2
     exit 1
     ;;
@@ -142,7 +151,10 @@ esac
 		t.Fatalf("read bd call log: %v", err)
 	}
 	log := string(logBytes)
-	if strings.Contains(log, "show hq-town ws-rig --json") || strings.Contains(log, "show ws-rig hq-town --json") {
+	if strings.Contains(log, "show hq-town ws-rig --json") ||
+		strings.Contains(log, "show ws-rig hq-town --json") ||
+		strings.Contains(log, "show --json hq-town ws-rig") ||
+		strings.Contains(log, "show --json ws-rig hq-town") {
 		t.Fatalf("mixed-prefix batch call was used:\n%s", log)
 	}
 }
@@ -165,6 +177,7 @@ func TestGetTrackedIssues_RoutesShowByPrefix(t *testing.T) {
 	}
 	chdirExternalTrackingTest(t, townRoot)
 	t.Setenv("BEADS_DIR", "/wrong/.beads")
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "wrong-db")
 
 	expectedRigWD := rigDir
 	if resolved, err := filepath.EvalSymlinks(rigDir); err == nil && resolved != "" {
@@ -172,35 +185,48 @@ func TestGetTrackedIssues_RoutesShowByPrefix(t *testing.T) {
 	}
 	scriptBody := fmt.Sprintf(`
 case "$*" in
-  "--allow-stale version")
-    exit 0
-    ;;
-  *sql*dependencies*)
-    echo '[{"depends_on_id":"ws-123"},{"depends_on_id":"hq-456"}]'
-    ;;
-  "show ws-123 --json"|"--allow-stale show ws-123 --json")
+	  "--allow-stale version")
+	    echo 'bd 1.0.0'
+	    exit 0
+	    ;;
+	  *sql*dependencies*)
+	    if [ "$BEADS_DOLT_SERVER_DATABASE" = "wrong-db" ]; then
+	      echo "stale Dolt database leaked into sql" >&2
+	      exit 1
+	    fi
+	    echo '[{"depends_on_id":"ws-123"},{"depends_on_id":"hq-456"}]'
+	    ;;
+	  "show --json ws-123"|"--allow-stale show --json ws-123"|"show ws-123 --json"|"--allow-stale show ws-123 --json")
     if [ "$PWD" != "%s" ]; then
       echo "expected rig dir, got $PWD" >&2
       exit 1
     fi
-    if [ "$BEADS_DIR" != "%s/.beads" ]; then
-      echo "expected rig BEADS_DIR, got $BEADS_DIR" >&2
-      exit 1
-    fi
-    echo '[{"id":"ws-123","title":"Worker issue","status":"open","issue_type":"task"}]'
-    ;;
-  "show hq-456 --json"|"--allow-stale show hq-456 --json")
+	    if [ "$BEADS_DIR" != "%s/.beads" ]; then
+	      echo "expected rig BEADS_DIR, got $BEADS_DIR" >&2
+	      exit 1
+	    fi
+	    if [ "$BEADS_DOLT_SERVER_DATABASE" = "wrong-db" ]; then
+	      echo "stale Dolt database leaked" >&2
+	      exit 1
+	    fi
+	    echo '[{"id":"ws-123","title":"Worker issue","status":"open","issue_type":"task"}]'
+	    ;;
+	  "show --json hq-456"|"--allow-stale show --json hq-456"|"show hq-456 --json"|"--allow-stale show hq-456 --json")
     if [ "$PWD" != "%s" ]; then
       echo "expected town dir, got $PWD" >&2
       exit 1
     fi
-    if [ "$BEADS_DIR" != "%s/.beads" ]; then
-      echo "expected town BEADS_DIR, got $BEADS_DIR" >&2
-      exit 1
-    fi
-    echo '[{"id":"hq-456","title":"Town issue","status":"closed","issue_type":"task"}]'
-    ;;
-  *"show ws-123 hq-456 --json"*|*"show hq-456 ws-123 --json"*)
+	    if [ "$BEADS_DIR" != "%s/.beads" ]; then
+	      echo "expected town BEADS_DIR, got $BEADS_DIR" >&2
+	      exit 1
+	    fi
+	    if [ "$BEADS_DOLT_SERVER_DATABASE" = "wrong-db" ]; then
+	      echo "stale Dolt database leaked" >&2
+	      exit 1
+	    fi
+	    echo '[{"id":"hq-456","title":"Town issue","status":"closed","issue_type":"task"}]'
+	    ;;
+	  *"show ws-123 hq-456 --json"*|*"show hq-456 ws-123 --json"*|*"show --json ws-123 hq-456"*|*"show --json hq-456 ws-123"*)
     echo "mixed-prefix batch should not be used" >&2
     exit 1
     ;;

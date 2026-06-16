@@ -2496,6 +2496,18 @@ func getIssueDetailsBatch(issueIDs []string) map[string]*issueDetails {
 		return result
 	}
 
+	issues, err := client.ShowMultiple(issueIDs)
+	if err == nil {
+		for id, issue := range issues {
+			if details := issueToDetails(issue); details != nil {
+				result[id] = details
+			}
+		}
+		return result
+	}
+
+	// If a grouped batch fails because one ID is missing or stale, keep the
+	// previous best-effort behavior and recover any IDs that still resolve.
 	for _, id := range issueIDs {
 		if details := getIssueDetailsWithClient(client, id); details != nil {
 			result[id] = details
