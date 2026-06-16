@@ -363,7 +363,7 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		AttachedFormula:  params.FormulaName,
 		NoMerge:          params.NoMerge,
 		ReviewOnly:       params.ReviewOnly,
-		Mode:             params.Mode,
+		Mode:             &params.Mode,
 		FormulaVars:      strings.Join(allVars, "\n"),
 	}
 	// Use beadToHook for the update target (may differ from beadID when formula-on-bead)
@@ -371,7 +371,8 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		fmt.Printf("  %s Could not store fields in bead: %v\n", style.Dim.Render("Warning:"), err)
 	}
 
-	// Update agent bead mode (for stuck detector to identify ralphcats)
+	// Update agent bead mode for stuck-detector Ralph thresholds. Reuse/reset
+	// clears stale mode, so normal dispatches avoid extra agent-bead writes.
 	if params.Mode != "" {
 		updateAgentMode(targetAgent, params.Mode, hookWorkDir, beadsDir)
 	}

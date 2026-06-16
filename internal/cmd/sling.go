@@ -931,6 +931,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	}
 
 	// Formula-on-bead mode: instantiate formula and bond to original bead
+	formulaVarsForAttachment := strings.Join(slingVars, "\n")
 	if formulaName != "" {
 		fmt.Printf("  Instantiating formula %s...\n", formulaName)
 
@@ -967,6 +968,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		// - gt done: close attached_molecule (wisp) first, then close base bead
 		// - Compound resolution: base bead -> attached_molecule -> wisp
 		attachedMoleculeID = result.WispRootID
+		if len(result.FormulaVars) > 0 {
+			formulaVarsForAttachment = strings.Join(result.FormulaVars, "\n")
+		}
 
 		// NOTE: We intentionally keep beadID as the ORIGINAL base bead, not the wisp.
 		// The base bead is hooked so that:
@@ -1026,6 +1030,10 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// Store all attachment fields in a single read-modify-write cycle.
 	// This eliminates the race condition where sequential independent updates
 	// (dispatcher, args, no_merge, attached_molecule) could overwrite each other.
+	mode := ""
+	if slingRalph {
+		mode = "ralph"
+	}
 	fieldUpdates := buildSlingFieldUpdates(
 		actor,
 		slingArgs,
@@ -1034,7 +1042,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		formulaName,
 		slingNoMerge,
 		slingReviewOnly,
-		strings.Join(slingVars, "\n"),
+		mode,
+		formulaVarsForAttachment,
 		convoyID,
 		slingMerge,
 		slingOwned,
@@ -1052,6 +1061,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		if slingReviewOnly {
 			fmt.Printf("%s Review-only mode: assignee must evaluate and report back, NOT merge/commit/push\n", style.Bold.Render("⚠"))
 		}
+	}
+	if mode != "" {
+		updateAgentMode(targetAgent, mode, hookWorkDir, townBeadsDir)
 	}
 
 	// Start delayed dog session now that hook is set

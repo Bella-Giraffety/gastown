@@ -282,17 +282,25 @@ func runSlingFormula(ctx context.Context, args []string) error {
 	// attached_molecule as a self-reference (the wisp's own ID pointing to itself
 	// is meaningless). attached_molecule is only meaningful when a formula-on-bead
 	// creates a wisp that's bonded to a separate base bead.
+	mode := ""
+	if slingRalph {
+		mode = "ralph"
+	}
 	fieldUpdates := beadFieldUpdates{
 		Dispatcher:      actor,
 		Args:            slingArgs,
 		Vars:            append([]string(nil), slingVars...),
 		AttachedFormula: formulaName,
+		Mode:            &mode,
 		FormulaVars:     strings.Join(slingVars, "\n"),
 	}
 	if err := storeFieldsInBead(wispRootID, fieldUpdates); err != nil {
 		fmt.Printf("%s Could not store fields in bead: %v\n", style.Dim.Render("Warning:"), err)
 	} else if slingArgs != "" {
 		fmt.Printf("%s Args stored in bead (durable)\n", style.Bold.Render("✓"))
+	}
+	if mode != "" {
+		updateAgentMode(targetAgent, mode, "", townBeadsDir)
 	}
 
 	// Start delayed dog session now that hook is set
