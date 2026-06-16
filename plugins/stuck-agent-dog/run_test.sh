@@ -223,7 +223,7 @@ setup_case() {
 
   write_fake_commands "$bin_dir"
   export PATH="$bin_dir:$ORIGINAL_PATH"
-  export GT_STUCK_AGENT_DOG_MAX_INACTIVITY=0
+  export GT_STUCK_AGENT_DOG_MAX_INACTIVITY=0s
 }
 
 add_polecat() {
@@ -250,7 +250,7 @@ test_healthy_runtime() {
   assert_file_empty "$TEST_STATE/kill.log" "$runtime healthy: no session kill"
   assert_file_empty "$TEST_STATE/mail.log" "$runtime healthy: no restart mail"
   assert_file_empty "$TEST_STATE/escalate.log" "$runtime healthy: no escalation"
-  assert_file_contains "$TEST_STATE/health_calls.log" "gt-$runtime --max-inactivity 0" "$runtime healthy: used central health"
+  assert_file_contains "$TEST_STATE/health_calls.log" "gt-$runtime --max-inactivity 0s" "$runtime healthy: used central health"
 }
 
 test_long_research_active_pane() {

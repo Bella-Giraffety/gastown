@@ -36,13 +36,13 @@ Polecat liveness uses `gt session health <tmux-session> --json`, which wraps the
 
 This is load-bearing: OpenCode sessions may run as `opencode`, `node`, or `bun`, and custom agents can declare their own `process_names`. Do not reintroduce Claude-only plugin-local process regexes.
 
-Default polecat checking is process-liveness only (`GT_STUCK_AGENT_DOG_MAX_INACTIVITY=0`) so quiet long-running research turns are not treated as stuck. Operators may set `GT_STUCK_AGENT_DOG_MAX_INACTIVITY` to a Go duration such as `30m` to report `agent-hung`; the script observes that state but does not kill a live runtime.
+Default polecat checking is process-liveness only (`GT_STUCK_AGENT_DOG_MAX_INACTIVITY=0s`) so quiet long-running research turns are not treated as stuck. Operators may set `GT_STUCK_AGENT_DOG_MAX_INACTIVITY` to a Go duration such as `30m` to report `agent-hung`; the script observes that state but does not kill a live runtime.
 
 ## Config
 
 `run.sh` supports these environment overrides:
 
-- `GT_STUCK_AGENT_DOG_MAX_INACTIVITY`: Go duration for optional inactivity reporting; default `0` disables activity checks.
+- `GT_STUCK_AGENT_DOG_MAX_INACTIVITY`: Go duration for optional inactivity reporting; default `0s` disables activity checks.
 - `GT_STUCK_AGENT_DOG_DEACON_STALE_SECONDS`: deacon heartbeat stale threshold; default `1200`.
 - `GT_STUCK_AGENT_DOG_ACTIVITY_GRACE_SECONDS`: recent tmux activity grace for stale deacon heartbeats; default matches the deacon stale threshold.
 - `GT_STUCK_AGENT_DOG_MASS_DEATH_THRESHOLD`: number of crashed/stuck polecats that triggers mass-death escalation; default `3`.
