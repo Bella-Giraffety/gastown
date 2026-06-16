@@ -137,16 +137,23 @@ func (r *Resolver) validateAgentAddress(address string) error {
 		return nil
 	}
 
-	normalized := normalizeAddress(strings.TrimSuffix(address, "/"))
+	rawAddress := strings.TrimSpace(address)
+	normalized := normalizeAddress(strings.TrimSuffix(rawAddress, "/"))
 
 	// Well-known town-level singletons always valid
 	switch normalized {
 	case constants.RoleMayor + "/", constants.RoleMayor, constants.RoleDeacon + "/", constants.RoleDeacon, "overseer":
 		return nil
 	}
+	if isInvalidReservedTownSubaddress(normalizeAddress(rawAddress)) {
+		return fmt.Errorf("%w: %s (invalid reserved town address)", ErrUnknownRecipient, address)
+	}
 
 	parts := strings.SplitN(normalized, "/", 3)
 	if len(parts) < 2 || parts[1] == "" {
+		return fmt.Errorf("%w: %s", ErrUnknownRecipient, address)
+	}
+	if !validWorkspaceIdentityParts(parts) {
 		return fmt.Errorf("%w: %s", ErrUnknownRecipient, address)
 	}
 
@@ -478,6 +485,12 @@ func AgentBeadIDToAddress(id string) string {
 	// Agent bead IDs include the role explicitly: <prefix>-<rig>-<role>[-<name>]
 	// Scan from right for known role markers to handle hyphenated rig names.
 	parts := strings.Split(rest, "-")
+	if len(parts) > 0 && parts[0] == "dog" {
+		if len(parts) > 1 {
+			return constants.RoleDeacon + "/dogs/" + strings.Join(parts[1:], "-")
+		}
+		return constants.RoleDeacon + "/dogs/"
+	}
 
 	if len(parts) == 1 {
 		// Town-level: gt-mayor → mayor/
@@ -511,9 +524,9 @@ func AgentBeadIDToAddress(id string) string {
 			// Town-level named: gt-dog-alpha
 			if i+1 < len(parts) {
 				name := strings.Join(parts[i+1:], "-")
-				return "dog/" + name
+				return constants.RoleDeacon + "/dogs/" + name
 			}
-			return "dog/"
+			return constants.RoleDeacon + "/dogs/"
 		}
 	}
 

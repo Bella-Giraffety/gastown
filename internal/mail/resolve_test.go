@@ -1,6 +1,9 @@
 package mail
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/beads"
@@ -57,6 +60,11 @@ func TestAgentBeadIDToAddress(t *testing.T) {
 		// Town-level agents (hq- prefix)
 		{"hq-mayor", "mayor/"},
 		{"hq-deacon", "deacon/"},
+		{"hq-dog-alpha", "deacon/dogs/alpha"},
+		{"hq-dog-my-dog", "deacon/dogs/my-dog"},
+
+		// Legacy town-level dog IDs
+		{"gt-dog-alpha", "deacon/dogs/alpha"},
 
 		// Rig singletons
 		{"gt-gastown-witness", "gastown/witness"},
@@ -83,6 +91,62 @@ func TestAgentBeadIDToAddress(t *testing.T) {
 			got := AgentBeadIDToAddress(tt.id)
 			if got != tt.want {
 				t.Errorf("AgentBeadIDToAddress(%q) = %q, want %q", tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolverValidateAgentAddressReservedTownAndWorkspace(t *testing.T) {
+	townRoot := t.TempDir()
+	for _, dir := range []string{
+		filepath.Join(townRoot, "deacon", "dogs", "fido"),
+		filepath.Join(townRoot, "deacon", "dogs", "fido", "extra"),
+		filepath.Join(townRoot, "deacon", "foo"),
+		filepath.Join(townRoot, "mayor", "foo"),
+		filepath.Join(townRoot, "rig", "crew", "alice"),
+		filepath.Join(townRoot, "rig", "crew", "alice", "extra"),
+		filepath.Join(townRoot, "rig", "crew", "bad\\name"),
+	} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("creating test dir %s: %v", dir, err)
+		}
+	}
+
+	resolver := NewResolver(nil, townRoot)
+	tests := []struct {
+		name    string
+		address string
+		wantErr bool
+	}{
+		{"valid dog workspace", "deacon/dogs/fido", false},
+		{"valid crew workspace", "rig/crew/alice", false},
+		{"dog pool without name", "deacon/dogs", true},
+		{"dog with empty name", "deacon/dogs/", true},
+		{"dog current dir", "deacon/dogs/.", true},
+		{"dog parent dir", "deacon/dogs/..", true},
+		{"dog trailing slash", "deacon/dogs/fido/", true},
+		{"dog extra segment", "deacon/dogs/fido/extra", true},
+		{"reserved deacon subpath", "deacon/foo", true},
+		{"reserved mayor subpath", "mayor/foo", true},
+		{"crew parent dir", "rig/crew/..", true},
+		{"crew extra segment", "rig/crew/alice/extra", true},
+		{"crew backslash name", "rig/crew/bad\\name", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := resolver.validateAgentAddress(tt.address)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("validateAgentAddress(%q) succeeded, want error", tt.address)
+				}
+				if !errors.Is(err, ErrUnknownRecipient) {
+					t.Fatalf("validateAgentAddress(%q) error = %v, want ErrUnknownRecipient", tt.address, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateAgentAddress(%q) error = %v", tt.address, err)
 			}
 		})
 	}
