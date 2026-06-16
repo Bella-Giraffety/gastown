@@ -1862,13 +1862,16 @@ func (r *Router) isRecipientMuted(address string) bool {
 // addressToAgentBeadID converts a mail address to an agent bead ID for DND lookup.
 // Returns empty string if the address cannot be converted.
 func addressToAgentBeadID(address string) string {
+	if sessionName, ok := townOrDogSessionName(address); ok {
+		return sessionName
+	}
+	if isReservedTownSubaddress(address) {
+		return ""
+	}
+
 	switch {
 	case address == "overseer":
 		return "" // Overseer is a human, no agent bead
-	case strings.HasPrefix(address, constants.RoleMayor):
-		return session.MayorSessionName()
-	case strings.HasPrefix(address, constants.RoleDeacon):
-		return session.DeaconSessionName()
 	}
 
 	parts := strings.SplitN(address, "/", 2)
@@ -1913,14 +1916,11 @@ func AddressToSessionIDs(address string) []string {
 		return []string{session.OverseerSessionName()}
 	}
 
-	// Mayor address: "mayor/" or "mayor"
-	if strings.HasPrefix(address, constants.RoleMayor) {
-		return []string{session.MayorSessionName()}
+	if sessionName, ok := townOrDogSessionName(address); ok {
+		return []string{sessionName}
 	}
-
-	// Deacon address: "deacon/" or "deacon"
-	if strings.HasPrefix(address, constants.RoleDeacon) {
-		return []string{session.DeaconSessionName()}
+	if isReservedTownSubaddress(address) {
+		return nil
 	}
 
 	// Rig-based address: "rig/target" or "rig/crew/name" or "rig/polecats/name"
@@ -1964,4 +1964,21 @@ func AddressToSessionIDs(address string) []string {
 		session.CrewSessionName(rigPrefix, target),    // <prefix>-crew-name
 		session.PolecatSessionName(rigPrefix, target), // <prefix>-name
 	}
+}
+
+func townOrDogSessionName(address string) (string, bool) {
+	identity, err := session.ParseAddress(address)
+	if err != nil {
+		return "", false
+	}
+	switch identity.Role {
+	case session.RoleMayor, session.RoleDeacon, session.RoleDog:
+		return identity.SessionName(), true
+	default:
+		return "", false
+	}
+}
+
+func isReservedTownSubaddress(address string) bool {
+	return strings.HasPrefix(address, constants.RoleMayor+"/") || strings.HasPrefix(address, constants.RoleDeacon+"/")
 }

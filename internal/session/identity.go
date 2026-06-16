@@ -44,6 +44,16 @@ func ParseAddress(address string) (*AgentIdentity, error) {
 	if address == "overseer" {
 		return nil, fmt.Errorf("overseer has no session")
 	}
+	if strings.HasPrefix(address, string(RoleDeacon)+"/dogs/") {
+		name := strings.TrimPrefix(address, string(RoleDeacon)+"/dogs/")
+		if name == "" || strings.Contains(name, "/") {
+			return nil, fmt.Errorf("invalid address %q", address)
+		}
+		return &AgentIdentity{Role: RoleDog, Name: name}, nil
+	}
+	if strings.HasPrefix(address, string(RoleMayor)+"/") || strings.HasPrefix(address, string(RoleDeacon)+"/") {
+		return nil, fmt.Errorf("invalid address %q", address)
+	}
 
 	address = strings.TrimSuffix(address, "/")
 	parts := strings.Split(address, "/")
