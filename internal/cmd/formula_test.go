@@ -304,6 +304,7 @@ func TestWorkflowStepTargetFromDescription(t *testing.T) {
 		want        string
 	}{
 		{name: "no metadata", description: "Body only", want: ""},
+		{name: "empty target means rig", description: "workflow_target:\n\nBody", want: "gastown"},
 		{name: "mayor", description: "workflow_target: mayor\n\nBody", want: "mayor"},
 		{name: "rig alias", description: "workflow_target: rig\n\nBody", want: "gastown"},
 		{name: "path target", description: "workflow_target: gastown/crew/alex\n\nBody", want: "gastown/crew/alex"},

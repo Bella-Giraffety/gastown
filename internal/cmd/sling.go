@@ -483,7 +483,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		// Capacity-neutral targets fall through to direct dispatch: they do not
 		// spawn or occupy polecat slots, so the polecat scheduler should not gate them.
 		if !isCapacityNeutralTarget(args[1]) {
-			return fmt.Errorf("deferred dispatch requires a rig or capacity-neutral target: gt sling %s <rig>\n'%s' is not a known rig or capacity-neutral target", args[0], args[1])
+			return fmt.Errorf("deferred dispatch requires a rig target or capacity-neutral target: gt sling %s <rig>\n'%s' is not a known rig or capacity-neutral target", args[0], args[1])
 		}
 		// else: fall through to direct dispatch path below.
 	}
