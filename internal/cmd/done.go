@@ -99,6 +99,10 @@ func agentStateAfterDone(exitType string, completionFinalized bool) string {
 	return string(beads.AgentStateStuck)
 }
 
+func shouldFinalizeHookAfterDone(exitType, hookedBeadID string, completionFinalized bool) bool {
+	return completionFinalized || (exitType == ExitDeferred && strings.Contains(hookedBeadID, "-wfs-"))
+}
+
 func cleanupStatusAfterSuccessfulPush(status string) string {
 	if status == "unpushed" || status == "has_unpushed" {
 		return "clean"
@@ -1902,9 +1906,7 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string, completionF
 	// Workflow step beads (*-wfs-*) are ephemeral formula steps managed by the workflow
 	// engine. For these, DEFERRED means "step complete, no code commits" not "work
 	// paused for resumption". Close them on DEFERRED so the convoy can advance.
-	isWorkflowStep := strings.Contains(hookedBeadID, "-wfs-")
-
-	finalizeHook := completionFinalized || (exitType == ExitDeferred && isWorkflowStep)
+	finalizeHook := shouldFinalizeHookAfterDone(exitType, hookedBeadID, completionFinalized)
 	if hookedBeadID != "" && finalizeHook {
 		// BUG FIX (gt-pftz): Close hooked bead unless already terminal (closed/tombstone).
 		// Previously checked hookedBead.Status == StatusHooked, but polecats update

@@ -641,6 +641,30 @@ func TestAgentStateAfterDone(t *testing.T) {
 	}
 }
 
+func TestShouldFinalizeHookAfterDone(t *testing.T) {
+	tests := []struct {
+		name                string
+		exitType            string
+		hookedBeadID        string
+		completionFinalized bool
+		want                bool
+	}{
+		{"finalized completion clears hook", ExitCompleted, "gt-base-123", true, true},
+		{"push or mr failure preserves hook", ExitCompleted, "gt-base-123", false, false},
+		{"deferred work bead preserves hook", ExitDeferred, "gt-base-123", false, false},
+		{"escalated work bead preserves hook", ExitEscalated, "gt-base-123", false, false},
+		{"deferred workflow step closes hook", ExitDeferred, "gt-base-123-wfs-1", false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldFinalizeHookAfterDone(tt.exitType, tt.hookedBeadID, tt.completionFinalized); got != tt.want {
+				t.Errorf("shouldFinalizeHookAfterDone(%q, %q, %v) = %v, want %v", tt.exitType, tt.hookedBeadID, tt.completionFinalized, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCleanupStatusAfterSuccessfulPush(t *testing.T) {
 	tests := []struct {
 		status string
