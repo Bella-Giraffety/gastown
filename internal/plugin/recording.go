@@ -22,11 +22,11 @@ const (
 
 // PluginRunRecord represents data for creating a plugin run bead.
 type PluginRunRecord struct {
-	PluginName string
-	RigName    string
-	Result     RunResult
-	Title      string
-	Body       string
+	PluginName  string
+	RigName     string
+	Result      RunResult
+	Title       string
+	Body        string
 	ExtraLabels []string
 }
 

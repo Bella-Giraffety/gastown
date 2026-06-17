@@ -670,11 +670,11 @@ func runPluginRecordRun(cmd *cobra.Command, args []string) error {
 
 	recorder := plugin.NewRecorder(townRoot)
 	beadID, err := recorder.RecordRun(plugin.PluginRunRecord{
-		PluginName: pluginRecordPlugin,
-		RigName:    pluginRecordRig,
-		Result:     plugin.RunResult(pluginRecordResult),
-		Title:      pluginRecordTitle,
-		Body:       pluginRecordBody,
+		PluginName:  pluginRecordPlugin,
+		RigName:     pluginRecordRig,
+		Result:      plugin.RunResult(pluginRecordResult),
+		Title:       pluginRecordTitle,
+		Body:        pluginRecordBody,
 		ExtraLabels: pluginRecordLabels,
 	})
 	if err != nil {

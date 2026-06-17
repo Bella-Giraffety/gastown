@@ -47,11 +47,11 @@ func TestRecordRunCreatesAndClosesReceipt(t *testing.T) {
 
 	recorder := NewRecorder(townRoot)
 	id, err := recorder.RecordRun(PluginRunRecord{
-		PluginName: "tool-updater",
-		RigName:    "gastown",
-		Result:     RunResult("warning"),
-		Title:      "tool-updater: failed=brew",
-		Body:       "brew failed",
+		PluginName:  "tool-updater",
+		RigName:     "gastown",
+		Result:      RunResult("warning"),
+		Title:       "tool-updater: failed=brew",
+		Body:        "brew failed",
 		ExtraLabels: []string{"source:test"},
 	})
 	if err != nil {
