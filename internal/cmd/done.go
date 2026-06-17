@@ -38,8 +38,7 @@ This is a convenience command for polecats that:
 1. Submits the current branch to the merge queue
 2. Auto-detects issue ID from branch name
 3. Notifies the Witness with the exit outcome
-4. Syncs worktree to main and transitions polecat to IDLE
-   (sandbox preserved, session stays alive for reuse)
+4. Retires the assignment sandbox and exits the polecat session
 
 Exit statuses:
   COMPLETED      - Work done, MR submitted (default)
@@ -47,7 +46,7 @@ Exit statuses:
   DEFERRED       - Work paused, issue still open
 
 Examples:
-  gt done                              # Submit branch, notify COMPLETED, transition to IDLE
+  gt done                              # Submit branch, notify COMPLETED, retire sandbox
   gt done --pre-verified               # Submit with pre-verification fast-path
   gt done --target feat/my-branch      # Explicit MR target branch
   gt done --pre-verified --target feat/contract-review  # Pre-verified with explicit target
@@ -86,11 +85,18 @@ func doneContaminationBaseRef(defaultBranch, explicitTarget string) string {
 	return "origin/" + targetBranch
 }
 
-func shouldSyncIdlePolecatWorktree(exitType, mergeStrategy string, pushFailed, mrFailed, syncSafe bool) bool {
-	if exitType != ExitCompleted || pushFailed || mrFailed || !syncSafe {
+func shouldRetirePolecatAfterDone(exitType, mergeStrategy string, pushFailed, mrFailed, cleanupSafe, submissionSucceeded bool) bool {
+	if exitType != ExitCompleted || pushFailed || mrFailed || !cleanupSafe || !submissionSucceeded {
 		return false
 	}
 	return mergeStrategy != "local"
+}
+
+func agentStateAfterDone(exitType string, completionFinalized bool) string {
+	if exitType == ExitCompleted && completionFinalized {
+		return string(beads.AgentStateDone)
+	}
+	return string(beads.AgentStateStuck)
 }
 
 func cleanupStatusAfterSuccessfulPush(status string) string {
@@ -129,10 +135,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	if exitType != ExitCompleted && exitType != ExitEscalated && exitType != ExitDeferred {
 		return fmt.Errorf("invalid exit status '%s': must be COMPLETED, ESCALATED, or DEFERRED", doneStatus)
 	}
-
-	// Persistent polecat model (gt-hdf8): sessions stay alive after gt done.
-	// No deferred session kill — the polecat transitions to IDLE with sandbox
-	// preserved. The Witness handles any cleanup if the polecat gets stuck.
 
 	// Find workspace with fallback for deleted worktrees (hq-3xaxy)
 	// If the polecat's worktree was deleted by Witness before gt done finishes,
@@ -534,6 +536,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	var pushFailed bool
 	var mrFailed bool
 	var doneErrors []string
+	var completionFinalized bool
+	var submissionSucceeded bool
 	var convoyInfo *ConvoyInfo // Populated if issue is tracked by a convoy
 	if exitType == ExitCompleted {
 		if branch == defaultBranch || branch == "master" {
