@@ -585,33 +585,57 @@ func TestShouldNudgeRefinery(t *testing.T) {
 	}
 }
 
-func TestShouldSyncIdlePolecatWorktree(t *testing.T) {
+func TestShouldRetirePolecatAfterDone(t *testing.T) {
 	tests := []struct {
-		name          string
-		exitType      string
-		mergeStrategy string
-		pushFailed    bool
-		mrFailed      bool
-		syncSafe      bool
-		want          bool
+		name                string
+		exitType            string
+		mergeStrategy       string
+		pushFailed          bool
+		mrFailed            bool
+		cleanupSafe         bool
+		submissionSucceeded bool
+		want                bool
 	}{
-		{"completed default strategy syncs", ExitCompleted, "", false, false, true, true},
-		{"completed direct strategy syncs", ExitCompleted, "direct", false, false, true, true},
-		{"completed mr strategy syncs", ExitCompleted, "mr", false, false, true, true},
-		{"local strategy keeps branch", ExitCompleted, "local", false, false, true, false},
-		{"deferred keeps branch", ExitDeferred, "", false, false, true, false},
-		{"escalated keeps branch", ExitEscalated, "", false, false, true, false},
-		{"push failure keeps branch", ExitCompleted, "", true, false, true, false},
-		{"mr failure keeps branch", ExitCompleted, "", false, true, true, false},
-		{"unsafe sync keeps branch", ExitCompleted, "", false, false, false, false},
+		{"completed default strategy retires", ExitCompleted, "", false, false, true, true, true},
+		{"completed direct strategy retires", ExitCompleted, "direct", false, false, true, true, true},
+		{"completed mr strategy retires", ExitCompleted, "mr", false, false, true, true, true},
+		{"local strategy keeps branch", ExitCompleted, "local", false, false, true, true, false},
+		{"deferred keeps branch", ExitDeferred, "", false, false, true, true, false},
+		{"escalated keeps branch", ExitEscalated, "", false, false, true, true, false},
+		{"push failure keeps branch", ExitCompleted, "", true, false, true, true, false},
+		{"mr failure keeps branch", ExitCompleted, "", false, true, true, true, false},
+		{"unsafe cleanup keeps branch", ExitCompleted, "", false, false, false, true, false},
+		{"no merge submission keeps branch", ExitCompleted, "", false, false, true, false, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shouldSyncIdlePolecatWorktree(tt.exitType, tt.mergeStrategy, tt.pushFailed, tt.mrFailed, tt.syncSafe)
+			got := shouldRetirePolecatAfterDone(tt.exitType, tt.mergeStrategy, tt.pushFailed, tt.mrFailed, tt.cleanupSafe, tt.submissionSucceeded)
 			if got != tt.want {
-				t.Errorf("shouldSyncIdlePolecatWorktree(%q, %q, %v, %v, %v) = %v, want %v",
-					tt.exitType, tt.mergeStrategy, tt.pushFailed, tt.mrFailed, tt.syncSafe, got, tt.want)
+				t.Errorf("shouldRetirePolecatAfterDone(%q, %q, %v, %v, %v, %v) = %v, want %v",
+					tt.exitType, tt.mergeStrategy, tt.pushFailed, tt.mrFailed, tt.cleanupSafe, tt.submissionSucceeded, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAgentStateAfterDone(t *testing.T) {
+	tests := []struct {
+		name                string
+		exitType            string
+		completionFinalized bool
+		want                string
+	}{
+		{"successful completion is transient done", ExitCompleted, true, string(beads.AgentStateDone)},
+		{"unfinalized completion is stuck", ExitCompleted, false, string(beads.AgentStateStuck)},
+		{"deferred is stuck", ExitDeferred, false, string(beads.AgentStateStuck)},
+		{"escalated is stuck", ExitEscalated, false, string(beads.AgentStateStuck)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := agentStateAfterDone(tt.exitType, tt.completionFinalized); got != tt.want {
+				t.Errorf("agentStateAfterDone(%q, %v) = %q, want %q", tt.exitType, tt.completionFinalized, got, tt.want)
 			}
 		})
 	}
