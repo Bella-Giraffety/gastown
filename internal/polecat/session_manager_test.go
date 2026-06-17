@@ -386,6 +386,54 @@ func TestEnsureCanonicalSessionBranch_UsesOriginDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestEnsureCanonicalSessionBranch_BlocksDivergentForkMain(t *testing.T) {
+	workDir, repoGit := setupSessionBranchTestRepo(t)
+	upstream := cloneBareRemoteFrom(t, workDir)
+	addRemoteToRepo(t, workDir, "upstream", upstream)
+	writeForkRigConfig(t, workDir, upstream, "")
+
+	if err := repoGit.CheckoutNewBranch("polecat/toast-old", "main"); err != nil {
+		t.Fatalf("checkout stale polecat branch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "stale.txt"), []byte("stale\n"), 0644); err != nil {
+		t.Fatalf("write stale.txt: %v", err)
+	}
+	if err := repoGit.Add("stale.txt"); err != nil {
+		t.Fatalf("git add stale.txt: %v", err)
+	}
+	if err := repoGit.Commit("stale local polecat commit"); err != nil {
+		t.Fatalf("git commit stale.txt: %v", err)
+	}
+	beforeBranch, err := repoGit.CurrentBranch()
+	if err != nil {
+		t.Fatalf("current branch before polluting main: %v", err)
+	}
+
+	polluteForkMain(t, workDir)
+	if err := repoGit.Checkout(beforeBranch); err != nil {
+		t.Fatalf("restore stale polecat branch: %v", err)
+	}
+
+	sm := NewSessionManager(tmux.NewTmux(), &rig.Rig{Name: "gastown", Path: workDir})
+	branch, err := sm.ensureCanonicalSessionBranch(repoGit, "toast", SessionStartOptions{Issue: "gt-9qb"})
+	if err == nil {
+		t.Fatal("ensureCanonicalSessionBranch should block divergent fork main")
+	}
+	if !strings.Contains(err.Error(), "divergent fork main") {
+		t.Fatalf("error = %q, want divergent fork main", err.Error())
+	}
+	if branch != "" {
+		t.Fatalf("branch = %q, want empty on fork guard error", branch)
+	}
+	afterBranch, err := repoGit.CurrentBranch()
+	if err != nil {
+		t.Fatalf("current branch after failed session branch: %v", err)
+	}
+	if afterBranch != beforeBranch {
+		t.Fatalf("session branch changed before fork guard failure: got %q want %q", afterBranch, beforeBranch)
+	}
+}
+
 func TestEnsureCanonicalSessionBranch_KeepsCurrentIssueBranch(t *testing.T) {
 	workDir, repoGit := setupSessionBranchTestRepo(t)
 
@@ -648,9 +696,9 @@ func TestPromptlessFallbackIncludesPrimeAndWorkInstructions(t *testing.T) {
 // not auto-submitted; the condition triggers verifyStartupNudgeDelivery as a safety net.
 func TestModeABeaconVerificationCondition(t *testing.T) {
 	tests := []struct {
-		name            string
-		rc              *config.RuntimeConfig
-		wantModeA       bool // !SendBeaconNudge && !SendStartupNudge
+		name      string
+		rc        *config.RuntimeConfig
+		wantModeA bool // !SendBeaconNudge && !SendStartupNudge
 	}{
 		{
 			name: "Claude hook+prompt agent triggers Mode A verification",
@@ -901,11 +949,11 @@ func TestParseFreshBranchName_Rejects(t *testing.T) {
 		"master",
 		"develop",
 		"feature/x",
-		"polecat/",          // empty tail
-		"polecat/alpha",     // no ts or issue
-		"polecat/alpha-",    // trailing dash, no ts
-		"polecat//gt-abc@1", // empty polecat name
-		"polecat/alpha/@1",  // empty issue
+		"polecat/",              // empty tail
+		"polecat/alpha",         // no ts or issue
+		"polecat/alpha-",        // trailing dash, no ts
+		"polecat//gt-abc@1",     // empty polecat name
+		"polecat/alpha/@1",      // empty issue
 		"polecat/alpha/gt-abc@", // empty ts
 		"",
 	}

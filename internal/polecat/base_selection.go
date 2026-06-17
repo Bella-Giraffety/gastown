@@ -71,15 +71,10 @@ func validateDefaultResumeBranch(r *rig.Rig, repoGit *git.Git, resumeBranch stri
 	return err
 }
 
-func polecatDefaultBranch(r *rig.Rig, repoGit *git.Git) string {
+func polecatDefaultBranch(r *rig.Rig, _ *git.Git) string {
 	if r != nil && r.Path != "" {
 		if cfg, err := rig.LoadRigConfig(r.Path); err == nil && strings.TrimSpace(cfg.DefaultBranch) != "" {
 			return strings.TrimSpace(cfg.DefaultBranch)
-		}
-	}
-	if repoGit != nil {
-		if branch := strings.TrimSpace(repoGit.RemoteDefaultBranch()); branch != "" {
-			return branch
 		}
 	}
 	return "main"
