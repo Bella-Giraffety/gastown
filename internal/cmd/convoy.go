@@ -2570,6 +2570,7 @@ func issueToDetails(issue *beads.Issue) *issueDetails {
 	return &issueDetails{
 		ID:             issue.ID,
 		Title:          issue.Title,
+		Description:    issue.Description,
 		Status:         issue.Status,
 		IssueType:      issue.Type,
 		Assignee:       issue.Assignee,
