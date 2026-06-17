@@ -167,6 +167,9 @@ func setupCanonicalBranchManagerTest(t *testing.T) (*Manager, string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git update-ref: %v\n%s", err, out)
 	}
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"type":"rig","version":1,"name":"rig","default_branch":"main"}`), 0644); err != nil {
+		t.Fatalf("write rig config: %v", err)
+	}
 
 	r := &rig.Rig{Name: "rig", Path: root}
 	return NewManager(r, git.NewGit(root), nil), mayorRig
@@ -258,6 +261,18 @@ func polluteForkMain(t *testing.T, repoPath string) string {
 	if err != nil {
 		t.Fatalf("resolve polluted HEAD: %v", err)
 	}
+	return sha
+}
+
+func polluteBareRemoteMain(t *testing.T, barePath string) string {
+	t.Helper()
+	workPath := filepath.Join(t.TempDir(), "fork-work")
+	cmd := exec.Command("git", "clone", barePath, workPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone fork remote: %v\n%s", err, out)
+	}
+	sha := polluteForkMain(t, workPath)
+	runGitTest(t, workPath, "push", "origin", "main")
 	return sha
 }
 
@@ -1312,6 +1327,42 @@ func TestAddWithOptions_BlocksDivergentForkMain(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(mgr.rig.Path, "polecats", "forked")); !os.IsNotExist(statErr) {
 		t.Fatalf("polecat dir leaked after fork guard failure: %v", statErr)
+	}
+}
+
+func TestAddWithOptions_BlocksDivergentForkPushMain(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	upstream := cloneBareRemoteFrom(t, mayorRig)
+	fork := cloneBareRemoteFrom(t, mayorRig)
+	addRemoteToRepo(t, mayorRig, "upstream", upstream)
+	runGitTest(t, mayorRig, "remote", "set-url", "origin", upstream)
+	runGitTest(t, mayorRig, "remote", "set-url", "--push", "origin", fork)
+	writeForkRigConfig(t, mgr.rig.Path, upstream, fork)
+	mgr.rig.PushURL = fork
+	polluteBareRemoteMain(t, fork)
+
+	_, err := mgr.AddWithOptions("forkpush", AddOptions{})
+	if err == nil {
+		t.Fatal("AddWithOptions should block divergent fork push main")
+	}
+	if !strings.Contains(err.Error(), "fork main") {
+		t.Fatalf("error = %q, want fork main divergence", err.Error())
+	}
+}
+
+func TestAddWithOptions_UpstreamURLMismatchFailsClosed(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	configuredUpstream := cloneBareRemoteFrom(t, mayorRig)
+	wrongUpstream := cloneBareRemoteFrom(t, mayorRig)
+	addRemoteToRepo(t, mayorRig, "upstream", wrongUpstream)
+	writeForkRigConfig(t, mgr.rig.Path, configuredUpstream, "")
+
+	_, err := mgr.AddWithOptions("wrongupstream", AddOptions{})
+	if err == nil {
+		t.Fatal("AddWithOptions should fail closed when upstream remote mismatches upstream_url")
+	}
+	if !strings.Contains(err.Error(), "upstream_url is") {
+		t.Fatalf("error = %q, want upstream_url mismatch", err.Error())
 	}
 }
 

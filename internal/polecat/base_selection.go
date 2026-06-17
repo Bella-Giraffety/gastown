@@ -71,10 +71,15 @@ func validateDefaultResumeBranch(r *rig.Rig, repoGit *git.Git, resumeBranch stri
 	return err
 }
 
-func polecatDefaultBranch(r *rig.Rig, _ *git.Git) string {
+func polecatDefaultBranch(r *rig.Rig, repoGit *git.Git) string {
 	if r != nil && r.Path != "" {
 		if cfg, err := rig.LoadRigConfig(r.Path); err == nil && strings.TrimSpace(cfg.DefaultBranch) != "" {
 			return strings.TrimSpace(cfg.DefaultBranch)
+		}
+	}
+	if repoGit != nil {
+		if branch := strings.TrimSpace(repoGit.RemoteDefaultBranch()); branch != "" {
+			return branch
 		}
 	}
 	return "main"
@@ -150,7 +155,10 @@ func guardForkDefaultBranchMirror(r *rig.Rig, repoGit *git.Git, branch string) e
 	if url, err := repoGit.RemoteURL("origin"); err == nil {
 		originURL = strings.TrimSpace(url)
 	}
-	if sameRemoteURL(forkURL, originURL) {
+	if upstreamURL, err := repoGit.GetUpstreamURL(); err == nil && configuredUpstreamURL(r) != "" && sameRemoteURL(forkURL, upstreamURL) {
+		return forkBaseError(r, branch, "cannot verify fork main: origin push URL matches upstream remote; fork-mode rigs must push to a fork, never upstream")
+	}
+	if forkURL == "" || originURL == "" || sameRemoteURL(forkURL, originURL) {
 		return nil
 	}
 	if err := repoGit.FetchRemoteTrackingBranchFrom(forkURL, "fork", branch); err != nil {
@@ -183,13 +191,20 @@ func shouldGuardForkDefaultBranch(r *rig.Rig, repoGit *git.Git) (bool, error) {
 	if repoGit == nil {
 		return false, nil
 	}
-	if configuredUpstreamURL(r) != "" {
+	if upstreamURL := configuredUpstreamURL(r); upstreamURL != "" {
 		hasUpstream, err := repoGit.HasUpstreamRemote()
 		if err != nil {
 			return false, fmt.Errorf("checking upstream remote: %w", err)
 		}
 		if !hasUpstream {
 			return false, forkBaseError(r, polecatDefaultBranch(r, repoGit), "upstream_url is configured but no upstream remote exists")
+		}
+		remoteUpstreamURL, err := repoGit.GetUpstreamURL()
+		if err != nil {
+			return false, forkBaseError(r, polecatDefaultBranch(r, repoGit), "cannot verify upstream remote URL: %v", err)
+		}
+		if !sameRemoteURL(upstreamURL, remoteUpstreamURL) {
+			return false, forkBaseError(r, polecatDefaultBranch(r, repoGit), "upstream_url is %q but upstream remote is %q", upstreamURL, remoteUpstreamURL)
 		}
 		return true, nil
 	}
@@ -239,7 +254,7 @@ func configuredPushURL(r *rig.Rig) string {
 func sameRemoteURL(a, b string) bool {
 	a = normalizeRemoteURL(a)
 	b = normalizeRemoteURL(b)
-	return a == "" || b == "" || a == b
+	return a != "" && b != "" && a == b
 }
 
 func normalizeRemoteURL(url string) string {

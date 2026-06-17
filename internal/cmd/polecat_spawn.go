@@ -204,9 +204,6 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 			_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
 
 			effectiveBranch := logicalBaseBranch
-			if opts.ResumeBranch != "" {
-				effectiveBranch = opts.ResumeBranch
-			}
 
 			return &SpawnedPolecatInfo{
 				RigName:     rigName,
@@ -283,9 +280,6 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 
 	// Compute logical base branch for formula/refinery metadata.
 	effectiveBranch := logicalBaseBranch
-	if opts.ResumeBranch != "" {
-		effectiveBranch = opts.ResumeBranch
-	}
 
 	return &SpawnedPolecatInfo{
 		RigName:     rigName,
