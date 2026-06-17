@@ -76,8 +76,8 @@ if (cd "$RIG_ROOT" && make build && make safe-install) 2>&1; then
   gt plugin record-run --plugin rebuild-gt --result success --rig gastown \
     --title "rebuild-gt: $OLD_VER -> $NEW_VER" >/dev/null 2>&1 || true
 else
-	ERROR="make build/safe-install failed"
-	log "FAILED: $ERROR"
+  ERROR="make build/safe-install failed"
+  log "FAILED: $ERROR"
   gt plugin record-run --plugin rebuild-gt --result failure --rig gastown \
     --title "Plugin: rebuild-gt [failure]" \
     --description "Build failed: $ERROR" >/dev/null 2>&1 || true
