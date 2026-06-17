@@ -627,6 +627,7 @@ func TestAgentStateAfterDone(t *testing.T) {
 		want                string
 	}{
 		{"successful completion is transient done", ExitCompleted, true, string(beads.AgentStateDone)},
+		{"finalized deferred workflow step is transient done", ExitDeferred, true, string(beads.AgentStateDone)},
 		{"unfinalized completion is stuck", ExitCompleted, false, string(beads.AgentStateStuck)},
 		{"deferred is stuck", ExitDeferred, false, string(beads.AgentStateStuck)},
 		{"escalated is stuck", ExitEscalated, false, string(beads.AgentStateStuck)},

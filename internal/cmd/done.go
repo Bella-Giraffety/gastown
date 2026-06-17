@@ -93,7 +93,7 @@ func shouldRetirePolecatAfterDone(exitType, mergeStrategy string, pushFailed, mr
 }
 
 func agentStateAfterDone(exitType string, completionFinalized bool) string {
-	if exitType == ExitCompleted && completionFinalized {
+	if completionFinalized {
 		return string(beads.AgentStateDone)
 	}
 	return string(beads.AgentStateStuck)
@@ -1473,8 +1473,25 @@ notifyWitness:
 		style.PrintWarning("could not log feed event: %v", err)
 	}
 
+	cleanupSafe := parseCleanupStatus(doneCleanupStatus).IsSafe()
+	if cwdAvailable {
+		if ws, wsErr := g.CheckUncommittedWork(); wsErr != nil {
+			cleanupSafe = false
+			style.PrintWarning("could not inspect worktree before retirement: %v — preserving sandbox", wsErr)
+		} else if ws.StashCount > 0 || len(ws.UnmergedFiles) > 0 || (ws.HasUncommittedChanges && !ws.CleanExcludingRuntime()) {
+			cleanupSafe = false
+			style.PrintWarning("worktree is not safe to retire — preserving sandbox")
+			fmt.Printf("  Files: %s\n", ws.String())
+		} else if ws.HasUncommittedChanges && ws.CleanExcludingRuntime() {
+			cleanupSafe = true
+		}
+	} else {
+		cleanupSafe = false
+	}
+	completionFinalizedForState := completionFinalized && cleanupSafe
+
 	// Update agent bead state (ZFC: self-report completion)
-	updateAgentStateOnDone(cwd, townRoot, exitType, issueID, completionFinalized)
+	updateAgentStateOnDone(cwd, townRoot, exitType, issueID, completionFinalizedForState)
 
 	// Nudge witness only after hook/cleanup state is updated. Otherwise witness can
 	// evaluate slot availability against stale hook_bead or cleanup_status and emit
@@ -1486,20 +1503,6 @@ notifyWitness:
 	retiredPolecat := false
 	if roleInfo, err := GetRoleWithContext(cwd, townRoot); err == nil && roleInfo.Role == RolePolecat {
 		isPolecat = true
-
-		cleanupSafe := parseCleanupStatus(doneCleanupStatus).IsSafe()
-		if cwdAvailable {
-			if ws, wsErr := g.CheckUncommittedWork(); wsErr != nil {
-				cleanupSafe = false
-				style.PrintWarning("could not inspect worktree before retirement: %v — preserving sandbox", wsErr)
-			} else if ws.StashCount > 0 || len(ws.UnmergedFiles) > 0 || (ws.HasUncommittedChanges && !ws.CleanExcludingRuntime()) {
-				cleanupSafe = false
-				style.PrintWarning("worktree is not safe to retire — preserving sandbox")
-				fmt.Printf("  Files: %s\n", ws.String())
-			}
-		} else {
-			cleanupSafe = false
-		}
 
 		if exitType == ExitCompleted && issueID != "" && convoyInfo == nil {
 			convoyInfo = getConvoyInfoFromIssue(issueID, cwd)
@@ -1907,6 +1910,7 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string, completionF
 	// engine. For these, DEFERRED means "step complete, no code commits" not "work
 	// paused for resumption". Close them on DEFERRED so the convoy can advance.
 	finalizeHook := shouldFinalizeHookAfterDone(exitType, hookedBeadID, completionFinalized)
+	hookFinalized := hookedBeadID == "" && finalizeHook
 	if hookedBeadID != "" && finalizeHook {
 		// BUG FIX (gt-pftz): Close hooked bead unless already terminal (closed/tombstone).
 		// Previously checked hookedBead.Status == StatusHooked, but polecats update
@@ -1917,7 +1921,12 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string, completionF
 		// DEFERRED exits preserve the bead: work is paused, not done. The bead
 		// stays open/in_progress so it can be resumed on the next session.
 		// Exception: workflow step beads (*-wfs-*) are always closed — see above.
-		if hookedBead, err := bd.Show(hookedBeadID); err == nil && !beads.IssueStatus(hookedBead.Status).IsTerminal() {
+		if hookedBead, err := bd.Show(hookedBeadID); err == nil {
+			if beads.IssueStatus(hookedBead.Status).IsTerminal() {
+				hookFinalized = true
+				goto doneStateUpdate
+			}
+
 			// Guard: never close a rig identity bead. Polecats dispatched with the
 			// rig bead as their hook (via mol-polecat-work) must not close permanent
 			// infrastructure. Skip close and fall through to agent state update.
@@ -1964,12 +1973,14 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string, completionF
 			} else if err := bd.Close(hookedBeadID); err != nil {
 				// Non-fatal: warn but continue
 				fmt.Fprintf(os.Stderr, "Warning: couldn't close hooked bead %s: %v\n", hookedBeadID, err)
+			} else {
+				hookFinalized = true
 			}
 		}
 	}
 
 doneStateUpdate:
-	if finalizeHook {
+	if hookFinalized {
 		// Clear hook_bead on the agent bead (gt-qbh). The hq-l6mm5 refactor made
 		// SetHookBead/ClearHookBead no-ops, but the witness still reads the
 		// hook_bead field from the agent bead snapshot. If the hooked bead is a
@@ -1987,10 +1998,10 @@ doneStateUpdate:
 	// Best-effort: failures are non-fatal since the work is already done.
 	purgeClosedEphemeralBeads(bd)
 
-	// Clean completions are transiently marked done until the retirement path resets
-	// the agent bead to nuked. Failed or paused completions stay non-idle so they
-	// cannot be mistaken for reusable idle polecats.
-	doneState := agentStateAfterDone(exitType, completionFinalized)
+	// Clean, fully finalized hooks are transiently marked done until the retirement
+	// path resets the agent bead to nuked. Failed or paused completions stay
+	// non-idle so they cannot be mistaken for reusable idle polecats.
+	doneState := agentStateAfterDone(exitType, hookFinalized)
 	// Use UpdateAgentState to sync both column and description (gt-ulom).
 	if err := agentBd.UpdateAgentState(agentBeadID, doneState); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: couldn't set agent %s to %s: %v\n", agentBeadID, doneState, err)
