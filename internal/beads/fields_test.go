@@ -304,7 +304,7 @@ func TestWorkflowStepFieldsRoundTrip(t *testing.T) {
 	if parsed == nil {
 		t.Fatal("ParseWorkflowStepFields() = nil")
 	}
-	if parsed.Target != "mayor" || !parsed.Interactive {
+	if parsed.Target != "mayor" || !parsed.HasTarget || !parsed.Interactive {
 		t.Fatalf("parsed fields = %#v, want target mayor and interactive", parsed)
 	}
 }

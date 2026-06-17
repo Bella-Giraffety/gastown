@@ -263,6 +263,7 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 // the same way formula pour routed initially-ready steps.
 type WorkflowStepFields struct {
 	Target      string
+	HasTarget   bool
 	Interactive bool
 }
 
@@ -288,6 +289,7 @@ func ParseWorkflowStepFields(description string) *WorkflowStepFields {
 		switch key {
 		case "workflow_target", "workflow-target", "workflowtarget":
 			fields.Target = value
+			fields.HasTarget = true
 			hasFields = true
 		case "workflow_interactive", "workflow-interactive", "workflowinteractive":
 			fields.Interactive = parseBoolField(value)

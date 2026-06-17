@@ -147,15 +147,12 @@ func applyWorkflowStepTargetOverride(args []string) ([]string, error) {
 
 func workflowStepTargetFromDescription(description, targetRig string) string {
 	fields := beads.ParseWorkflowStepFields(description)
-	if fields == nil {
+	if fields == nil || !fields.HasTarget {
 		return ""
 	}
 	target := strings.TrimSpace(fields.Target)
 	if target == "" || target == "rig" {
-		if target == "rig" {
-			return targetRig
-		}
-		return ""
+		return targetRig
 	}
 	return target
 }
