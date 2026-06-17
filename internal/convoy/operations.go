@@ -149,11 +149,12 @@ func runConvoyCheck(ctx context.Context, townRoot, convoyID, gtPath string) erro
 
 // trackedIssue holds basic info about an issue tracked by a convoy.
 type trackedIssue struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Assignee  string `json:"assignee"`
-	Priority  int    `json:"priority"`
-	IssueType string `json:"issue_type"`
+	ID          string `json:"id"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
+	Assignee    string `json:"assignee"`
+	Priority    int    `json:"priority"`
+	IssueType   string `json:"issue_type"`
 }
 
 // slingableTypes are bead types that can be dispatched via gt sling.
@@ -309,6 +310,10 @@ func feedNextReadyIssue(ctx context.Context, store beadsdk.Storage, townRoot, co
 		if issue.Status != "open" || issue.Assignee != "" {
 			continue
 		}
+		if beads.IsWorkflowStepInteractive(issue.Description) {
+			logger("%s: convoy %s: %s is an interactive workflow gate, skipping auto-dispatch", caller, convoyID, issue.ID)
+			continue
+		}
 
 		// Filter non-slingable types: only leaf work items (task, bug,
 		// feature, chore) can be dispatched. Epics, convoys, and other
@@ -362,10 +367,11 @@ func getConvoyTrackedIssues(ctx context.Context, store beadsdk.Storage, convoyID
 	// Filter by tracks type and collect IDs
 	var ids []string
 	type depMeta struct {
-		status    string
-		assignee  string
-		priority  int
-		issueType string
+		description string
+		status      string
+		assignee    string
+		priority    int
+		issueType   string
 	}
 	metaByID := make(map[string]depMeta)
 	for _, d := range deps {
@@ -373,10 +379,11 @@ func getConvoyTrackedIssues(ctx context.Context, store beadsdk.Storage, convoyID
 			id := extractIssueID(d.ID)
 			ids = append(ids, id)
 			metaByID[id] = depMeta{
-				status:    string(d.Status),
-				assignee:  d.Assignee,
-				priority:  d.Priority,
-				issueType: string(d.IssueType),
+				description: d.Description,
+				status:      string(d.Status),
+				assignee:    d.Assignee,
+				priority:    d.Priority,
+				issueType:   string(d.IssueType),
 			}
 		}
 	}
@@ -427,11 +434,13 @@ func getConvoyTrackedIssues(ctx context.Context, store beadsdk.Storage, convoyID
 	for _, id := range ids {
 		t := trackedIssue{ID: id}
 		if fresh := freshMap[id]; fresh != nil {
+			t.Description = fresh.Description
 			t.Status = string(fresh.Status)
 			t.Assignee = fresh.Assignee
 			t.Priority = fresh.Priority
 			t.IssueType = string(fresh.IssueType)
 		} else if meta, ok := metaByID[id]; ok {
+			t.Description = meta.description
 			t.Status = meta.status
 			t.Assignee = meta.assignee
 			t.Priority = meta.priority
@@ -499,22 +508,24 @@ func fetchCrossRigBeadStatus(townRoot string, ids []string) map[string]*beadsdk.
 		}
 
 		var items []struct {
-			ID       string `json:"id"`
-			Status   string `json:"status"`
-			Assignee string `json:"assignee"`
-			Priority int    `json:"priority"`
-			Type     string `json:"issue_type"`
+			ID          string `json:"id"`
+			Description string `json:"description"`
+			Status      string `json:"status"`
+			Assignee    string `json:"assignee"`
+			Priority    int    `json:"priority"`
+			Type        string `json:"issue_type"`
 		}
 		if err := json.Unmarshal(out, &items); err != nil {
 			continue
 		}
 		for _, item := range items {
 			result[item.ID] = &beadsdk.Issue{
-				ID:        item.ID,
-				Status:    beadsdk.Status(item.Status),
-				Assignee:  item.Assignee,
-				Priority:  item.Priority,
-				IssueType: beadsdk.IssueType(item.Type),
+				ID:          item.ID,
+				Description: item.Description,
+				Status:      beadsdk.Status(item.Status),
+				Assignee:    item.Assignee,
+				Priority:    item.Priority,
+				IssueType:   beadsdk.IssueType(item.Type),
 			}
 		}
 	}

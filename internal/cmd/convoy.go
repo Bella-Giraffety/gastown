@@ -1594,6 +1594,9 @@ func isReadyIssue(t trackedIssueInfo, scheduledSet map[string]bool) bool {
 	if status == "closed" || status == "tombstone" {
 		return false
 	}
+	if beads.IsWorkflowStepInteractive(t.Description) {
+		return false
+	}
 
 	// Must not be blocked
 	if t.Blocked {
@@ -2247,22 +2250,24 @@ func formatConvoyStatus(status string) string {
 
 // trackedIssueInfo holds info about an issue being tracked by a convoy.
 type trackedIssueInfo struct {
-	ID        string   `json:"id"`
-	Title     string   `json:"title"`
-	Status    string   `json:"status"`
-	Type      string   `json:"dependency_type"`
-	IssueType string   `json:"issue_type"`
-	Blocked   bool     `json:"blocked,omitempty"`    // True if issue currently has blockers
-	Assignee  string   `json:"assignee,omitempty"`   // Assigned agent (e.g., gastown/polecats/goose)
-	Labels    []string `json:"labels,omitempty"`     // Bead labels (propagated from trackedDependency)
-	Worker    string   `json:"worker,omitempty"`     // Worker currently assigned (e.g., gastown/nux)
-	WorkerAge string   `json:"worker_age,omitempty"` // How long worker has been on this issue
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Status      string   `json:"status"`
+	Type        string   `json:"dependency_type"`
+	IssueType   string   `json:"issue_type"`
+	Blocked     bool     `json:"blocked,omitempty"`    // True if issue currently has blockers
+	Assignee    string   `json:"assignee,omitempty"`   // Assigned agent (e.g., gastown/polecats/goose)
+	Labels      []string `json:"labels,omitempty"`     // Bead labels (propagated from trackedDependency)
+	Worker      string   `json:"worker,omitempty"`     // Worker currently assigned (e.g., gastown/nux)
+	WorkerAge   string   `json:"worker_age,omitempty"` // How long worker has been on this issue
 }
 
 // trackedDependency is dep-list data enriched with fresh issue details.
 type trackedDependency struct {
 	ID             string   `json:"id"`
 	Title          string   `json:"title"`
+	Description    string   `json:"description"`
 	Status         string   `json:"status"`
 	IssueType      string   `json:"issue_type"`
 	Assignee       string   `json:"assignee"`
@@ -2280,6 +2285,7 @@ func applyFreshIssueDetails(dep *trackedDependency, details *issueDetails) {
 	if dep.Title == "" {
 		dep.Title = details.Title
 	}
+	dep.Description = details.Description
 	if dep.Assignee == "" {
 		dep.Assignee = details.Assignee
 	}
@@ -2363,14 +2369,15 @@ func getTrackedIssues(townBeads, convoyID string) ([]trackedIssueInfo, error) {
 	var tracked []trackedIssueInfo
 	for _, dep := range deps {
 		info := trackedIssueInfo{
-			ID:        dep.ID,
-			Title:     dep.Title,
-			Status:    dep.Status,
-			Type:      dep.DependencyType,
-			IssueType: dep.IssueType,
-			Blocked:   dep.Blocked,
-			Assignee:  dep.Assignee,
-			Labels:    dep.Labels,
+			ID:          dep.ID,
+			Title:       dep.Title,
+			Description: dep.Description,
+			Status:      dep.Status,
+			Type:        dep.DependencyType,
+			IssueType:   dep.IssueType,
+			Blocked:     dep.Blocked,
+			Assignee:    dep.Assignee,
+			Labels:      dep.Labels,
 		}
 
 		// Add worker info if available
@@ -2459,6 +2466,7 @@ type issueDependency struct {
 type issueDetails struct {
 	ID             string
 	Title          string
+	Description    string
 	Status         string
 	IssueType      string
 	Assignee       string

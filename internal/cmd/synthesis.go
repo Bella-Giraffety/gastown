@@ -411,21 +411,10 @@ func getConvoyMeta(convoyID string) (*ConvoyMeta, error) {
 		Status: convoy.Status,
 	}
 
-	// Look for structured fields in description
-	for _, line := range strings.Split(convoy.Description, "\n") {
-		line = strings.TrimSpace(line)
-		if colonIdx := strings.Index(line, ":"); colonIdx != -1 {
-			key := strings.ToLower(strings.TrimSpace(line[:colonIdx]))
-			value := strings.TrimSpace(line[colonIdx+1:])
-			switch key {
-			case "formula":
-				meta.Formula = value
-			case "formula_path", "formula-path":
-				meta.FormulaPath = value
-			case "review_id", "review-id":
-				meta.ReviewID = value
-			}
-		}
+	if fields := beads.ParseConvoyFields(&beads.Issue{Description: convoy.Description}); fields != nil {
+		meta.Formula = fields.Formula
+		meta.FormulaPath = fields.FormulaPath
+		meta.ReviewID = fields.ReviewID
 	}
 
 	// Get tracked leg issues

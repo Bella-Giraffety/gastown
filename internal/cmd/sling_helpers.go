@@ -129,6 +129,9 @@ func applyWorkflowStepTargetOverride(args []string) ([]string, error) {
 	if err != nil {
 		return args, nil
 	}
+	if beads.IsWorkflowStepInteractive(info.Description) {
+		return args, fmt.Errorf("workflow step %s is interactive; close it from the current session instead of slinging", args[0])
+	}
 	target := workflowStepTargetFromDescription(info.Description, rigName)
 	if target == "" || target == args[1] {
 		return args, nil
@@ -143,21 +146,18 @@ func applyWorkflowStepTargetOverride(args []string) ([]string, error) {
 }
 
 func workflowStepTargetFromDescription(description, targetRig string) string {
-	for _, line := range strings.Split(description, "\n") {
-		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok {
-			continue
-		}
-		if !strings.EqualFold(strings.TrimSpace(key), workflowTargetField) {
-			continue
-		}
-		target := strings.TrimSpace(value)
-		if target == "" || target == "rig" {
+	fields := beads.ParseWorkflowStepFields(description)
+	if fields == nil {
+		return ""
+	}
+	target := strings.TrimSpace(fields.Target)
+	if target == "" || target == "rig" {
+		if target == "rig" {
 			return targetRig
 		}
-		return target
+		return ""
 	}
-	return ""
+	return target
 }
 
 // isOrphanMolecule reports whether a bead's existing attached molecule(s)

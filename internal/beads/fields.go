@@ -258,9 +258,83 @@ func SetAttachmentFields(issue *Issue, fields *AttachmentFields) string {
 	return formatted + "\n\n" + strings.Join(otherLines, "\n")
 }
 
+// WorkflowStepFields holds formula workflow-step metadata stored in bead
+// descriptions. These fields let convoy feeders route delayed workflow steps
+// the same way formula pour routed initially-ready steps.
+type WorkflowStepFields struct {
+	Target      string
+	Interactive bool
+}
+
+// ParseWorkflowStepFields extracts workflow step metadata from a description.
+func ParseWorkflowStepFields(description string) *WorkflowStepFields {
+	if description == "" {
+		return nil
+	}
+
+	fields := &WorkflowStepFields{}
+	hasFields := false
+	for _, line := range strings.Split(description, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		colonIdx := strings.Index(line, ":")
+		if colonIdx == -1 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(line[:colonIdx]))
+		value := strings.TrimSpace(line[colonIdx+1:])
+		switch key {
+		case "workflow_target", "workflow-target", "workflowtarget":
+			fields.Target = value
+			hasFields = true
+		case "workflow_interactive", "workflow-interactive", "workflowinteractive":
+			fields.Interactive = parseBoolField(value)
+			hasFields = true
+		}
+	}
+	if !hasFields {
+		return nil
+	}
+	return fields
+}
+
+// FormatWorkflowStepFields formats workflow metadata as description fields.
+func FormatWorkflowStepFields(fields *WorkflowStepFields) string {
+	if fields == nil {
+		return ""
+	}
+	var lines []string
+	if strings.TrimSpace(fields.Target) != "" {
+		lines = append(lines, "workflow_target: "+strings.TrimSpace(fields.Target))
+	}
+	if fields.Interactive {
+		lines = append(lines, "workflow_interactive: true")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func IsWorkflowStepInteractive(description string) bool {
+	fields := ParseWorkflowStepFields(description)
+	return fields != nil && fields.Interactive
+}
+
+func parseBoolField(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 // ConvoyFields holds the structured fields for a convoy bead.
 // These fields are stored as key: value lines in the issue description.
 type ConvoyFields struct {
+	Formula              string // Formula name for formula-created convoys
+	FormulaPath          string // Formula file path for synthesis tooling
+	ReviewID             string // Review ID for formula output paths
 	Owner                string // Convoy owner address (e.g., "mayor/")
 	Notify               string // Additional notification address
 	Molecule             string // Associated molecule/swarm ID
@@ -299,6 +373,15 @@ func ParseConvoyFields(issue *Issue) *ConvoyFields {
 		}
 
 		switch strings.ToLower(key) {
+		case "formula":
+			fields.Formula = value
+			hasFields = true
+		case "formula_path", "formula-path", "formulapath":
+			fields.FormulaPath = value
+			hasFields = true
+		case "review_id", "review-id", "reviewid":
+			fields.ReviewID = value
+			hasFields = true
 		case "owner":
 			fields.Owner = value
 			hasFields = true
@@ -459,6 +542,15 @@ func FormatConvoyFields(fields *ConvoyFields) string {
 	}
 
 	var lines []string
+	if fields.Formula != "" {
+		lines = append(lines, "formula: "+fields.Formula)
+	}
+	if fields.FormulaPath != "" {
+		lines = append(lines, "formula_path: "+fields.FormulaPath)
+	}
+	if fields.ReviewID != "" {
+		lines = append(lines, "review_id: "+fields.ReviewID)
+	}
 	if fields.Owner != "" {
 		lines = append(lines, "Owner: "+fields.Owner)
 	}
@@ -554,6 +646,13 @@ func SetConvoyFields(issue *Issue, fields *ConvoyFields) string {
 
 	// Known convoy field keys (lowercase)
 	convoyKeys := map[string]bool{
+		"formula":                true,
+		"formula_path":           true,
+		"formula-path":           true,
+		"formulapath":            true,
+		"review_id":              true,
+		"review-id":              true,
+		"reviewid":               true,
 		"owner":                  true,
 		"notify":                 true,
 		"merge":                  true,

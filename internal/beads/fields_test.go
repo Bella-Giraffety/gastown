@@ -289,6 +289,46 @@ func TestConvoyFieldsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWorkflowStepFieldsRoundTrip(t *testing.T) {
+	formatted := FormatWorkflowStepFields(&WorkflowStepFields{
+		Target:      "mayor",
+		Interactive: true,
+	})
+	for _, want := range []string{"workflow_target: mayor", "workflow_interactive: true"} {
+		if !strings.Contains(formatted, want) {
+			t.Fatalf("FormatWorkflowStepFields() missing %q in:\n%s", want, formatted)
+		}
+	}
+
+	parsed := ParseWorkflowStepFields(formatted + "\n\nBody")
+	if parsed == nil {
+		t.Fatal("ParseWorkflowStepFields() = nil")
+	}
+	if parsed.Target != "mayor" || !parsed.Interactive {
+		t.Fatalf("parsed fields = %#v, want target mayor and interactive", parsed)
+	}
+}
+
+func TestConvoyFieldsFormulaMetadataRoundTrip(t *testing.T) {
+	fields := &ConvoyFields{Formula: "design", FormulaPath: "/tmp/design.toml", ReviewID: "rv123"}
+	formatted := FormatConvoyFields(fields)
+	parsed := ParseConvoyFields(&Issue{Description: formatted})
+	if parsed == nil {
+		t.Fatal("ParseConvoyFields() = nil")
+	}
+	if parsed.Formula != fields.Formula || parsed.FormulaPath != fields.FormulaPath || parsed.ReviewID != fields.ReviewID {
+		t.Fatalf("parsed fields = %#v, want %#v", parsed, fields)
+	}
+
+	updated := SetConvoyFields(&Issue{Description: "formula: old\nreview_id: old\nBody"}, fields)
+	if strings.Contains(updated, "formula: old") || strings.Contains(updated, "review_id: old") {
+		t.Fatalf("SetConvoyFields left stale formula metadata:\n%s", updated)
+	}
+	if !strings.Contains(updated, "Body") || !strings.Contains(updated, "formula: design") || !strings.Contains(updated, "review_id: rv123") {
+		t.Fatalf("SetConvoyFields missing expected content:\n%s", updated)
+	}
+}
+
 func TestConvoyOwnedFalseNotFormatted(t *testing.T) {
 	fields := &AttachmentFields{
 		ConvoyID:    "hq-cv-xyz",

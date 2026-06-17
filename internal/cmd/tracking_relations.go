@@ -12,22 +12,54 @@ import (
 )
 
 var (
-	addTrackingRelationFn    = addTrackingRelation
-	removeTrackingRelationFn = removeTrackingRelation
+	addTrackingRelationFn              = addTrackingRelation
+	removeTrackingRelationFn           = removeTrackingRelation
+	mutateTrackingRelationViaStoreFn   = mutateTrackingRelationViaStore
+	fallbackTrackingRelationFn         = fallbackTrackingRelation
+	trackingRelationSleep              = time.Sleep
+	trackingRelationVisibilityBackoffs = []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond}
 )
 
 func addTrackingRelation(townRoot, trackerID, issueID string) error {
-	if err := mutateTrackingRelationViaStore(townRoot, trackerID, issueID, true); err != nil {
-		return fallbackTrackingRelation(townRoot, trackerID, issueID, true, err)
+	var err error
+	for attempt := 0; ; attempt++ {
+		err = mutateTrackingRelationViaStoreFn(townRoot, trackerID, issueID, true)
+		if err == nil {
+			return nil
+		}
+		if !isTrackingVisibilityError(err) || attempt >= len(trackingRelationVisibilityBackoffs) {
+			break
+		}
+		trackingRelationSleep(trackingRelationVisibilityBackoffs[attempt])
+	}
+	return fallbackTrackingRelationFn(townRoot, trackerID, issueID, true, err)
+}
+
+func removeTrackingRelation(townRoot, trackerID, issueID string) error {
+	if err := mutateTrackingRelationViaStoreFn(townRoot, trackerID, issueID, false); err != nil {
+		return fallbackTrackingRelationFn(townRoot, trackerID, issueID, false, err)
 	}
 	return nil
 }
 
-func removeTrackingRelation(townRoot, trackerID, issueID string) error {
-	if err := mutateTrackingRelationViaStore(townRoot, trackerID, issueID, false); err != nil {
-		return fallbackTrackingRelation(townRoot, trackerID, issueID, false, err)
+func isTrackingVisibilityError(err error) bool {
+	if err == nil {
+		return false
 	}
-	return nil
+	msg := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"not found",
+		"not visible",
+		"does not exist",
+		"no such issue",
+		"unknown issue",
+		"could not find",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func mutateTrackingRelationViaStore(townRoot, trackerID, issueID string, add bool) error {

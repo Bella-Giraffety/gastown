@@ -333,11 +333,9 @@ func dryRunFormula(f *formula.Formula, formulaName, targetRig string) error {
 	}
 
 	if f.Type == formula.TypeConvoy && len(f.Legs) > 0 {
-		// Generate review ID for dry-run display
-		reviewID := generateFormulaShortID()
-
 		// Parse --set key=value pairs for template rendering
 		setVars := parseSetVars(formulaRunSet)
+		reviewID := resolveReviewID(setVars)
 
 		// Build target description
 		var targetDescription string
@@ -454,6 +452,9 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 		}
 	}
 
+	setVars := parseSetVars(formulaRunSet)
+	reviewID := resolveReviewID(setVars)
+
 	// Step 1: Create convoy bead
 	convoyID := fmt.Sprintf("%s-cv-%s", rigPrefix, generateFormulaShortID())
 	convoyTitle := fmt.Sprintf("%s: %s", formulaName, f.Description)
@@ -467,6 +468,10 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 	if formulaRunPR > 0 {
 		description += fmt.Sprintf("\nPR: #%d", formulaRunPR)
 	}
+	description = beads.SetConvoyFields(&beads.Issue{Description: description}, &beads.ConvoyFields{
+		Formula:  formulaName,
+		ReviewID: reviewID,
+	})
 
 	// Guard against flag-like convoy titles (gt-e0kx5)
 	if beads.IsFlagLikeTitle(convoyTitle) {
@@ -494,9 +499,6 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 
 	fmt.Printf("%s Created convoy: %s\n", style.Bold.Render("✓"), convoyID)
 
-	// Generate a unique review ID for this convoy run
-	reviewID := generateFormulaShortID()
-
 	// Build target description
 	var targetDescription string
 	if formulaRunPR > 0 {
@@ -511,9 +513,6 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 	if formulaRunPR > 0 {
 		prTitle, changedFiles = fetchPRInfo(formulaRunPR)
 	}
-
-	// Parse --set key=value pairs for template rendering.
-	setVars := parseSetVars(formulaRunSet)
 
 	// Create output directory if configured
 	var outputDir string
@@ -641,7 +640,10 @@ func executeConvoyFormula(f *formula.Formula, formulaName, targetRig string) err
 				style.Dim.Render("Warning:"), err)
 		} else {
 			// Track synthesis with convoy
-			_ = addTrackingRelationFn(townBeads, convoyID, synthesisBeadID)
+			if err := addTrackingRelationFn(townBeads, convoyID, synthesisBeadID); err != nil {
+				fmt.Printf("%s Failed to track synthesis %s: %v\n",
+					style.Dim.Render("Warning:"), synthesisBeadID, err)
+			}
 
 			// Add dependencies: synthesis depends on all legs
 			for _, legBeadID := range legBeads {
@@ -735,6 +737,14 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 			}
 		}
 	}
+	for _, step := range f.Steps {
+		if step.Interactive {
+			continue
+		}
+		if err := ValidateTarget(workflowStepTarget(step, targetRig)); err != nil {
+			return fmt.Errorf("invalid target for workflow step %q: %w", step.ID, err)
+		}
+	}
 
 	// Step 1: Create workflow root bead
 	workflowID := fmt.Sprintf("hq-wf-%s", generateFormulaShortID())
@@ -804,7 +814,10 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 		}
 
 		// Track the step with the workflow
-		_ = addTrackingRelationFn(townBeads, workflowID, stepBeadID)
+		if err := addTrackingRelationFn(townBeads, workflowID, stepBeadID); err != nil {
+			fmt.Printf("%s Failed to track step %s: %v\n",
+				style.Dim.Render("Warning:"), step.ID, err)
+		}
 
 		// Wire dependencies: this step depends on its needs
 		for _, needID := range step.Needs {
@@ -833,16 +846,6 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 	// Interactive steps are hooked to the current session; others are slung to polecats.
 	fmt.Printf("\n%s Dispatching ready steps...\n\n", style.Bold.Render("→"))
 
-	// Check if any step in the workflow is interactive — if so, we'll need
-	// to handle the molecule lifecycle in the current session.
-	hasInteractive := false
-	for _, step := range f.Steps {
-		if step.Interactive {
-			hasInteractive = true
-			break
-		}
-	}
-
 	slingCount := 0
 	interactiveCount := 0
 	for _, step := range f.Steps {
@@ -855,7 +858,7 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 			continue
 		}
 
-		if step.Interactive || hasInteractive {
+		if step.Interactive {
 			// Interactive step: hook to current session instead of slinging to a polecat.
 			// The user will execute this step in their current crew session.
 			_ = BdCmd("update", stepBeadID, "--status=hooked").
@@ -921,14 +924,21 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 const workflowTargetField = "workflow_target"
 
 func workflowStepDescription(step formula.Step, description string) string {
-	target := strings.TrimSpace(step.Target)
-	if target == "" {
+	fields := &beads.WorkflowStepFields{Interactive: step.Interactive}
+	if !step.Interactive {
+		fields.Target = strings.TrimSpace(step.Target)
+	}
+	metadata := beads.FormatWorkflowStepFields(fields)
+	if metadata == "" {
 		return description
 	}
-	return fmt.Sprintf("%s: %s\n\n%s", workflowTargetField, target, description)
+	return fmt.Sprintf("%s\n\n%s", metadata, description)
 }
 
 func workflowStepTarget(step formula.Step, targetRig string) string {
+	if step.Interactive {
+		return targetRig
+	}
 	target := strings.TrimSpace(step.Target)
 	if target == "" || target == "rig" {
 		return targetRig
@@ -992,6 +1002,15 @@ func parseSetVars(setArgs []string) map[string]interface{} {
 		}
 	}
 	return vars
+}
+
+func resolveReviewID(setVars map[string]interface{}) string {
+	if reviewID, ok := setVars["review_id"]; ok {
+		if value := strings.TrimSpace(fmt.Sprint(reviewID)); value != "" {
+			return value
+		}
+	}
+	return generateFormulaShortID()
 }
 
 func formulaTemplateContext(formulaName, targetDescription, reviewID string, prNumber int, prTitle string, changedFiles []map[string]interface{}, files []string, setVars map[string]interface{}) map[string]interface{} {

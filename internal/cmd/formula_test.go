@@ -258,6 +258,7 @@ func TestWorkflowStepTarget(t *testing.T) {
 		{name: "default rig", step: formula.Step{}, want: "gastown"},
 		{name: "explicit rig", step: formula.Step{Target: "rig"}, want: "gastown"},
 		{name: "mayor", step: formula.Step{Target: "mayor"}, want: "mayor"},
+		{name: "interactive ignores target", step: formula.Step{Target: "mayor", Interactive: true}, want: "gastown"},
 		{name: "crew path", step: formula.Step{Target: "gastown/crew/alex"}, want: "gastown/crew/alex"},
 	}
 
@@ -282,6 +283,18 @@ func TestWorkflowStepDescriptionAddsTargetMetadata(t *testing.T) {
 	}
 }
 
+func TestWorkflowStepDescriptionInteractiveOmitsTarget(t *testing.T) {
+	t.Parallel()
+
+	got := workflowStepDescription(formula.Step{Target: "mayor", Interactive: true}, "Body")
+	if strings.Contains(got, "workflow_target:") {
+		t.Fatalf("interactive workflow step kept target metadata: %q", got)
+	}
+	if !strings.Contains(got, "workflow_interactive: true") {
+		t.Fatalf("interactive workflow step missing interactive metadata: %q", got)
+	}
+}
+
 func TestWorkflowStepTargetFromDescription(t *testing.T) {
 	t.Parallel()
 
@@ -303,6 +316,20 @@ func TestWorkflowStepTargetFromDescription(t *testing.T) {
 				t.Fatalf("workflowStepTargetFromDescription() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveReviewID(t *testing.T) {
+	t.Parallel()
+
+	if got := resolveReviewID(map[string]interface{}{"review_id": "explicit"}); got != "explicit" {
+		t.Fatalf("resolveReviewID(explicit) = %q, want explicit", got)
+	}
+	if got := resolveReviewID(map[string]interface{}{"review_id": "  "}); got == "" {
+		t.Fatal("resolveReviewID(blank) returned empty fallback")
+	}
+	if got := formulaTemplateContext("design", "local", resolveReviewID(map[string]interface{}{"review_id": "rv42"}), 0, "", nil, nil, map[string]interface{}{"review_id": "rv42"})["review_id"]; got != "rv42" {
+		t.Fatalf("formulaTemplateContext review_id = %q, want rv42", got)
 	}
 }
 
