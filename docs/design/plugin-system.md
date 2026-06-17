@@ -112,8 +112,8 @@ bd list --all --label type:plugin-run --label plugin:rebuild-gt --created-after 
 
 | Query | Command |
 |-------|---------|
-| Last run time | `bd list --label=plugin:X --limit=1 --json` |
-| Run count | `bd list --label=plugin:X --json \| jq length` |
+| Last run time | `bd list --all --label=plugin:X --limit=1 --json` |
+| Run count | `bd list --all --label=plugin:X --json \| jq length` |
 | Last result | Parse `result:` label from latest wisp |
 | Failure rate | Count `result:failure` vs total |
 
