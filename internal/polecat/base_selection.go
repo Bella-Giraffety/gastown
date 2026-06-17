@@ -2,6 +2,7 @@ package polecat
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/steveyegge/gastown/internal/git"
@@ -145,11 +146,17 @@ func guardForkDefaultBranchMirror(r *rig.Rig, repoGit *git.Git, branch string) e
 		return err
 	}
 
-	forkURL := configuredPushURL(r)
+	configuredPushURL := configuredPushURL(r)
+	actualPushURL, pushErr := repoGit.GetPushURL("origin")
+	if pushErr != nil && configuredUpstreamURL(r) != "" {
+		return forkBaseError(r, branch, "cannot verify fork main: reading origin push URL failed: %v", pushErr)
+	}
+	if configuredPushURL != "" && actualPushURL != "" && !sameRemoteURL(configuredPushURL, actualPushURL) {
+		return forkBaseError(r, branch, "configured push_url is %q but origin push URL is %q", configuredPushURL, actualPushURL)
+	}
+	forkURL := strings.TrimSpace(actualPushURL)
 	if forkURL == "" {
-		if pushURL, err := repoGit.GetPushURL("origin"); err == nil {
-			forkURL = strings.TrimSpace(pushURL)
-		}
+		forkURL = configuredPushURL
 	}
 	originURL := ""
 	if url, err := repoGit.RemoteURL("origin"); err == nil {
@@ -257,11 +264,20 @@ func sameRemoteURL(a, b string) bool {
 	return a != "" && b != "" && a == b
 }
 
-func normalizeRemoteURL(url string) string {
-	url = strings.TrimSpace(url)
-	url = strings.TrimSuffix(url, "/")
-	url = strings.TrimSuffix(url, ".git")
-	return url
+func normalizeRemoteURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimSuffix(raw, "/")
+	raw = strings.TrimSuffix(raw, ".git")
+	if strings.HasPrefix(raw, "git@") {
+		rest := strings.TrimPrefix(raw, "git@")
+		if host, path, ok := strings.Cut(rest, ":"); ok && host != "" && path != "" {
+			return strings.ToLower(host) + "/" + strings.TrimPrefix(path, "/")
+		}
+	}
+	if parsed, err := url.Parse(raw); err == nil && parsed.Host != "" {
+		return strings.ToLower(parsed.Host) + "/" + strings.TrimPrefix(strings.TrimSuffix(parsed.Path, "/"), "/")
+	}
+	return raw
 }
 
 func forkBaseError(r *rig.Rig, branch, format string, args ...any) error {

@@ -1350,6 +1350,25 @@ func TestAddWithOptions_BlocksDivergentForkPushMain(t *testing.T) {
 	}
 }
 
+func TestAddWithOptions_PushURLMismatchFailsClosed(t *testing.T) {
+	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
+	upstream := cloneBareRemoteFrom(t, mayorRig)
+	fork := cloneBareRemoteFrom(t, mayorRig)
+	addRemoteToRepo(t, mayorRig, "upstream", upstream)
+	runGitTest(t, mayorRig, "remote", "set-url", "origin", upstream)
+	// Intentionally leave origin push URL equal to upstream while config claims fork.
+	writeForkRigConfig(t, mgr.rig.Path, upstream, fork)
+	mgr.rig.PushURL = fork
+
+	_, err := mgr.AddWithOptions("pushmismatch", AddOptions{})
+	if err == nil {
+		t.Fatal("AddWithOptions should fail closed when configured push_url differs from origin push URL")
+	}
+	if !strings.Contains(err.Error(), "configured push_url") {
+		t.Fatalf("error = %q, want configured push_url mismatch", err.Error())
+	}
+}
+
 func TestAddWithOptions_UpstreamURLMismatchFailsClosed(t *testing.T) {
 	mgr, mayorRig := setupCanonicalBranchManagerTest(t)
 	configuredUpstream := cloneBareRemoteFrom(t, mayorRig)
@@ -1622,7 +1641,6 @@ func TestReuseIdlePolecat_BlocksDivergentForkMainBeforeBranchSwitch(t *testing.T
 	if err != nil {
 		t.Fatalf("current branch before reuse: %v", err)
 	}
-
 	configureForkUpstreamForManager(t, mgr, mayorRig)
 	polluteForkMain(t, mayorRig)
 
@@ -1653,6 +1671,10 @@ func TestRepairWorktreeWithOptions_BlocksDivergentForkMain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve old worktree HEAD: %v", err)
 	}
+	sentinel := filepath.Join(polecat.ClonePath, "repair-sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("do not remove\n"), 0644); err != nil {
+		t.Fatalf("write repair sentinel: %v", err)
+	}
 
 	configureForkUpstreamForManager(t, mgr, mayorRig)
 	polluteForkMain(t, mayorRig)
@@ -1670,6 +1692,9 @@ func TestRepairWorktreeWithOptions_BlocksDivergentForkMain(t *testing.T) {
 	}
 	if afterSHA != beforeSHA {
 		t.Fatalf("repair changed old worktree before fork guard failure: got %s want %s", afterSHA, beforeSHA)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("repair removed old worktree before fork guard failure: %v", err)
 	}
 }
 
