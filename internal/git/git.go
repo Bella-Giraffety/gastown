@@ -921,6 +921,98 @@ func (g *Git) FetchBranch(remote, branch string) error {
 	return err
 }
 
+// RemoteTrackingRef returns the fully-qualified remote-tracking ref for a branch.
+func RemoteTrackingRef(remote, branch string) string {
+	return fmt.Sprintf("refs/remotes/%s/%s", remote, branch)
+}
+
+// FetchRemoteTrackingBranch fetches a remote branch into its tracking ref.
+func (g *Git) FetchRemoteTrackingBranch(remote, branch string) error {
+	return g.FetchRemoteTrackingBranchFrom(remote, remote, branch)
+}
+
+// FetchRemoteTrackingBranchFrom fetches branch from a remote or URL into the
+// tracking namespace for trackingRemote.
+func (g *Git) FetchRemoteTrackingBranchFrom(remote, trackingRemote, branch string) error {
+	if remote == "" || strings.HasPrefix(remote, "-") {
+		return fmt.Errorf("invalid remote %q", remote)
+	}
+	if err := validateFetchRefPart("tracking remote", trackingRemote, false); err != nil {
+		return err
+	}
+	if err := validateFetchRefPart("branch", branch, true); err != nil {
+		return err
+	}
+	if err := validateFetchRemote(remote); err != nil {
+		return err
+	}
+
+	refspec := fmt.Sprintf("+refs/heads/%s:%s", branch, RemoteTrackingRef(trackingRemote, branch))
+	if _, err := g.run("fetch", "--no-tags", remote, refspec); err != nil {
+		return fmt.Errorf("fetching %s/%s: %w", remote, branch, err)
+	}
+	return nil
+}
+
+func validateFetchRemote(remote string) error {
+	if err := validateFetchRefPart("remote", remote, false); err == nil {
+		return nil
+	}
+	if strings.ContainsAny(remote, "\x00\n\r") || strings.HasPrefix(remote, "-") || strings.HasPrefix(remote, "ext::") {
+		return fmt.Errorf("invalid remote %q", remote)
+	}
+	if strings.Contains(remote, "://") || strings.HasPrefix(remote, "git@") || strings.HasPrefix(remote, "/") || strings.HasPrefix(remote, "./") || strings.HasPrefix(remote, "../") {
+		return nil
+	}
+	return fmt.Errorf("invalid remote %q", remote)
+}
+
+func validateFetchRefPart(kind, value string, allowSlash bool) error {
+	if value == "" {
+		return fmt.Errorf("invalid %s: empty", kind)
+	}
+	if strings.HasPrefix(value, "-") || strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.ContainsAny(value, " \t\n\r:*?[~^\\") {
+		return fmt.Errorf("invalid %s %q", kind, value)
+	}
+	if !allowSlash && strings.Contains(value, "/") {
+		return fmt.Errorf("invalid %s %q", kind, value)
+	}
+	return nil
+}
+
+// RefDivergence is the left/right commit count for a symmetric diff.
+type RefDivergence struct {
+	LeftOnly  int
+	RightOnly int
+}
+
+// CountRefDivergence counts commits reachable only from leftRef or rightRef.
+func (g *Git) CountRefDivergence(leftRef, rightRef string) (RefDivergence, error) {
+	if _, err := g.run("rev-parse", "--verify", leftRef+"^{commit}"); err != nil {
+		return RefDivergence{}, fmt.Errorf("verifying %s: %w", leftRef, err)
+	}
+	if _, err := g.run("rev-parse", "--verify", rightRef+"^{commit}"); err != nil {
+		return RefDivergence{}, fmt.Errorf("verifying %s: %w", rightRef, err)
+	}
+	out, err := g.run("rev-list", "--left-right", "--count", leftRef+"..."+rightRef)
+	if err != nil {
+		return RefDivergence{}, err
+	}
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return RefDivergence{}, fmt.Errorf("parsing rev-list count output %q", out)
+	}
+
+	var div RefDivergence
+	if _, err := fmt.Sscanf(fields[0], "%d", &div.LeftOnly); err != nil {
+		return RefDivergence{}, fmt.Errorf("parsing left count %q: %w", fields[0], err)
+	}
+	if _, err := fmt.Sscanf(fields[1], "%d", &div.RightOnly); err != nil {
+		return RefDivergence{}, fmt.Errorf("parsing right count %q: %w", fields[1], err)
+	}
+	return div, nil
+}
+
 // FetchBranchShallow fetches a single branch with --depth 1 and creates the
 // remote tracking ref (e.g. origin/<branch>). Use this on shallow single-branch
 // clones to add a branch that wasn't included in the initial clone.

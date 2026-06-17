@@ -198,6 +198,69 @@ func createStalePolecatCommit(t *testing.T, repoPath, startPoint, branchName str
 	return sha
 }
 
+func runGitTest(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func cloneBareRemoteFrom(t *testing.T, repoPath string) string {
+	t.Helper()
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	cmd := exec.Command("git", "clone", "--bare", repoPath, remotePath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone --bare: %v\n%s", err, out)
+	}
+	return remotePath
+}
+
+func addRemoteToRepo(t *testing.T, repoPath, name, url string) {
+	t.Helper()
+	runGitTest(t, repoPath, "remote", "add", name, url)
+}
+
+func writeForkRigConfig(t *testing.T, rigPath, upstreamURL, pushURL string) {
+	t.Helper()
+	cfg := fmt.Sprintf(`{"type":"rig","version":1,"name":"rig","git_url":"%s","push_url":"%s","upstream_url":"%s","default_branch":"main"}`, upstreamURL, pushURL, upstreamURL)
+	if err := os.WriteFile(filepath.Join(rigPath, "config.json"), []byte(cfg), 0644); err != nil {
+		t.Fatalf("write rig config: %v", err)
+	}
+}
+
+func configureForkUpstreamForManager(t *testing.T, mgr *Manager, mayorRig string) string {
+	t.Helper()
+	upstream := cloneBareRemoteFrom(t, mayorRig)
+	addRemoteToRepo(t, mayorRig, "upstream", upstream)
+	writeForkRigConfig(t, mgr.rig.Path, upstream, "")
+	return upstream
+}
+
+func polluteForkMain(t *testing.T, repoPath string) string {
+	t.Helper()
+	runGitTest(t, repoPath, "checkout", "main")
+	marker := fmt.Sprintf("fork-only-%d.txt", time.Now().UnixNano())
+	if err := os.WriteFile(filepath.Join(repoPath, marker), []byte("fork only\n"), 0644); err != nil {
+		t.Fatalf("write fork marker: %v", err)
+	}
+	repoGit := git.NewGit(repoPath)
+	if err := repoGit.Add(marker); err != nil {
+		t.Fatalf("git add fork marker: %v", err)
+	}
+	if err := repoGit.Commit("Pollute fork main"); err != nil {
+		t.Fatalf("git commit fork marker: %v", err)
+	}
+	sha, err := repoGit.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("resolve polluted HEAD: %v", err)
+	}
+	return sha
+}
+
 func TestStateIsWorking(t *testing.T) {
 	tests := []struct {
 		state   State
