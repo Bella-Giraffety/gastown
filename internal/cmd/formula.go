@@ -832,6 +832,15 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 				Dir(rigBeadsDir).
 				Run()
 		}
+		if step.Interactive {
+			if err := BdCmd("update", stepBeadID, "--status=hooked").
+				WithAutoCommit().
+				Dir(rigBeadsDir).
+				Run(); err != nil {
+				fmt.Printf("%s Failed to hook interactive step %s: %v\n",
+					style.Dim.Render("Warning:"), step.ID, err)
+			}
+		}
 
 		stepBeads[step.ID] = stepBeadID
 
@@ -859,13 +868,7 @@ func executeWorkflowFormula(f *formula.Formula, formulaName, targetRig string) e
 		}
 
 		if step.Interactive {
-			// Interactive step: hook to current session instead of slinging to a polecat.
-			// The user will execute this step in their current crew session.
-			_ = BdCmd("update", stepBeadID, "--status=hooked").
-				WithAutoCommit().
-				Dir(rigBeadsDir).
-				Run()
-
+			// Interactive step: already hooked at creation instead of slung to a polecat.
 			fmt.Printf("  %s %s: %s (interactive — hooked to current session)\n",
 				style.Bold.Render("⇨"), step.ID, stepBeadID)
 			fmt.Printf("    %s\n", step.Title)
