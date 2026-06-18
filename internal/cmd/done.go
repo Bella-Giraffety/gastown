@@ -701,6 +701,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				}
 			}
 			completionFinalized = noMRFinalized
+			submissionSucceeded = noMRFinalized
 
 			// Skip straight to witness notification (no MR needed)
 			goto notifyWitness
@@ -1090,6 +1091,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					}
 				}
 				completionFinalized = noMergeFinalized
+				submissionSucceeded = noMergeFinalized
 
 				// Skip MR creation, go to witness notification
 				goto notifyWitness
@@ -1491,7 +1493,7 @@ notifyWitness:
 	completionFinalizedForState := completionFinalized && cleanupSafe
 
 	// Update agent bead state (ZFC: self-report completion)
-	updateAgentStateOnDone(cwd, townRoot, exitType, issueID, completionFinalizedForState)
+	hookFinalized := updateAgentStateOnDone(cwd, townRoot, exitType, issueID, completionFinalizedForState)
 
 	// Nudge witness only after hook/cleanup state is updated. Otherwise witness can
 	// evaluate slot availability against stale hook_bead or cleanup_status and emit
@@ -1515,7 +1517,7 @@ notifyWitness:
 			mergeStrategy = convoyInfo.MergeStrategy
 		}
 
-		if shouldRetirePolecatAfterDone(exitType, mergeStrategy, pushFailed, mrFailed, cleanupSafe, submissionSucceeded) {
+		if shouldRetirePolecatAfterDone(exitType, mergeStrategy, pushFailed, mrFailed, cleanupSafe, submissionSucceeded && hookFinalized) {
 			fmt.Printf("%s Retiring polecat sandbox %s/%s...\n", style.Bold.Render("→"), rigName, polecatName)
 			if err := retirePolecatAfterDone(townRoot, rigName, polecatName); err != nil {
 				style.PrintWarning("polecat retirement deferred: %v", err)
@@ -1835,7 +1837,7 @@ func clearDoneCheckpoints(bd *beads.Beads, agentBeadID string) {
 // BUG FIX (hq-3xaxy): This function must be resilient to working directory deletion.
 // If the polecat's worktree is deleted before gt done finishes, we use env vars as fallback.
 // All errors are warnings, not failures - gt done must complete even if bead ops fail.
-func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string, completionFinalized bool) {
+func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string, completionFinalized bool) bool {
 	// Get role context - try multiple sources for resilience
 	roleInfo, err := GetRoleWithContext(cwd, townRoot)
 	if err != nil {
@@ -1848,7 +1850,7 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string, completionF
 		if envRole == "" || envRig == "" {
 			// Can't determine role, skip agent state update
 			style.PrintWarning("could not determine role for agent state update (env: GT_ROLE=%q, GT_RIG=%q)", envRole, envRig)
-			return
+			return false
 		}
 
 		// Parse role string to get Role type
@@ -1875,7 +1877,7 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string, completionF
 	agentBeadID := getAgentBeadID(ctx)
 	if agentBeadID == "" {
 		style.PrintWarning("no agent bead ID found for %s/%s, skipping agent state update", ctx.Rig, ctx.Polecat)
-		return
+		return false
 	}
 
 	// Use rig path for bd commands.
@@ -2024,6 +2026,7 @@ doneStateUpdate:
 	// lingering labels to detect the zombie and resume from checkpoints.
 	clearDoneIntentLabel(agentBd, agentBeadID)
 	clearDoneCheckpoints(agentBd, agentBeadID)
+	return hookFinalized
 }
 
 // ensureAgentBeadExists recreates a missing agent bead so done-intent labels,
