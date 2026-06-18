@@ -140,6 +140,10 @@ make install
 Run these workspace steps on macOS, Linux, or WSL. Native Windows shells are minimal CLI-only environments; use WSL for `--shell`, `gt up`, tmux-backed roles, and Mayor sessions.
 
 ```bash
+# Set identity before --git so the initial HQ commit and Dolt config are valid
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+
 # Create a Gas Town workspace (HQ)
 gt install ~/gt --shell --git
 
