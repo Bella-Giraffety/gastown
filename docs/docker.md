@@ -20,7 +20,7 @@ CI workflows under `.github/workflows/` use `Dockerfile.e2e` for e2e jobs and pu
 
 ## Quick start
 
-The runtime image expects three environment variables and one host directory.
+The runtime image requires one host directory. Set the identity variables too so git and Dolt commits do not use the default test identity.
 
 ```bash
 export GIT_USER="<your name>"
@@ -31,6 +31,7 @@ export DASHBOARD_PORT=8080            # optional, host port for the dashboard
 mkdir -p "$FOLDER"
 docker compose build
 docker compose up -d
+docker compose logs -f gastown   # wait for "HQ created successfully!", then Ctrl-C
 docker compose exec gastown zsh
 ```
 
@@ -92,8 +93,8 @@ CMD ["sleep", "infinity"]
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GIT_USER` | `TestUser` | The entrypoint sets `git config --global user.name` and `dolt config --global user.name` from this variable. Gas Town's identity detection requires a value here. |
-| `GIT_EMAIL` | `test@example.com` | The entrypoint sets `user.email` for git and dolt from this variable. The entrypoint also enables `credential.helper store` so subsequent git pushes can persist credentials. |
+| `GIT_USER` | `TestUser` | The entrypoint sets `git config --global user.name` and `dolt config --global user.name` from this variable. Set this explicitly for real work so commits do not use the default test identity. |
+| `GIT_EMAIL` | `test@example.com` | The entrypoint sets `user.email` for git and dolt from this variable. The entrypoint also enables `credential.helper store` so subsequent git pushes can persist credentials. Set this explicitly for real work. |
 | `FOLDER` | (unset, **required**) | `FOLDER` is the host path bind-mounted to `/gt` inside the container. The directory must exist before `docker compose up`, and must be empty or already a Gas Town HQ — the entrypoint runs `gt install /gt --git` against the bind-mounted directory on first start, which converts whatever is there into an HQ. |
 | `DASHBOARD_PORT` | `8080` | `DASHBOARD_PORT` is the host port mapped to the container's port 8080 (the `gt dashboard` web UI). |
 | `IS_SANDBOX` | `1` (set by compose) | `internal/cmd/dashboard.go` reads `IS_SANDBOX`. When set, `gt dashboard` binds to `0.0.0.0` instead of `127.0.0.1` so the host port forward can reach the server. Leave the variable alone for normal use. |
@@ -244,9 +245,9 @@ The container has `gh` preinstalled. Credentials persist through the `agent-home
 
 `docker compose down` removes the container and the network. The volumes and `${FOLDER}` survive `down`. Use `down` when you want a clean container start without losing state.
 
-`docker compose down -v` removes the named volumes as well: `agent-home` and `dolt-data`. The bind-mounted `${FOLDER}` is *not* removed by `down -v`, only the docker-managed volumes. Use `down -v` for a fully fresh start.
+`docker compose down -v` removes the named volumes as well: `agent-home` and `dolt-data`. The bind-mounted `${FOLDER}` is *not* removed by `down -v`, only the docker-managed volumes. Use `down -v` when you want fresh container-managed state without deleting the host workspace.
 
-To remove the image too — for instance to force a clean rebuild after pulling new code — combine `down -v` with `docker rmi`.
+To remove the image too — for instance to force a clean rebuild after pulling new code — combine `down -v` with `docker rmi`. This still leaves the bind-mounted `${FOLDER}` on the host; delete or empty that directory too if you need a completely fresh HQ.
 
 ```bash
 docker compose down -v
@@ -294,4 +295,4 @@ You typically do not run `Dockerfile.e2e` directly. CI does.
 
 ## CI integration
 
-Three workflows under `.github/workflows/` use Docker. `e2e.yml` builds and runs `Dockerfile.e2e` on its scheduled and manual triggers, which is where install-flow regressions surface. `ci.yml` and `nightly-integration.yml` pre-pull `dolthub/dolt-sql-server` images for tests that need a Dolt server outside a full Gas Town environment. The production runtime `Dockerfile` is not used by CI.
+The Docker-backed test and integration workflows under `.github/workflows/` are `e2e.yml`, `ci.yml`, and `nightly-integration.yml`. `e2e.yml` builds and runs `Dockerfile.e2e` on its scheduled and manual triggers, which is where install-flow regressions surface. `ci.yml` and `nightly-integration.yml` pre-pull `dolthub/dolt-sql-server` images for tests that need a Dolt server outside a full Gas Town environment. `update-nix-flake.yml` also uses a disposable Docker container for Nix hash computation. The production runtime `Dockerfile` is not used by CI.

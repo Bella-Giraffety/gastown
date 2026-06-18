@@ -2,9 +2,13 @@
 
 Complete setup guide for Gas Town multi-agent orchestrator.
 
+For the shortest path, use `brew install gastown` on macOS or the Docker setup in [docker.md](docker.md). Homebrew installs `gt`, `bd`, and `dolt` together. Docker supplies the runtime tools inside the container. The native/source paths below are for hosts where you install and run `gt` directly.
+
 ## Prerequisites
 
 ### Required
+
+Native source installs require these host tools. Homebrew and Docker installs provide some of them for you, as noted in the platform sections below.
 
 | Tool | Version | Check | Install |
 |------|---------|-------|---------|
@@ -27,12 +31,17 @@ Complete setup guide for Gas Town multi-agent orchestrator.
 
 ### macOS
 
+Use Homebrew for the normal macOS install. It installs `gt`, `bd`, and `dolt` together.
+
 ```bash
 # Install Homebrew if needed
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Required
-brew install go git dolt
+# Recommended install
+brew install gastown
+
+# Optional: source builds also need Go and Dolt
+brew install go dolt
 
 # Optional (for full stack mode)
 brew install tmux
@@ -68,6 +77,17 @@ sudo dnf install -y git golang
 sudo dnf install -y tmux
 ```
 
+### Windows
+
+Install Go and Dolt first, then install `gt` and `bd` with Go. The binaries land in `%USERPROFILE%\go\bin`; add that directory to `PATH` if Go did not do so automatically.
+
+```powershell
+go install github.com/steveyegge/gastown/cmd/gt@latest
+go install github.com/steveyegge/beads/cmd/bd@latest
+```
+
+Use WSL or another Linux environment for tmux-backed workflows. Native Windows shells are best suited to minimal CLI-only use.
+
 ### Verify Prerequisites
 
 ```bash
@@ -82,14 +102,19 @@ tmux -V           # (Optional) Should show 3.0 or higher
 
 ### Step 1: Install the Binaries
 
-```bash
-# Install Gas Town CLI
-brew install gastown
+If you used `brew install gastown`, the binaries are already installed. Verify them:
 
-# Verify installation
+```bash
 gt version
 bd version
 dolt version
+```
+
+On Linux and Windows, install `gt` and `bd` with Go after installing Dolt separately:
+
+```bash
+go install github.com/steveyegge/gastown/cmd/gt@latest
+go install github.com/steveyegge/beads/cmd/bd@latest
 ```
 
 Homebrew installs the runtime dependencies declared by the core formula. The
@@ -113,7 +138,7 @@ make install
 
 ```bash
 # Create a Gas Town workspace (HQ)
-gt install ~/gt --shell
+gt install ~/gt --shell --git
 
 # This creates:
 #   ~/gt/
@@ -144,7 +169,6 @@ gt rig add myproject https://github.com/you/repo.git
 cd ~/gt
 
 gt enable              # enable Gas Town system-wide
-gt git-init            # initialize a git repo for your HQ
 gt up                  # Start all services. Use gt down or gt shutdown for stopping. 
 
 gt doctor              # Run health checks

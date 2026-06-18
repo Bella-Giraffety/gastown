@@ -242,7 +242,7 @@ gt mayor attach
 
 ### Docker Compose setup
 
-`docker-compose.yml` runs Gas Town inside a sandbox container. The container hosts an HQ at `/gt`, which Compose bind-mounts from `${FOLDER}` on the host. The entrypoint runs `gt install /gt --git` against that directory on first start, so `FOLDER` must point at an empty directory that you want to become the HQ or an existing Gas Town HQ. See the full [Docker guide](docs/docker.md) for lifecycle, storage, and security details.
+`docker-compose.yml` runs Gas Town inside a sandbox container. The container hosts an HQ at `/gt`, which Compose bind-mounts from `${FOLDER}` on the host. The entrypoint runs `gt install /gt --git` against that directory on first start, so `FOLDER` must point at an empty directory that you want to become the HQ or an existing Gas Town HQ. Set `GIT_USER` and `GIT_EMAIL` so git and Dolt commits do not use the default test identity. See the full [Docker guide](docs/docker.md) for lifecycle, storage, and security details.
 
 ```bash
 export GIT_USER="<your name>"
@@ -253,6 +253,7 @@ export DASHBOARD_PORT=8080           # optional, host port for the dashboard
 mkdir -p "$FOLDER"
 docker compose build              # only needed on first run or after code changes
 docker compose up -d
+docker compose logs -f gastown    # wait for "HQ created successfully!", then Ctrl-C
 
 docker compose exec gastown zsh   # or bash
 ```
