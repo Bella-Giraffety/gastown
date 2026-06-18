@@ -3,6 +3,9 @@ package daemon
 import (
 	"log"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -142,6 +145,149 @@ func TestParsePour(t *testing.T) {
 			t.Errorf("stepIDs[scan] = %q, want hq-wisp-s", dm.stepIDs["scan"])
 		}
 	})
+
+	t.Run("uses alternate root fields", func(t *testing.T) {
+		for _, field := range []string{"root_id", "result_id"} {
+			t.Run(field, func(t *testing.T) {
+				raw := `{"` + field + `":"hq-wisp-root","id_mapping":{"mol-dog-json.scan":"hq-wisp-scan"}}`
+				dm := newTestDogMol()
+				dm.parsePour(raw, "mol-dog-json")
+				if dm.rootID != "hq-wisp-root" {
+					t.Fatalf("rootID = %q, want hq-wisp-root", dm.rootID)
+				}
+				if dm.stepIDs["scan"] != "hq-wisp-scan" {
+					t.Errorf("stepIDs[scan] = %q, want hq-wisp-scan", dm.stepIDs["scan"])
+				}
+			})
+		}
+	})
+
+	t.Run("prefers mapped root over mismatched fallback", func(t *testing.T) {
+		raw := `{"new_epic_id":"hq-wisp-root-a","id_mapping":{"mol-dog-json":"hq-wisp-root-b","mol-dog-json.scan":"hq-wisp-scan"}}`
+		dm := newTestDogMol()
+		dm.parsePour(raw, "mol-dog-json")
+		if dm.rootID != "hq-wisp-root-b" {
+			t.Fatalf("rootID = %q, want mapped hq-wisp-root-b", dm.rootID)
+		}
+		if dm.stepIDs["scan"] != "hq-wisp-scan" {
+			t.Fatalf("stepIDs[scan] = %q, want hq-wisp-scan", dm.stepIDs["scan"])
+		}
+	})
+
+	t.Run("captures steps even when root is missing", func(t *testing.T) {
+		raw := `{"id_mapping":{"mol-dog-json.scan":"hq-wisp-scan"}}`
+		dm := newTestDogMol()
+		dm.parsePour(raw, "mol-dog-json")
+		if dm.rootID != "" {
+			t.Fatalf("rootID = %q, want empty", dm.rootID)
+		}
+		if dm.stepIDs["scan"] != "hq-wisp-scan" {
+			t.Fatalf("stepIDs[scan] = %q, want hq-wisp-scan", dm.stepIDs["scan"])
+		}
+	})
+}
+
+func TestPourDogMoleculeUsesJSONMappingNoChildrenRead(t *testing.T) {
+	raw := `{
+		"id_mapping": {
+			"mol-dog-doctor": "hq-wisp-root1",
+			"mol-dog-doctor.probe": "hq-wisp-probe1",
+			"mol-dog-doctor.inspect": "hq-wisp-inspect1"
+		},
+		"new_epic_id": "hq-wisp-root1"
+	}`
+	bdPath, logPath := writeDogMolFakeBD(t, raw)
+	d := &Daemon{
+		config: &Config{TownRoot: t.TempDir()},
+		bdPath: bdPath,
+		logger: log.New(os.Stderr, "", 0),
+	}
+
+	dm := d.pourDogMolecule("mol-dog-doctor", map[string]string{"run": "abc"})
+	if dm.rootID != "hq-wisp-root1" {
+		t.Fatalf("rootID = %q, want hq-wisp-root1", dm.rootID)
+	}
+	if dm.stepIDs["probe"] != "hq-wisp-probe1" || dm.stepIDs["inspect"] != "hq-wisp-inspect1" {
+		t.Fatalf("stepIDs = %v, want captured probe and inspect", dm.stepIDs)
+	}
+
+	log := readDogMolBDLog(t, logPath)
+	if strings.Contains(log, "show ") || strings.Contains(log, " --children") {
+		t.Fatalf("pour called children discovery unexpectedly; log:\n%s", log)
+	}
+	if !strings.Contains(log, "mol wisp mol-dog-doctor --json") {
+		t.Fatalf("pour did not call bd mol wisp --json; log:\n%s", log)
+	}
+}
+
+func TestDogMolCloseForceClosesCapturedStepsAndRoot(t *testing.T) {
+	bdPath, logPath := writeDogMolFakeBD(t, `{}`)
+	dm := &dogMol{
+		rootID: "hq-wisp-root1",
+		stepIDs: map[string]string{
+			"probe":   "hq-wisp-probe1",
+			"inspect": "hq-wisp-inspect1",
+		},
+		bdPath:   bdPath,
+		townRoot: t.TempDir(),
+		logger:   log.New(os.Stderr, "", 0),
+	}
+
+	dm.close()
+	log := readDogMolBDLog(t, logPath)
+	for _, want := range []string{
+		"close hq-wisp-probe1 --force",
+		"close hq-wisp-inspect1 --force",
+		"close hq-wisp-root1 --force",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("missing %q in fake bd log:\n%s", want, log)
+		}
+	}
+	if strings.Contains(log, "show ") || strings.Contains(log, " --children") {
+		t.Fatalf("close called children discovery unexpectedly; log:\n%s", log)
+	}
+}
+
+func TestDogMolCloseStepDoesNotRecloseStep(t *testing.T) {
+	bdPath, logPath := writeDogMolFakeBD(t, `{}`)
+	dm := &dogMol{
+		rootID:  "hq-wisp-root1",
+		stepIDs: map[string]string{"probe": "hq-wisp-probe1"},
+		bdPath:  bdPath,
+		logger:  log.New(os.Stderr, "", 0),
+	}
+
+	dm.closeStep("probe")
+	dm.close()
+	log := readDogMolBDLog(t, logPath)
+	if got := strings.Count(log, "close hq-wisp-probe1"); got != 1 {
+		t.Fatalf("close hq-wisp-probe1 called %d times, want 1; log:\n%s", got, log)
+	}
+	if !strings.Contains(log, "close hq-wisp-root1 --force") {
+		t.Fatalf("root was not force-closed; log:\n%s", log)
+	}
+}
+
+func TestDogMolCloseClosesCapturedStepsWithoutRoot(t *testing.T) {
+	bdPath, logPath := writeDogMolFakeBD(t, `{}`)
+	dm := &dogMol{
+		stepIDs: map[string]string{"probe": "hq-wisp-probe1"},
+		bdPath:  bdPath,
+		logger:  log.New(os.Stderr, "", 0),
+	}
+
+	dm.close()
+	log := readDogMolBDLog(t, logPath)
+	if !strings.Contains(log, "close hq-wisp-probe1 --force") {
+		t.Fatalf("captured step was not force-closed without root; log:\n%s", log)
+	}
+	if strings.Contains(log, "close  --force") {
+		t.Fatalf("empty root was closed unexpectedly; log:\n%s", log)
+	}
+	if strings.Contains(log, "show ") || strings.Contains(log, " --children") {
+		t.Fatalf("close called children discovery unexpectedly; log:\n%s", log)
+	}
 }
 
 func TestDogMolGracefulDegradation(t *testing.T) {
@@ -155,4 +301,46 @@ func TestDogMolGracefulDegradation(t *testing.T) {
 	dm.closeStep("scan")
 	dm.failStep("scan", "test failure")
 	dm.close()
+}
+
+func writeDogMolFakeBD(t *testing.T, output string) (string, string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bd shell script requires bash")
+	}
+	dir := t.TempDir()
+	bdPath := filepath.Join(dir, "bd")
+	logPath := filepath.Join(dir, "bd.log")
+	outputPath := filepath.Join(dir, "bd-output.json")
+	if err := os.WriteFile(outputPath, []byte(output), 0o644); err != nil {
+		t.Fatalf("write fake bd output: %v", err)
+	}
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$DOG_MOL_BD_LOG"
+case "${1:-}" in
+  show)
+    echo "unexpected children read" >&2
+    exit 42
+    ;;
+  mol)
+    cat "$DOG_MOL_BD_OUTPUT"
+    ;;
+esac
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+	t.Setenv("DOG_MOL_BD_LOG", logPath)
+	t.Setenv("DOG_MOL_BD_OUTPUT", outputPath)
+	return bdPath, logPath
+}
+
+func readDogMolBDLog(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fake bd log: %v", err)
+	}
+	return string(data)
 }

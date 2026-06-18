@@ -60,6 +60,8 @@ type dogMol struct {
 type pourResult struct {
 	IDMapping map[string]string `json:"id_mapping"`
 	NewEpicID string            `json:"new_epic_id"`
+	RootID    string            `json:"root_id"`
+	ResultID  string            `json:"result_id"`
 }
 
 // pourDogMolecule creates an ephemeral wisp molecule from a formula.
@@ -105,58 +107,115 @@ func (d *Daemon) pourDogMolecule(formulaName string, vars map[string]string) *do
 // JSON cannot be parsed it falls back to scraping the root ID from text so the
 // molecule is still closeable.
 func (dm *dogMol) parsePour(raw, formulaName string) {
-	var pr pourResult
-	if err := json.Unmarshal([]byte(raw), &pr); err != nil {
+	pr, err := decodePourResult(raw)
+	if err != nil {
 		dm.rootID = parseWispID(raw)
-		dm.logger.Printf("dog_molecule: pour JSON parse failed (fell back to text root=%q): %v", dm.rootID, err)
+		dm.logf("dog_molecule: pour JSON parse failed (fell back to text root=%q): %v", dm.rootID, err)
 		return
 	}
 
-	dm.rootID = pr.NewEpicID
+	mappedRoot := pr.IDMapping[formulaName]
+	fallbackRoot := firstNonEmpty(pr.NewEpicID, pr.RootID, pr.ResultID)
+	chosenRoot := firstWispID(mappedRoot, pr.NewEpicID, pr.RootID, pr.ResultID)
+	if mappedRoot != "" && fallbackRoot != "" && mappedRoot != fallbackRoot {
+		dm.logf("dog_molecule: pour %s: root ID mismatch between result %q and id_mapping %q; using %q", formulaName, fallbackRoot, mappedRoot, chosenRoot)
+	}
+	dm.rootID = chosenRoot
+	if dm.rootID == "" && firstNonEmpty(mappedRoot, pr.NewEpicID, pr.RootID, pr.ResultID) != "" {
+		dm.logf("dog_molecule: pour %s: ignoring non-wisp root IDs", formulaName)
+	}
+
 	prefix := formulaName + "."
 	for key, id := range pr.IDMapping {
 		switch {
 		case key == formulaName:
-			if dm.rootID == "" {
-				dm.rootID = id
-			}
+			continue
 		case strings.HasPrefix(key, prefix):
+			if !isWispID(id) {
+				dm.logf("dog_molecule: pour %s: ignoring non-wisp step ID %q for %s", formulaName, id, key)
+				continue
+			}
 			dm.stepIDs[strings.TrimPrefix(key, prefix)] = id
 		}
 	}
 }
 
-// closeStep marks a molecule step as closed.
-func (dm *dogMol) closeStep(stepSlug string) {
-	if dm.rootID == "" {
-		return // No molecule — graceful degradation.
+func decodePourResult(raw string) (pourResult, error) {
+	var pr pourResult
+	if err := json.Unmarshal([]byte(raw), &pr); err != nil {
+		return pr, err
+	}
+	if pr.NewEpicID != "" || pr.RootID != "" || pr.ResultID != "" || len(pr.IDMapping) > 0 {
+		return pr, nil
 	}
 
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil || len(envelope.Data) == 0 {
+		return pr, nil
+	}
+	if err := json.Unmarshal(envelope.Data, &pr); err != nil {
+		return pourResult{}, err
+	}
+	return pr, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstWispID(values ...string) string {
+	for _, value := range values {
+		if isWispID(value) {
+			return value
+		}
+	}
+	return ""
+}
+
+func isWispID(id string) bool {
+	return strings.Contains(id, "-wisp-")
+}
+
+func (dm *dogMol) logf(format string, args ...interface{}) {
+	if dm.logger != nil {
+		dm.logger.Printf(format, args...)
+	}
+}
+
+// closeStep marks a molecule step as closed.
+func (dm *dogMol) closeStep(stepSlug string) {
 	stepID, ok := dm.stepIDs[stepSlug]
 	if !ok {
-		dm.logger.Printf("dog_molecule: closeStep %q: unknown step (known: %v)", stepSlug, dm.knownSteps())
+		dm.logf("dog_molecule: closeStep %q: unknown step (known: %v)", stepSlug, dm.knownSteps())
 		return
 	}
 
 	if err := dm.closeWisp(stepID); err != nil {
-		dm.logger.Printf("dog_molecule: close step %s (%s) failed after %d attempts (non-fatal): %v", stepSlug, stepID, dogCloseMaxAttempts, err)
+		dm.logf("dog_molecule: close step %s (%s) failed after %d attempts (non-fatal): %v", stepSlug, stepID, dogCloseMaxAttempts, err)
+	} else {
+		delete(dm.stepIDs, stepSlug)
 	}
 }
 
 // failStep marks a molecule step as failed with a reason.
 func (dm *dogMol) failStep(stepSlug, reason string) {
-	if dm.rootID == "" {
-		return
-	}
-
 	stepID, ok := dm.stepIDs[stepSlug]
 	if !ok {
-		dm.logger.Printf("dog_molecule: failStep %q: unknown step", stepSlug)
+		dm.logf("dog_molecule: failStep %q: unknown step", stepSlug)
 		return
 	}
 
 	if err := dm.closeWisp(stepID, "--reason", reason); err != nil {
-		dm.logger.Printf("dog_molecule: fail step %s (%s) failed after %d attempts (non-fatal): %v", stepSlug, stepID, dogCloseMaxAttempts, err)
+		dm.logf("dog_molecule: fail step %s (%s) failed after %d attempts (non-fatal): %v", stepSlug, stepID, dogCloseMaxAttempts, err)
+	} else {
+		delete(dm.stepIDs, stepSlug)
 	}
 }
 
@@ -165,10 +224,6 @@ func (dm *dogMol) failStep(stepSlug, reason string) {
 // the source of the step-wisp leak (gt-k61r). bd close is idempotent, so
 // re-closing a step already closed via closeStep is a harmless no-op.
 func (dm *dogMol) close() {
-	if dm.rootID == "" {
-		return
-	}
-
 	// --force: molecule steps carry a needs-based DAG (e.g. probe→inspect→report),
 	// and bd refuses to close a wisp that is "blocked by" an open dependency. We
 	// close in map order (unordered), and this is a teardown — the dependency
@@ -177,12 +232,16 @@ func (dm *dogMol) close() {
 	// and the step wisps leak even though discovery succeeded (gt-k61r follow-up).
 	for slug, id := range dm.stepIDs {
 		if err := dm.closeWisp(id, "--force"); err != nil {
-			dm.logger.Printf("dog_molecule: close step %s (%s) failed after %d attempts (non-fatal): %v", slug, id, dogCloseMaxAttempts, err)
+			dm.logf("dog_molecule: close step %s (%s) failed after %d attempts (non-fatal): %v", slug, id, dogCloseMaxAttempts, err)
 		}
 	}
 
+	if dm.rootID == "" {
+		return
+	}
+
 	if err := dm.closeWisp(dm.rootID, "--force"); err != nil {
-		dm.logger.Printf("dog_molecule: close root %s failed after %d attempts (non-fatal): %v", dm.rootID, dogCloseMaxAttempts, err)
+		dm.logf("dog_molecule: close root %s failed after %d attempts (non-fatal): %v", dm.rootID, dogCloseMaxAttempts, err)
 	}
 }
 
@@ -235,15 +294,6 @@ func parseWispID(output string) string {
 		cleaned := stripANSI(word)
 		cleaned = strings.TrimRight(cleaned, ".,;:!?")
 		if strings.Contains(cleaned, "-wisp-") {
-			return cleaned
-		}
-	}
-	// Fallback: look for any bead-like ID (prefix-xxxx pattern).
-	for _, word := range strings.Fields(output) {
-		cleaned := stripANSI(word)
-		cleaned = strings.TrimRight(cleaned, ".,;:!?")
-		if len(cleaned) > 3 && strings.Contains(cleaned, "-") && !strings.HasPrefix(cleaned, "--") {
-			// Could be a bead ID like "gt-abc123".
 			return cleaned
 		}
 	}
