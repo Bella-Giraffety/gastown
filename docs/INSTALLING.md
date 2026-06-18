@@ -70,7 +70,8 @@ sudo apt install -y tmux
 
 ```bash
 # Required
-sudo dnf install -y git golang
+sudo dnf install -y git
+# Install Go 1.26.2+ from your distro if available, otherwise use the official Go installer.
 # Install Dolt: see https://github.com/dolthub/dolt?tab=readme-ov-file#installation
 
 # Optional
@@ -135,6 +136,8 @@ make install
 ```
 
 ### Step 2: Create Your Workspace
+
+Run these workspace steps on macOS, Linux, or WSL. Native Windows shells are minimal CLI-only environments; use WSL for `--shell`, `gt up`, tmux-backed roles, and Mayor sessions.
 
 ```bash
 # Create a Gas Town workspace (HQ)
