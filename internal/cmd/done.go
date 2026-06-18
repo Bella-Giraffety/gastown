@@ -1526,7 +1526,7 @@ notifyWitness:
 				retiredPolecat = true
 				fmt.Printf("%s Polecat sandbox retired\n", style.Bold.Render("✓"))
 			}
-		} else if pushFailed || mrFailed || !completionFinalized || exitType != ExitCompleted || mergeStrategy == "local" || !cleanupSafe {
+		} else if pushFailed || mrFailed || !completionFinalized || !hookFinalized || !submissionSucceeded || exitType != ExitCompleted || mergeStrategy == "local" || !cleanupSafe {
 			fmt.Printf("%s Polecat sandbox preserved for recovery/resume\n", style.Bold.Render("✓"))
 		} else {
 			fmt.Printf("%s Polecat sandbox preserved; no merge submission was created\n", style.Bold.Render("✓"))
