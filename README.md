@@ -191,6 +191,8 @@ For full tmux-backed workflows on Windows, use WSL or another Linux environment.
 Run `gt install` to create your headquarters (HQ) at `~/gt`. The `--shell` flag installs shell integration and enables Gas Town globally. The `--git` flag initializes the HQ as a git repository. Before using `--git`, set `git config --global user.name` and `git config --global user.email` so the initial commit has a valid identity.
 
 ```bash
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
 gt install ~/gt --shell --git
 cd ~/gt
 ```
@@ -275,6 +277,8 @@ The dashboard port is exposed from the container to the host. Treat it as a trus
 ### Getting Started
 Run
 ```shell
+git config --global user.name "Your Name" &&
+git config --global user.email "you@example.com" &&
 gt install ~/gt --shell --git &&
 cd ~/gt &&
 gt up &&
