@@ -538,6 +538,33 @@ func TestSchedulerSlingContextIdempotency(t *testing.T) {
 	}
 }
 
+func TestSchedulerClearThenDirectSlingIgnoresClosedContext(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Clear then direct sling test")
+	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig")
+	if !hasSlingContext(t, hqPath, beadID) {
+		t.Fatalf("bead %s has no sling context after scheduling", beadID)
+	}
+
+	out := runGTCmdOutput(t, gtBinary, hqPath, env, "scheduler", "clear", "--bead", beadID)
+	if !strings.Contains(out, "closed 1 context") {
+		t.Fatalf("scheduler clear output = %q, want closed context count", out)
+	}
+	if hasSlingContext(t, hqPath, beadID) {
+		t.Fatalf("bead %s still has open sling context after scheduler clear", beadID)
+	}
+
+	configureScheduler(t, hqPath, -1, 1)
+	out = runGTCmdOutput(t, gtBinary, hqPath, env, "sling", beadID, "testrig", "--hook-raw-bead", "--dry-run")
+	if strings.Contains(out, "already scheduled") || strings.Contains(out, "Would schedule") {
+		t.Fatalf("direct sling after scheduler clear used stale scheduler state:\n%s", out)
+	}
+	if !strings.Contains(out, "Would run: bd update "+beadID) {
+		t.Fatalf("direct sling dry-run output = %q, want hook update", out)
+	}
+}
+
 // TestSchedulerSlingContextWorkBeadPristine verifies that scheduling a bead
 // does NOT modify the work bead's description or labels.
 func TestSchedulerSlingContextWorkBeadPristine(t *testing.T) {

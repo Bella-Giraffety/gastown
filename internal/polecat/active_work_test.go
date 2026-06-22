@@ -36,6 +36,7 @@ func TestAssessHookWork(t *testing.T) {
 	tests := []struct {
 		name          string
 		hookStatus    string
+		missing       bool
 		err           error
 		wantBlocker   string
 		wantRestart   bool
@@ -50,12 +51,17 @@ func TestAssessHookWork(t *testing.T) {
 		{name: "open hook blocks", hookStatus: "open", wantBlocker: "hook_bead=gt-work status=open", wantRestart: true},
 		{name: "blocked hook protects without restart", hookStatus: "blocked", wantBlocker: "hook_bead=gt-work status=blocked", wantProtected: true},
 		{name: "deferred hook protects without restart", hookStatus: "deferred", wantBlocker: "hook_bead=gt-work status=deferred", wantProtected: true},
+		{name: "missing hook is retired terminal metadata", missing: true, wantSafe: true, wantTerminal: true},
 		{name: "lookup error blocks", err: errors.New("bd exploded"), wantBlocker: "lookup_error", wantProtected: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reader := fakeActiveWorkReader{issues: map[string]*beads.Issue{"gt-work": &beads.Issue{ID: "gt-work", Status: tt.hookStatus}}, err: tt.err}
+			issues := map[string]*beads.Issue{}
+			if !tt.missing {
+				issues["gt-work"] = &beads.Issue{ID: "gt-work", Status: tt.hookStatus}
+			}
+			reader := fakeActiveWorkReader{issues: issues, err: tt.err}
 			got := AssessHookWork(reader, "gt-work")
 			if got.HookSafe != tt.wantSafe || got.HookTerminal != tt.wantTerminal {
 				t.Fatalf("AssessHookWork() hook = (safe=%v terminal=%v), want (%v %v)", got.HookSafe, got.HookTerminal, tt.wantSafe, tt.wantTerminal)

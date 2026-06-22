@@ -85,9 +85,8 @@ func (e *ActiveWorkEvidence) Merge(next ActiveWorkEvidence) {
 	}
 }
 
-// AssessHookWork classifies legacy hook_bead evidence. Lookup uncertainty fails
-// closed for cleanup; callers with verified reaped status can use
-// AssessHookStatus directly.
+// AssessHookWork classifies legacy hook_bead evidence. Missing hook beads are
+// retired compatibility metadata; lookup uncertainty still fails closed.
 func AssessHookWork(reader IssueReader, hookBead string) ActiveWorkEvidence {
 	hookBead = strings.TrimSpace(hookBead)
 	if hookBead == "" {
@@ -99,12 +98,12 @@ func AssessHookWork(reader IssueReader, hookBead string) ActiveWorkEvidence {
 	issue, err := reader.Show(hookBead)
 	if err != nil {
 		if errors.Is(err, beads.ErrNotFound) {
-			return hookEvidence(hookBead, false, false, false, fmt.Sprintf("hook_bead=%s status=missing", hookBead))
+			return AssessHookStatus(hookBead, "", true)
 		}
 		return hookEvidence(hookBead, false, false, false, fmt.Sprintf("hook_bead=%s status=lookup_error: %v", hookBead, err))
 	}
 	if issue == nil {
-		return hookEvidence(hookBead, false, false, false, fmt.Sprintf("hook_bead=%s status=missing", hookBead))
+		return AssessHookStatus(hookBead, "", true)
 	}
 	return AssessHookStatus(hookBead, issue.Status, true)
 }
