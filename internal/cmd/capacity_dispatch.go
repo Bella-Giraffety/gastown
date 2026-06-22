@@ -658,8 +658,12 @@ func validatePendingBeadForDispatch(townRoot string, b capacity.PendingBead, esc
 	if b.TargetRig == "" {
 		return nil
 	}
-	if err := verifyBeadResolvesForTargetRig(b.WorkBeadID, b.TargetRig, townRoot); err == nil {
+	err := verifyBeadResolvesForTargetRig(b.WorkBeadID, b.TargetRig, townRoot)
+	if err == nil {
 		return nil
+	}
+	if !errors.Is(err, errBeadTargetRigMismatch) {
+		return err
 	}
 	gotPrefix := capacity.BeadIDPrefix(b.WorkBeadID)
 	fmt.Fprintf(os.Stderr,
@@ -668,7 +672,7 @@ func validatePendingBeadForDispatch(townRoot string, b capacity.PendingBead, esc
 	if escalate && shouldFireCrossRigEscalation(b.TargetRig, gotPrefix, time.Now()) {
 		fireCrossRigEscalation(b.TargetRig, gotPrefix, b.WorkBeadID)
 	}
-	return fmt.Errorf("%w: bead %s does not resolve to target rig %q", capacity.ErrCrossRigPrefix, b.WorkBeadID, b.TargetRig)
+	return fmt.Errorf("%w: %v", capacity.ErrCrossRigPrefix, err)
 }
 
 // isDaemonDispatch returns true when dispatch is triggered by the daemon heartbeat.

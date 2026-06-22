@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -102,6 +103,8 @@ type beadInfo struct {
 	IssueType    string           `json:"issue_type,omitempty"`
 	Ephemeral    bool             `json:"ephemeral,omitempty"`
 }
+
+var errBeadTargetRigMismatch = errors.New("bead does not resolve to target rig")
 
 func workSnapshotFromBeadInfo(beadID string, info *beadInfo) workitem.Snapshot {
 	if info == nil {
@@ -441,14 +444,14 @@ func verifyBeadResolvesForTargetRig(beadID, targetRig, townRoot string) error {
 		return fmt.Errorf("cannot verify bead %s in target rig %q: town root is unavailable; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
 	}
 
-	_, targetBeadsDir := targetRigBeadContext(townRoot, targetRig)
+	targetBeadsDir := targetRigBeadsDir(townRoot, targetRig)
 	if targetBeadsDir == "" {
 		return fmt.Errorf("cannot resolve target rig %q beads database for bead %s; refusing to sling before creating hooks or molecule side effects", targetRig, beadID)
 	}
 
 	resolvedBeadsDir := beads.ResolveBeadsDirForID(filepath.Join(townRoot, ".beads"), beadID)
 	if !sameBeadsDir(resolvedBeadsDir, targetBeadsDir) {
-		return fmt.Errorf("bead %s does not resolve to target rig %q beads database; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
+		return fmt.Errorf("%w: bead %s does not resolve to target rig %q beads database; refusing to sling before creating hooks or molecule side effects", errBeadTargetRigMismatch, beadID, targetRig)
 	}
 
 	out, err := bdShowBeadDirectCmdFromTownRoot(townRoot, beadID).Stderr(io.Discard).Output()
@@ -467,17 +470,16 @@ func verifyBeadResolvesForTargetRig(beadID, targetRig, townRoot string) error {
 	return nil
 }
 
-func targetRigBeadContext(townRoot, targetRig string) (string, string) {
+func targetRigBeadsDir(townRoot, targetRig string) string {
 	targetRigDir := beads.GetRigDirForName(townRoot, targetRig)
 	if targetRigDir != "" {
-		targetBeadsDir := beads.ResolveBeadsDir(targetRigDir)
-		return filepath.Dir(targetBeadsDir), targetBeadsDir
+		return beads.ResolveBeadsDir(targetRigDir)
 	}
 	targetBeadsDir := doltserver.FindRigBeadsDir(townRoot, targetRig)
 	if targetBeadsDir == "" {
-		return "", ""
+		return ""
 	}
-	return filepath.Dir(targetBeadsDir), targetBeadsDir
+	return targetBeadsDir
 }
 
 func sameBeadsDir(a, b string) bool {
