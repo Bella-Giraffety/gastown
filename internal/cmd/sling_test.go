@@ -300,6 +300,7 @@ exit /b 0
 	// with the route-resolved target rig database.
 	t.Setenv("BEADS_DIR", filepath.Join(townRoot, ".beads"))
 	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "hq")
+	t.Setenv("GT_DOLT_DATA", "")
 	t.Setenv("BEADS_DB", filepath.Join(townRoot, "wrong.db"))
 	t.Setenv("BD_DB", filepath.Join(townRoot, "wrong.bd"))
 	t.Setenv("BEADS_DOLT_DATA_DIR", filepath.Join(townRoot, "wrong-data"))

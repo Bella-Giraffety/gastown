@@ -4747,6 +4747,7 @@ printf 'unknown\n'
 	}
 	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("MOCK_BD_LOG", logPath)
+	t.Setenv("GT_DOLT_DATA", "")
 	t.Setenv("BEADS_DOLT_DATA_DIR", "/home/coder/gt/.dolt-data")
 	t.Setenv("BEADS_DOLT_HOST", "127.0.0.1")
 	t.Setenv("BEADS_DOLT_PORT", "3307")
