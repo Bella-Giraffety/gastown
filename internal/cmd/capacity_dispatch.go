@@ -642,7 +642,7 @@ func validateDryRunDispatchPlan(townRoot string, plan capacity.DispatchPlan) cap
 			continue
 		}
 		if b.TargetRig != "" {
-			if err := verifyBeadExistsInTargetRigDatabase(b.WorkBeadID, b.TargetRig, townRoot); err != nil {
+			if err := verifyBeadResolvesForTargetRig(b.WorkBeadID, b.TargetRig, townRoot); err != nil {
 				fmt.Fprintf(os.Stderr, "%s dry-run_skip reason=target_db bead=%s target_rig=%s: %v\n",
 					style.Dim.Render("○"), b.WorkBeadID, b.TargetRig, err)
 				plan.Skipped++
