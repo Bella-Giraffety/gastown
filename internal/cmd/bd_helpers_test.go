@@ -766,10 +766,10 @@ func TestBdCmd_UsesCentralReadMutationModes(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		setup         func() *bdCmd
-		wantPinned    bool
-		wantReadOnly  bool
+		name           string
+		setup          func() *bdCmd
+		wantPinned     bool
+		wantReadOnly   bool
 		wantAutoCommit string
 	}{
 		{
@@ -777,8 +777,8 @@ func TestBdCmd_UsesCentralReadMutationModes(t *testing.T) {
 			setup: func() *bdCmd {
 				return (&bdCmd{args: []string{"show", "gt-abc"}, env: append([]string{}, baseEnv...), stderr: os.Stderr}).Dir(rigDir)
 			},
-			wantPinned:    true,
-			wantReadOnly:  true,
+			wantPinned:     true,
+			wantReadOnly:   true,
 			wantAutoCommit: "off",
 		},
 		{
@@ -786,7 +786,7 @@ func TestBdCmd_UsesCentralReadMutationModes(t *testing.T) {
 			setup: func() *bdCmd {
 				return (&bdCmd{args: []string{"update", "gt-abc", "--status=open"}, env: append([]string{}, baseEnv...), stderr: os.Stderr}).WithBeadsDir(beadsDir)
 			},
-			wantPinned:    true,
+			wantPinned:     true,
 			wantAutoCommit: "on",
 		},
 		{
@@ -794,7 +794,7 @@ func TestBdCmd_UsesCentralReadMutationModes(t *testing.T) {
 			setup: func() *bdCmd {
 				return (&bdCmd{args: []string{"message", "thread", "hq-msg"}, env: append([]string{}, baseEnv...), stderr: os.Stderr}).Dir(rigDir).WithRouting()
 			},
-			wantReadOnly:  true,
+			wantReadOnly:   true,
 			wantAutoCommit: "off",
 		},
 		{
@@ -802,7 +802,7 @@ func TestBdCmd_UsesCentralReadMutationModes(t *testing.T) {
 			setup: func() *bdCmd {
 				return (&bdCmd{args: []string{"show", "gt-abc"}, env: append([]string{}, baseEnv...), stderr: os.Stderr}).Dir(rigDir).WithAutoCommit()
 			},
-			wantPinned:    true,
+			wantPinned:     true,
 			wantAutoCommit: "on",
 		},
 	}
