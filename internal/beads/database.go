@@ -133,6 +133,9 @@ func BuildMutationNeutralBDEnv(base []string) []string {
 // ArgsAreReadOnly classifies bd CLI arguments for env policy. Unknown commands
 // are treated as mutations so they cannot accidentally inherit read-only mode.
 func ArgsAreReadOnly(args []string) bool {
+	if argsAreGlobalOnlyRead(args) {
+		return true
+	}
 	args = stripBDGlobalFlags(args)
 	if len(args) == 0 {
 		return false
@@ -155,6 +158,21 @@ func ArgsAreReadOnly(args []string) bool {
 	default:
 		return false
 	}
+}
+
+func argsAreGlobalOnlyRead(args []string) bool {
+	sawReadGlobal := false
+	for _, arg := range args {
+		switch arg {
+		case "--version", "-V", "--help", "-h":
+			sawReadGlobal = true
+		case "--allow-stale", "--json", "--profile", "--quiet", "--verbose", "-q", "-v":
+			continue
+		default:
+			return false
+		}
+	}
+	return sawReadGlobal
 }
 
 func stripBDGlobalFlags(args []string) []string {

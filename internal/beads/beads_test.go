@@ -536,6 +536,8 @@ func TestArgsAreReadOnlyClassifiesKnownReadCommands(t *testing.T) {
 	cases := [][]string{
 		{"show", "gt-123", "--json"},
 		{"--allow-stale", "show", "gt-123", "--json"},
+		{"--version"},
+		{"--allow-stale", "--version"},
 		{"query", "merge-request", "--json"},
 		{"dep", "list", "hq-cv-123", "--json"},
 		{"mol", "wisp", "list", "--json"},

@@ -118,17 +118,6 @@ func filterEnvKey(env []string, key string) []string {
 	return beads.StripEnvKey(env, key)
 }
 
-func filterBdTargetEnv(env []string) []string {
-	return beads.StripBDTargetEnv(env)
-}
-
-func pinBeadsDirEnv(env []string, beadsDir string) []string {
-	if beadsDir == "" {
-		return beads.StripBDTargetEnv(env)
-	}
-	return beads.BuildPinnedBDEnv(env, beadsDir)
-}
-
 // buildEnv constructs the final environment slice based on configured options.
 func (b *bdCmd) buildEnv() []string {
 	env := append([]string(nil), b.env...)
