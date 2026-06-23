@@ -101,6 +101,23 @@ type beadInfo struct {
 	IssueType    string           `json:"issue_type,omitempty"`
 }
 
+func isTerminalWorkStatus(status string) bool {
+	return beads.IssueStatus(status).IsTerminal()
+}
+
+func isActiveAssignmentStatus(status string) bool {
+	return beads.IssueStatus(status).IsAssigned()
+}
+
+func isProtectedDispatchStatus(status string) bool {
+	issueStatus := beads.IssueStatus(status)
+	return issueStatus == beads.IssueStatusPinned || issueStatus.IsAssigned()
+}
+
+func isStaleScheduledWorkStatus(status string) bool {
+	return isTerminalWorkStatus(status) || isProtectedDispatchStatus(status)
+}
+
 // isDeferredBead checks whether a bead should be rejected from slinging because
 // it has been deferred. Returns true if the bead has status "deferred" or if its
 // description contains deferral keywords like "deferred to post-launch".
@@ -179,8 +196,8 @@ func isOrphanMolecule(info *beadInfo) bool {
 		return false
 	}
 	if info.Assignee == "" {
-		switch info.Status {
-		case "open", "in_progress", "hooked":
+		status := beads.IssueStatus(info.Status)
+		if status == beads.StatusOpen || status.IsAssigned() {
 			return true
 		}
 		return false

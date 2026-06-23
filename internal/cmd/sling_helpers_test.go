@@ -142,6 +142,53 @@ func TestIsDeferredBead(t *testing.T) {
 	}
 }
 
+func TestDispatchStatusPredicates(t *testing.T) {
+	tests := []struct {
+		status    string
+		terminal  bool
+		active    bool
+		protected bool
+		stale     bool
+		ready     bool
+	}{
+		{status: "open", ready: true},
+		{status: "blocked"},
+		{status: "deferred"},
+		{status: "pinned", protected: true, stale: true},
+		{status: "hooked", active: true, protected: true, stale: true},
+		{status: "in_progress", active: true, protected: true, stale: true},
+		{status: "closed", terminal: true, stale: true},
+		{status: "tombstone", terminal: true, stale: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			if got := isTerminalWorkStatus(tt.status); got != tt.terminal {
+				t.Fatalf("isTerminalWorkStatus(%q) = %v, want %v", tt.status, got, tt.terminal)
+			}
+			if got := isActiveAssignmentStatus(tt.status); got != tt.active {
+				t.Fatalf("isActiveAssignmentStatus(%q) = %v, want %v", tt.status, got, tt.active)
+			}
+			if got := isProtectedDispatchStatus(tt.status); got != tt.protected {
+				t.Fatalf("isProtectedDispatchStatus(%q) = %v, want %v", tt.status, got, tt.protected)
+			}
+			if got := isStaleScheduledWorkStatus(tt.status); got != tt.stale {
+				t.Fatalf("isStaleScheduledWorkStatus(%q) = %v, want %v", tt.status, got, tt.stale)
+			}
+			if got := isScheduledWorkBeadReady("gt-test", beadStatusInfo{Status: tt.status}, true, nil); got != tt.ready {
+				t.Fatalf("isScheduledWorkBeadReady(%q) = %v, want %v", tt.status, got, tt.ready)
+			}
+		})
+	}
+
+	if isScheduledWorkBeadReady("gt-test", beadStatusInfo{Status: "open"}, false, nil) {
+		t.Fatal("missing work bead must not be ready")
+	}
+	if isScheduledWorkBeadReady("gt-test", beadStatusInfo{Status: "open"}, true, map[string]bool{"gt-test": true}) {
+		t.Fatal("blocked open work bead must not be ready")
+	}
+}
+
 func TestCollectExistingMoleculesFiltersClosedMolecules(t *testing.T) {
 	tests := []struct {
 		name string

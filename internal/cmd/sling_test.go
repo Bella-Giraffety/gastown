@@ -3295,6 +3295,128 @@ exit /b 0
 	}
 }
 
+func TestSlingStaleAssignmentDryRunDoesNotUnhook(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor rig: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir rig beads: %v", err)
+	}
+	writeJSONFile(t, filepath.Join(townRoot, "mayor", "rigs.json"), &config.RigsConfig{
+		Version: config.CurrentRigsVersion,
+		Rigs: map[string]config.RigEntry{
+			"gastown": {BeadsConfig: &config.BeadsConfig{Prefix: "gt"}},
+		},
+	})
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir town beads: %v", err)
+	}
+	if err := beads.WriteRoutes(filepath.Join(townRoot, ".beads"), []beads.Route{{Prefix: "gt-", Path: "gastown/mayor/rig"}}); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd.log")
+	bdScript := `#!/bin/sh
+set -e
+log_args=""
+for arg in "$@"; do
+  log_args="${log_args}${log_args:+ }${arg}"
+done
+printf '%s\n' "$log_args" >> "${BD_LOG}"
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+  show)
+    printf '[{"title":"Test issue","status":"hooked","assignee":"%s","description":""}]\n' "${BD_ASSIGNEE}"
+    ;;
+  update)
+    exit 0
+    ;;
+esac
+exit 0
+`
+	bdScriptWindows := `@echo off
+echo %*>>"%BD_LOG%"
+set "cmd=%1"
+if "%cmd%"=="show" (
+  echo [{"title":"Test issue","status":"hooked","assignee":"%BD_ASSIGNEE%","description":""}]
+  exit /b 0
+)
+exit /b 0
+`
+	_ = writeBDStub(t, binDir, bdScript, bdScriptWindows)
+
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(EnvGTRole, "mayor")
+	t.Setenv("GT_CREW", "")
+	t.Setenv("GT_POLECAT", "")
+	t.Setenv("TMUX_PANE", "")
+	t.Setenv("GT_TEST_NO_NUDGE", "1")
+	t.Setenv("GT_TEST_SKIP_HOOK_VERIFY", "1")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevDeadFn := isHookedAgentDeadFn
+	prevForce := slingForce
+	prevNoConvoy := slingNoConvoy
+	prevDryRun := slingDryRun
+	prevHookRaw := slingHookRawBead
+	t.Cleanup(func() {
+		isHookedAgentDeadFn = prevDeadFn
+		slingForce = prevForce
+		slingNoConvoy = prevNoConvoy
+		slingDryRun = prevDryRun
+		slingHookRawBead = prevHookRaw
+	})
+	slingForce = false
+	slingNoConvoy = true
+	slingDryRun = true
+	slingHookRawBead = true
+
+	tests := []struct {
+		name     string
+		assignee string
+		dead     bool
+	}{
+		{name: "dead assignee", assignee: "gastown/polecats/dead", dead: true},
+		{name: "missing assignee", assignee: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(logPath, nil, 0644); err != nil {
+				t.Fatalf("clear bd log: %v", err)
+			}
+			t.Setenv("BD_ASSIGNEE", tt.assignee)
+			isHookedAgentDeadFn = func(assignee string) bool { return tt.dead }
+			if err := runSling(nil, []string{"gt-dryrun", "gastown"}); err != nil {
+				t.Fatalf("runSling dry-run: %v", err)
+			}
+			logBytes, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatalf("read bd log: %v", err)
+			}
+			if strings.Contains(string(logBytes), "update") {
+				t.Fatalf("dry-run stale reassignment must not unhook with bd update; log:\n%s", logBytes)
+			}
+		})
+	}
+}
+
 // TestSlingForceBypassesIdempotency verifies that --force skips the
 // idempotency check and proceeds with re-sling even for matching targets.
 func TestSlingForceBypassesIdempotency(t *testing.T) {

@@ -369,15 +369,12 @@ func cleanupStaleContexts(townRoot string) {
 	// Batch-fetch work bead info for only the specific IDs we need
 	workBeadInfo := batchFetchBeadInfoByIDs(townRoot, workBeadIDs)
 
-	// Second pass: close contexts whose work beads are stale.
-	// Note: in_progress is intentionally excluded — the work bead is being
-	// actively worked, and bd ready won't return it, so the dispatch query
-	// already prevents re-dispatch. The context stays open until the polecat
-	// finishes and the bead transitions to closed/tombstone.
+	// Second pass: close contexts whose work beads are stale. Sling contexts are
+	// queue reservations; active ownership and completion live on the work bead.
 	for i, ctx := range staleCheckContexts {
 		fields := staleCheckFields[i]
 		info, found := workBeadInfo[fields.WorkBeadID]
-		if found && (info.Status == "hooked" || info.Status == "closed" || info.Status == "tombstone") {
+		if found && isStaleScheduledWorkStatus(info.Status) {
 			_ = beadsForContextRecord(ctx).CloseSlingContext(ctx.issue.ID, "stale-work-bead")
 		}
 	}
@@ -765,5 +762,5 @@ func isScheduledWorkBeadReady(workBeadID string, info beadStatusInfo, found bool
 	if !found || blockedWorkIDs[workBeadID] {
 		return false
 	}
-	return info.Status == "open"
+	return beads.IssueStatus(info.Status) == beads.StatusOpen
 }

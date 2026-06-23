@@ -1510,3 +1510,56 @@ func TestScheduleBead_ClosedForceDoesNotBypass(t *testing.T) {
 		t.Errorf("--force should not bypass closed guard; got: %s", out)
 	}
 }
+
+func TestScheduleBead_WorkStatusBeatsOpenContextIdempotency(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Closed bead with stale open context")
+	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig")
+	if !hasSlingContext(t, hqPath, beadID) {
+		t.Fatalf("expected open sling context for %s before status change", beadID)
+	}
+
+	closeCmd := exec.Command("bd", "close", beadID)
+	closeCmd.Dir = rigPath
+	if out, err := closeCmd.CombinedOutput(); err != nil {
+		t.Fatalf("bd close %s failed: %v\n%s", beadID, err, out)
+	}
+
+	out, err := runGTCmdMayFail(t, gtBinary, hqPath, env,
+		"sling", beadID, "testrig", "--hook-raw-bead")
+	if err == nil {
+		t.Fatalf("expected gt sling to fail for closed bead despite open context\noutput: %s", out)
+	}
+	if strings.Contains(out, "already scheduled") {
+		t.Fatalf("open context masked canonical closed status:\n%s", out)
+	}
+	if !strings.Contains(out, "closed") || !strings.Contains(out, "work already completed") {
+		t.Fatalf("expected closed/work already completed error, got:\n%s", out)
+	}
+}
+
+func TestSchedulerClearThenDirectSlingIgnoresClosedContext(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Clear then direct sling")
+	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig")
+	if !hasSlingContext(t, hqPath, beadID) {
+		t.Fatalf("expected open sling context for %s before clear", beadID)
+	}
+
+	runGTCmdOutput(t, gtBinary, hqPath, env, "scheduler", "clear", "--bead", beadID)
+	if hasSlingContext(t, hqPath, beadID) {
+		t.Fatalf("scheduler clear should leave no open sling context for %s", beadID)
+	}
+
+	configureScheduler(t, hqPath, -1, 3)
+	out := runGTCmdOutput(t, gtBinary, hqPath, env,
+		"sling", beadID, "testrig", "--hook-raw-bead", "--dry-run")
+	if strings.Contains(out, "already scheduled") {
+		t.Fatalf("closed scheduler context blocked direct sling:\n%s", out)
+	}
+	if !strings.Contains(out, "Would spawn fresh polecat in rig 'testrig'") {
+		t.Fatalf("expected direct dry-run sling path after clear, got:\n%s", out)
+	}
+}

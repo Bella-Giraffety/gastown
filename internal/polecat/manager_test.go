@@ -1322,6 +1322,59 @@ func TestReuseIdlePolecat_SetupCommandFailureCleansWorktree(t *testing.T) {
 	}
 }
 
+func TestReuseIdlePolecat_DoesNotCleanTargetBeforeStartPointResolved(t *testing.T) {
+	mgr, _ := setupCanonicalBranchManagerTest(t)
+
+	polecat, err := mgr.AddWithOptions("toast", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	excludeCmd := exec.Command("git", "rev-parse", "--git-path", "info/exclude")
+	excludeCmd.Dir = polecat.ClonePath
+	excludeOut, err := excludeCmd.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse info/exclude: %v", err)
+	}
+	excludePath := strings.TrimSpace(string(excludeOut))
+	if !filepath.IsAbs(excludePath) {
+		excludePath = filepath.Join(polecat.ClonePath, excludePath)
+	}
+	excludeFile, err := os.OpenFile(excludePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatalf("open info/exclude: %v", err)
+	}
+	if _, err := excludeFile.WriteString("\ntarget/\n"); err != nil {
+		_ = excludeFile.Close()
+		t.Fatalf("write info/exclude: %v", err)
+	}
+	if err := excludeFile.Close(); err != nil {
+		t.Fatalf("close info/exclude: %v", err)
+	}
+	_ = git.NewGit(polecat.ClonePath).CleanForce()
+	targetDir := filepath.Join(polecat.ClonePath, "target")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	markerPath := filepath.Join(targetDir, "artifact")
+	if err := os.WriteFile(markerPath, []byte("keep"), 0644); err != nil {
+		t.Fatalf("write target marker: %v", err)
+	}
+
+	_, err = mgr.ReuseIdlePolecat("toast", AddOptions{HookBead: "gt-next", BaseBranch: "origin/definitely-missing"})
+	if err == nil {
+		t.Fatal("ReuseIdlePolecat should fail when start point is missing")
+	}
+	if !strings.Contains(err.Error(), "start point origin/definitely-missing not found") {
+		t.Fatalf("ReuseIdlePolecat error = %q, want missing start point", err.Error())
+	}
+	if _, statErr := os.Stat(markerPath); statErr != nil {
+		t.Fatalf("target marker should remain after failed start-point validation: %v", statErr)
+	}
+	if _, statErr := os.Stat(targetCleanCounterFile(mgr.polecatDir("toast"))); !os.IsNotExist(statErr) {
+		t.Fatalf("target-clean counter should not be written before start-point validation, stat err=%v", statErr)
+	}
+}
+
 func writeWispSetupCommand(t *testing.T, mgr *Manager, command string) {
 	t.Helper()
 

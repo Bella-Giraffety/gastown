@@ -415,8 +415,8 @@ func listScheduledBeads(townRoot string) []scheduledBeadInfo {
 		if found {
 			title = info.Title
 			status = info.Status
-			// Skip if work bead is hooked/closed
-			if status == "hooked" || status == "closed" || status == "tombstone" {
+			// Skip work whose authoritative state supersedes the queue reservation.
+			if isStaleScheduledWorkStatus(status) {
 				continue
 			}
 		}
