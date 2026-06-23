@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,8 +94,8 @@ func TestIsSystemDB(t *testing.T) {
 		{"lora_forge", false},
 		{"node0", false},
 		// Edge cases: names that start with system prefixes but aren't
-		{"testdb", false},        // exactly "testdb" with no underscore
-		{"beads", false},         // exactly "beads"
+		{"testdb", false},           // exactly "testdb" with no underscore
+		{"beads", false},            // exactly "beads"
 		{"beads_production", false}, // doesn't match beads_t or beads_pt
 	}
 
@@ -276,6 +277,18 @@ func TestResolveDependencyDB_EmptyRoutes(t *testing.T) {
 	// Prefix deps fail without routes
 	if got := resolveDependencyDB("pe-123", routes); got != "" {
 		t.Errorf("Expected empty for prefix dep with empty routes, got %q", got)
+	}
+}
+
+func TestConvoyDependencyTargetExprUsesTypedColumns(t *testing.T) {
+	wantColumns := []string{"depends_on_issue_id", "depends_on_wisp_id", "depends_on_external"}
+	for _, col := range wantColumns {
+		if !strings.Contains(convoyDependencyTargetExpr, col) {
+			t.Fatalf("convoyDependencyTargetExpr missing %s: %s", col, convoyDependencyTargetExpr)
+		}
+	}
+	if strings.Contains(convoyDependencyTargetExpr, "depends_on_id") {
+		t.Fatalf("convoyDependencyTargetExpr should not use legacy depends_on_id: %s", convoyDependencyTargetExpr)
 	}
 }
 
