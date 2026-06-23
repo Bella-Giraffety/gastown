@@ -554,6 +554,21 @@ func TestSchedulerClearThenDirectSlingIgnoresClosedContext(t *testing.T) {
 	if hasSlingContext(t, hqPath, beadID) {
 		t.Fatalf("bead %s still has open sling context after scheduler clear", beadID)
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(hqPath); err != nil {
+		t.Fatalf("chdir hq: %v", err)
+	}
+	scheduled := areScheduled([]string{beadID})
+	singleScheduled := isScheduled(beadID)
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("restore cwd: %v", err)
+	}
+	if scheduled[beadID] || singleScheduled {
+		t.Fatalf("bead %s still considered scheduled after scheduler clear: %v", beadID, scheduled)
+	}
 
 	configureScheduler(t, hqPath, -1, 1)
 	out = runGTCmdOutput(t, gtBinary, hqPath, env, "sling", beadID, "testrig", "--hook-raw-bead", "--dry-run")
