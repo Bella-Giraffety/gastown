@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -119,6 +121,56 @@ func TestHookRejectsNonBeadArg(t *testing.T) {
 				t.Errorf("runHook(%q) error = %q, want it to point at --help", arg, err.Error())
 			}
 		})
+	}
+}
+
+func TestCloseCompletedHookedMoleculeUsesCanonicalBdCmd(t *testing.T) {
+	townRoot := setupShowInvocationTown(t)
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	t.Chdir(townRoot)
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "bd.log")
+	writeBDStub(t, binDir, `#!/bin/sh
+{
+  printf 'args=%s\n' "$*"
+  printf 'pwd=%s\n' "$PWD"
+  printf 'BEADS_DIR=%s\n' "$BEADS_DIR"
+  printf 'BEADS_DOLT_SERVER_DATABASE=%s\n' "$BEADS_DOLT_SERVER_DATABASE"
+  printf 'BD_DOLT_AUTO_COMMIT=%s\n' "$BD_DOLT_AUTO_COMMIT"
+  printf 'BD_READONLY=%s\n' "$BD_READONLY"
+} >> "$GT_TEST_BD_LOG"
+exit 0
+`, "@echo off\nexit /b 0\n")
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GT_TEST_BD_LOG", logPath)
+	t.Setenv("CLAUDE_SESSION_ID", "ses-test")
+	t.Setenv("BEADS_DIR", "/stale")
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "stale")
+	t.Setenv("BD_DOLT_AUTO_COMMIT", "off")
+	t.Setenv("BD_READONLY", "true")
+
+	if err := closeCompletedHookedMolecule("gt-wisp-old"); err != nil {
+		t.Fatalf("closeCompletedHookedMolecule: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	log := string(data)
+	for _, want := range []string{
+		"args=close gt-wisp-old --force --reason=Auto-replaced by gt hook (molecule complete) --session=ses-test",
+		"pwd=" + rigDir,
+		"BEADS_DIR=" + filepath.Join(rigDir, ".beads"),
+		"BEADS_DOLT_SERVER_DATABASE=gastown",
+		"BD_DOLT_AUTO_COMMIT=on",
+		"BD_READONLY=",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("bd log missing %q in:\n%s", want, log)
+		}
 	}
 }
 
