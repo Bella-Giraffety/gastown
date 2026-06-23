@@ -31,6 +31,8 @@ var (
 	multiDash  = regexp.MustCompile(`-{2,}`)
 )
 
+const convoyDependencyTargetExpr = "COALESCE(d.depends_on_issue_id, d.depends_on_wisp_id, d.depends_on_external)"
+
 // route represents a single entry from routes.jsonl.
 type route struct {
 	Prefix string `json:"prefix"`
@@ -382,11 +384,12 @@ func findConvoysNeedingSnapshots(db *sql.DB) ([]convoyRow, error) {
 // discoverConvoyDatabases finds which rig databases a convoy touches
 // by looking at its tracked issues' prefixes.
 func discoverConvoyDatabases(db *sql.DB, convoyID string, databases []string, routes map[string]string) ([]string, error) {
-	query := `
-		SELECT DISTINCT d.depends_on_id
+	query := fmt.Sprintf(`
+		SELECT DISTINCT %s AS depends_on_id
 		FROM hq.dependencies d
 		WHERE d.issue_id = ? AND d.type = 'tracks'
-	`
+		  AND %s IS NOT NULL
+	`, convoyDependencyTargetExpr, convoyDependencyTargetExpr)
 	rows, err := db.Query(query, convoyID)
 	if err != nil {
 		return nil, err

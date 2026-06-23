@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -329,9 +328,7 @@ func runHook(_ *cobra.Command, args []string) error {
 					if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
 						closeArgs = append(closeArgs, "--session="+sessionID)
 					}
-					closeCmd := exec.Command("bd", closeArgs...)
-					closeCmd.Stderr = os.Stderr
-					if err := closeCmd.Run(); err != nil {
+					if err := BdCmd(closeArgs...).Dir(resolveBeadDir(existing.ID)).WithAutoCommit().Run(); err != nil {
 						return fmt.Errorf("closing completed bead %s: %w", existing.ID, err)
 					}
 				} else {
@@ -376,9 +373,9 @@ func runHook(_ *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Hook the bead using bd update with retry logic (discovery-based approach).
-	// Run from town root so bd can find routes.jsonl for prefix-based routing.
-	// This is essential for hooking convoys (hq-* prefix) stored in town beads.
+	// Hook the bead in its route-resolved owner directory; BdCmd pins the selected
+	// .beads directory and Dolt database through the canonical bd env policy.
+	// This is essential for cross-prefix work such as hq-* convoys and gt-* rig beads.
 	// Dolt can fail with concurrency errors (HTTP 400) when multiple agents write
 	// simultaneously. We retry with exponential backoff, matching sling.go behavior.
 	const hookMaxRetries = 5

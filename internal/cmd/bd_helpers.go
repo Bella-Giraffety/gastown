@@ -118,29 +118,9 @@ func filterEnvKey(env []string, key string) []string {
 	return beads.StripEnvKey(env, key)
 }
 
-func filterBdTargetEnv(env []string) []string {
-	return beads.StripBDTargetEnv(env)
-}
-
-func pinBeadsDirEnv(env []string, beadsDir string) []string {
-	if beadsDir == "" {
-		return beads.StripBDTargetEnv(env)
-	}
-	return beads.BuildPinnedBDEnv(env, beadsDir)
-}
-
 // buildEnv constructs the final environment slice based on configured options.
 func (b *bdCmd) buildEnv() []string {
-	env := b.env
-
-	// Add BD_DOLT_AUTO_COMMIT=on for sequential dependent calls.
-	// Filter existing entries first — glibc getenv() returns the first match,
-	// so an existing "off" entry would shadow the appended "on".
-	if b.autoCommit {
-		env = filterEnvKey(env, "BD_DOLT_AUTO_COMMIT")
-		env = filterEnvKey(env, "BD_READONLY")
-		env = append(env, "BD_DOLT_AUTO_COMMIT=on")
-	}
+	env := append([]string(nil), b.env...)
 
 	// Add GT_ROOT if specified.
 	// Filter existing entries first for the same reason as above.
@@ -149,25 +129,32 @@ func (b *bdCmd) buildEnv() []string {
 		env = append(env, "GT_ROOT="+b.gtRoot)
 	}
 
-	// Add BEADS_DIR if specified.
-	// This prevents inherited BEADS_DIR from causing bd to target the wrong
-	// database (e.g., HQ instead of rig). See gt-ctir.
-	//
-	// Also clear inherited Dolt target variables. Dashboard and agent shells can
-	// carry a town-level or remote BEADS_DOLT_* target; keeping it while changing
-	// BEADS_DIR makes `bd show <displayed-id>` query a different database than
-	// `gt ready` used to render the row.
+	fallbackBeadsDir := ""
+	pinned := false
 	if b.routing {
-		env = beads.BuildRoutingBDEnv(env, beads.ResolveBeadsDir(b.dir))
+		fallbackBeadsDir = beads.ResolveBeadsDir(b.dir)
 	} else if b.beadsDir != "" {
-		env = pinBeadsDirEnv(env, b.beadsDir)
+		fallbackBeadsDir = b.beadsDir
+		pinned = true
 	} else if b.dir != "" {
-		env = pinBeadsDirEnv(env, beads.ResolveBeadsDir(b.dir))
-	} else {
-		env = beads.SuppressBDSideEffects(beads.StripBDTargetEnv(env))
+		fallbackBeadsDir = beads.ResolveBeadsDir(b.dir)
+		pinned = true
 	}
 
-	return env
+	readOnly := beads.ArgsAreReadOnly(b.args) && !b.autoCommit
+	mode := beads.MutationRouting
+	if readOnly {
+		mode = beads.ReadOnlyRouting
+	}
+	if pinned {
+		if readOnly {
+			mode = beads.ReadOnlyPinned
+		} else {
+			mode = beads.MutationPinned
+		}
+	}
+
+	return beads.EnvForSubprocessMode(env, fallbackBeadsDir, mode)
 }
 
 // Build returns the configured exec.Cmd.

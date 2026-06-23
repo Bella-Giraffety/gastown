@@ -73,14 +73,17 @@ func isBDTargetEnv(entry string) bool {
 }
 
 // BuildPinnedBDEnv returns env for a bd subprocess pinned to beadsDir. BEADS_DIR
-// is the authoritative target selector; inherited database selectors are
-// stripped so bd can apply its own .beads/config/redirect database resolution.
+// and its metadata-derived Dolt database are the authoritative target selectors;
+// inherited database selectors are stripped before the selected target is added.
 func BuildPinnedBDEnv(base []string, beadsDir string) []string {
 	env := SuppressBDSideEffects(StripBDTargetEnv(base))
 	if beadsDir == "" {
 		return addGTDerivedDoltTargetEnv(env)
 	}
 	env = append(env, "BEADS_DIR="+beadsDir)
+	if databaseEnv := DatabaseEnv(beadsDir); databaseEnv != "" {
+		env = append(env, databaseEnv)
+	}
 	env = append(env, doltTargetEnvFromBeadsDir(beadsDir)...)
 	return addGTDerivedDoltTargetEnv(env)
 }
@@ -130,25 +133,46 @@ func BuildMutationNeutralBDEnv(base []string) []string {
 // ArgsAreReadOnly classifies bd CLI arguments for env policy. Unknown commands
 // are treated as mutations so they cannot accidentally inherit read-only mode.
 func ArgsAreReadOnly(args []string) bool {
+	if argsAreGlobalOnlyRead(args) {
+		return true
+	}
 	args = stripBDGlobalFlags(args)
 	if len(args) == 0 {
 		return false
 	}
 	switch args[0] {
-	case "show", "list", "ready", "blocked", "stats", "stale", "orphans", "activity", "query", "version":
+	case "show", "list", "ready", "blocked", "stats", "stale", "orphans", "activity", "query", "search", "version":
 		return true
+	case "message":
+		return len(args) > 1 && args[1] == "thread"
 	case "dep":
 		return len(args) > 1 && args[1] == "list"
 	case "mol":
 		return len(args) > 2 && args[1] == "wisp" && args[2] == "list"
 	case "sql":
 		query := strings.ToLower(strings.Join(stripBDCommandFlags(args[1:]), " "))
-		return strings.HasPrefix(strings.TrimSpace(query), "select")
+		query = strings.TrimSpace(query)
+		return strings.HasPrefix(query, "select") || strings.HasPrefix(query, "with") || strings.HasPrefix(query, "show") || strings.HasPrefix(query, "explain") || strings.HasPrefix(query, "describe")
 	case "config":
 		return len(args) > 1 && args[1] == "get"
 	default:
 		return false
 	}
+}
+
+func argsAreGlobalOnlyRead(args []string) bool {
+	sawReadGlobal := false
+	for _, arg := range args {
+		switch arg {
+		case "--version", "-V", "--help", "-h":
+			sawReadGlobal = true
+		case "--allow-stale", "--json", "--profile", "--quiet", "--verbose", "-q", "-v":
+			continue
+		default:
+			return false
+		}
+	}
+	return sawReadGlobal
 }
 
 func stripBDGlobalFlags(args []string) []string {
