@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -329,9 +328,7 @@ func runHook(_ *cobra.Command, args []string) error {
 					if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
 						closeArgs = append(closeArgs, "--session="+sessionID)
 					}
-					closeCmd := exec.Command("bd", closeArgs...)
-					closeCmd.Stderr = os.Stderr
-					if err := closeCmd.Run(); err != nil {
+					if err := BdCmd(closeArgs...).Dir(resolveBeadDir(existing.ID)).WithAutoCommit().Run(); err != nil {
 						return fmt.Errorf("closing completed bead %s: %w", existing.ID, err)
 					}
 				} else {
