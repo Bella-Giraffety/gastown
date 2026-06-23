@@ -1,10 +1,12 @@
 package mail
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -373,6 +375,52 @@ func TestMailBdReadCommandsUseCanonicalClassifier(t *testing.T) {
 	for _, tt := range tests {
 		if got := beads.ArgsAreReadOnly(tt.args); got != tt.want {
 			t.Fatalf("beads.ArgsAreReadOnly(%v) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
+
+func TestRunBdCommandUsesCanonicalReadClassifier(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell stub is Unix-only")
+	}
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "bd.log")
+	stubPath := filepath.Join(binDir, "bd")
+	stub := `#!/bin/sh
+{
+  printf 'args=%s\n' "$*"
+  printf 'BD_READONLY=%s\n' "$BD_READONLY"
+  printf 'BD_DOLT_AUTO_COMMIT=%s\n' "$BD_DOLT_AUTO_COMMIT"
+} >> "$GT_TEST_BD_LOG"
+exit 0
+`
+	if err := os.WriteFile(stubPath, []byte(stub), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GT_TEST_BD_LOG", logPath)
+	t.Setenv("BD_READONLY", "false")
+	t.Setenv("BD_DOLT_AUTO_COMMIT", "on")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := runBdCommand(ctx, []string{"message", "thread", "hq-abc", "--json"}, t.TempDir(), ""); err != nil {
+		t.Fatalf("runBdCommand: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	log := string(data)
+	for _, want := range []string{
+		"args=message thread hq-abc --json",
+		"BD_READONLY=true",
+		"BD_DOLT_AUTO_COMMIT=off",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("bd log missing %q in:\n%s", want, log)
 		}
 	}
 }

@@ -384,12 +384,7 @@ func findConvoysNeedingSnapshots(db *sql.DB) ([]convoyRow, error) {
 // discoverConvoyDatabases finds which rig databases a convoy touches
 // by looking at its tracked issues' prefixes.
 func discoverConvoyDatabases(db *sql.DB, convoyID string, databases []string, routes map[string]string) ([]string, error) {
-	query := fmt.Sprintf(`
-		SELECT DISTINCT %s AS depends_on_id
-		FROM hq.dependencies d
-		WHERE d.issue_id = ? AND d.type = 'tracks'
-		  AND %s IS NOT NULL
-	`, convoyDependencyTargetExpr, convoyDependencyTargetExpr)
+	query := convoyDependencyTargetsQuery()
 	rows, err := db.Query(query, convoyID)
 	if err != nil {
 		return nil, err
@@ -422,6 +417,15 @@ func discoverConvoyDatabases(db *sql.DB, convoyID string, databases []string, ro
 		result = append(result, d)
 	}
 	return result, rows.Err()
+}
+
+func convoyDependencyTargetsQuery() string {
+	return fmt.Sprintf(`
+		SELECT DISTINCT %s AS depends_on_id
+		FROM hq.dependencies d
+		WHERE d.issue_id = ? AND d.type = 'tracks'
+		  AND %s IS NOT NULL
+	`, convoyDependencyTargetExpr, convoyDependencyTargetExpr)
 }
 
 // resolveDependencyDB extracts the database name from a dependency ID.

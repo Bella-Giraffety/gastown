@@ -280,15 +280,22 @@ func TestResolveDependencyDB_EmptyRoutes(t *testing.T) {
 	}
 }
 
-func TestConvoyDependencyTargetExprUsesTypedColumns(t *testing.T) {
+func TestConvoyDependencyTargetsQueryUsesTypedColumns(t *testing.T) {
 	wantColumns := []string{"depends_on_issue_id", "depends_on_wisp_id", "depends_on_external"}
+	query := convoyDependencyTargetsQuery()
 	for _, col := range wantColumns {
-		if !strings.Contains(convoyDependencyTargetExpr, col) {
-			t.Fatalf("convoyDependencyTargetExpr missing %s: %s", col, convoyDependencyTargetExpr)
+		if !strings.Contains(query, "d."+col) {
+			t.Fatalf("convoy dependency query missing %s: %s", col, query)
 		}
 	}
-	if strings.Contains(convoyDependencyTargetExpr, "depends_on_id") {
-		t.Fatalf("convoyDependencyTargetExpr should not use legacy depends_on_id: %s", convoyDependencyTargetExpr)
+	if !strings.Contains(query, "AS depends_on_id") {
+		t.Fatalf("convoy dependency query missing parsing alias: %s", query)
+	}
+	if strings.Contains(query, "d.depends_on_id") {
+		t.Fatalf("convoy dependency query should not use legacy d.depends_on_id: %s", query)
+	}
+	if !strings.Contains(query, "d.issue_id = ?") || !strings.Contains(query, "d.type = 'tracks'") || !strings.Contains(query, "IS NOT NULL") {
+		t.Fatalf("convoy dependency query missing issue/type/null filters: %s", query)
 	}
 }
 
