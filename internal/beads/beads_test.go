@@ -167,6 +167,69 @@ func TestBuildPinnedBDEnvUsesSelectedConnectionMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildPinnedBDEnvUsesLegacyServerDatabaseMetadata(t *testing.T) {
+	beadsDir := filepath.Join(t.TempDir(), ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	metadata := []byte(`{"backend":"dolt","dolt_mode":"server","database":"rigdb","dolt_server_host":"127.0.0.1","dolt_server_port":4407}`)
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), metadata, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := BuildPinnedBDEnv([]string{
+		"PATH=/usr/bin",
+		"BEADS_DOLT_SERVER_DATABASE=stale",
+	}, beadsDir)
+	got := envMap(env)
+
+	if got["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb in %v", got["BEADS_DOLT_SERVER_DATABASE"], env)
+	}
+	if count := countEnvPrefix(env, "BEADS_DOLT_SERVER_DATABASE="); count != 1 {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE count = %d, want 1 in %v", count, env)
+	}
+}
+
+func TestBuildPinnedBDEnvPrefersDoltDatabaseMetadata(t *testing.T) {
+	beadsDir := filepath.Join(t.TempDir(), ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	metadata := []byte(`{"backend":"dolt","dolt_mode":"server","database":"legacydb","dolt_database":"rigdb"}`)
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), metadata, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := BuildPinnedBDEnv([]string{"PATH=/usr/bin"}, beadsDir)
+	got := envMap(env)
+
+	if got["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb in %v", got["BEADS_DOLT_SERVER_DATABASE"], env)
+	}
+}
+
+func TestBuildPinnedBDEnvIgnoresEmbeddedDatabaseMetadata(t *testing.T) {
+	beadsDir := filepath.Join(t.TempDir(), ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	metadata := []byte(`{"backend":"dolt","dolt_mode":"embedded","database":"dolt"}`)
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), metadata, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := BuildPinnedBDEnv([]string{
+		"PATH=/usr/bin",
+		"BEADS_DOLT_SERVER_DATABASE=stale",
+	}, beadsDir)
+	got := envMap(env)
+
+	if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be absent for embedded metadata, got %q in %v", value, env)
+	}
+}
+
 func TestBuildPinnedBDEnvStripsCaseVariantTargetEnvWhenKeysAreCaseInsensitive(t *testing.T) {
 	withCaseInsensitiveEnvKeys(t)
 

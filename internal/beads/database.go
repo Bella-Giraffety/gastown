@@ -18,20 +18,31 @@ var bdTargetEnvKeys = []string{
 	"BEADS_SHARED_SERVER_DIR",
 }
 
-// DatabaseNameFromMetadata reads the dolt_database field from .beads/metadata.json.
-// Returns empty string if metadata doesn't exist or has no database configured.
+// DatabaseNameFromMetadata reads the server Dolt database name from
+// .beads/metadata.json. dolt_database is authoritative; database is accepted for
+// older server-mode metadata. Returns empty string if metadata doesn't exist or
+// has no server database configured.
 func DatabaseNameFromMetadata(beadsDir string) string {
 	data, err := os.ReadFile(filepath.Join(beadsDir, "metadata.json"))
 	if err != nil {
 		return ""
 	}
 	var meta struct {
+		Backend      string `json:"backend"`
+		Database     string `json:"database"`
+		DoltMode     string `json:"dolt_mode"`
 		DoltDatabase string `json:"dolt_database"`
 	}
 	if json.Unmarshal(data, &meta) != nil {
 		return ""
 	}
-	return meta.DoltDatabase
+	if db := strings.TrimSpace(meta.DoltDatabase); db != "" {
+		return db
+	}
+	if strings.TrimSpace(meta.Backend) == "dolt" && strings.TrimSpace(meta.DoltMode) == "server" {
+		return strings.TrimSpace(meta.Database)
+	}
+	return ""
 }
 
 // DatabaseEnv returns the BEADS_DOLT_SERVER_DATABASE=<name> env var string
