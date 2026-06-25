@@ -3,6 +3,7 @@ package refinery
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,27 @@ import (
 type prepushStore struct {
 	beadsdk.Storage
 	issues map[string]*beadsdk.Issue
+}
+
+type prepushPRProvider struct {
+	beforeMerge func()
+	mergeCalled bool
+}
+
+func (p *prepushPRProvider) FindPRNumber(string) (int, error) {
+	return 42, nil
+}
+
+func (p *prepushPRProvider) IsPRApproved(int) (bool, error) {
+	if p.beforeMerge != nil {
+		p.beforeMerge()
+	}
+	return true, nil
+}
+
+func (p *prepushPRProvider) MergePR(int, string) (string, error) {
+	p.mergeCalled = true
+	return "deadbeef", nil
 }
 
 func newPrepushStore(issues ...*beadsdk.Issue) *prepushStore {
@@ -82,6 +104,11 @@ func assertOriginMainUnchangedAndReset(t *testing.T, workDir, before string) {
 	afterOrigin := run(t, workDir, "git", "rev-parse", "origin/main")
 	if afterOrigin != before {
 		t.Fatalf("origin/main changed: before %s after %s", before, afterOrigin)
+	}
+	remoteLine := run(t, workDir, "git", "ls-remote", "origin", "refs/heads/main")
+	remoteFields := strings.Fields(remoteLine)
+	if len(remoteFields) == 0 || remoteFields[0] != before {
+		t.Fatalf("remote main changed: before %s ls-remote %q", before, remoteLine)
 	}
 	localMain := run(t, workDir, "git", "rev-parse", "main")
 	if localMain != before {
@@ -197,6 +224,43 @@ func TestRecheckMRStillMergeable_AllowsClosedSourceWithoutPolicyMarker(t *testin
 	}
 	if got := store.issues["gt-mr"].Status; got != beadsdk.StatusOpen {
 		t.Fatalf("MR status = %s, want open", got)
+	}
+}
+
+func TestDoMergePR_RechecksSourceBeforeMergeAPI(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	e := newTestEngineer(t, workDir, g)
+	store := newPrepushStore(
+		prepushIssue("gt-src", ""),
+		prepushMRIssue("gt-mr-pr", "feature-pr", "main", "gt-src"),
+	)
+	e.beads = beads.NewWithStore(workDir, store)
+	requireReview := true
+	e.config.RequireReview = &requireReview
+	provider := &prepushPRProvider{
+		beforeMerge: func() {
+			store.issues["gt-src"].Description = "no_merge: true"
+			store.issues["gt-src"].UpdatedAt = time.Now()
+		},
+	}
+	e.prProvider = provider
+
+	mr := &MRInfo{ID: "gt-mr-pr", Branch: "feature-pr", Target: "main", SourceIssue: "gt-src", Worker: "polecats/test"}
+	result := e.doMergePR(context.Background(), mr)
+
+	if result.Success || !result.NoMerge {
+		t.Fatalf("expected clean policy rejection before PR merge API, got: %+v", result)
+	}
+	if provider.mergeCalled {
+		t.Fatal("MergePR was called after source became no_merge")
+	}
+	if got := store.issues["gt-mr-pr"].Status; got != beadsdk.StatusClosed {
+		t.Fatalf("MR status = %s, want closed", got)
+	}
+	if got := store.issues["gt-src"].Status; got != beadsdk.StatusOpen {
+		t.Fatalf("source issue status = %s, want open", got)
 	}
 }
 

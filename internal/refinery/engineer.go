@@ -906,8 +906,14 @@ func (e *Engineer) recheckMRStillMergeable(mr *MRInfo, target string) ProcessRes
 		if fields == nil {
 			return e.rejectMRBeforeMerge(mr, "MR has missing merge-request fields")
 		}
-		if strings.TrimSpace(fields.CloseReason) != "" {
-			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("MR close_reason is %s", fields.CloseReason))
+		if closeReason := strings.TrimSpace(fields.CloseReason); closeReason != "" {
+			if strings.EqualFold(closeReason, string(CloseReasonMerged)) {
+				if err := e.closeMRWithReason(mr, string(CloseReasonMerged)); err != nil {
+					return ProcessResult{Success: false, Error: fmt.Sprintf("failed to close already-merged MR %s: %v", mr.ID, err)}
+				}
+				return mergeIneligibleResult("MR close_reason is %s", closeReason)
+			}
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("MR close_reason is %s", closeReason))
 		}
 		if fields.Branch != "" && mr.Branch != "" && fields.Branch != mr.Branch {
 			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("MR branch changed from %s to %s", mr.Branch, fields.Branch))
@@ -1551,6 +1557,10 @@ func (e *Engineer) HandleMRInfoFailure(mr *MRInfo, result ProcessResult) {
 }
 
 func (e *Engineer) closeIneligibleMR(mr *MRInfo, reason string) error {
+	return e.closeMRWithReason(mr, "rejected: "+reason)
+}
+
+func (e *Engineer) closeMRWithReason(mr *MRInfo, closeReason string) error {
 	if mr == nil || strings.TrimSpace(mr.ID) == "" {
 		return nil
 	}
@@ -1564,11 +1574,10 @@ func (e *Engineer) closeIneligibleMR(mr *MRInfo, reason string) error {
 	if issue == nil || beads.IssueStatus(issue.Status) != beads.StatusOpen {
 		return nil
 	}
-	closeReason := "rejected: " + reason
 	if err := e.beads.CloseWithReason(closeReason, mr.ID); err != nil {
-		return fmt.Errorf("close MR as rejected: %w", err)
+		return fmt.Errorf("close MR: %w", err)
 	}
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Closed ineligible MR bead: %s\n", mr.ID)
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Closed MR bead: %s (%s)\n", mr.ID, closeReason)
 	return nil
 }
 
@@ -1961,13 +1970,20 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 		// These MRs shouldn't exist (gt done skips MR creation for owned+direct
 		// convoys), but if one slips through, the refinery should not process it.
 		if beads.HasLabel(issue, "gt:owned-direct") {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s: owned+direct convoy (belt-and-suspenders)\n", issue.ID)
+			if err := e.closeIneligibleMR(&MRInfo{ID: issue.ID}, "MR is owned-direct"); err != nil {
+				return nil, fmt.Errorf("closing owned-direct MR %s: %w", issue.ID, err)
+			}
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Rejected MR %s: owned+direct convoy (belt-and-suspenders)\n", issue.ID)
 			continue
 		}
 
 		fields := beads.ParseMRFields(issue)
 		if fields == nil {
-			continue // Skip issues without MR fields
+			if err := e.closeIneligibleMR(&MRInfo{ID: issue.ID}, "MR has missing merge-request fields"); err != nil {
+				return nil, fmt.Errorf("closing malformed MR %s: %w", issue.ID, err)
+			}
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Rejected MR %s: missing merge-request fields\n", issue.ID)
+			continue
 		}
 
 		// Filter by rig — wisps are shared across all rigs (GH#2718).
@@ -1977,7 +1993,10 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 		if sourceAssessment, sourceErr := e.assessMRSourceIssue(fields.SourceIssue); sourceErr != nil {
 			return nil, fmt.Errorf("validating MR %s source_issue %s: %w", issue.ID, fields.SourceIssue, sourceErr)
 		} else if !sourceAssessment.Concrete {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s: invalid source_issue %q (%s)\n", issue.ID, fields.SourceIssue, sourceAssessment.Reason)
+			if err := e.closeIneligibleMR(issueToMRInfo(issue, fields), fmt.Sprintf("source_issue %q is invalid (%s)", fields.SourceIssue, sourceAssessment.Reason)); err != nil {
+				return nil, fmt.Errorf("closing MR %s with invalid source_issue %s: %w", issue.ID, fields.SourceIssue, err)
+			}
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Rejected MR %s: invalid source_issue %q (%s)\n", issue.ID, fields.SourceIssue, sourceAssessment.Reason)
 			continue
 		}
 
