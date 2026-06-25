@@ -307,8 +307,8 @@ func (e *Engineer) processSingleMR(ctx context.Context, mr *MRInfo, target strin
 		e.HandleMRInfoFailure(mr, processResult)
 		result.Conflicts = []*MRInfo{mr}
 	} else if processResult.NoMerge {
-		// Source issue has no_merge flag — intentionally blocked. Dequeue silently.
-		_, _ = fmt.Fprintf(e.output, "[Batch] MR %s: no_merge flag set, dequeuing\n", mr.ID)
+		// Policy-ineligible work is intentionally blocked. Dequeue silently.
+		_, _ = fmt.Fprintf(e.output, "[Batch] MR %s: not merge-eligible, dequeuing\n", mr.ID)
 		e.HandleMRInfoFailure(mr, processResult)
 	} else if processResult.NeedsApproval {
 		// PR awaiting human approval — leave in queue for retry on next poll.
