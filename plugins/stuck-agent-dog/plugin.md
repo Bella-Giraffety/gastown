@@ -1,6 +1,6 @@
 +++
 name = "stuck-agent-dog"
-description = "Context-aware stuck/crashed agent detection and restart for polecats and deacons"
+description = "Context-aware polecat restart and control-plane health escalation"
 version = 1
 
 [gate]
@@ -19,23 +19,28 @@ severity = "high"
 
 # Stuck Agent Dog
 
-Detects stuck or crashed polecats and deacons by inspecting central runtime
-health before taking action. The plugin checks whether an agent is truly
-unresponsive before restarting or escalating.
+Detects stuck or crashed polecats by inspecting central runtime health and
+active hook state before taking action. It also escalates confirmed Deacon,
+witness, and refinery outages without restarting or killing those control-plane
+sessions.
 
 **Design principle**: The daemon should NEVER kill workers based on blind
 polecat liveness. This plugin (running as a Dog agent with AI judgment) makes
-polecat restart decisions after inspecting central runtime health. Deacon
-heartbeat staleness is different: the Go daemon owns heartbeat nudge/restart,
-and this plugin only escalates a dead Deacon session or dead Deacon runtime.
+polecat restart decisions after inspecting central runtime health. Deacon,
+witness, and refinery lifecycle is different: this plugin escalates confirmed
+dead sessions/runtimes only, and never restarts or kills them. Deacon heartbeat
+staleness is NOTICE-only; the Go daemon owns heartbeat nudge/restart.
 
 Reference: WAR-ROOM-SERIAL-KILLER.md, commit f3d47a96.
 
 ## Scope — What You May and May NOT Touch
 
-**IN SCOPE** (these are the ONLY sessions this plugin may inspect or act on):
-- Polecat sessions (`<prefix>-<name>`, e.g. `gt-minuteman`)
-- Deacon session (`hq-deacon`)
+**IN SCOPE**:
+- Polecat sessions (`<prefix>-<name>`, e.g. `gt-minuteman`): may be killed or
+  restart-requested only when central health is dead and the hook is active.
+- Deacon session (`hq-deacon`): dead session/runtime may be escalated only.
+- Witness/refinery sessions (`<prefix>-witness`, `<prefix>-refinery`): read-only
+  health check and escalation only; never killed or restart-requested.
 
 **OUT OF SCOPE — NEVER touch these, under any circumstances:**
 - **Crew sessions** (`<rig>-crew-<name>`, e.g. `gastown-crew-bear`). Crew lifecycle
@@ -44,55 +49,40 @@ Reference: WAR-ROOM-SERIAL-KILLER.md, commit f3d47a96.
   is waiting for its human. Killing a crew session destroys the overseer's active
   workspace and is a **critical incident**.
 - **Mayor session** (`hq-mayor`)
-- **Witness sessions** (`<rig>-witness`)
-- **Refinery sessions** (`<rig>-refinery`)
-- Any session not explicitly enumerated by the bash scripts in Steps 1-3
+- Any session not explicitly enumerated by the bash script
 
 **This scope is absolute.** Do NOT extend it based on your own judgment. The bash
-scripts enumerate exactly the sessions you should check. If a session does not
-appear in `CRASHED[]` or `STUCK[]` arrays, it does not exist for your purposes.
+script enumerates exactly the sessions you should check.
 
-## Step 1: Enumerate agents to check
+## Step 1: Enumerate operational rigs
 
-Gather all polecats and the deacon session. We check crashed sessions
-(`session-dead`, work on hook) and confirmed zombie sessions (`agent-dead`).
-`agent-hung` is observe-only for polecats.
+Use `gt rig list --json` as the authoritative rig registry. Only rigs with
+`status == "operational"` are scanned. If the registry is unavailable or
+unparseable, fail closed and skip the run; raw `rigs.json` does not carry enough
+live dock/park state to drive CRITICAL escalations safely.
 
 ```bash
 echo "=== Stuck Agent Dog: Checking agent health ==="
 
-TOWN_ROOT="$HOME/gt"
-RIGS_JSON_PATH="${TOWN_ROOT}/rigs.json"
-
-# Fallback for older/runtime-copied layouts that still expose rigs.json under mayor/.
-if [ ! -f "$RIGS_JSON_PATH" ] && [ -f "$TOWN_ROOT/mayor/rigs.json" ]; then
-  RIGS_JSON_PATH="$TOWN_ROOT/mayor/rigs.json"
-fi
-
-# Read rigs.json for rig names and beads prefixes
-# CRITICAL: We need both the rig name (for filesystem paths like $TOWN_ROOT/$RIG/polecats/)
-# and the beads prefix (for tmux session names like $PREFIX-$NAME).
-# These can differ — e.g. rig "cfutons" may have prefix "CF".
-if [ ! -f "$RIGS_JSON_PATH" ]; then
-  echo "SKIP: rigs.json not found at $RIGS_JSON_PATH"
+if ! RIG_JSON=$(gt rig list --json 2>/dev/null); then
+  echo "SKIP: gt rig list --json unavailable; cannot verify operational rig state"
   exit 0
 fi
 
-if ! RIG_PREFIX_MAP=$(jq -r '
-  if (.rigs | type) == "object" then
-    .rigs | to_entries[] | "\(.key)|\(.value.beads.prefix // .key)"
+RIG_PREFIX_MAP=$(printf '%s' "$RIG_JSON" | jq -r '
+  if type == "array" then
+    .[]
+    | select(.status == "operational")
+    | "\(.name)|\(.beads_prefix // .prefix // .beads.prefix // empty)"
   else
-    empty
+    error("expected array")
   end
-' "$RIGS_JSON_PATH" 2>/dev/null); then
-  echo "SKIP: could not parse rigs.json"
-  exit 0
-fi
+' 2>/dev/null || true)
 
-# Filter out any malformed/blank rows so partial registry state fails safe.
+# Filter out malformed rows so partial registry state fails safe.
 RIG_PREFIX_MAP=$(printf '%s\n' "$RIG_PREFIX_MAP" | awk -F'|' 'NF >= 2 && $1 != "" && $2 != ""')
 if [ -z "$RIG_PREFIX_MAP" ]; then
-  echo "SKIP: no rigs found in rigs.json"
+  echo "SKIP: no operational rigs found"
   exit 0
 fi
 ```
@@ -101,7 +91,7 @@ fi
 
 For each rig, enumerate polecats and check their session status.
 A polecat is a concern if:
-- It has hooked work (hook_bead is set)
+- `gt hook show --json` reports active work with status `hooked` or `in_progress`
 - Its central runtime-aware health is `session-dead` OR `agent-dead`
 
 Polecat liveness must use `gt session health`, which wraps the central
@@ -135,17 +125,18 @@ while IFS='|' read -r RIG PREFIX; do
         HEALTHY=$((HEALTHY + 1))
         ;;
       session-dead)
-        # Check hook/status through the target rig workspace before acting.
-        # Only open/hooked/in_progress work is restartable.
-        HOOK_BEAD=$(rig_hook_bead "$RIG" "$PCAT_NAME")
-        if [ -n "$HOOK_BEAD" ] && bead_restartable "$SESSION_NAME" "$RIG" "$HOOK_BEAD"; then
+        # Check active hook assignment through the target rig workspace before acting.
+        HOOK_ASSIGNMENT=$(rig_hook_assignment "$RIG" "$PCAT_NAME")
+        IFS='|' read -r HOOK_BEAD HOOK_STATUS <<< "$HOOK_ASSIGNMENT"
+        if hook_restartable "$SESSION_NAME" "$HOOK_BEAD" "$HOOK_STATUS"; then
           CRASHED+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD")
           echo "  CRASHED: $SESSION_NAME (hook=$HOOK_BEAD)"
         fi
         ;;
       agent-dead)
-        HOOK_BEAD=$(rig_hook_bead "$RIG" "$PCAT_NAME")
-        if [ -n "$HOOK_BEAD" ] && bead_restartable "$SESSION_NAME" "$RIG" "$HOOK_BEAD"; then
+        HOOK_ASSIGNMENT=$(rig_hook_assignment "$RIG" "$PCAT_NAME")
+        IFS='|' read -r HOOK_BEAD HOOK_STATUS <<< "$HOOK_ASSIGNMENT"
+        if hook_restartable "$SESSION_NAME" "$HOOK_BEAD" "$HOOK_STATUS"; then
           STUCK+=("$SESSION_NAME|$RIG|$PCAT_NAME|$HOOK_BEAD|agent_dead")
           echo "  ZOMBIE: $SESSION_NAME (agent runtime dead, hook=$HOOK_BEAD)"
         fi
@@ -226,10 +217,10 @@ fi
 **This is the key difference from daemon blind-kill.** For each crashed or stuck
 agent, inspect the tmux pane context to determine if restart is appropriate.
 
-**SCOPE REMINDER: You may ONLY act on entries in the `CRASHED[]` and `STUCK[]`
-arrays populated by Steps 2-3. These arrays contain ONLY polecats and deacon.
-Do NOT inspect, evaluate, or act on ANY other sessions (crew, mayor, witness,
-refinery). If you find yourself considering a session not in these arrays, STOP.**
+**SCOPE REMINDER: You may kill/restart-request ONLY entries in the `CRASHED[]`
+and `STUCK[]` arrays. Those arrays contain ONLY polecats with active hook work.
+Deacon, witness, and refinery may be escalated only. Do NOT inspect, evaluate,
+or act on crew, mayor, or any other sessions.**
 
 **You (the dog agent) must evaluate each case:**
 
@@ -248,29 +239,44 @@ For Deacon heartbeat staleness:
 - The daemon owns heartbeat nudge/restart; this dog only records visibility.
 - Real Deacon death is handled by dead session or dead runtime checks above.
 
+For witness/refinery outages:
+- Dead session/runtime is escalated with `--source plugin:stuck-agent-dog` and a
+  stable control-plane fingerprint.
+- Never kill or restart witness/refinery sessions from this plugin.
+
 **Decision framework:**
-1. If central health is `session-dead` and hook status is actionable → request restart
-2. If central health is `agent-dead` and hook status is actionable → clear zombie, request restart
+1. If central health is `session-dead` and hook status is `hooked|in_progress` → request restart
+2. If central health is `agent-dead` and hook status is `hooked|in_progress` → clear zombie, request restart
 3. If central health is `agent-hung` → observe/report only; do not restart polecat research sessions
 4. If the Deacon session is dead or its runtime is dead → escalate.
 5. If Deacon heartbeat age is stale → NOTICE-only; do not escalate.
-6. If mass death detected (threshold default 3) → escalate and skip all per-agent actions
+6. If witness/refinery session or runtime is dead → escalate only.
+7. If confirmed mass death remains after live re-check (threshold default 3) → escalate and skip all per-agent actions
 
 ## Step 5: Mass death check
 
-If multiple agents crashed in the same cycle, this may indicate a systemic
-issue (Dolt outage, OOM, etc.). Escalate instead of blindly restarting all.
-The executable script checks this before per-agent actions and skips all
-restart/kill loops for that cycle.
+If multiple active polecats crash in the same cycle, this may indicate a
+systemic issue (Dolt outage, OOM, etc.). The executable script re-checks live
+health and active hook state before CRITICAL escalation. If the confirmed count
+drops below threshold, normal per-agent action proceeds for the remaining
+confirmed outages.
 
 ```bash
 TOTAL_ISSUES=$(( ${#CRASHED[@]} + ${#STUCK[@]} ))
 MASS_DEATH=0
-if [ "$TOTAL_ISSUES" -ge "${GT_STUCK_AGENT_DOG_MASS_DEATH_THRESHOLD:-3}" ]; then
-  MASS_DEATH=1
-  echo "MASS DEATH: $TOTAL_ISSUES agents down in same cycle — escalating"
-  gt escalate "Mass agent death: $TOTAL_ISSUES agents down" -s CRITICAL
-  echo "Skipping per-agent restart/kill actions during mass-death escalation"
+if [ "$TOTAL_ISSUES" -ge "$MASS_DEATH_THRESHOLD" ]; then
+  confirm_polecat_outages
+  CRASHED=("${CONFIRMED_CRASHED[@]}")
+  STUCK=("${CONFIRMED_STUCK[@]}")
+  CONFIRMED_TOTAL=$(( ${#CRASHED[@]} + ${#STUCK[@]} ))
+
+  if [ "$CONFIRMED_TOTAL" -ge "$MASS_DEATH_THRESHOLD" ]; then
+    MASS_DEATH=1
+    gt escalate "Mass agent death: $CONFIRMED_TOTAL agents down" \
+      -s CRITICAL \
+      --source "plugin:stuck-agent-dog" \
+      --fingerprint "stuck-agent-dog:mass-death"
+  fi
 fi
 ```
 
@@ -335,6 +341,15 @@ if [ -n "$DEACON_ISSUE" ]; then
     --source "plugin:stuck-agent-dog" \
     --fingerprint "$DEACON_FINGERPRINT"
 fi
+
+# For witness/refinery issues: escalate only, never kill or restart.
+for ENTRY in "${CONTROL_PLANE_OUTAGES[@]}"; do
+  IFS='|' read -r SESSION RIG ROLE REASON <<< "$ENTRY"
+  gt escalate "Rig $RIG $ROLE $REASON detected by stuck-agent-dog" \
+    -s CRITICAL \
+    --source "plugin:stuck-agent-dog" \
+    --fingerprint "stuck-agent-dog:control-plane:$SESSION:$REASON"
+done
 ```
 
 ## Record Result
@@ -346,6 +361,9 @@ if [ -n "$DEACON_ISSUE" ]; then
 fi
 if [ -n "$DEACON_NOTICE" ]; then
   SUMMARY="$SUMMARY, deacon_notice=$DEACON_NOTICE (not escalated)"
+fi
+if [ "${#CONTROL_PLANE_OUTAGES[@]}" -gt 0 ]; then
+  SUMMARY="$SUMMARY, control_plane_outages=${#CONTROL_PLANE_OUTAGES[@]}"
 fi
 echo "=== $SUMMARY ==="
 ```

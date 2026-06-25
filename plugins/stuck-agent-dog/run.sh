@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # stuck-agent-dog/run.sh — Context-aware stuck/crashed agent detection.
 #
-# SCOPE: Only polecats and deacon. NEVER touches crew, mayor, witness, or refinery.
-# The daemon detects; this plugin inspects context before acting.
+# SCOPE: polecats may be restarted, deacon/witness/refinery may be escalated.
+# Crew, mayor, and other sessions are out of scope.
 
 set -euo pipefail
 
@@ -14,11 +14,6 @@ if [ -z "$TOWN_ROOT" ]; then
     log "SKIP: could not resolve town root"
     exit 0
   fi
-fi
-
-RIGS_JSON_PATH="${TOWN_ROOT}/rigs.json"
-if [ ! -f "$RIGS_JSON_PATH" ] && [ -f "$TOWN_ROOT/mayor/rigs.json" ]; then
-  RIGS_JSON_PATH="$TOWN_ROOT/mayor/rigs.json"
 fi
 
 integer_or_default() {
@@ -137,37 +132,21 @@ session_health_status() {
 operational_rig_prefix_map() {
   local rig_json="" rows=""
 
-  if rig_json=$(gt rig list --json 2>/dev/null); then
-    if rows=$(printf '%s' "$rig_json" | jq -r '
-      if type == "array" then
-        .[]
-        | select((.status // "operational") == "operational")
-        | "\(.name)|\(.beads_prefix // .prefix // .beads.prefix // empty)"
-      else
-        error("expected array")
-      end
-    ' 2>/dev/null); then
-      printf '%s\n' "$rows" | awk -F'|' 'NF >= 2 && $1 != "" && $2 != ""'
-      return 0
-    fi
-
-    log "WARN: gt rig list --json was not parseable; falling back to rigs.json"
-  fi
-
-  # Fallback for older/runtime-copied layouts where gt rig list is unavailable.
-  if [ ! -f "$RIGS_JSON_PATH" ]; then
-    log "SKIP: rigs.json not found"
+  if ! rig_json=$(gt rig list --json 2>/dev/null); then
+    log "SKIP: gt rig list --json unavailable; cannot verify operational rig state" >&2
     return 0
   fi
 
-  if ! rows=$(jq -r '
-    if (.rigs | type) == "object" then
-      .rigs | to_entries[] | "\(.key)|\(.value.beads.prefix // .key)"
+  if ! rows=$(printf '%s' "$rig_json" | jq -r '
+    if type == "array" then
+      .[]
+      | select(.status == "operational")
+      | "\(.name)|\(.beads_prefix // .prefix // .beads.prefix // empty)"
     else
-      empty
+      error("expected array")
     end
-  ' "$RIGS_JSON_PATH" 2>/dev/null); then
-    log "SKIP: could not parse rigs.json"
+  ' 2>/dev/null); then
+    log "SKIP: gt rig list --json not parseable; cannot verify operational rig state" >&2
     return 0
   fi
 
@@ -231,26 +210,12 @@ confirm_polecat_outages() {
   done
 }
 
-mass_death_fingerprint() {
-  {
-    local entry="" session="" rig="" pcat="" hook="" reason=""
-    for entry in ${CRASHED[@]+"${CRASHED[@]}"}; do
-      IFS='|' read -r session rig pcat hook <<< "$entry"
-      printf '%s|session-dead\n' "$session"
-    done
-    for entry in ${STUCK[@]+"${STUCK[@]}"}; do
-      IFS='|' read -r session rig pcat hook reason <<< "$entry"
-      printf '%s|agent-dead\n' "$session"
-    done
-  } | LC_ALL=C sort | tr '\n' ';'
-}
-
 # --- Enumerate agents ---------------------------------------------------------
 
 log "=== Checking agent health ==="
 
 # Build operational rig_name|prefix mapping. The gt rig registry is the
-# authoritative dock/park filter; raw rigs.json is only a degraded fallback.
+# authoritative dock/park filter; if it is unavailable, fail closed.
 RIG_PREFIX_MAP=$(operational_rig_prefix_map)
 if [ -z "$RIG_PREFIX_MAP" ]; then
   log "SKIP: no operational rigs found"
@@ -265,7 +230,7 @@ CONTROL_PLANE_OUTAGES=()
 HEALTHY=0
 
 while IFS='|' read -r RIG PREFIX; do
-  [ -z "$RIG" ] && continue
+  [ -n "$RIG" ] && [ -n "$PREFIX" ] || continue
   check_control_plane "$RIG" "$PREFIX"
 
   POLECAT_DIR="$TOWN_ROOT/$RIG/polecats"
@@ -329,14 +294,14 @@ else
   DEACON_HEALTH=$(gt session health "$DEACON_SESSION" --json --max-inactivity 0s 2>/dev/null \
     | jq -r '.status // empty' 2>/dev/null || true)
   case "$DEACON_HEALTH" in
-    healthy|agent-hung)
+    healthy|agent-hung|agent_hung)
       log "  OK: Deacon central health is $DEACON_HEALTH"
       ;;
-    agent-dead)
+    agent-dead|agent_dead)
       log "  ZOMBIE: Deacon agent runtime dead, session alive"
       DEACON_ISSUE="zombie"
       ;;
-    session-dead)
+    session-dead|session_dead)
       log "  CRASHED: Deacon central health reports session dead"
       DEACON_ISSUE="crashed"
       ;;
@@ -374,12 +339,11 @@ if [ "$TOTAL_ISSUES" -ge "$MASS_DEATH_THRESHOLD" ]; then
 
   if [ "$CONFIRMED_TOTAL" -ge "$MASS_DEATH_THRESHOLD" ]; then
     MASS_DEATH=1
-    MASS_DEATH_FINGERPRINT="stuck-agent-dog:mass-death:$(mass_death_fingerprint)"
     log "MASS DEATH: $CONFIRMED_TOTAL agents down confirmed — escalating instead of restarting"
     gt escalate "Mass agent death: $CONFIRMED_TOTAL agents down" \
       -s CRITICAL \
       --source "plugin:stuck-agent-dog" \
-      --fingerprint "$MASS_DEATH_FINGERPRINT" 2>/dev/null || true
+      --fingerprint "stuck-agent-dog:mass-death" 2>/dev/null || true
   else
     log "NOTICE: mass-death candidates dropped to $CONFIRMED_TOTAL after live re-check; no CRITICAL escalation"
   fi

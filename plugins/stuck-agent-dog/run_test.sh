@@ -41,7 +41,7 @@ assert_file_contains() {
   local file="$1"
   local needle="$2"
   local label="$3"
-  if grep -Fq "$needle" "$file"; then
+  if grep -Fq -- "$needle" "$file"; then
     record_pass "$label"
   else
     record_fail "$label"
@@ -54,7 +54,7 @@ assert_file_not_contains() {
   local file="$1"
   local needle="$2"
   local label="$3"
-  if ! grep -Fq "$needle" "$file" 2>/dev/null; then
+  if ! grep -Fq -- "$needle" "$file" 2>/dev/null; then
     record_pass "$label"
   else
     record_fail "$label"
@@ -116,6 +116,9 @@ case "${1:-}" in
     ;;
   rig)
     if [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then
+      if [ -f "$TEST_STATE/rig_list_fail" ]; then
+        exit 1
+      fi
       if [ -f "$TEST_STATE/rig_list.json" ]; then
         cat "$TEST_STATE/rig_list.json"
       else
@@ -342,6 +345,20 @@ test_long_research_active_pane() {
   assert_file_contains "$TEST_STATE/output.log" "0 crashed, 0 stuck, 1 healthy" "active research: counted healthy"
 }
 
+test_preserved_stalled_polecats_do_not_mass_death() {
+  setup_case
+  add_polecat alpha agent-hung
+  add_polecat beta agent-hung
+  add_polecat gamma agent-hung
+  run_script
+
+  assert_file_empty "$TEST_STATE/kill.log" "preserved stalled: no session kills"
+  assert_file_empty "$TEST_STATE/mail.log" "preserved stalled: no restart mail"
+  assert_file_empty "$TEST_STATE/escalate.log" "preserved stalled: no escalation"
+  assert_file_not_contains "$TEST_STATE/output.log" "MASS DEATH" "preserved stalled: no mass death"
+  assert_file_contains "$TEST_STATE/output.log" "0 crashed, 0 stuck, 3 healthy" "preserved stalled: counted healthy"
+}
+
 test_dead_agent_restarts_one() {
   setup_case
   add_polecat alpha agent-dead
@@ -437,6 +454,21 @@ JSON
   assert_file_not_contains "$TEST_STATE/output.log" "MASS DEATH" "docked rig: no mass death"
 }
 
+test_rig_list_unavailable_fails_closed() {
+  setup_case
+  touch "$TEST_STATE/rig_list_fail"
+  add_polecat alpha agent-dead
+  add_polecat beta agent-dead
+  add_polecat gamma agent-dead
+  run_script
+
+  assert_file_empty "$TEST_STATE/kill.log" "rig list unavailable: no kills"
+  assert_file_empty "$TEST_STATE/mail.log" "rig list unavailable: no restart mail"
+  assert_file_empty "$TEST_STATE/escalate.log" "rig list unavailable: no escalation"
+  assert_file_empty "$TEST_STATE/health_calls.log" "rig list unavailable: no health checks"
+  assert_file_contains "$TEST_STATE/output.log" "gt rig list --json unavailable" "rig list unavailable: logged fail-closed"
+}
+
 test_mass_death_recheck_recovered() {
   setup_case
   add_polecat alpha agent-dead
@@ -481,7 +513,7 @@ test_mass_death_skips_actions() {
   assert_file_empty "$TEST_STATE/mail.log" "mass death: no restart mail"
   assert_line_count "$TEST_STATE/escalate.log" 1 "mass death: one escalation"
   assert_file_contains "$TEST_STATE/escalate.log" "--source plugin:stuck-agent-dog" "mass death: source set"
-  assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:mass-death:" "mass death: fingerprint set"
+  assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:mass-death" "mass death: fingerprint set"
   assert_file_contains "$TEST_STATE/output.log" "Skipping per-agent restart/kill actions" "mass death: action loops skipped"
 }
 
@@ -495,6 +527,18 @@ test_control_plane_outage_escalates() {
   assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:control-plane:gt-witness:session-dead" "control plane: fingerprint set"
   assert_file_empty "$TEST_STATE/kill.log" "control plane: no kills"
   assert_file_empty "$TEST_STATE/mail.log" "control plane: no restart mail"
+}
+
+test_refinery_outage_escalates() {
+  setup_case
+  printf 'agent-dead\n' > "$TEST_STATE/health/gt-refinery"
+  run_script
+
+  assert_line_count "$TEST_STATE/escalate.log" 1 "refinery: one escalation"
+  assert_file_contains "$TEST_STATE/escalate.log" "Rig gastown refinery agent-dead detected" "refinery: escalated"
+  assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:control-plane:gt-refinery:agent-dead" "refinery: fingerprint set"
+  assert_file_empty "$TEST_STATE/kill.log" "refinery: no kills"
+  assert_file_empty "$TEST_STATE/mail.log" "refinery: no restart mail"
 }
 
 test_invalid_mass_death_threshold_defaults() {
@@ -536,11 +580,21 @@ test_deacon_agent_dead_escalates() {
   assert_file_contains "$TEST_STATE/escalate.log" "Deacon zombie detected by stuck-agent-dog" "deacon agent dead: escalated zombie"
 }
 
+test_deacon_underscore_status_escalates() {
+  setup_case
+  printf 'agent_dead\n' > "$TEST_STATE/health/hq-deacon"
+  run_script
+
+  assert_line_count "$TEST_STATE/escalate.log" 1 "deacon underscore: one escalation"
+  assert_file_contains "$TEST_STATE/escalate.log" "Deacon zombie detected by stuck-agent-dog" "deacon underscore: escalated zombie"
+}
+
 test_healthy_runtime opencode
 test_healthy_runtime bun
 test_healthy_runtime node
 test_healthy_runtime claude
 test_long_research_active_pane
+test_preserved_stalled_polecats_do_not_mass_death
 test_dead_agent_restarts_one
 test_dead_session_restarts_one
 test_closed_hook_skips_restart
@@ -548,14 +602,17 @@ test_no_hook_dead_sessions_do_not_mass_death
 test_non_actionable_hook_statuses_do_not_mass_death
 test_orphan_dog_session_ignored
 test_docked_rig_skipped
+test_rig_list_unavailable_fails_closed
 test_mass_death_recheck_recovered
 test_mass_death_recheck_one_remaining_restarts
 test_mass_death_skips_actions
 test_control_plane_outage_escalates
+test_refinery_outage_escalates
 test_invalid_mass_death_threshold_defaults
 test_deacon_stale_heartbeat_notice_only
 test_deacon_dead_session_escalates
 test_deacon_agent_dead_escalates
+test_deacon_underscore_status_escalates
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
