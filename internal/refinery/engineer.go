@@ -1970,20 +1970,13 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 		// These MRs shouldn't exist (gt done skips MR creation for owned+direct
 		// convoys), but if one slips through, the refinery should not process it.
 		if beads.HasLabel(issue, "gt:owned-direct") {
-			if err := e.closeIneligibleMR(&MRInfo{ID: issue.ID}, "MR is owned-direct"); err != nil {
-				return nil, fmt.Errorf("closing owned-direct MR %s: %w", issue.ID, err)
-			}
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Rejected MR %s: owned+direct convoy (belt-and-suspenders)\n", issue.ID)
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s: owned+direct convoy (belt-and-suspenders)\n", issue.ID)
 			continue
 		}
 
 		fields := beads.ParseMRFields(issue)
 		if fields == nil {
-			if err := e.closeIneligibleMR(&MRInfo{ID: issue.ID}, "MR has missing merge-request fields"); err != nil {
-				return nil, fmt.Errorf("closing malformed MR %s: %w", issue.ID, err)
-			}
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Rejected MR %s: missing merge-request fields\n", issue.ID)
-			continue
+			continue // Skip issues without MR fields
 		}
 
 		// Filter by rig — wisps are shared across all rigs (GH#2718).
@@ -1993,10 +1986,7 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 		if sourceAssessment, sourceErr := e.assessMRSourceIssue(fields.SourceIssue); sourceErr != nil {
 			return nil, fmt.Errorf("validating MR %s source_issue %s: %w", issue.ID, fields.SourceIssue, sourceErr)
 		} else if !sourceAssessment.Concrete {
-			if err := e.closeIneligibleMR(issueToMRInfo(issue, fields), fmt.Sprintf("source_issue %q is invalid (%s)", fields.SourceIssue, sourceAssessment.Reason)); err != nil {
-				return nil, fmt.Errorf("closing MR %s with invalid source_issue %s: %w", issue.ID, fields.SourceIssue, err)
-			}
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Rejected MR %s: invalid source_issue %q (%s)\n", issue.ID, fields.SourceIssue, sourceAssessment.Reason)
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s: invalid source_issue %q (%s)\n", issue.ID, fields.SourceIssue, sourceAssessment.Reason)
 			continue
 		}
 

@@ -13,7 +13,8 @@ import (
 
 type prepushStore struct {
 	beadsdk.Storage
-	issues map[string]*beadsdk.Issue
+	issues       map[string]*beadsdk.Issue
+	closeReasons map[string]string
 }
 
 type prepushPRProvider struct {
@@ -38,7 +39,10 @@ func (p *prepushPRProvider) MergePR(int, string) (string, error) {
 }
 
 func newPrepushStore(issues ...*beadsdk.Issue) *prepushStore {
-	store := &prepushStore{issues: make(map[string]*beadsdk.Issue, len(issues))}
+	store := &prepushStore{
+		issues:       make(map[string]*beadsdk.Issue, len(issues)),
+		closeReasons: make(map[string]string),
+	}
 	for _, issue := range issues {
 		store.issues[issue.ID] = issue
 	}
@@ -61,7 +65,7 @@ func (s *prepushStore) GetLabels(_ context.Context, id string) ([]string, error)
 	return append([]string(nil), issue.Labels...), nil
 }
 
-func (s *prepushStore) CloseIssue(_ context.Context, id, _, _, _ string) error {
+func (s *prepushStore) CloseIssue(_ context.Context, id, reason, _, _ string) error {
 	issue, ok := s.issues[id]
 	if !ok {
 		return fmt.Errorf("issue %s not found", id)
@@ -70,6 +74,7 @@ func (s *prepushStore) CloseIssue(_ context.Context, id, _, _, _ string) error {
 	issue.Status = beadsdk.StatusClosed
 	issue.ClosedAt = &now
 	issue.UpdatedAt = now
+	s.closeReasons[id] = reason
 	return nil
 }
 
@@ -197,6 +202,56 @@ func TestProcessBatch_RechecksMRCloseReasonBeforePush(t *testing.T) {
 	if got := store.issues["gt-mr-rejected"].Status; got != beadsdk.StatusClosed {
 		t.Fatalf("MR status = %s, want closed", got)
 	}
+	if got := store.closeReasons["gt-mr-rejected"]; got != "rejected: MR close_reason is rejected" {
+		t.Fatalf("MR close reason = %q, want rejected close_reason", got)
+	}
+	if got := store.issues["gt-src"].Status; got != beadsdk.StatusOpen {
+		t.Fatalf("source issue status = %s, want open", got)
+	}
+}
+
+func TestProcessBatch_RechecksMRMergedCloseReasonBeforePush(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+	createFeatureBranch(t, workDir, "feature-merged", "merged.txt", "merged\n")
+
+	e := newTestEngineer(t, workDir, g)
+	store := newPrepushStore(
+		prepushIssue("gt-src", ""),
+		prepushMRIssue("gt-mr-merged", "feature-merged", "main", "gt-src"),
+	)
+	e.beads = beads.NewWithStore(workDir, store)
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+	mutated := false
+	e.mergeSlotAcquire = func(holder string, addWaiter bool) (*beads.MergeSlotStatus, error) {
+		if !mutated {
+			store.issues["gt-mr-merged"].Description += "\nclose_reason: merged"
+			store.issues["gt-mr-merged"].UpdatedAt = time.Now()
+			mutated = true
+		}
+		return &beads.MergeSlotStatus{Available: true, Holder: holder}, nil
+	}
+
+	mr := &MRInfo{ID: "gt-mr-merged", Branch: "feature-merged", Target: "main", SourceIssue: "gt-src", Worker: "polecats/test"}
+	result := e.ProcessBatch(context.Background(), []*MRInfo{mr}, "main", DefaultBatchConfig())
+
+	if len(result.Merged) != 0 {
+		t.Fatalf("expected no merged MRs, got %d", len(result.Merged))
+	}
+	if result.Error != nil {
+		t.Fatalf("expected clean already-merged dequeue, got error: %v", result.Error)
+	}
+	if !mutated {
+		t.Fatal("expected merge slot hook to add close_reason before push")
+	}
+	assertOriginMainUnchangedAndReset(t, workDir, before)
+	if got := store.issues["gt-mr-merged"].Status; got != beadsdk.StatusClosed {
+		t.Fatalf("MR status = %s, want closed", got)
+	}
+	if got := store.closeReasons["gt-mr-merged"]; got != "merged" {
+		t.Fatalf("MR close reason = %q, want merged", got)
+	}
 	if got := store.issues["gt-src"].Status; got != beadsdk.StatusOpen {
 		t.Fatalf("source issue status = %s, want open", got)
 	}
@@ -258,6 +313,9 @@ func TestDoMergePR_RechecksSourceBeforeMergeAPI(t *testing.T) {
 	}
 	if got := store.issues["gt-mr-pr"].Status; got != beadsdk.StatusClosed {
 		t.Fatalf("MR status = %s, want closed", got)
+	}
+	if got := store.closeReasons["gt-mr-pr"]; got != "rejected: source_issue gt-src has no_merge=true" {
+		t.Fatalf("MR close reason = %q, want source no_merge rejection", got)
 	}
 	if got := store.issues["gt-src"].Status; got != beadsdk.StatusOpen {
 		t.Fatalf("source issue status = %s, want open", got)
