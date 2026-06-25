@@ -322,6 +322,47 @@ func TestDoMergePR_RechecksSourceBeforeMergeAPI(t *testing.T) {
 	}
 }
 
+func TestDoMergePR_RechecksMRBeforeMergeAPI(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	e := newTestEngineer(t, workDir, g)
+	store := newPrepushStore(
+		prepushIssue("gt-src", ""),
+		prepushMRIssue("gt-mr-pr", "feature-pr", "main", "gt-src"),
+	)
+	e.beads = beads.NewWithStore(workDir, store)
+	requireReview := true
+	e.config.RequireReview = &requireReview
+	provider := &prepushPRProvider{
+		beforeMerge: func() {
+			if err := e.beads.CloseWithReason("rejected: mayor", "gt-mr-pr"); err != nil {
+				t.Fatalf("close PR MR: %v", err)
+			}
+		},
+	}
+	e.prProvider = provider
+
+	mr := &MRInfo{ID: "gt-mr-pr", Branch: "feature-pr", Target: "main", SourceIssue: "gt-src", Worker: "polecats/test"}
+	result := e.doMergePR(context.Background(), mr)
+
+	if result.Success || !result.NoMerge {
+		t.Fatalf("expected clean policy rejection before PR merge API, got: %+v", result)
+	}
+	if provider.mergeCalled {
+		t.Fatal("MergePR was called after MR was closed")
+	}
+	if got := store.issues["gt-mr-pr"].Status; got != beadsdk.StatusClosed {
+		t.Fatalf("MR status = %s, want closed", got)
+	}
+	if got := store.closeReasons["gt-mr-pr"]; got != "rejected: mayor" {
+		t.Fatalf("MR close reason = %q, want mayor rejection", got)
+	}
+	if got := store.issues["gt-src"].Status; got != beadsdk.StatusOpen {
+		t.Fatalf("source issue status = %s, want open", got)
+	}
+}
+
 func TestProcessBatch_RechecksSourceFlagsBeforePush(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -423,6 +464,59 @@ func TestProcessBatch_RechecksBatchBeforePush(t *testing.T) {
 	assertOriginMainUnchangedAndReset(t, workDir, before)
 	if got := store.issues["gt-mr-b"].Status; got != beadsdk.StatusClosed {
 		t.Fatalf("invalidated MR status = %s, want closed", got)
+	}
+	if got := store.issues["gt-mr-a"].Status; got != beadsdk.StatusOpen {
+		t.Fatalf("unaffected MR status = %s, want open", got)
+	}
+}
+
+func TestProcessBatch_RechecksBatchMRCloseReasonBeforePush(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+	createFeatureBranch(t, workDir, "feature-a", "a.txt", "a\n")
+	createFeatureBranch(t, workDir, "feature-b", "b.txt", "b\n")
+
+	e := newTestEngineer(t, workDir, g)
+	store := newPrepushStore(
+		prepushIssue("gt-src-a", ""),
+		prepushIssue("gt-src-b", ""),
+		prepushMRIssue("gt-mr-a", "feature-a", "main", "gt-src-a"),
+		prepushMRIssue("gt-mr-b", "feature-b", "main", "gt-src-b"),
+	)
+	e.beads = beads.NewWithStore(workDir, store)
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+	mutated := false
+	e.mergeSlotAcquire = func(holder string, addWaiter bool) (*beads.MergeSlotStatus, error) {
+		if !mutated {
+			store.issues["gt-mr-b"].Description += "\nclose_reason: rejected"
+			store.issues["gt-mr-b"].UpdatedAt = time.Now()
+			mutated = true
+		}
+		return &beads.MergeSlotStatus{Available: true, Holder: holder}, nil
+	}
+
+	batch := []*MRInfo{
+		{ID: "gt-mr-a", Branch: "feature-a", Target: "main", SourceIssue: "gt-src-a", Worker: "polecats/test"},
+		{ID: "gt-mr-b", Branch: "feature-b", Target: "main", SourceIssue: "gt-src-b", Worker: "polecats/test"},
+	}
+	result := e.ProcessBatch(context.Background(), batch, "main", DefaultBatchConfig())
+
+	if len(result.Merged) != 0 {
+		t.Fatalf("expected no merged MRs, got %d", len(result.Merged))
+	}
+	if result.Error != nil {
+		t.Fatalf("expected clean policy dequeue, got error: %v", result.Error)
+	}
+	if !mutated {
+		t.Fatal("expected merge slot hook to mutate batch MR before push")
+	}
+	assertOriginMainUnchangedAndReset(t, workDir, before)
+	if got := store.issues["gt-mr-b"].Status; got != beadsdk.StatusClosed {
+		t.Fatalf("invalidated MR status = %s, want closed", got)
+	}
+	if got := store.closeReasons["gt-mr-b"]; got != "rejected: MR close_reason is rejected" {
+		t.Fatalf("invalidated MR close reason = %q, want rejected close_reason", got)
 	}
 	if got := store.issues["gt-mr-a"].Status; got != beadsdk.StatusOpen {
 		t.Fatalf("unaffected MR status = %s, want open", got)
