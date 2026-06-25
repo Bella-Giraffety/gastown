@@ -388,7 +388,7 @@ func TestCollectExistingMoleculeDepsReadsCanonicalWispEdges(t *testing.T) {
 set -e
 if [ "$1" = "sql" ]; then
   case "$2" in
-    *wisp_dependencies*depends_on_issue_id*gt-abc123*)
+    *wisp_dependencies*wisps*issue_type*depends_on_issue_id*gt-abc123*)
       echo '[{"issue_id":"gt-wisp-direct"},{"issue_id":"gt-wisp-direct"},{"issue_id":"gt-wisp-other"}]'
       exit 0
       ;;

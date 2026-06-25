@@ -949,6 +949,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// NOTE: Uses local `force` (not `slingForce`) to respect auto-force paths (dead agent detection).
 	if formulaName != "" {
 		existingMolecules := collectExistingMolecules(info)
+		existingMolecules = appendUniqueMolecules(existingMolecules, collectExistingMoleculeDeps(beadID, townRoot)...)
 		if len(existingMolecules) > 0 {
 			stale := force || isOrphanMolecule(info)
 			if slingDryRun {

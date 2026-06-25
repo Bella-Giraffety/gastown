@@ -393,11 +393,14 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	attachedFormula := params.FormulaName
 	if attachedFormula != "" && attachedMoleculeID == "" {
 		attachedFormula = ""
+		varsForAttachment = nil
+		formulaVarsForAttachment = ""
 	}
 	fieldUpdates := beadFieldUpdates{
 		Dispatcher:       actor,
 		Args:             params.Args,
 		Vars:             varsForAttachment,
+		ClearAttachment:  params.FormulaName != "" && attachedMoleculeID == "",
 		AttachedMolecule: attachedMoleculeID,
 		AttachedFormula:  attachedFormula,
 		NoMerge:          params.NoMerge,

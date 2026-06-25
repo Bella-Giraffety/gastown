@@ -372,7 +372,7 @@ func collectExistingMoleculeDeps(beadID, townRoot string) []string {
 		return nil
 	}
 	dir := beads.ResolveHookDir(townRoot, beadID, "")
-	query := fmt.Sprintf(`SELECT issue_id FROM wisp_dependencies WHERE (depends_on_issue_id = '%s' OR depends_on_external = '%s' OR depends_on_external LIKE '%%:%s')`, beadID, beadID, beadID)
+	query := fmt.Sprintf(`SELECT wisp_dependencies.issue_id FROM wisp_dependencies JOIN wisps ON wisps.id = wisp_dependencies.issue_id WHERE wisps.issue_type = 'molecule' AND wisps.status NOT IN ('closed', 'tombstone') AND wisp_dependencies.type IN ('blocks', 'conditional-blocks', 'parent-child') AND (wisp_dependencies.depends_on_issue_id = '%s' OR wisp_dependencies.depends_on_external = '%s' OR %s)`, beadID, beadID, sqlExternalDepTargetClause(beadID))
 	out, err := runBdJSON(dir, "sql", query, "--json")
 	if err != nil {
 		return nil
@@ -388,6 +388,14 @@ func collectExistingMoleculeDeps(beadID, townRoot string) []string {
 		molecules = appendUniqueMolecules(molecules, row.IssueID)
 	}
 	return molecules
+}
+
+func dependencyRemovalMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "no dependency") || strings.Contains(msg, "does not exist")
 }
 
 // burnExistingMolecules burns all molecule wisps attached to a bead.
@@ -436,9 +444,13 @@ func burnExistingMolecules(molecules []string, beadID, townRoot string) error {
 	for _, molID := range molecules {
 		oldErr := bd.RemoveDependency(beadID, molID)
 		newErr := bd.RemoveDependency(molID, beadID)
-		if oldErr != nil && newErr != nil {
-			fmt.Printf("  %s Could not remove dep bond between %s and %s: %v; %v\n",
-				style.Dim.Render("Warning:"), beadID, molID, oldErr, newErr)
+		if oldErr != nil && !dependencyRemovalMissing(oldErr) {
+			fmt.Printf("  %s Could not remove old dep bond %s → %s: %v\n",
+				style.Dim.Render("Warning:"), beadID, molID, oldErr)
+		}
+		if newErr != nil && !dependencyRemovalMissing(newErr) {
+			fmt.Printf("  %s Could not remove dep bond %s → %s: %v\n",
+				style.Dim.Render("Warning:"), molID, beadID, newErr)
 		}
 	}
 
@@ -634,6 +646,7 @@ type beadFieldUpdates struct {
 	Dispatcher       string   // Agent that dispatched the work
 	Args             string   // Natural language instructions
 	Vars             []string // Formula variables (key=value pairs)
+	ClearAttachment  bool     // Clear stale formula/molecule attachment fields before applying updates
 	AttachedMolecule string   // Wisp root ID
 	AttachedFormula  string   // Formula name (e.g., "mol-polecat-work") for inline step display
 	NoMerge          bool     // Skip merge queue on completion
@@ -705,7 +718,7 @@ func storeFieldsInBead(beadID string, updates beadFieldUpdates) error {
 
 	// Get or create attachment fields
 	fields := beads.ParseAttachmentFields(issue)
-	if fields == nil {
+	if fields == nil || updates.ClearAttachment {
 		fields = &beads.AttachmentFields{}
 	}
 
