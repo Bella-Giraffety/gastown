@@ -118,6 +118,15 @@ hook_restartable() {
   return 1
 }
 
+normalize_health_status() {
+  case "$1" in
+    agent_dead) printf 'agent-dead\n' ;;
+    agent_hung) printf 'agent-hung\n' ;;
+    session_dead) printf 'session-dead\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
 session_health_status() {
   local session_name="$1"
   local health_json=""
@@ -126,7 +135,7 @@ session_health_status() {
   health_json=$(gt session health "$session_name" --json --max-inactivity "$POLECAT_MAX_INACTIVITY" 2>/dev/null) || return 1
   status=$(printf '%s' "$health_json" | jq -r '.status // empty' 2>/dev/null || true)
   [ -n "$status" ] || return 1
-  printf '%s\n' "$status"
+  normalize_health_status "$status"
 }
 
 operational_rig_prefix_map() {
@@ -174,39 +183,51 @@ check_control_plane() {
   done
 }
 
+confirm_current_polecat_outage() {
+  local session="$1" rig="$2" pcat="$3"
+  local health_status="" hook_assignment="" hook_bead="" hook_status=""
+
+  health_status=$(session_health_status "$session" || true)
+  case "$health_status" in
+    session-dead)
+      hook_assignment=$(rig_hook_assignment "$rig" "$pcat" || true)
+      IFS='|' read -r hook_bead hook_status <<< "$hook_assignment"
+      if hook_restartable "$session" "$hook_bead" "$hook_status"; then
+        CONFIRMED_CRASHED+=("$session|$rig|$pcat|$hook_bead")
+      fi
+      ;;
+    agent-dead)
+      hook_assignment=$(rig_hook_assignment "$rig" "$pcat" || true)
+      IFS='|' read -r hook_bead hook_status <<< "$hook_assignment"
+      if hook_restartable "$session" "$hook_bead" "$hook_status"; then
+        CONFIRMED_STUCK+=("$session|$rig|$pcat|$hook_bead|agent_dead")
+      fi
+      ;;
+    healthy|agent-hung)
+      log "  NOTICE: $session recovered before mass-death escalation (health=$health_status)"
+      ;;
+    *)
+      log "  NOTICE: $session not confirmed before mass-death escalation (health=${health_status:-unknown})"
+      ;;
+  esac
+
+  return 0
+}
+
 confirm_polecat_outages() {
   local entry="" session="" rig="" pcat="" hook="" reason=""
-  local health_status="" hook_assignment="" hook_bead="" hook_status=""
 
   CONFIRMED_CRASHED=()
   CONFIRMED_STUCK=()
 
   for entry in ${CRASHED[@]+"${CRASHED[@]}"}; do
     IFS='|' read -r session rig pcat hook <<< "$entry"
-    health_status=$(session_health_status "$session" || true)
-    if [ "$health_status" != "session-dead" ] && [ "$health_status" != "session_dead" ]; then
-      log "  NOTICE: $session recovered before mass-death escalation (health=$health_status)"
-      continue
-    fi
-    hook_assignment=$(rig_hook_assignment "$rig" "$pcat")
-    IFS='|' read -r hook_bead hook_status <<< "$hook_assignment"
-    if hook_restartable "$session" "$hook_bead" "$hook_status"; then
-      CONFIRMED_CRASHED+=("$session|$rig|$pcat|$hook_bead")
-    fi
+    confirm_current_polecat_outage "$session" "$rig" "$pcat"
   done
 
   for entry in ${STUCK[@]+"${STUCK[@]}"}; do
     IFS='|' read -r session rig pcat hook reason <<< "$entry"
-    health_status=$(session_health_status "$session" || true)
-    if [ "$health_status" != "agent-dead" ] && [ "$health_status" != "agent_dead" ]; then
-      log "  NOTICE: $session recovered before mass-death escalation (health=$health_status)"
-      continue
-    fi
-    hook_assignment=$(rig_hook_assignment "$rig" "$pcat")
-    IFS='|' read -r hook_bead hook_status <<< "$hook_assignment"
-    if hook_restartable "$session" "$hook_bead" "$hook_status"; then
-      CONFIRMED_STUCK+=("$session|$rig|$pcat|$hook_bead|$reason")
-    fi
+    confirm_current_polecat_outage "$session" "$rig" "$pcat"
   done
 }
 
@@ -293,15 +314,16 @@ if ! tmux has-session -t "$DEACON_SESSION" 2>/dev/null; then
 else
   DEACON_HEALTH=$(gt session health "$DEACON_SESSION" --json --max-inactivity 0s 2>/dev/null \
     | jq -r '.status // empty' 2>/dev/null || true)
+  DEACON_HEALTH=$(normalize_health_status "$DEACON_HEALTH")
   case "$DEACON_HEALTH" in
-    healthy|agent-hung|agent_hung)
+    healthy|agent-hung)
       log "  OK: Deacon central health is $DEACON_HEALTH"
       ;;
-    agent-dead|agent_dead)
+    agent-dead)
       log "  ZOMBIE: Deacon agent runtime dead, session alive"
       DEACON_ISSUE="zombie"
       ;;
-    session-dead|session_dead)
+    session-dead)
       log "  CRASHED: Deacon central health reports session dead"
       DEACON_ISSUE="crashed"
       ;;

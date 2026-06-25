@@ -502,6 +502,23 @@ test_mass_death_recheck_one_remaining_restarts() {
   assert_file_contains "$TEST_STATE/output.log" "dropped to 1 after live re-check" "one remaining: recheck downgraded"
 }
 
+test_mass_death_recheck_reclassifies_dead_statuses() {
+  setup_case
+  add_polecat alpha agent-dead
+  add_polecat beta session-dead
+  add_polecat gamma agent-dead
+  printf 'agent-dead\nsession-dead\n' > "$TEST_STATE/health/gt-alpha"
+  printf 'session-dead\nagent-dead\n' > "$TEST_STATE/health/gt-beta"
+  printf 'agent-dead\nagent-dead\n' > "$TEST_STATE/health/gt-gamma"
+  run_script
+
+  assert_file_empty "$TEST_STATE/kill.log" "reclassified mass: no session kills"
+  assert_file_empty "$TEST_STATE/mail.log" "reclassified mass: no restart mail"
+  assert_line_count "$TEST_STATE/escalate.log" 1 "reclassified mass: one escalation"
+  assert_file_contains "$TEST_STATE/escalate.log" "Mass agent death: 3 agents down" "reclassified mass: confirmed all dead"
+  assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:mass-death" "reclassified mass: fingerprint set"
+}
+
 test_mass_death_skips_actions() {
   setup_case
   add_polecat alpha agent-dead
@@ -524,6 +541,7 @@ test_control_plane_outage_escalates() {
 
   assert_line_count "$TEST_STATE/escalate.log" 1 "control plane: one escalation"
   assert_file_contains "$TEST_STATE/escalate.log" "Rig gastown witness session-dead detected" "control plane: witness escalated"
+  assert_file_contains "$TEST_STATE/escalate.log" "--source plugin:stuck-agent-dog" "control plane: source set"
   assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:control-plane:gt-witness:session-dead" "control plane: fingerprint set"
   assert_file_empty "$TEST_STATE/kill.log" "control plane: no kills"
   assert_file_empty "$TEST_STATE/mail.log" "control plane: no restart mail"
@@ -536,6 +554,7 @@ test_refinery_outage_escalates() {
 
   assert_line_count "$TEST_STATE/escalate.log" 1 "refinery: one escalation"
   assert_file_contains "$TEST_STATE/escalate.log" "Rig gastown refinery agent-dead detected" "refinery: escalated"
+  assert_file_contains "$TEST_STATE/escalate.log" "--source plugin:stuck-agent-dog" "refinery: source set"
   assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:control-plane:gt-refinery:agent-dead" "refinery: fingerprint set"
   assert_file_empty "$TEST_STATE/kill.log" "refinery: no kills"
   assert_file_empty "$TEST_STATE/mail.log" "refinery: no restart mail"
@@ -569,6 +588,8 @@ test_deacon_dead_session_escalates() {
 
   assert_line_count "$TEST_STATE/escalate.log" 1 "deacon dead session: one escalation"
   assert_file_contains "$TEST_STATE/escalate.log" "Deacon crashed detected by stuck-agent-dog" "deacon dead session: escalated crash"
+  assert_file_contains "$TEST_STATE/escalate.log" "--source plugin:stuck-agent-dog" "deacon dead session: source set"
+  assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:deacon:crashed" "deacon dead session: fingerprint set"
 }
 
 test_deacon_agent_dead_escalates() {
@@ -578,6 +599,8 @@ test_deacon_agent_dead_escalates() {
 
   assert_line_count "$TEST_STATE/escalate.log" 1 "deacon agent dead: one escalation"
   assert_file_contains "$TEST_STATE/escalate.log" "Deacon zombie detected by stuck-agent-dog" "deacon agent dead: escalated zombie"
+  assert_file_contains "$TEST_STATE/escalate.log" "--source plugin:stuck-agent-dog" "deacon agent dead: source set"
+  assert_file_contains "$TEST_STATE/escalate.log" "--fingerprint stuck-agent-dog:deacon:zombie" "deacon agent dead: fingerprint set"
 }
 
 test_deacon_underscore_status_escalates() {
@@ -587,6 +610,15 @@ test_deacon_underscore_status_escalates() {
 
   assert_line_count "$TEST_STATE/escalate.log" 1 "deacon underscore: one escalation"
   assert_file_contains "$TEST_STATE/escalate.log" "Deacon zombie detected by stuck-agent-dog" "deacon underscore: escalated zombie"
+}
+
+test_deacon_session_underscore_status_escalates() {
+  setup_case
+  printf 'session_dead\n' > "$TEST_STATE/health/hq-deacon"
+  run_script
+
+  assert_line_count "$TEST_STATE/escalate.log" 1 "deacon session underscore: one escalation"
+  assert_file_contains "$TEST_STATE/escalate.log" "Deacon crashed detected by stuck-agent-dog" "deacon session underscore: escalated crash"
 }
 
 test_healthy_runtime opencode
@@ -605,6 +637,7 @@ test_docked_rig_skipped
 test_rig_list_unavailable_fails_closed
 test_mass_death_recheck_recovered
 test_mass_death_recheck_one_remaining_restarts
+test_mass_death_recheck_reclassifies_dead_statuses
 test_mass_death_skips_actions
 test_control_plane_outage_escalates
 test_refinery_outage_escalates
@@ -613,6 +646,7 @@ test_deacon_stale_heartbeat_notice_only
 test_deacon_dead_session_escalates
 test_deacon_agent_dead_escalates
 test_deacon_underscore_status_escalates
+test_deacon_session_underscore_status_escalates
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
