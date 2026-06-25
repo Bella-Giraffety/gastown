@@ -290,7 +290,9 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 // processSingleMR handles the degenerate case of a batch with one MR.
 func (e *Engineer) processSingleMR(ctx context.Context, mr *MRInfo, target string) *BatchResult {
 	result := &BatchResult{}
-	processResult := e.doMerge(ctx, mr.Branch, target, mr.SourceIssue)
+	mergeMR := *mr
+	mergeMR.Target = target
+	processResult := e.doMerge(ctx, &mergeMR)
 	if processResult.Success {
 		result.Merged = []*MRInfo{mr}
 		result.MergeCommit = processResult.MergeCommit
@@ -384,6 +386,21 @@ func (e *Engineer) fastForwardBatch(ctx context.Context, stacked []*MRInfo, targ
 				}
 			}
 		}()
+	}
+
+	for _, mr := range stacked {
+		if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
+			if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
+				_, _ = fmt.Fprintf(e.output, "[Batch] Warning: failed to reset %s after pre-push eligibility failure: %v\n", target, resetErr)
+			}
+			if eligibility.NoMerge {
+				_, _ = fmt.Fprintf(e.output, "[Batch] MR %s became ineligible before push: %s\n", mr.ID, eligibility.Error)
+				e.HandleMRInfoFailure(mr, eligibility)
+			} else {
+				result.Error = fmt.Errorf("pre-push eligibility recheck failed for %s: %s", mr.ID, eligibility.Error)
+			}
+			return result
+		}
 	}
 
 	// Push to origin

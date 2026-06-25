@@ -87,7 +87,7 @@ func TestDoMerge_PRStrategy_RoutesToPRPath(t *testing.T) {
 	// Create a feature branch
 	createFeatureBranch(t, workDir, "feat/test-pr", "test.txt", "hello")
 
-	result := e.doMerge(context.Background(), "feat/test-pr", "main", "gt-test")
+	result := e.doMerge(context.Background(), &MRInfo{Branch: "feat/test-pr", Target: "main"})
 
 	if result.Success {
 		t.Error("expected failure (no GitHub PR exists)")
@@ -107,7 +107,7 @@ func TestDoMerge_DirectStrategy_SkipsPRPath(t *testing.T) {
 
 	createFeatureBranch(t, workDir, "feat/test-direct", "test.txt", "hello")
 
-	result := e.doMerge(context.Background(), "feat/test-direct", "main", "gt-test")
+	result := e.doMerge(context.Background(), &MRInfo{Branch: "feat/test-direct", Target: "main"})
 
 	// Should succeed with direct merge
 	if !result.Success {
@@ -127,7 +127,7 @@ func TestDoMergePR_NoPR_ReturnsError(t *testing.T) {
 
 	createFeatureBranch(t, workDir, "feat/no-pr", "test.txt", "hello")
 
-	result := e.doMergePR(context.Background(), "feat/no-pr", "main")
+	result := e.doMergePR(context.Background(), &MRInfo{Branch: "feat/no-pr", Target: "main"})
 
 	if result.Success {
 		t.Error("expected failure when no PR exists")

@@ -493,22 +493,22 @@ type ProcessResult struct {
 	TestsFailed    bool
 	SlotTimeout    bool // Merge slot contention timeout (distinct from build/test failure)
 	BranchNotFound bool // Source branch no longer exists (e.g. cleaned up after cherry-pick)
-	NoMerge        bool // Source issue has no_merge flag — intentionally blocked, not a failure
+	NoMerge        bool // MR/source is intentionally not merge-eligible, not a build failure
 	NeedsApproval  bool // PR exists but lacks required approving review (merge_strategy=pr)
 }
 
 // doMerge performs the actual git merge operation.
-func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue string, skipGates ...bool) ProcessResult {
-	// GH#2778: Check no_merge flag on source issue before merging. The polecat
-	// normally skips MR creation when no_merge is set, but if an MR is created
-	// manually (e.g., gh pr create) the refinery would otherwise auto-merge it.
-	if sourceIssue != "" {
-		if si, err := e.beads.Show(sourceIssue); err == nil && si != nil {
-			if af := beads.ParseAttachmentFields(si); af != nil && af.NoMerge {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Source issue %s has no_merge=true — skipping merge\n", sourceIssue)
-				return ProcessResult{NoMerge: true, Error: "no_merge flag set on source issue"}
-			}
+func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) ProcessResult {
+	if mr == nil {
+		return ProcessResult{Success: false, Error: "merge request is missing"}
+	}
+	branch, target, sourceIssue := mr.Branch, mr.Target, mr.SourceIssue
+
+	if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
+		if eligibility.NoMerge {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] MR %s is not merge-eligible — skipping merge: %s\n", mr.ID, eligibility.Error)
 		}
+		return eligibility
 	}
 
 	// Step 1: Verify source branch exists locally (shared .repo.git with polecats)
@@ -569,6 +569,13 @@ func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue stri
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not check submodule changes: %v\n", err)
 	}
 	if len(subChanges) > 0 {
+		if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
+			if eligibility.NoMerge {
+				_, _ = fmt.Fprintf(e.output, "[Engineer] MR %s became ineligible before submodule push — skipping merge: %s\n", mr.ID, eligibility.Error)
+			}
+			return eligibility
+		}
+
 		// Ensure submodules are initialized in the refinery worktree
 		// Use mayor/rig as reference to avoid re-fetching from remote
 		mayorRig := filepath.Join(e.rig.Path, "mayor", "rig")
@@ -624,7 +631,7 @@ func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue stri
 	// protection/restriction rules and preserves the PR audit trail.
 	// The VCS provider (GitHub, Bitbucket) is selected via vcs_provider config.
 	if e.config.MergeStrategy == "pr" {
-		return e.doMergePR(ctx, branch, target)
+		return e.doMergePR(ctx, mr)
 	}
 
 	// Step 5: Perform the actual merge using squash merge
@@ -717,6 +724,13 @@ func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue stri
 			}()
 		}
 
+		if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
+			if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
+				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after pre-push eligibility failure: %v\n", target, resetErr)
+			}
+			return eligibility
+		}
+
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Pushing to origin/%s...\n", target)
 		if err := e.git.Push("origin", target, false); err != nil {
 			// Reset the checked-out target branch to undo the local squash commit.
@@ -755,8 +769,12 @@ func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue stri
 // Called from doMerge after quality gates have passed.
 //
 //nolint:unparam // ctx is reserved for future use when git methods accept context
-func (e *Engineer) doMergePR(ctx context.Context, branch, target string) ProcessResult {
+func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 	_ = ctx
+	if mr == nil {
+		return ProcessResult{Success: false, Error: "merge request is missing"}
+	}
+	branch, target := mr.Branch, mr.Target
 	provider := e.config.VCSProvider
 	if provider == "" {
 		provider = "github"
@@ -807,6 +825,10 @@ func (e *Engineer) doMergePR(ctx context.Context, branch, target string) Process
 		_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d has approving review\n", prNumber)
 	}
 
+	if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
+		return eligibility
+	}
+
 	// Step PR.3: Merge via VCS provider API using squash merge
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Merging PR #%d via %s API (squash)...\n", prNumber, provider)
 	mergeCommit, err := e.prProvider.MergePR(prNumber, "squash")
@@ -841,6 +863,81 @@ func (e *Engineer) doMergePR(ctx context.Context, branch, target string) Process
 		Success:     true,
 		MergeCommit: mergeCommit,
 	}
+}
+
+func mergeIneligibleResult(format string, args ...interface{}) ProcessResult {
+	return ProcessResult{
+		Success: false,
+		NoMerge: true,
+		Error:   fmt.Sprintf(format, args...),
+	}
+}
+
+func (e *Engineer) recheckMRStillMergeable(mr *MRInfo, target string) ProcessResult {
+	if mr == nil {
+		return ProcessResult{Success: false, Error: "merge request is missing"}
+	}
+	// Some older unit tests exercise merge mechanics with synthetic MRInfo values.
+	// Production MR selection rejects missing source_issue before processing.
+	sourceIssue := strings.TrimSpace(mr.SourceIssue)
+	if sourceIssue == "" {
+		return ProcessResult{Success: true}
+	}
+
+	if strings.TrimSpace(mr.ID) != "" {
+		mrIssue, err := e.beads.Show(mr.ID)
+		if err != nil {
+			if errors.Is(err, beads.ErrNotFound) {
+				return mergeIneligibleResult("MR %s no longer exists", mr.ID)
+			}
+			return ProcessResult{Success: false, Error: fmt.Sprintf("pre-push recheck MR %s: %v", mr.ID, err)}
+		}
+		if mrIssue == nil {
+			return mergeIneligibleResult("MR %s no longer exists", mr.ID)
+		}
+		if beads.IssueStatus(strings.TrimSpace(mrIssue.Status)) != beads.StatusOpen {
+			return mergeIneligibleResult("MR %s status is %s", mr.ID, mrIssue.Status)
+		}
+		if beads.HasLabel(mrIssue, "gt:owned-direct") {
+			return mergeIneligibleResult("MR %s is owned-direct", mr.ID)
+		}
+
+		fields := beads.ParseMRFields(mrIssue)
+		if fields == nil {
+			return mergeIneligibleResult("MR %s has missing merge-request fields", mr.ID)
+		}
+		if strings.TrimSpace(fields.CloseReason) != "" {
+			return mergeIneligibleResult("MR %s close_reason is %s", mr.ID, fields.CloseReason)
+		}
+		if fields.Branch != "" && mr.Branch != "" && fields.Branch != mr.Branch {
+			return mergeIneligibleResult("MR %s branch changed from %s to %s", mr.ID, mr.Branch, fields.Branch)
+		}
+		if strings.TrimSpace(fields.Target) == "" {
+			return mergeIneligibleResult("MR %s has missing target", mr.ID)
+		}
+		if fields.Target != target {
+			return mergeIneligibleResult("MR %s target changed from %s to %s", mr.ID, target, fields.Target)
+		}
+		if fields.Rig != "" && !strings.EqualFold(fields.Rig, e.rig.Name) {
+			return mergeIneligibleResult("MR %s belongs to rig %s", mr.ID, fields.Rig)
+		}
+		if strings.TrimSpace(fields.SourceIssue) == "" {
+			return mergeIneligibleResult("MR %s has missing source_issue", mr.ID)
+		}
+		if fields.SourceIssue != sourceIssue {
+			return mergeIneligibleResult("MR %s source_issue changed from %s to %s", mr.ID, sourceIssue, fields.SourceIssue)
+		}
+		sourceIssue = fields.SourceIssue
+	}
+
+	assessment, err := e.assessMRSourceIssue(sourceIssue)
+	if err != nil {
+		return ProcessResult{Success: false, Error: fmt.Sprintf("pre-push recheck source_issue %s: %v", sourceIssue, err)}
+	}
+	if !assessment.Concrete {
+		return mergeIneligibleResult("source_issue %s is not merge-eligible (%s)", sourceIssue, assessment.Reason)
+	}
+	return ProcessResult{Success: true}
 }
 
 func (e *Engineer) acquireMainPushSlot(ctx context.Context) (string, error) {
@@ -1162,7 +1259,7 @@ func (e *Engineer) ProcessMRInfo(ctx context.Context, mr *MRInfo) ProcessResult 
 	}
 
 	// Use the shared merge logic
-	return e.doMerge(ctx, mr.Branch, mr.Target, mr.SourceIssue, skipGates)
+	return e.doMerge(ctx, mr, skipGates)
 }
 
 // HandleMRInfoSuccess handles a successful merge from MRInfo.
@@ -1306,10 +1403,16 @@ func (e *Engineer) HandleMRInfoFailure(mr *MRInfo, result ProcessResult) {
 		return
 	}
 
-	// No-merge is intentional — the source issue has no_merge=true. Not a failure.
-	// No polecat or mayor notification needed; the MR is simply dequeued.
+	// Policy ineligibility is intentional — not a build/test failure.
+	// No polecat or mayor notification needed; close any still-open MR so it
+	// cannot retry forever after a no-merge/review-only/rejected decision.
 	if result.NoMerge {
-		_, _ = fmt.Fprintf(e.output, "[Engineer] MR %s: no_merge flag set on source issue, dequeued\n", mr.ID)
+		reason := strings.TrimSpace(result.Error)
+		if reason == "" {
+			reason = "merge request is not merge-eligible"
+		}
+		_, _ = fmt.Fprintf(e.output, "[Engineer] MR %s: %s, dequeued\n", mr.ID, reason)
+		e.closeIneligibleMR(mr, reason)
 		return
 	}
 
@@ -1404,6 +1507,28 @@ func (e *Engineer) HandleMRInfoFailure(mr *MRInfo, result ProcessResult) {
 		_, _ = fmt.Fprintln(e.output, "[Engineer] MR blocked pending conflict resolution - queue continues to next MR")
 	} else {
 		_, _ = fmt.Fprintln(e.output, "[Engineer] MR remains in queue for retry")
+	}
+}
+
+func (e *Engineer) closeIneligibleMR(mr *MRInfo, reason string) {
+	if mr == nil || strings.TrimSpace(mr.ID) == "" {
+		return
+	}
+	issue, err := e.beads.Show(mr.ID)
+	if err != nil {
+		if !errors.Is(err, beads.ErrNotFound) {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to fetch ineligible MR %s for close: %v\n", mr.ID, err)
+		}
+		return
+	}
+	if issue == nil || beads.IssueStatus(issue.Status) != beads.StatusOpen {
+		return
+	}
+	closeReason := "rejected: " + reason
+	if err := e.beads.CloseWithReason(closeReason, mr.ID); err != nil {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close ineligible MR %s: %v\n", mr.ID, err)
+	} else {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Closed ineligible MR bead: %s\n", mr.ID)
 	}
 }
 
@@ -1748,6 +1873,19 @@ func (e *Engineer) assessMRSourceIssue(sourceIssue string) (workitem.Assessment,
 	}
 	if issue == nil {
 		return workitem.Assessment{Reason: "source-missing"}, nil
+	}
+	if beads.IssueStatus(issue.Status).IsTerminal() {
+		return workitem.Assessment{Reason: "source-terminal:" + issue.Status}, nil
+	}
+	if af := beads.ParseAttachmentFields(issue); af != nil {
+		switch {
+		case af.NoMerge:
+			return workitem.Assessment{Reason: "source-no-merge"}, nil
+		case af.ReviewOnly:
+			return workitem.Assessment{Reason: "source-review-only"}, nil
+		case strings.EqualFold(strings.TrimSpace(af.MergeStrategy), "local"):
+			return workitem.Assessment{Reason: "source-local-merge"}, nil
+		}
 	}
 	return workitem.AssessConcrete(workitem.Snapshot{
 		ID:        issue.ID,
