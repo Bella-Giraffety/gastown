@@ -77,7 +77,7 @@ type SlingResult struct {
 //  3. Spawn polecat (via spawnPolecatForSling)
 //  4. Auto-convoy (if !NoConvoy)
 //  5. Cook formula (unless SkipCook)
-//  6. Instantiate formula on bead (wisp + bond)
+//  6. Instantiate formula on bead
 //  7. Hook bead with retry
 //  8. Log sling event
 //  9. Update agent hook_bead state
@@ -310,7 +310,7 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		}
 	}
 
-	// 6. Instantiate formula on bead (wisp + bond)
+	// 6. Instantiate formula on bead
 	beadToHook := params.BeadID
 	attachedMoleculeID := ""
 	var allVars []string

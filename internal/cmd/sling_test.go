@@ -341,9 +341,9 @@ exit /b 0
 		wantBeadsDir = resolved
 	}
 	gotPolecatCook := false
-	gotPolecatWisp := false
+	gotPolecatBond := false
 	gotReviewCook := false
-	gotReviewWisp := false
+	gotReviewBond := false
 	gotBondCount := 0
 	gotCreate := false
 	gotTargetDBCheck := false
@@ -401,17 +401,13 @@ exit /b 0
 				t.Fatalf("bd cook args = %q, want expected formula", args)
 			}
 			assertTargetRig("cook", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
-		case strings.Contains(args, "mol wisp "):
+		case strings.Contains(args, "mol bond "):
 			switch {
 			case strings.Contains(args, "mol-polecat-work"):
-				gotPolecatWisp = true
+				gotPolecatBond = true
 			case strings.Contains(args, "mol-review"):
-				gotReviewWisp = true
-			default:
-				t.Fatalf("bd mol wisp args = %q, want expected formula", args)
+				gotReviewBond = true
 			}
-			assertTargetRig("mol wisp", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
-		case strings.Contains(args, "mol bond "):
 			gotBondCount++
 			assertTargetRig("mol bond", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--status=hooked"):
@@ -430,9 +426,9 @@ exit /b 0
 		}
 	}
 
-	if !gotCreate || !gotTargetDBCheck || !gotPolecatCook || !gotPolecatWisp || !gotReviewCook || !gotReviewWisp || gotBondCount < 2 || !gotHook || !gotMetadata {
-		t.Fatalf("missing expected bd commands: create=%v targetDBCheck=%v polecat(cook=%v wisp=%v) review(cook=%v wisp=%v) bondCount=%d hook=%v metadata=%v (log: %q)",
-			gotCreate, gotTargetDBCheck, gotPolecatCook, gotPolecatWisp, gotReviewCook, gotReviewWisp, gotBondCount, gotHook, gotMetadata, string(logBytes))
+	if !gotCreate || !gotTargetDBCheck || !gotPolecatCook || !gotPolecatBond || !gotReviewCook || !gotReviewBond || gotBondCount < 2 || !gotHook || !gotMetadata {
+		t.Fatalf("missing expected bd commands: create=%v targetDBCheck=%v polecat(cook=%v bond=%v) review(cook=%v bond=%v) bondCount=%d hook=%v metadata=%v (log: %q)",
+			gotCreate, gotTargetDBCheck, gotPolecatCook, gotPolecatBond, gotReviewCook, gotReviewBond, gotBondCount, gotHook, gotMetadata, string(logBytes))
 	}
 }
 
@@ -587,7 +583,7 @@ func TestSlingRollsBackSpawnedPolecatOnInstantiateFailure(t *testing.T) {
 		t.Fatalf("write routes.jsonl: %v", err)
 	}
 
-	// Stub bd: make mol wisp fail to simulate missing required vars.
+	// Stub bd: make direct mol bond fail to simulate missing required vars.
 	binDir := filepath.Join(townRoot, "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
 		t.Fatalf("mkdir binDir: %v", err)
@@ -618,7 +614,7 @@ case "$cmd" in
     sub="$1"
     shift || true
     case "$sub" in
-      wisp)
+      bond)
         echo "missing required vars" 1>&2
         exit 1
         ;;
@@ -642,7 +638,7 @@ if "%cmd%"=="show" (
 if "%cmd%"=="update" exit /b 0
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
-  if "%sub%"=="wisp" (
+  if "%sub%"=="bond" (
     echo missing required vars 1>&2
     exit /b 1
   )
@@ -1487,7 +1483,7 @@ func TestSlingFormulaRejectsRigTargetBeforeSpawn(t *testing.T) {
 		t.Fatalf("mkdir rig dir: %v", err)
 	}
 
-	// Stub bd: cook succeeds; mol wisp fails to simulate missing required vars.
+	// Stub bd: cook succeeds; direct mol bond fails to simulate missing required vars.
 	binDir := filepath.Join(townRoot, "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
 		t.Fatalf("mkdir binDir: %v", err)
@@ -1504,7 +1500,7 @@ case "$cmd" in
     sub="$1"
     shift || true
     case "$sub" in
-      wisp)
+      bond)
         echo "missing required vars" 1>&2
         exit 1
         ;;
@@ -1519,7 +1515,7 @@ set "cmd=%1"
 set "sub=%2"
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
-  if "%sub%"=="wisp" (
+  if "%sub%"=="bond" (
     echo missing required vars 1>&2
     exit /b 1
   )
@@ -1875,7 +1871,7 @@ exit /b 0
 
 // TestSlingFormulaOnBeadPassesFeatureAndIssueVars verifies that when using
 // gt sling <formula> --on <bead>, both --var feature=<title> and --var issue=<beadID>
-// are passed to the bd mol wisp command.
+// are passed to the direct bd mol bond command.
 func TestSlingFormulaOnBeadPassesFeatureAndIssueVars(t *testing.T) {
 	townRoot := t.TempDir()
 
@@ -1901,7 +1897,7 @@ func TestSlingFormulaOnBeadPassesFeatureAndIssueVars(t *testing.T) {
 		t.Fatalf("write routes.jsonl: %v", err)
 	}
 
-	// Stub bd so we can observe the arguments passed to mol wisp.
+	// Stub bd so we can observe the arguments passed to direct mol bond.
 	binDir := filepath.Join(townRoot, "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
 		t.Fatalf("mkdir binDir: %v", err)
@@ -1930,10 +1926,11 @@ case "$cmd" in
     shift || true
     case "$sub" in
       wisp)
-        echo '{"new_epic_id":"gt-wisp-xyz"}'
+        echo "unexpected legacy mol wisp path" >&2
+        exit 9
         ;;
       bond)
-        echo '{"root_id":"gt-wisp-xyz"}'
+        echo '{"result_id":"gt-abc123","id_mapping":{"mol-review":"gt-wisp-xyz"}}'
         ;;
     esac
     ;;
@@ -1956,11 +1953,11 @@ if "%cmd%"=="formula" (
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="wisp" (
-    echo {^"new_epic_id^":^"gt-wisp-xyz^"}
-    exit /b 0
+    echo unexpected legacy mol wisp path 1>&2
+    exit /b 9
   )
   if "%sub%"=="bond" (
-    echo {^"root_id^":^"gt-wisp-xyz^"}
+    echo {^"result_id^":^"gt-abc123^",^"id_mapping^":{^"mol-review^":^"gt-wisp-xyz^"}}
     exit /b 0
   )
 )
@@ -2016,28 +2013,28 @@ exit /b 0
 		t.Fatalf("read bd log: %v", err)
 	}
 
-	// Find the mol wisp command and verify both --var arguments
+	// Find the direct mol bond command and verify both --var arguments.
 	logLines := strings.Split(string(logBytes), "\n")
-	var wispLine string
+	var bondLine string
 	for _, line := range logLines {
-		if strings.Contains(line, "mol wisp") {
-			wispLine = line
+		if strings.Contains(line, "mol bond mol-review gt-abc123 --json --ephemeral") {
+			bondLine = line
 			break
 		}
 	}
 
-	if wispLine == "" {
-		t.Fatalf("mol wisp command not found in log: %s", string(logBytes))
+	if bondLine == "" {
+		t.Fatalf("direct mol bond command not found in log: %s", string(logBytes))
 	}
 
 	// Verify --var feature=<title> is present
-	if !containsVarArg(wispLine, "feature", "My Test Feature") {
-		t.Errorf("mol wisp missing --var feature=<title>\ngot: %s", wispLine)
+	if !containsVarArg(bondLine, "feature", "My Test Feature") {
+		t.Errorf("mol bond missing --var feature=<title>\ngot: %s", bondLine)
 	}
 
 	// Verify --var issue=<beadID> is present
-	if !containsVarArg(wispLine, "issue", "gt-abc123") {
-		t.Errorf("mol wisp missing --var issue=<beadID>\ngot: %s", wispLine)
+	if !containsVarArg(bondLine, "issue", "gt-abc123") {
+		t.Errorf("mol bond missing --var issue=<beadID>\ngot: %s", bondLine)
 	}
 }
 

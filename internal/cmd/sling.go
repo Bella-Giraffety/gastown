@@ -971,9 +971,8 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		if formulaName != "" {
 			fmt.Printf("Would instantiate formula %s:\n", formulaName)
 			fmt.Printf("  1. bd cook %s\n", formulaName)
-			fmt.Printf("  2. bd mol wisp %s --var feature=\"%s\" --var issue=\"%s\"\n", formulaName, info.Title, beadID)
-			fmt.Printf("  3. bd mol bond <wisp-root> %s\n", beadID)
-			fmt.Printf("  4. bd update <compound-root> --status=hooked --assignee=%s\n", targetAgent)
+			fmt.Printf("  2. bd mol bond %s %s --json --ephemeral --var feature=\"%s\" --var issue=\"%s\"\n", formulaName, beadID, info.Title, beadID)
+			fmt.Printf("  3. bd update %s --status=hooked --assignee=%s\n", beadID, targetAgent)
 		} else {
 			fmt.Printf("Would run: bd update %s --status=hooked --assignee=%s\n", beadID, targetAgent)
 		}

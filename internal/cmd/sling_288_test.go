@@ -60,10 +60,17 @@ case "$cmd" in
     shift || true
     case "$sub" in
       wisp)
-        echo '{"new_epic_id":"gt-wisp-288"}'
+        echo "unexpected legacy mol wisp path" >&2
+        exit 9
         ;;
       bond)
-        echo '{"root_id":"gt-wisp-288"}'
+        left="$1"
+        right="$2"
+        if [ "$left" != "mol-polecat-work" ] || [ "$right" != "gt-abc123" ]; then
+          echo "unexpected bond: $left $right" >&2
+          exit 9
+        fi
+        echo '{"result_id":"gt-abc123","id_mapping":{"mol-polecat-work":"gt-wisp-288"}}'
         ;;
     esac
     ;;
@@ -88,11 +95,13 @@ if "%cmd%"=="formula" (
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="wisp" (
-    echo {^"new_epic_id^":^"gt-wisp-288^"}
-    exit /b 0
+    echo unexpected legacy mol wisp path 1>&2
+    exit /b 9
   )
   if "%sub%"=="bond" (
-    echo {^"root_id^":^"gt-wisp-288^"}
+    if not "%3"=="mol-polecat-work" exit /b 9
+    if not "%4"=="gt-abc123" exit /b 9
+    echo {^"result_id^":^"gt-abc123^",^"id_mapping^":{^"mol-polecat-work^":^"gt-wisp-288^"}}
     exit /b 0
   )
 )
@@ -126,6 +135,12 @@ exit /b 0
 	if result.BeadToHook == "" {
 		t.Error("BeadToHook should not be empty")
 	}
+	if result.WispRootID != "gt-wisp-288" {
+		t.Fatalf("WispRootID = %q, want gt-wisp-288", result.WispRootID)
+	}
+	if result.BeadToHook != "gt-abc123" {
+		t.Fatalf("BeadToHook = %q, want gt-abc123", result.BeadToHook)
+	}
 
 	// Verify commands were logged
 	logBytes, err := os.ReadFile(logPath)
@@ -137,14 +152,14 @@ exit /b 0
 	if !strings.Contains(logContent, "cook mol-polecat-work") {
 		t.Errorf("cook command not found in log:\n%s", logContent)
 	}
-	if !strings.Contains(logContent, "mol wisp mol-polecat-work") {
-		t.Errorf("mol wisp command not found in log:\n%s", logContent)
+	if strings.Contains(logContent, "mol wisp") {
+		t.Errorf("legacy mol wisp command should not be used:\n%s", logContent)
 	}
 	if !strings.Contains(logContent, "--var branch=polecat/furiosa/gt-abc123") {
-		t.Errorf("extra vars not passed to wisp command:\n%s", logContent)
+		t.Errorf("extra vars not passed to bond command:\n%s", logContent)
 	}
-	if !strings.Contains(logContent, "mol bond") {
-		t.Errorf("mol bond command not found in log:\n%s", logContent)
+	if !strings.Contains(logContent, "mol bond mol-polecat-work gt-abc123 --json --ephemeral") {
+		t.Errorf("direct mol bond command not found in log:\n%s", logContent)
 	}
 }
 
@@ -179,8 +194,8 @@ case "$cmd" in
   mol)
     sub="$1"; shift || true
     case "$sub" in
-      wisp) echo '{"new_epic_id":"gt-wisp-skip"}';;
-      bond) echo '{"root_id":"gt-wisp-skip"}';;
+      wisp) echo "unexpected legacy mol wisp path" >&2; exit 9;;
+      bond) echo '{"result_id":"gt-test","id_mapping":{"mol-polecat-work":"gt-wisp-skip"}}';;
     esac;;
 esac
 exit 0
@@ -192,11 +207,11 @@ set "cmd=%1"
 set "sub=%2"
 if "%cmd%"=="mol" (
   if "%sub%"=="wisp" (
-    echo {^"new_epic_id^":^"gt-wisp-skip^"}
-    exit /b 0
+    echo unexpected legacy mol wisp path 1>&2
+    exit /b 9
   )
   if "%sub%"=="bond" (
-    echo {^"root_id^":^"gt-wisp-skip^"}
+    echo {^"result_id^":^"gt-test^",^"id_mapping^":{^"mol-polecat-work^":^"gt-wisp-skip^"}}
     exit /b 0
   )
 )
@@ -225,11 +240,11 @@ exit /b 0
 		t.Errorf("cook should be skipped when skipCook=true, but was called:\n%s", logContent)
 	}
 
-	// Verify wisp and bond were still called
-	if !strings.Contains(logContent, "mol wisp") {
-		t.Errorf("mol wisp should still be called")
+	// Verify direct bond is still called.
+	if strings.Contains(logContent, "mol wisp") {
+		t.Errorf("mol wisp should not be called")
 	}
-	if !strings.Contains(logContent, "mol bond") {
+	if !strings.Contains(logContent, "mol bond mol-polecat-work gt-test --json --ephemeral") {
 		t.Errorf("mol bond should still be called")
 	}
 }
@@ -371,8 +386,8 @@ case "$cmd" in
   mol)
     sub="$1"; shift || true
     case "$sub" in
-      wisp) echo '{"new_epic_id":"gt-wisp-var"}';;
-      bond) echo '{"root_id":"gt-wisp-var"}';;
+      wisp) echo "unexpected legacy mol wisp path" >&2; exit 9;;
+      bond) echo '{"result_id":"gt-abc123","id_mapping":{"mol-polecat-work":"gt-wisp-var"}}';;
     esac;;
 esac
 exit 0
@@ -385,11 +400,11 @@ set "sub=%2"
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="wisp" (
-    echo {^"new_epic_id^":^"gt-wisp-var^"}
-    exit /b 0
+    echo unexpected legacy mol wisp path 1>&2
+    exit /b 9
   )
   if "%sub%"=="bond" (
-    echo {^"root_id^":^"gt-wisp-var^"}
+    echo {^"result_id^":^"gt-abc123^",^"id_mapping^":{^"mol-polecat-work^":^"gt-wisp-var^"}}
     exit /b 0
   )
 )
@@ -412,29 +427,29 @@ exit /b 0
 	logBytes, _ := os.ReadFile(logPath)
 	logContent := string(logBytes)
 
-	// Find mol wisp line
-	var wispLine string
+	// Find direct mol bond line.
+	var bondLine string
 	for _, line := range strings.Split(logContent, "\n") {
-		if strings.Contains(line, "mol wisp") {
-			wispLine = line
+		if strings.Contains(line, "mol bond mol-polecat-work gt-abc123 --json --ephemeral") {
+			bondLine = line
 			break
 		}
 	}
 
-	if wispLine == "" {
-		t.Fatalf("mol wisp command not found:\n%s", logContent)
+	if bondLine == "" {
+		t.Fatalf("direct mol bond command not found:\n%s", logContent)
 	}
 
-	if !strings.Contains(wispLine, "feature=My Cool Feature") {
-		t.Errorf("mol wisp missing feature variable:\n%s", wispLine)
+	if !containsVarArg(bondLine, "feature", "My Cool Feature") {
+		t.Errorf("mol bond missing feature variable:\n%s", bondLine)
 	}
 
-	if !strings.Contains(wispLine, "issue=gt-abc123") {
-		t.Errorf("mol wisp missing issue variable:\n%s", wispLine)
+	if !containsVarArg(bondLine, "issue", "gt-abc123") {
+		t.Errorf("mol bond missing issue variable:\n%s", bondLine)
 	}
 }
 
-func TestInstantiateFormulaOnBead_FallbackToDirectBond(t *testing.T) {
+func TestInstantiateFormulaOnBead_DirectBondOnly(t *testing.T) {
 	townRoot := t.TempDir()
 
 	// Minimal workspace
@@ -454,11 +469,7 @@ func TestInstantiateFormulaOnBead_FallbackToDirectBond(t *testing.T) {
 	}
 	logPath := filepath.Join(townRoot, "bd.log")
 
-	// Legacy path behavior:
-	// - mol wisp succeeds and returns a root ID
-	// - mol bond <wisp-id> fails with "not found"
-	// Fallback behavior:
-	// - mol bond <formula> <bead> --ephemeral succeeds and returns id_mapping
+	// Direct formula bond is the only supported formula-on-bead path.
 	bdScript := `#!/bin/sh
 set -e
 echo "CMD:$*" >> "${BD_LOG}"
@@ -471,17 +482,13 @@ case "$cmd" in
     sub="$1"; shift || true
     case "$sub" in
       wisp)
-        echo '{"new_epic_id":"gt-wisp-missing"}'
-        exit 0
+        echo "unexpected legacy mol wisp path" >&2
+        exit 9
         ;;
       bond)
         left="$1"; shift || true
-        if [ "$left" = "gt-wisp-missing" ]; then
-          echo "Error: 'gt-wisp-missing' not found (not an issue ID or formula name)" >&2
-          exit 1
-        fi
         if [ "$left" = "mol-polecat-work" ]; then
-          echo '{"result_id":"gt-abc123","id_mapping":{"mol-polecat-work":"gt-mol-fallback"}}'
+          echo '{"result_id":"gt-abc123","id_mapping":{"mol-polecat-work":"gt-wisp-direct"}}'
           exit 0
         fi
         echo "Error: unexpected bond target: $left" >&2
@@ -501,16 +508,12 @@ set "left=%3"
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="wisp" (
-    echo {^"new_epic_id^":^"gt-wisp-missing^"}
-    exit /b 0
+    echo unexpected legacy mol wisp path 1>&2
+    exit /b 9
   )
   if "%sub%"=="bond" (
-    if "%left%"=="gt-wisp-missing" (
-      echo Error: 'gt-wisp-missing' not found - not an issue ID or formula name 1>&2
-      exit /b 1
-    )
     if "%left%"=="mol-polecat-work" (
-      echo {^"result_id^":^"gt-abc123^",^"id_mapping^":{^"mol-polecat-work^":^"gt-mol-fallback^"}}
+      echo {^"result_id^":^"gt-abc123^",^"id_mapping^":{^"mol-polecat-work^":^"gt-wisp-direct^"}}
       exit /b 0
     )
     echo Error: unexpected bond target: %left% 1>&2
@@ -532,8 +535,8 @@ exit /b 0
 	if err != nil {
 		t.Fatalf("InstantiateFormulaOnBead: %v", err)
 	}
-	if result.WispRootID != "gt-mol-fallback" {
-		t.Fatalf("WispRootID = %q, want %q", result.WispRootID, "gt-mol-fallback")
+	if result.WispRootID != "gt-wisp-direct" {
+		t.Fatalf("WispRootID = %q, want %q", result.WispRootID, "gt-wisp-direct")
 	}
 	if result.BeadToHook != "gt-abc123" {
 		t.Fatalf("BeadToHook = %q, want %q", result.BeadToHook, "gt-abc123")
@@ -544,24 +547,24 @@ exit /b 0
 		t.Fatalf("read log: %v", err)
 	}
 	logContent := string(logBytes)
-	if !strings.Contains(logContent, "mol bond gt-wisp-missing gt-abc123 --json") {
-		t.Fatalf("missing legacy bond attempt in log:\n%s", logContent)
+	if strings.Contains(logContent, "mol wisp") || strings.Contains(logContent, "mol bond gt-wisp-") {
+		t.Fatalf("legacy formula bond path should not be used:\n%s", logContent)
 	}
-	var fallbackBondLine string
+	var bondLine string
 	for _, line := range strings.Split(logContent, "\n") {
 		if strings.Contains(line, "mol bond mol-polecat-work gt-abc123 --json --ephemeral") {
-			fallbackBondLine = line
+			bondLine = line
 			break
 		}
 	}
-	if fallbackBondLine == "" {
-		t.Fatalf("missing direct bond fallback in log:\n%s", logContent)
+	if bondLine == "" {
+		t.Fatalf("missing direct bond in log:\n%s", logContent)
 	}
-	if !containsVarArg(fallbackBondLine, "feature", "My Cool Feature") {
-		t.Fatalf("fallback bond missing feature variable:\n%s", logContent)
+	if !containsVarArg(bondLine, "feature", "My Cool Feature") {
+		t.Fatalf("direct bond missing feature variable:\n%s", logContent)
 	}
-	if !containsVarArg(fallbackBondLine, "issue", "gt-abc123") {
-		t.Fatalf("fallback bond missing issue variable:\n%s", logContent)
+	if !containsVarArg(bondLine, "issue", "gt-abc123") {
+		t.Fatalf("direct bond missing issue variable:\n%s", logContent)
 	}
 	for _, required := range []struct {
 		key   string
@@ -574,40 +577,71 @@ exit /b 0
 		{"test_command", ""},
 		{"build_command", ""},
 	} {
-		if !containsVarArg(fallbackBondLine, required.key, required.value) {
-			t.Fatalf("fallback bond missing required variable %q:\n%s", required.key, logContent)
+		if !containsVarArg(bondLine, required.key, required.value) {
+			t.Fatalf("direct bond missing required variable %q:\n%s", required.key, logContent)
 		}
 	}
 }
 
-// TestIsMalformedWispID verifies detection of doubled "-wisp-" in wisp IDs (gt-4gjd).
-func TestIsMalformedWispID(t *testing.T) {
-	tests := []struct {
-		name          string
-		wispID        string
-		wantMalformed bool
-	}{
-		{"normal wisp ID", "gt-wisp-abc", false},
-		{"normal with long random", "oag-wisp-gm7c", false},
-		{"doubled wisp marker", "oag-wisp-wisp-rsia", true},
-		{"triple wisp marker", "gt-wisp-wisp-wisp-x", true},
-		{"empty", "", false},
-		{"no wisp marker", "gt-abc", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isMalformedWispID(tt.wispID)
-			if got != tt.wantMalformed {
-				t.Errorf("isMalformedWispID(%q) = %v, want %v", tt.wispID, got, tt.wantMalformed)
-			}
-		})
+func TestParseBondSpawnRootIDPrefersIDMapping(t *testing.T) {
+	out := []byte(`{"result_id":"gt-abc123","id_mapping":{"mol-polecat-work":"gt-wisp-root"}}`)
+	got := parseBondSpawnRootID(out, "mol-polecat-work", "gt-abc123", "")
+	if got != "gt-wisp-root" {
+		t.Fatalf("parseBondSpawnRootID = %q, want gt-wisp-root", got)
 	}
 }
 
-// TestInstantiateFormulaOnBead_MalformedWispIDProceedsWithBond verifies that
-// when bd mol wisp returns a malformed ID (doubled "-wisp-"), a warning is logged
-// but the legacy bond is still attempted and succeeds (gt-4gjd).
-func TestInstantiateFormulaOnBead_MalformedWispIDProceedsWithBond(t *testing.T) {
+func TestBondFormulaDirectParsesOriginalFormulaKey(t *testing.T) {
+	townRoot := t.TempDir()
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd.log")
+
+	bdScript := `#!/bin/sh
+set -e
+echo "CMD:$*" >> "${BD_LOG}"
+cmd="$1"; shift || true
+case "$cmd" in
+  mol)
+    sub="$1"; shift || true
+    if [ "$sub" = "bond" ]; then
+      if [ "$1" != "/tmp/embedded.formula.toml" ]; then
+        echo "unexpected formula operand: $1" >&2
+        exit 9
+      fi
+      echo '{"result_id":"gt-abc123","id_mapping":{"mol-polecat-work":"gt-wisp-temp"}}'
+      exit 0
+    fi
+    ;;
+esac
+exit 0
+`
+	bdScriptWindows := `@echo off
+setlocal enableextensions
+echo CMD:%*>>"%BD_LOG%"
+if "%1"=="mol" if "%2"=="bond" (
+  if not "%3"=="/tmp/embedded.formula.toml" exit /b 9
+  echo {^"result_id^":^"gt-abc123^",^"id_mapping^":{^"mol-polecat-work^":^"gt-wisp-temp^"}}
+  exit /b 0
+)
+exit /b 0
+`
+	_ = writeBDStub(t, binDir, bdScript, bdScriptWindows)
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got, err := bondFormulaDirect("/tmp/embedded.formula.toml", "mol-polecat-work", "gt-abc123", townRoot, townRoot, nil)
+	if err != nil {
+		t.Fatalf("bondFormulaDirect: %v", err)
+	}
+	if got != "gt-wisp-temp" {
+		t.Fatalf("bondFormulaDirect root = %q, want gt-wisp-temp", got)
+	}
+}
+
+func TestInstantiateFormulaOnBead_DirectBondHandlesNonGTIds(t *testing.T) {
 	townRoot := t.TempDir()
 
 	// Minimal workspace
@@ -627,8 +661,8 @@ func TestInstantiateFormulaOnBead_MalformedWispIDProceedsWithBond(t *testing.T) 
 	}
 	logPath := filepath.Join(townRoot, "bd.log")
 
-	// bd mol wisp returns a malformed ID with doubled "-wisp-".
-	// Legacy bond SHOULD be called with the malformed ID and succeed.
+	// Non-gt prefixes still use the direct formula bond path; no wisp-first
+	// compatibility path should run.
 	bdScript := `#!/bin/sh
 set -e
 echo "CMD:$*" >> "${BD_LOG}"
@@ -641,13 +675,13 @@ case "$cmd" in
     sub="$1"; shift || true
     case "$sub" in
       wisp)
-        echo '{"new_epic_id":"oag-wisp-wisp-rsia"}'
-        exit 0
+        echo "unexpected legacy mol wisp path" >&2
+        exit 9
         ;;
       bond)
         left="$1"; shift || true
-        if [ "$left" = "oag-wisp-wisp-rsia" ]; then
-          echo '{"root_id":"oag-wisp-wisp-rsia"}'
+        if [ "$left" = "mol-polecat-work" ]; then
+          echo '{"result_id":"oag-npeat","id_mapping":{"mol-polecat-work":"oag-wisp-direct"}}'
           exit 0
         fi
         echo "Error: unexpected bond target: $left" >&2
@@ -667,12 +701,12 @@ set "left=%3"
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="wisp" (
-    echo {^"new_epic_id^":^"oag-wisp-wisp-rsia^"}
-    exit /b 0
+    echo unexpected legacy mol wisp path 1>&2
+    exit /b 9
   )
   if "%sub%"=="bond" (
-    if "%left%"=="oag-wisp-wisp-rsia" (
-      echo {^"root_id^":^"oag-wisp-wisp-rsia^"}
+    if "%left%"=="mol-polecat-work" (
+      echo {^"result_id^":^"oag-npeat^",^"id_mapping^":{^"mol-polecat-work^":^"oag-wisp-direct^"}}
       exit /b 0
     )
     echo Error: unexpected bond target: %left% 1>&2
@@ -694,28 +728,27 @@ exit /b 0
 	if err != nil {
 		t.Fatalf("InstantiateFormulaOnBead: %v", err)
 	}
-	if result.WispRootID != "oag-wisp-wisp-rsia" {
-		t.Fatalf("WispRootID = %q, want %q", result.WispRootID, "oag-wisp-wisp-rsia")
+	if result.WispRootID != "oag-wisp-direct" {
+		t.Fatalf("WispRootID = %q, want %q", result.WispRootID, "oag-wisp-direct")
 	}
 	if result.BeadToHook != "oag-npeat" {
 		t.Fatalf("BeadToHook = %q, want %q", result.BeadToHook, "oag-npeat")
 	}
 
-	// Verify the legacy bond WAS called with the malformed ID.
 	logBytes, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
 	logContent := string(logBytes)
-	if !strings.Contains(logContent, "mol bond oag-wisp-wisp-rsia") {
-		t.Fatalf("legacy bond should have been called with malformed wisp ID:\n%s", logContent)
+	if strings.Contains(logContent, "mol wisp") || strings.Contains(logContent, "mol bond oag-wisp-") {
+		t.Fatalf("legacy formula bond path should not be used:\n%s", logContent)
+	}
+	if !strings.Contains(logContent, "mol bond mol-polecat-work oag-npeat --json --ephemeral") {
+		t.Fatalf("direct bond should be used:\n%s", logContent)
 	}
 }
 
-// TestInstantiateFormulaOnBead_FallbackCleansUpOrphanedWisp verifies that when
-// the legacy bond fails and fallback is used, the orphaned wisp from bd mol wisp
-// is cleaned up (gt-4gjd).
-func TestInstantiateFormulaOnBead_FallbackCleansUpOrphanedWisp(t *testing.T) {
+func TestInstantiateFormulaOnBead_DirectBondCreatesNoOrphanCleanup(t *testing.T) {
 	townRoot := t.TempDir()
 
 	// Minimal workspace
@@ -735,8 +768,8 @@ func TestInstantiateFormulaOnBead_FallbackCleansUpOrphanedWisp(t *testing.T) {
 	}
 	logPath := filepath.Join(townRoot, "bd.log")
 
-	// Legacy path: mol wisp succeeds, mol bond <wisp-id> fails.
-	// After fallback succeeds, a close command should be issued for the orphaned wisp.
+	// The direct path should not create a pre-bond wisp, so there is no orphan
+	// cleanup command to issue.
 	bdScript := `#!/bin/sh
 set -e
 echo "CMD:$*" >> "${BD_LOG}"
@@ -749,15 +782,11 @@ case "$cmd" in
     sub="$1"; shift || true
     case "$sub" in
       wisp)
-        echo '{"new_epic_id":"gt-wisp-orphan"}'
-        exit 0
+        echo "unexpected legacy mol wisp path" >&2
+        exit 9
         ;;
       bond)
         left="$1"; shift || true
-        if [ "$left" = "gt-wisp-orphan" ]; then
-          echo "Error: 'gt-wisp-orphan' not found (not an issue ID or formula name)" >&2
-          exit 1
-        fi
         if [ "$left" = "mol-polecat-work" ]; then
           echo '{"result_id":"gt-test","id_mapping":{"mol-polecat-work":"gt-wisp-clean"}}'
           exit 0
@@ -768,7 +797,8 @@ case "$cmd" in
     esac
     ;;
   close)
-    exit 0
+    echo "unexpected orphan cleanup" >&2
+    exit 9
     ;;
 esac
 exit 0
@@ -782,14 +812,10 @@ set "left=%3"
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="wisp" (
-    echo {^"new_epic_id^":^"gt-wisp-orphan^"}
-    exit /b 0
+    echo unexpected legacy mol wisp path 1>&2
+    exit /b 9
   )
   if "%sub%"=="bond" (
-    if "%left%"=="gt-wisp-orphan" (
-      echo Error: 'gt-wisp-orphan' not found 1>&2
-      exit /b 1
-    )
     if "%left%"=="mol-polecat-work" (
       echo {^"result_id^":^"gt-test^",^"id_mapping^":{^"mol-polecat-work^":^"gt-wisp-clean^"}}
       exit /b 0
@@ -798,7 +824,7 @@ if "%cmd%"=="mol" (
     exit /b 1
   )
 )
-if "%cmd%"=="close" exit /b 0
+if "%cmd%"=="close" exit /b 9
 exit /b 0
 `
 	_ = writeBDStub(t, binDir, bdScript, bdScriptWindows)
@@ -818,21 +844,17 @@ exit /b 0
 		t.Fatalf("WispRootID = %q, want %q", result.WispRootID, "gt-wisp-clean")
 	}
 
-	// Verify a close command was issued for the orphaned wisp
 	logBytes, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
 	logContent := string(logBytes)
-	if !strings.Contains(logContent, "close") || !strings.Contains(logContent, "gt-wisp-orphan") {
-		t.Fatalf("expected close command for orphaned wisp gt-wisp-orphan in log:\n%s", logContent)
+	if strings.Contains(logContent, "mol wisp") || strings.Contains(logContent, "close") {
+		t.Fatalf("legacy path or orphan cleanup should not run:\n%s", logContent)
 	}
 }
 
-// TestInstantiateFormulaOnBead_ParseFailureFallbackFailure verifies that when
-// legacy bond exits 0 with non-JSON output AND the direct-bond fallback also
-// fails, InstantiateFormulaOnBead returns an error instead of silent success.
-func TestInstantiateFormulaOnBead_ParseFailureFallbackFailure(t *testing.T) {
+func TestInstantiateFormulaOnBead_DirectBondParseFailure(t *testing.T) {
 	townRoot := t.TempDir()
 
 	// Minimal workspace
@@ -852,8 +874,8 @@ func TestInstantiateFormulaOnBead_ParseFailureFallbackFailure(t *testing.T) {
 	}
 	logPath := filepath.Join(townRoot, "bd.log")
 
-	// Legacy bond exits 0 but returns non-JSON garbage.
-	// Direct-bond fallback also fails (all bond calls fail).
+	// Direct bond exits 0 but returns non-JSON garbage. Formula application must
+	// fail instead of silently hooking a bead without attached_molecule metadata.
 	bdScript := `#!/bin/sh
 set -e
 echo "CMD:$*" >> "${BD_LOG}"
@@ -866,17 +888,12 @@ case "$cmd" in
     sub="$1"; shift || true
     case "$sub" in
       wisp)
-        echo '{"new_epic_id":"gt-wisp-abc"}'
-        exit 0
+        echo "unexpected legacy mol wisp path" >&2
+        exit 9
         ;;
       bond)
-        left="$1"; shift || true
-        if [ "$left" = "gt-wisp-abc" ]; then
-          echo 'NOT-JSON-GARBAGE'
-          exit 0
-        fi
-        echo "Error: bond failed" >&2
-        exit 1
+        echo 'NOT-JSON-GARBAGE'
+        exit 0
         ;;
     esac
     ;;
@@ -892,16 +909,12 @@ set "left=%3"
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="wisp" (
-    echo {^"new_epic_id^":^"gt-wisp-abc^"}
-    exit /b 0
+    echo unexpected legacy mol wisp path 1>&2
+    exit /b 9
   )
   if "%sub%"=="bond" (
-    if "%left%"=="gt-wisp-abc" (
-      echo NOT-JSON-GARBAGE
-      exit /b 0
-    )
-    echo Error: bond failed 1>&2
-    exit /b 1
+    echo NOT-JSON-GARBAGE
+    exit /b 0
   )
 )
 exit /b 0
@@ -917,9 +930,9 @@ exit /b 0
 
 	_, err := InstantiateFormulaOnBead(context.Background(), "mol-polecat-work", "gt-abc123", "My Feature", "", townRoot, false, nil)
 	if err == nil {
-		t.Fatal("expected error when bond returns non-JSON and fallback fails, got nil")
+		t.Fatal("expected error when direct bond returns non-JSON, got nil")
 	}
-	if !strings.Contains(err.Error(), "not parseable") && !strings.Contains(err.Error(), "fallback failed") {
-		t.Fatalf("error message should mention parse failure and fallback: %v", err)
+	if !strings.Contains(err.Error(), "missing spawned root id") {
+		t.Fatalf("error message should mention missing spawned root id: %v", err)
 	}
 }
