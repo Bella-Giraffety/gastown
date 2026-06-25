@@ -175,6 +175,31 @@ func TestProcessBatch_RechecksMRCloseReasonBeforePush(t *testing.T) {
 	}
 }
 
+func TestRecheckMRStillMergeable_AllowsClosedSourceWithoutPolicyMarker(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	e := newTestEngineer(t, workDir, g)
+	source := prepushIssue("gt-src", "")
+	now := time.Now()
+	source.Status = beadsdk.StatusClosed
+	source.ClosedAt = &now
+	store := newPrepushStore(
+		source,
+		prepushMRIssue("gt-mr", "feature", "main", "gt-src"),
+	)
+	e.beads = beads.NewWithStore(workDir, store)
+
+	mr := &MRInfo{ID: "gt-mr", Branch: "feature", Target: "main", SourceIssue: "gt-src", Worker: "polecats/test"}
+	result := e.recheckMRStillMergeable(mr, "main")
+	if !result.Success {
+		t.Fatalf("closed source without policy marker should remain merge-eligible, got: %+v", result)
+	}
+	if got := store.issues["gt-mr"].Status; got != beadsdk.StatusOpen {
+		t.Fatalf("MR status = %s, want open", got)
+	}
+}
+
 func TestProcessBatch_RechecksSourceFlagsBeforePush(t *testing.T) {
 	tests := []struct {
 		name        string

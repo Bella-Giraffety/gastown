@@ -899,43 +899,81 @@ func (e *Engineer) recheckMRStillMergeable(mr *MRInfo, target string) ProcessRes
 			return mergeIneligibleResult("MR %s status is %s", mr.ID, mrIssue.Status)
 		}
 		if beads.HasLabel(mrIssue, "gt:owned-direct") {
-			return mergeIneligibleResult("MR %s is owned-direct", mr.ID)
+			return e.rejectMRBeforeMerge(mr, "MR is owned-direct")
 		}
 
 		fields := beads.ParseMRFields(mrIssue)
 		if fields == nil {
-			return mergeIneligibleResult("MR %s has missing merge-request fields", mr.ID)
+			return e.rejectMRBeforeMerge(mr, "MR has missing merge-request fields")
 		}
 		if strings.TrimSpace(fields.CloseReason) != "" {
-			return mergeIneligibleResult("MR %s close_reason is %s", mr.ID, fields.CloseReason)
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("MR close_reason is %s", fields.CloseReason))
 		}
 		if fields.Branch != "" && mr.Branch != "" && fields.Branch != mr.Branch {
-			return mergeIneligibleResult("MR %s branch changed from %s to %s", mr.ID, mr.Branch, fields.Branch)
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("MR branch changed from %s to %s", mr.Branch, fields.Branch))
 		}
 		if strings.TrimSpace(fields.Target) == "" {
-			return mergeIneligibleResult("MR %s has missing target", mr.ID)
+			return e.rejectMRBeforeMerge(mr, "MR has missing target")
 		}
 		if fields.Target != target {
-			return mergeIneligibleResult("MR %s target changed from %s to %s", mr.ID, target, fields.Target)
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("MR target changed from %s to %s", target, fields.Target))
 		}
 		if fields.Rig != "" && !strings.EqualFold(fields.Rig, e.rig.Name) {
-			return mergeIneligibleResult("MR %s belongs to rig %s", mr.ID, fields.Rig)
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("MR belongs to rig %s", fields.Rig))
 		}
 		if strings.TrimSpace(fields.SourceIssue) == "" {
-			return mergeIneligibleResult("MR %s has missing source_issue", mr.ID)
+			return e.rejectMRBeforeMerge(mr, "MR has missing source_issue")
 		}
 		if fields.SourceIssue != sourceIssue {
-			return mergeIneligibleResult("MR %s source_issue changed from %s to %s", mr.ID, sourceIssue, fields.SourceIssue)
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("MR source_issue changed from %s to %s", sourceIssue, fields.SourceIssue))
 		}
 		sourceIssue = fields.SourceIssue
 	}
 
-	assessment, err := e.assessMRSourceIssue(sourceIssue)
+	return e.recheckMRSourceStillMergeable(mr, sourceIssue)
+}
+
+func (e *Engineer) rejectMRBeforeMerge(mr *MRInfo, reason string) ProcessResult {
+	if err := e.closeIneligibleMR(mr, reason); err != nil {
+		mrID := "<missing>"
+		if mr != nil && mr.ID != "" {
+			mrID = mr.ID
+		}
+		return ProcessResult{Success: false, Error: fmt.Sprintf("failed to close ineligible MR %s: %v", mrID, err)}
+	}
+	return mergeIneligibleResult("%s", reason)
+}
+
+func (e *Engineer) recheckMRSourceStillMergeable(mr *MRInfo, sourceIssue string) ProcessResult {
+	issue, err := e.beads.Show(sourceIssue)
 	if err != nil {
+		if errors.Is(err, beads.ErrNotFound) {
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("source_issue %s is missing", sourceIssue))
+		}
 		return ProcessResult{Success: false, Error: fmt.Sprintf("pre-push recheck source_issue %s: %v", sourceIssue, err)}
 	}
+	if issue == nil {
+		return e.rejectMRBeforeMerge(mr, fmt.Sprintf("source_issue %s is missing", sourceIssue))
+	}
+	assessment := workitem.AssessConcrete(workitem.Snapshot{
+		ID:        issue.ID,
+		Title:     issue.Title,
+		Type:      issue.Type,
+		Labels:    issue.Labels,
+		Ephemeral: issue.Ephemeral,
+	})
 	if !assessment.Concrete {
-		return mergeIneligibleResult("source_issue %s is not merge-eligible (%s)", sourceIssue, assessment.Reason)
+		return e.rejectMRBeforeMerge(mr, fmt.Sprintf("source_issue %s is not concrete (%s)", sourceIssue, assessment.Reason))
+	}
+	if af := beads.ParseAttachmentFields(issue); af != nil {
+		switch {
+		case af.NoMerge:
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("source_issue %s has no_merge=true", sourceIssue))
+		case af.ReviewOnly:
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("source_issue %s has review_only=true", sourceIssue))
+		case strings.EqualFold(strings.TrimSpace(af.MergeStrategy), "local"):
+			return e.rejectMRBeforeMerge(mr, fmt.Sprintf("source_issue %s has merge_strategy=local", sourceIssue))
+		}
 	}
 	return ProcessResult{Success: true}
 }
@@ -1412,7 +1450,9 @@ func (e *Engineer) HandleMRInfoFailure(mr *MRInfo, result ProcessResult) {
 			reason = "merge request is not merge-eligible"
 		}
 		_, _ = fmt.Fprintf(e.output, "[Engineer] MR %s: %s, dequeued\n", mr.ID, reason)
-		e.closeIneligibleMR(mr, reason)
+		if closeErr := e.closeIneligibleMR(mr, reason); closeErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close ineligible MR %s: %v\n", mr.ID, closeErr)
+		}
 		return
 	}
 
@@ -1510,26 +1550,26 @@ func (e *Engineer) HandleMRInfoFailure(mr *MRInfo, result ProcessResult) {
 	}
 }
 
-func (e *Engineer) closeIneligibleMR(mr *MRInfo, reason string) {
+func (e *Engineer) closeIneligibleMR(mr *MRInfo, reason string) error {
 	if mr == nil || strings.TrimSpace(mr.ID) == "" {
-		return
+		return nil
 	}
 	issue, err := e.beads.Show(mr.ID)
 	if err != nil {
 		if !errors.Is(err, beads.ErrNotFound) {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to fetch ineligible MR %s for close: %v\n", mr.ID, err)
+			return fmt.Errorf("fetch MR for close: %w", err)
 		}
-		return
+		return nil
 	}
 	if issue == nil || beads.IssueStatus(issue.Status) != beads.StatusOpen {
-		return
+		return nil
 	}
 	closeReason := "rejected: " + reason
 	if err := e.beads.CloseWithReason(closeReason, mr.ID); err != nil {
-		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close ineligible MR %s: %v\n", mr.ID, err)
-	} else {
-		_, _ = fmt.Fprintf(e.output, "[Engineer] Closed ineligible MR bead: %s\n", mr.ID)
+		return fmt.Errorf("close MR as rejected: %w", err)
 	}
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Closed ineligible MR bead: %s\n", mr.ID)
+	return nil
 }
 
 // createConflictResolutionTaskForMR creates a dispatchable task for resolving merge conflicts.
@@ -1873,19 +1913,6 @@ func (e *Engineer) assessMRSourceIssue(sourceIssue string) (workitem.Assessment,
 	}
 	if issue == nil {
 		return workitem.Assessment{Reason: "source-missing"}, nil
-	}
-	if beads.IssueStatus(issue.Status).IsTerminal() {
-		return workitem.Assessment{Reason: "source-terminal:" + issue.Status}, nil
-	}
-	if af := beads.ParseAttachmentFields(issue); af != nil {
-		switch {
-		case af.NoMerge:
-			return workitem.Assessment{Reason: "source-no-merge"}, nil
-		case af.ReviewOnly:
-			return workitem.Assessment{Reason: "source-review-only"}, nil
-		case strings.EqualFold(strings.TrimSpace(af.MergeStrategy), "local"):
-			return workitem.Assessment{Reason: "source-local-merge"}, nil
-		}
 	}
 	return workitem.AssessConcrete(workitem.Snapshot{
 		ID:        issue.ID,
