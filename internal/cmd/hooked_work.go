@@ -15,7 +15,7 @@ const statusInProgress = "in_progress"
 func listBeadsAcrossTables(b *beads.Beads, opts beads.ListOptions) ([]*beads.Issue, error) {
 	issueOpts := opts
 	issueOpts.Ephemeral = false
-	issues, err := b.List(issueOpts)
+	issues, err := b.ListIssues(issueOpts)
 	if err != nil {
 		return nil, err
 	}

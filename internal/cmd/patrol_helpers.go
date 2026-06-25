@@ -54,7 +54,7 @@ func findActivePatrol(cfg PatrolConfig) (patrolID, patrolLine string, found bool
 	// Find active patrol beads for this agent across durable issues and wisps.
 	hookedBeads, listErr := listAssignedActiveWork(b, cfg.Assignee)
 	if listErr != nil {
-		return "", "", false, fmt.Errorf("listing hooked beads: %w", listErr)
+		return "", "", false, fmt.Errorf("listing active patrol work: %w", listErr)
 	}
 
 	// Identify active patrol and collect stale ones for cleanup.

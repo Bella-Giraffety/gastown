@@ -183,3 +183,43 @@ func TestHookShowAndStatusFindEphemeralPatrolWisp(t *testing.T) {
 			status.HasWork, status.PinnedBead, patrol.ID)
 	}
 }
+
+func TestPrimeStateFindsEphemeralPatrolWisp(t *testing.T) {
+	if _, err := exec.LookPath("bd"); err != nil {
+		t.Skip("bd not installed, skipping integration test")
+	}
+
+	townRoot, polecatDir, rigPrefix := setupHookTestTown(t)
+	rigDir := filepath.Join(polecatDir, "..", "..", "mayor", "rig")
+	initBeadsDBWithPrefix(t, rigDir, rigPrefix)
+
+	b := beads.New(rigDir)
+	patrol, err := b.Create(beads.CreateOptions{
+		Title:     constants.MolRefineryPatrol + " (wisp)",
+		Type:      "molecule",
+		Priority:  -1,
+		Ephemeral: true,
+	})
+	if err != nil {
+		t.Fatalf("create patrol wisp: %v", err)
+	}
+
+	hooked := beads.StatusHooked
+	assignee := "gastown/refinery"
+	if err := b.Update(patrol.ID, beads.UpdateOptions{
+		Status:   &hooked,
+		Assignee: &assignee,
+	}); err != nil {
+		t.Fatalf("hook patrol wisp: %v", err)
+	}
+
+	state := detectSessionState(RoleContext{
+		Role:     RoleRefinery,
+		Rig:      "gastown",
+		WorkDir:  polecatDir,
+		TownRoot: townRoot,
+	})
+	if state.State != "autonomous" || state.HookedBead != patrol.ID {
+		t.Fatalf("prime state = %+v, want autonomous with hooked bead %s", state, patrol.ID)
+	}
+}
