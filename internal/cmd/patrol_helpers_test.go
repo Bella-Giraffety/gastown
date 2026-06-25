@@ -632,10 +632,20 @@ func setupPatrolTestDB(t *testing.T) (string, *beads.Beads) {
 // createHookedPatrol creates a bead with a patrol title and hooks it.
 // If withOpenChild is true, creates an open child bead to simulate an active patrol.
 func createHookedPatrol(t *testing.T, b *beads.Beads, molName, assignee string, withOpenChild bool) string {
+	return createHookedPatrolWithOptions(t, b, molName, assignee, withOpenChild, false)
+}
+
+func createHookedEphemeralPatrol(t *testing.T, b *beads.Beads, molName, assignee string, withOpenChild bool) string {
+	return createHookedPatrolWithOptions(t, b, molName, assignee, withOpenChild, true)
+}
+
+func createHookedPatrolWithOptions(t *testing.T, b *beads.Beads, molName, assignee string, withOpenChild, ephemeral bool) string {
 	t.Helper()
 	root, err := b.Create(beads.CreateOptions{
-		Title:    molName + " (wisp)",
-		Priority: -1,
+		Title:     molName + " (wisp)",
+		Type:      "molecule",
+		Priority:  -1,
+		Ephemeral: ephemeral,
 	})
 	if err != nil {
 		t.Fatalf("create patrol root: %v", err)
@@ -651,15 +661,44 @@ func createHookedPatrol(t *testing.T, b *beads.Beads, molName, assignee string, 
 
 	if withOpenChild {
 		_, err := b.Create(beads.CreateOptions{
-			Title:    "inbox-check",
-			Parent:   root.ID,
-			Priority: -1,
+			Title:     "inbox-check",
+			Parent:    root.ID,
+			Priority:  -1,
+			Ephemeral: ephemeral,
 		})
 		if err != nil {
 			t.Fatalf("create child: %v", err)
 		}
 	}
 	return root.ID
+}
+
+func TestFindActivePatrolEphemeralHookedRoot(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	molName := "mol-test-patrol"
+	assignee := "testrig/witness"
+
+	rootID := createHookedEphemeralPatrol(t, b, molName, assignee, false /* root-only */)
+
+	cfg := PatrolConfig{
+		PatrolMolName: molName,
+		BeadsDir:      tmpDir,
+		Assignee:      assignee,
+		Beads:         b,
+	}
+
+	patrolID, _, found, findErr := findActivePatrol(cfg)
+	if findErr != nil {
+		t.Fatalf("findActivePatrol error: %v", findErr)
+	}
+	if !found {
+		t.Fatal("expected to find ephemeral active patrol, got not found")
+	}
+	if patrolID != rootID {
+		t.Errorf("patrolID = %q, want %q", patrolID, rootID)
+	}
 }
 
 func TestFindActivePatrolHooked(t *testing.T) {
@@ -726,6 +765,53 @@ func TestRunPatrolReportNoActivePatrolStartsReplacement(t *testing.T) {
 	}
 	if called != 1 {
 		t.Fatalf("autoSpawnPatrolForReport calls = %d, want 1", called)
+	}
+}
+
+func TestRunPatrolReportClosesEphemeralHookedPatrol(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	molName := "mol-test-patrol"
+	assignee := "testrig/witness"
+	rootID := createHookedEphemeralPatrol(t, b, molName, assignee, false /* root-only */)
+
+	oldSpawner := autoSpawnPatrolForReport
+	oldSummary := patrolReportSummary
+	oldSteps := patrolReportSteps
+	called := 0
+	autoSpawnPatrolForReport = func(cfg PatrolConfig) (string, error) {
+		called++
+		return "pt-wisp-new", nil
+	}
+	patrolReportSummary = "ephemeral patrol complete"
+	patrolReportSteps = ""
+	t.Cleanup(func() {
+		autoSpawnPatrolForReport = oldSpawner
+		patrolReportSummary = oldSummary
+		patrolReportSteps = oldSteps
+	})
+
+	err := runPatrolReportWithConfig(PatrolConfig{
+		RoleName:      "witness",
+		PatrolMolName: molName,
+		BeadsDir:      tmpDir,
+		Assignee:      assignee,
+		Beads:         b,
+	})
+	if err != nil {
+		t.Fatalf("runPatrolReportWithConfig: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("autoSpawnPatrolForReport calls = %d, want 1", called)
+	}
+
+	issue, err := b.Show(rootID)
+	if err != nil {
+		t.Fatalf("show patrol: %v", err)
+	}
+	if issue.Status != "closed" {
+		t.Errorf("patrol status = %q, want closed", issue.Status)
 	}
 }
 
@@ -990,6 +1076,32 @@ func TestBurnPreviousPatrolWisps(t *testing.T) {
 		if issue.Status != "closed" {
 			t.Errorf("patrol %s status = %q, want %q after burn", id, issue.Status, "closed")
 		}
+	}
+}
+
+func TestBurnPreviousPatrolWispsBurnsEphemeralRoot(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	molName := "mol-test-patrol"
+	assignee := "testrig/witness"
+	rootID := createHookedEphemeralPatrol(t, b, molName, assignee, false /* root-only */)
+
+	cfg := PatrolConfig{
+		PatrolMolName: molName,
+		BeadsDir:      tmpDir,
+		Assignee:      assignee,
+		Beads:         b,
+	}
+
+	burnPreviousPatrolWisps(cfg)
+
+	issue, err := b.Show(rootID)
+	if err != nil {
+		t.Fatalf("show patrol: %v", err)
+	}
+	if issue.Status != "closed" {
+		t.Errorf("patrol status = %q, want closed", issue.Status)
 	}
 }
 
