@@ -299,12 +299,8 @@ for ENTRY in ${CRASHED[@]+"${CRASHED[@]}"}; do
     -s "RESTART_POLECAT: $RIG/$PCAT" \
     --stdin <<BODY
 Polecat $PCAT crash confirmed by stuck-agent-dog plugin.
-Context-aware inspection completed — agent is genuinely dead.
-
 hook_bead: $HOOK
 action: restart requested
-
-Please restart this polecat session.
 BODY
 
 done
@@ -320,13 +316,9 @@ for ENTRY in ${STUCK[@]+"${STUCK[@]}"}; do
     -s "RESTART_POLECAT: $RIG/$PCAT (zombie cleared)" \
     --stdin <<BODY
 Polecat $PCAT zombie session cleared by stuck-agent-dog plugin.
-Session was alive but agent process was dead.
-
 hook_bead: $HOOK
 reason: $REASON
 action: restart requested
-
-Please restart this polecat session.
 BODY
 
 done
@@ -369,19 +361,7 @@ fi
 echo "=== $SUMMARY ==="
 ```
 
-On success (no issues or issues handled):
 ```bash
 gt plugin record-run --plugin stuck-agent-dog --result success \
   --title "stuck-agent-dog: $SUMMARY" --description "$SUMMARY" >/dev/null 2>&1 || true
-```
-
-On failure:
-```bash
-gt plugin record-run --plugin stuck-agent-dog --result failure \
-  --title "stuck-agent-dog: FAILED" \
-  --description "Agent health check failed: $ERROR" >/dev/null 2>&1 || true
-
-gt escalate "Plugin FAILED: stuck-agent-dog" \
-  --severity high \
-  --reason "$ERROR"
 ```
