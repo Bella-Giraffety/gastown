@@ -33,7 +33,7 @@ This is THE command for assigning work in Gas Town. It handles:
   - Existing agents (mayor, crew, witness, refinery)
   - Auto-spawning polecats when target is a rig
   - Dispatching to dogs (Deacon's helper workers)
-  - Formula instantiation and wisp creation
+  - Formula instantiation and molecule attachment
   - Auto-convoy creation for dashboard visibility
 
 Auto-Convoy:
@@ -143,7 +143,7 @@ func init() {
 	slingCmd.Flags().StringVarP(&slingSubject, "subject", "s", "", "Context subject for the work")
 	slingCmd.Flags().StringVarP(&slingMessage, "message", "m", "", "Context message for the work")
 	slingCmd.Flags().BoolVarP(&slingDryRun, "dry-run", "n", false, "Show what would be done")
-	slingCmd.Flags().StringVar(&slingOnTarget, "on", "", "Apply formula to existing bead (implies wisp scaffolding)")
+	slingCmd.Flags().StringVar(&slingOnTarget, "on", "", "Apply formula to existing bead")
 	slingCmd.Flags().StringArrayVar(&slingVars, "var", nil, "Formula variable (key=value), can be repeated")
 	slingCmd.Flags().StringVarP(&slingArgs, "args", "a", "", "Natural language instructions for the executor (e.g., 'patch release')")
 	slingCmd.Flags().BoolVar(&slingStdin, "stdin", false, "Read --message and/or --args from stdin (avoids shell quoting issues)")
@@ -1006,7 +1006,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		result, err := InstantiateFormulaOnBead(ctx, formulaName, beadID, info.Title, hookWorkDir, townRoot, false, slingVars)
 		if err != nil {
 			// If we spawned a fresh polecat (rig target), rollback the partial artifacts.
-			// Otherwise, a wisp creation failure (e.g., missing required vars) leaves an orphaned polecat.
+			// Otherwise, a formula bond failure (e.g., missing required vars) leaves an orphaned polecat.
 			if newPolecatInfo != nil {
 				fmt.Printf("%s Formula instantiation failed, rolling back spawned polecat %s...\n",
 					style.Warning.Render("⚠"), newPolecatInfo.PolecatName)
@@ -1349,7 +1349,7 @@ func rollbackSlingArtifacts(spawnInfo *SpawnedPolecatInfo, beadID, hookWorkDir, 
 	// 1. Burn any attached molecules from partial formula instantiation.
 	// This clears attached_molecule metadata and closes stale wisps that
 	// otherwise block subsequent sling attempts.
-	// Some failure modes happen before any bead is hooked (e.g., wisp creation fails).
+	// Some failure modes happen before any bead is hooked (e.g., formula bond fails).
 	if beadID != "" {
 		if err != nil {
 			fmt.Printf("  %s Could not find workspace to rollback bead %s: %v\n", style.Dim.Render("Warning:"), beadID, err)
@@ -1359,6 +1359,7 @@ func rollbackSlingArtifacts(spawnInfo *SpawnedPolecatInfo, beadID, hookWorkDir, 
 				fmt.Printf("  %s Could not inspect bead %s for stale molecules: %v\n", style.Dim.Render("Warning:"), beadID, infoErr)
 			} else {
 				existingMolecules := collectExistingMoleculesForRollback(info)
+				existingMolecules = appendUniqueMolecules(existingMolecules, collectExistingMoleculeDeps(beadID, townRoot)...)
 				if len(existingMolecules) > 0 {
 					if burnErr := burnExistingMoleculesForRollback(existingMolecules, beadID, townRoot); burnErr != nil {
 						fmt.Printf("  %s Could not burn stale molecule(s) from %s: %v\n", style.Dim.Render("Warning:"), beadID, burnErr)

@@ -1954,12 +1954,12 @@ func nukeCleanupMolecules(workBeadID string, r *rig.Rig) {
 		return
 	}
 
-	// Remove dependency bond so collectExistingMolecules won't find the
-	// closed molecule and block re-dispatch. Without this, the bond persists
-	// and every sling attempt fails with "bead has existing molecule(s)".
-	if err := bd.RemoveDependency(workBeadID, moleculeID); err != nil {
-		fmt.Printf("  %s molecule bond removal failed for %s → %s: %v\n",
-			style.Warning.Render("⚠"), workBeadID, moleculeID, err)
+	// Remove dependency bonds so stale molecule links do not block re-dispatch.
+	oldErr := bd.RemoveDependency(workBeadID, moleculeID)
+	newErr := bd.RemoveDependency(moleculeID, workBeadID)
+	if oldErr != nil && newErr != nil {
+		fmt.Printf("  %s molecule bond removal failed between %s and %s: %v; %v\n",
+			style.Warning.Render("⚠"), workBeadID, moleculeID, oldErr, newErr)
 		// Non-fatal: detach already cleared the description pointer.
 	}
 

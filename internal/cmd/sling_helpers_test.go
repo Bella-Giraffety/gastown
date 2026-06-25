@@ -364,6 +364,61 @@ func TestCollectExistingMoleculesFiltersClosedMolecules(t *testing.T) {
 	}
 }
 
+func TestCollectExistingMoleculeDepsReadsCanonicalWispEdges(t *testing.T) {
+	townRoot := t.TempDir()
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	for _, dir := range []string{filepath.Join(townRoot, ".beads"), rigDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	routes := strings.Join([]string{
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	bdScript := `#!/bin/sh
+set -e
+if [ "$1" = "sql" ]; then
+  case "$2" in
+    *wisp_dependencies*depends_on_issue_id*gt-abc123*)
+      echo '[{"issue_id":"gt-wisp-direct"},{"issue_id":"gt-wisp-direct"},{"issue_id":"gt-wisp-other"}]'
+      exit 0
+      ;;
+  esac
+fi
+echo "unexpected bd command: $*" >&2
+exit 9
+`
+	bdScriptWindows := `@echo off
+if "%1"=="sql" (
+  echo [{^"issue_id^":^"gt-wisp-direct^"},{^"issue_id^":^"gt-wisp-direct^"},{^"issue_id^":^"gt-wisp-other^"}]
+  exit /b 0
+)
+exit /b 9
+`
+	_ = writeBDStub(t, binDir, bdScript, bdScriptWindows)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got := collectExistingMoleculeDeps("gt-abc123", townRoot)
+	want := []string{"gt-wisp-direct", "gt-wisp-other"}
+	if len(got) != len(want) {
+		t.Fatalf("collectExistingMoleculeDeps() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("collectExistingMoleculeDeps()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestIsSlingConfigError(t *testing.T) {
 	tests := []struct {
 		name string

@@ -323,12 +323,8 @@ func isOrphanMolecule(info *beadInfo) bool {
 	return isHookedAgentDeadFn(info.Assignee)
 }
 
-// collectExistingMolecules returns all molecule wisp IDs attached to a bead.
-// Checks both dependency bonds (ground truth from bd mol bond) and the
-// description's attached_molecule field (metadata pointer). Wisp IDs are
-// identified by containing "-wisp-" in their ID.
-// Uses Dependencies (structured []IssueDep from bd show --json) rather than
-// DependsOn (raw ID list, which is unreliable — see molecule_status.go comments).
+// collectExistingMolecules returns molecule wisp IDs attached to a bead from
+// bd show data and the description's attached_molecule pointer.
 func collectExistingMolecules(info *beadInfo) []string {
 	seen := make(map[string]bool)
 	var molecules []string
@@ -353,6 +349,44 @@ func collectExistingMolecules(info *beadInfo) []string {
 		molecules = append(molecules, fields.AttachedMolecule)
 	}
 
+	return molecules
+}
+
+func appendUniqueMolecules(molecules []string, extra ...string) []string {
+	seen := make(map[string]bool, len(molecules)+len(extra))
+	for _, id := range molecules {
+		seen[id] = true
+	}
+	for _, id := range extra {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		molecules = append(molecules, id)
+	}
+	return molecules
+}
+
+func collectExistingMoleculeDeps(beadID, townRoot string) []string {
+	if beadID == "" || townRoot == "" || !isValidBeadID(beadID) {
+		return nil
+	}
+	dir := beads.ResolveHookDir(townRoot, beadID, "")
+	query := fmt.Sprintf(`SELECT issue_id FROM wisp_dependencies WHERE (depends_on_issue_id = '%s' OR depends_on_external = '%s' OR depends_on_external LIKE '%%:%s')`, beadID, beadID, beadID)
+	out, err := runBdJSON(dir, "sql", query, "--json")
+	if err != nil {
+		return nil
+	}
+	var rows []struct {
+		IssueID string `json:"issue_id"`
+	}
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return nil
+	}
+	molecules := make([]string, 0, len(rows))
+	for _, row := range rows {
+		molecules = appendUniqueMolecules(molecules, row.IssueID)
+	}
 	return molecules
 }
 
@@ -397,17 +431,14 @@ func burnExistingMolecules(molecules []string, beadID, townRoot string) error {
 
 	// Step 3: Remove dependency bonds between the bead and each molecule.
 	// DetachMoleculeWithAudit (step 2) only clears the description metadata
-	// (attached_molecule/attached_at). The dependency bond from bd mol bond
-	// is a separate link that collectExistingMolecules reads via info.Dependencies.
-	// Without this, the next sling attempt finds the closed molecule via the
-	// bond and refuses with "bead has existing molecule(s)".
+	// (attached_molecule/attached_at). Old and new bd bond paths store opposite
+	// edge directions, so clear both to keep force re-sling idempotent.
 	for _, molID := range molecules {
-		if err := bd.RemoveDependency(beadID, molID); err != nil {
-			fmt.Printf("  %s Could not remove dep bond %s → %s: %v\n",
-				style.Dim.Render("Warning:"), beadID, molID, err)
-			// Non-fatal: the detach already cleared the description pointer.
-			// The bond is stale metadata that won't cause functional issues
-			// beyond the "existing molecule(s)" check, which uses --force.
+		oldErr := bd.RemoveDependency(beadID, molID)
+		newErr := bd.RemoveDependency(molID, beadID)
+		if oldErr != nil && newErr != nil {
+			fmt.Printf("  %s Could not remove dep bond between %s and %s: %v; %v\n",
+				style.Dim.Render("Warning:"), beadID, molID, oldErr, newErr)
 		}
 	}
 

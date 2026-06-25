@@ -229,6 +229,7 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	// 2. Burn stale molecules (if formula applies)
 	if params.FormulaName != "" {
 		existingMolecules := collectExistingMolecules(info)
+		existingMolecules = appendUniqueMolecules(existingMolecules, collectExistingMoleculeDeps(params.BeadID, townRoot)...)
 		if len(existingMolecules) > 0 {
 			// Auto-burn when bead is unassigned (molecules are definitionally stale),
 			// or when the assigned agent's session is dead. This unblocks the daemon's
@@ -389,12 +390,16 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	updateAgentHookBead(targetAgent, beadToHook, hookWorkDir, beadsDir)
 
 	// 10. Store fields in bead (dispatcher, args, attached_molecule, no_merge, mode)
+	attachedFormula := params.FormulaName
+	if attachedFormula != "" && attachedMoleculeID == "" {
+		attachedFormula = ""
+	}
 	fieldUpdates := beadFieldUpdates{
 		Dispatcher:       actor,
 		Args:             params.Args,
 		Vars:             varsForAttachment,
 		AttachedMolecule: attachedMoleculeID,
-		AttachedFormula:  params.FormulaName,
+		AttachedFormula:  attachedFormula,
 		NoMerge:          params.NoMerge,
 		ReviewOnly:       params.ReviewOnly,
 		Mode:             &params.Mode,

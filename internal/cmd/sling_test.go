@@ -35,6 +35,12 @@ func writeBDStub(t *testing.T, binDir string, unixScript string, windowsScript s
 }
 
 func containsVarArg(line, key, value string) bool {
+	if value == "" {
+		plain := "--var " + key + "="
+		quoted := "--var \"" + key + "=\""
+		return strings.Contains(line, plain+" ") || strings.HasSuffix(line, plain) ||
+			strings.Contains(line, quoted+" ") || strings.HasSuffix(line, quoted)
+	}
 	plain := "--var " + key + "=" + value
 	if strings.Contains(line, plain) {
 		return true
@@ -410,6 +416,8 @@ exit /b 0
 			}
 			gotBondCount++
 			assertTargetRig("mol bond", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
+		case strings.Contains(args, "sql "):
+			assertTargetRig("sql", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--status=hooked"):
 			gotHook = true
 			assertTargetRig("hook update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
@@ -644,8 +652,7 @@ if "%cmd%"=="update" exit /b 0
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="bond" (
-    if "%5"=="--dry-run" exit /b 0
-    if "%6"=="--dry-run" exit /b 0
+    echo %* | findstr /C:"--dry-run" >nul && exit /b 0
     echo missing required vars 1>&2
     exit /b 1
   )
@@ -1528,8 +1535,7 @@ set "sub=%2"
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="bond" (
-    if "%5"=="--dry-run" exit /b 0
-    if "%6"=="--dry-run" exit /b 0
+    echo %* | findstr /C:"--dry-run" >nul && exit /b 0
     echo missing required vars 1>&2
     exit /b 1
   )
