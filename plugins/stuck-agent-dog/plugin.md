@@ -25,8 +25,8 @@ witness, and refinery outages without restarting or killing those control-plane
 sessions.
 
 **Design principle**: The daemon should NEVER kill workers based on blind
-polecat liveness. This plugin (running as a Dog agent with AI judgment) makes
-polecat restart decisions after inspecting central runtime health. Deacon,
+polecat liveness. This plugin makes polecat restart decisions from central
+runtime health plus active hook state. Deacon,
 witness, and refinery lifecycle is different: this plugin escalates confirmed
 dead sessions/runtimes only, and never restarts or kills them. Deacon heartbeat
 staleness is NOTICE-only; the Go daemon owns heartbeat nudge/restart.
@@ -212,17 +212,18 @@ else
 fi
 ```
 
-## Step 4: Inspect context before acting (AI judgment)
+## Step 4: Apply confirmed actions
 
 **This is the key difference from daemon blind-kill.** For each crashed or stuck
-agent, inspect the tmux pane context to determine if restart is appropriate.
+polecat, act only after central runtime health and active hook state agree that
+the polecat is currently actionable.
 
 **SCOPE REMINDER: You may kill/restart-request ONLY entries in the `CRASHED[]`
 and `STUCK[]` arrays. Those arrays contain ONLY polecats with active hook work.
 Deacon, witness, and refinery may be escalated only. Do NOT inspect, evaluate,
 or act on crew, mayor, or any other sessions.**
 
-**You (the dog agent) must evaluate each case:**
+**The script evaluates each case:**
 
 For CRASHED agents (session dead, work on hook):
 - This is almost always a legitimate crash needing restart

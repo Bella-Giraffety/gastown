@@ -205,20 +205,6 @@ case "${1:-}" in
     session=$(arg_after_t "$@" || true)
     printf '%s\n' "$session" >> "$TEST_STATE/kill.log"
     ;;
-  list-panes)
-    printf '999\n'
-    ;;
-  display-message)
-    session=$(arg_after_t "$@" || true)
-    if [ -n "$session" ] && [ -f "$TEST_STATE/activity/$session" ]; then
-      cat "$TEST_STATE/activity/$session"
-    else
-      date +%s
-    fi
-    ;;
-  capture-pane)
-    printf 'active opencode research in progress\n'
-    ;;
   *)
     printf 'unexpected tmux call: %s\n' "$*" >&2
     exit 1
@@ -231,41 +217,14 @@ SH
 #!/usr/bin/env bash
 set -euo pipefail
 
-case "${1:-}" in
-  show)
-    bead="${2:-}"
-    status="open"
-    if [ -f "$TEST_STATE/status/$bead" ]; then
-      status=$(tr -d '\n' < "$TEST_STATE/status/$bead")
-    fi
-    printf '[{"status":"%s"}]\n' "$status"
-    ;;
-  list)
-    if [ -f "$TEST_STATE/in_progress" ]; then
-      printf '[{"id":"gt-work"}]\n'
-    else
-      printf '[]\n'
-    fi
-    ;;
-  create)
-    printf '%s\n' "$*" >> "$TEST_STATE/bd.log"
-    ;;
-  *)
-    printf 'unexpected bd call: %s\n' "$*" >&2
-    exit 1
-    ;;
-esac
+printf 'unexpected bd call: %s\n' "$*" >&2
+exit 1
 SH
   chmod +x "$bin_dir/bd"
 
   cat > "$bin_dir/ps" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-
-if [ "${1:-}" = "-o" ] && [ "${2:-}" = "comm=" ]; then
-  printf 'bash\n'
-  exit 0
-fi
 
 printf 'unexpected ps call: %s\n' "$*" >&2
 exit 1
@@ -280,14 +239,13 @@ setup_case() {
   export GT_TOWN_ROOT="$TEST_TMP/town"
   local bin_dir="$TEST_TMP/bin"
 
-  mkdir -p "$TEST_STATE/activity" "$TEST_STATE/health" "$TEST_STATE/hook_fail" "$TEST_STATE/hook_status" "$TEST_STATE/nohook" "$TEST_STATE/sessions" "$TEST_STATE/status" "$bin_dir"
+  mkdir -p "$TEST_STATE/health" "$TEST_STATE/hook_fail" "$TEST_STATE/hook_status" "$TEST_STATE/nohook" "$TEST_STATE/sessions" "$bin_dir"
   mkdir -p "$GT_TOWN_ROOT/gastown/polecats" "$GT_TOWN_ROOT/deacon"
   printf '{"rigs":{"gastown":{"beads":{"prefix":"gt"}}}}\n' > "$GT_TOWN_ROOT/rigs.json"
   : > "$TEST_STATE/mail.log"
   : > "$TEST_STATE/kill.log"
   : > "$TEST_STATE/escalate.log"
   : > "$TEST_STATE/health_calls.log"
-  : > "$TEST_STATE/bd.log"
   touch "$TEST_STATE/sessions/hq-deacon"
 
   write_fake_commands "$bin_dir"
@@ -572,8 +530,6 @@ test_invalid_mass_death_threshold_defaults() {
 test_deacon_stale_heartbeat_notice_only() {
   setup_case
   printf '{"timestamp":"1970-01-01T00:00:00Z"}\n' > "$GT_TOWN_ROOT/deacon/heartbeat.json"
-  printf '0\n' > "$TEST_STATE/activity/hq-deacon"
-  touch "$TEST_STATE/in_progress"
   run_script
 
   assert_file_empty "$TEST_STATE/escalate.log" "deacon stale heartbeat: no escalation"
