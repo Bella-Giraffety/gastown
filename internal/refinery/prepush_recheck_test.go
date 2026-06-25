@@ -257,7 +257,7 @@ func TestProcessBatch_RechecksMRMergedCloseReasonBeforePush(t *testing.T) {
 	}
 }
 
-func TestRecheckMRStillMergeable_AllowsClosedSourceWithoutPolicyMarker(t *testing.T) {
+func TestRecheckMRStillMergeable_RejectsClosedSource(t *testing.T) {
 	workDir, g, cleanup := testGitRepo(t)
 	defer cleanup()
 
@@ -274,11 +274,14 @@ func TestRecheckMRStillMergeable_AllowsClosedSourceWithoutPolicyMarker(t *testin
 
 	mr := &MRInfo{ID: "gt-mr", Branch: "feature", Target: "main", SourceIssue: "gt-src", Worker: "polecats/test"}
 	result := e.recheckMRStillMergeable(mr, "main")
-	if !result.Success {
-		t.Fatalf("closed source without policy marker should remain merge-eligible, got: %+v", result)
+	if result.Success || !result.NoMerge {
+		t.Fatalf("closed source should be rejected, got: %+v", result)
 	}
-	if got := store.issues["gt-mr"].Status; got != beadsdk.StatusOpen {
-		t.Fatalf("MR status = %s, want open", got)
+	if got := store.issues["gt-mr"].Status; got != beadsdk.StatusClosed {
+		t.Fatalf("MR status = %s, want closed", got)
+	}
+	if got := store.closeReasons["gt-mr"]; got != "rejected: source_issue gt-src status is closed" {
+		t.Fatalf("MR close reason = %q, want closed source rejection", got)
 	}
 }
 

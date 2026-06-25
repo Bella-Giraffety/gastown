@@ -961,6 +961,9 @@ func (e *Engineer) recheckMRSourceStillMergeable(mr *MRInfo, sourceIssue string)
 	if issue == nil {
 		return e.rejectMRBeforeMerge(mr, fmt.Sprintf("source_issue %s is missing", sourceIssue))
 	}
+	if beads.IssueStatus(issue.Status).IsTerminal() {
+		return e.rejectMRBeforeMerge(mr, fmt.Sprintf("source_issue %s status is %s", sourceIssue, issue.Status))
+	}
 	assessment := workitem.AssessConcrete(workitem.Snapshot{
 		ID:        issue.ID,
 		Title:     issue.Title,
