@@ -615,6 +615,11 @@ case "$cmd" in
     shift || true
     case "$sub" in
       bond)
+        for arg in "$@"; do
+          if [ "$arg" = "--dry-run" ]; then
+            exit 0
+          fi
+        done
         echo "missing required vars" 1>&2
         exit 1
         ;;
@@ -639,6 +644,8 @@ if "%cmd%"=="update" exit /b 0
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="bond" (
+    if "%5"=="--dry-run" exit /b 0
+    if "%6"=="--dry-run" exit /b 0
     echo missing required vars 1>&2
     exit /b 1
   )
@@ -1501,6 +1508,11 @@ case "$cmd" in
     shift || true
     case "$sub" in
       bond)
+        for arg in "$@"; do
+          if [ "$arg" = "--dry-run" ]; then
+            exit 0
+          fi
+        done
         echo "missing required vars" 1>&2
         exit 1
         ;;
@@ -1516,6 +1528,8 @@ set "sub=%2"
 if "%cmd%"=="cook" exit /b 0
 if "%cmd%"=="mol" (
   if "%sub%"=="bond" (
+    if "%5"=="--dry-run" exit /b 0
+    if "%6"=="--dry-run" exit /b 0
     echo missing required vars 1>&2
     exit /b 1
   )
