@@ -227,8 +227,8 @@ or act on crew, mayor, or any other sessions.**
 
 For CRASHED agents (session dead, work on hook):
 - This is almost always a legitimate crash needing restart
-- Exception: if the polecat just ran `gt done` and the hook hasn't cleared yet
-- Check bead status: if the root wisp is closed, the polecat completed normally
+- If `gt hook show --json` no longer reports `hooked|in_progress`, skip it.
+- Do not do a separate `bd show` status lookup; the hook command is the active-work authority.
 
 For STUCK agents (session alive, agent dead):
 - Kill the zombie session, then restart
@@ -290,7 +290,7 @@ if [ "$MASS_DEATH" -eq 1 ]; then
   echo "Skipping per-agent restart/kill actions during mass-death escalation"
 else
 # For crashed polecats — notify witness to handle restart
-for ENTRY in "${CRASHED[@]}"; do
+for ENTRY in ${CRASHED[@]+"${CRASHED[@]}"}; do
   IFS='|' read -r SESSION RIG PCAT HOOK <<< "$ENTRY"
 
   echo "Requesting restart for $RIG/polecats/$PCAT (hook=$HOOK)"
@@ -310,7 +310,7 @@ BODY
 done
 
 # For zombie polecats — kill zombie session first, then request restart
-for ENTRY in "${STUCK[@]}"; do
+for ENTRY in ${STUCK[@]+"${STUCK[@]}"}; do
   IFS='|' read -r SESSION RIG PCAT HOOK REASON <<< "$ENTRY"
 
   echo "Killing zombie session $SESSION and requesting restart"
@@ -344,7 +344,7 @@ if [ -n "$DEACON_ISSUE" ]; then
 fi
 
 # For witness/refinery issues: escalate only, never kill or restart.
-for ENTRY in "${CONTROL_PLANE_OUTAGES[@]}"; do
+for ENTRY in ${CONTROL_PLANE_OUTAGES[@]+"${CONTROL_PLANE_OUTAGES[@]}"}; do
   IFS='|' read -r SESSION RIG ROLE REASON <<< "$ENTRY"
   gt escalate "Rig $RIG $ROLE $REASON detected by stuck-agent-dog" \
     -s CRITICAL \
@@ -356,7 +356,7 @@ done
 ## Record Result
 
 ```bash
-SUMMARY="Agent health check: ${#CRASHED[@]} crashed, ${#STUCK[@]} stuck, $HEALTHY healthy"
+SUMMARY="Agent health: ${#CRASHED[@]} crashed, ${#STUCK[@]} stuck, $HEALTHY healthy"
 if [ -n "$DEACON_ISSUE" ]; then
   SUMMARY="$SUMMARY, deacon=$DEACON_ISSUE"
 fi
