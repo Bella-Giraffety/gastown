@@ -358,8 +358,8 @@ exit /b 0
 		if beadsDir != wantBeadsDir {
 			t.Fatalf("bd %s used BEADS_DIR %q, want %q (args: %q)", kind, beadsDir, wantBeadsDir, args)
 		}
-		if database != "" {
-			t.Fatalf("bd %s leaked BEADS_DOLT_SERVER_DATABASE %q, want empty so bd resolves from BEADS_DIR (args: %q)", kind, database, args)
+		if database != "gastown" {
+			t.Fatalf("bd %s used BEADS_DOLT_SERVER_DATABASE %q, want gastown (args: %q)", kind, database, args)
 		}
 		if beadsDB != "" || bdDB != "" || dataDir != "" {
 			t.Fatalf("bd %s leaked stale DB env BEADS_DB=%q BD_DB=%q BEADS_DOLT_DATA_DIR=%q (args: %q)", kind, beadsDB, bdDB, dataDir, args)
@@ -1047,8 +1047,8 @@ esac
 	if want := filepath.Join(townRoot, ".dolt-data"); parts[3] != want {
 		t.Fatalf("BEADS_DOLT_DATA_DIR = %q, want %q", parts[3], want)
 	}
-	if parts[4] != "" {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE leaked: %q", parts[4])
+	if parts[4] != "gastown" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want gastown", parts[4])
 	}
 }
 

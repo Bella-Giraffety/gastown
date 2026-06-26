@@ -146,11 +146,11 @@ func TestBuildPinnedBDEnvUsesSelectedConnectionMetadataWithoutDatabaseOverride(t
 	if got["BEADS_DIR"] != beadsDir {
 		t.Fatalf("BEADS_DIR = %q, want %q in %v", got["BEADS_DIR"], beadsDir, env)
 	}
-	if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, env)
+	if got["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb in %v", got["BEADS_DOLT_SERVER_DATABASE"], env)
 	}
-	if count := countEnvPrefix(env, "BEADS_DOLT_SERVER_DATABASE="); count != 0 {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE count = %d, want 0 in %v", count, env)
+	if count := countEnvPrefix(env, "BEADS_DOLT_SERVER_DATABASE="); count != 1 {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE count = %d, want 1 in %v", count, env)
 	}
 	if got["BEADS_DOLT_SERVER_HOST"] != "127.0.0.1" {
 		t.Fatalf("BEADS_DOLT_SERVER_HOST = %q, want 127.0.0.1 in %v", got["BEADS_DOLT_SERVER_HOST"], env)
@@ -198,8 +198,8 @@ func TestBuildPinnedBDEnvFollowsRedirectBeforeMetadata(t *testing.T) {
 	if got["BEADS_DIR"] != canonicalBeadsDir {
 		t.Fatalf("BEADS_DIR = %q, want canonical %q in %v", got["BEADS_DIR"], canonicalBeadsDir, env)
 	}
-	if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, env)
+	if got["BEADS_DOLT_SERVER_DATABASE"] != "gastown" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want gastown in %v", got["BEADS_DOLT_SERVER_DATABASE"], env)
 	}
 	if got["BEADS_DOLT_SERVER_HOST"] != "127.0.0.2" || got["BEADS_DOLT_SERVER_PORT"] != "4407" || got["BEADS_DOLT_PORT"] != "4407" {
 		t.Fatalf("connection env used stale redirect metadata: %v", env)
@@ -260,7 +260,11 @@ func TestBuildBDEnvGTDoltPortOverridesStaleMetadata(t *testing.T) {
 			if count := countEnvPrefix(tc.env, "BEADS_DOLT_PORT="); count != 1 {
 				t.Fatalf("BEADS_DOLT_PORT count = %d, want 1 in %v", count, tc.env)
 			}
-			if _, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
+			if tc.name == "pinned" {
+				if got["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+					t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb in %v", got["BEADS_DOLT_SERVER_DATABASE"], tc.env)
+				}
+			} else if _, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
 				t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped in %v", tc.env)
 			}
 			if got["BEADS_DOLT_SERVER_HOST"] != "127.0.0.1" {
@@ -301,7 +305,11 @@ func TestBuildBDEnvRestoresGTDoltDataDir(t *testing.T) {
 			if got["BEADS_DOLT_DATA_DIR"] != "/town/.dolt-data" {
 				t.Fatalf("BEADS_DOLT_DATA_DIR = %q, want /town/.dolt-data in %v", got["BEADS_DOLT_DATA_DIR"], tc.env)
 			}
-			if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
+			if tc.name == "pinned" {
+				if got["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+					t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb in %v", got["BEADS_DOLT_SERVER_DATABASE"], tc.env)
+				}
+			} else if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
 				t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, tc.env)
 			}
 		})
@@ -353,8 +361,8 @@ func TestBuildPinnedBDEnvStripsCaseVariantTargetEnvWhenKeysAreCaseInsensitive(t 
 	if got["BEADS_DIR"] != beadsDir {
 		t.Fatalf("pinned target env not restored canonically: %v", env)
 	}
-	if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, env)
+	if got["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb in %v", got["BEADS_DOLT_SERVER_DATABASE"], env)
 	}
 	if got["BEADS_DOLT_SERVER_HOST"] != "127.0.0.1" || got["BEADS_DOLT_SERVER_PORT"] != "4407" || got["BEADS_DOLT_PORT"] != "4407" {
 		t.Fatalf("connection env not restored canonically: %v", env)
@@ -412,8 +420,8 @@ func TestBuildPinnedBDEnvFallsBackToGTDoltPort(t *testing.T) {
 		"GT_DOLT_PORT=5507",
 	}, beadsDir)
 	got := envMap(env)
-	if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, env)
+	if got["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb in %v", got["BEADS_DOLT_SERVER_DATABASE"], env)
 	}
 	if got["BEADS_DOLT_SERVER_HOST"] != "127.0.0.2" {
 		t.Fatalf("BEADS_DOLT_SERVER_HOST = %q, want GT_DOLT_HOST fallback in %v", got["BEADS_DOLT_SERVER_HOST"], env)
@@ -497,8 +505,8 @@ func TestBuildMutationBDEnvForcesWritableCommit(t *testing.T) {
 	if got["BEADS_DIR"] != beadsDir {
 		t.Fatalf("BEADS_DIR = %q, want %q in %v", got["BEADS_DIR"], beadsDir, env)
 	}
-	if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, env)
+	if got["BEADS_DOLT_SERVER_DATABASE"] != "hq" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want hq in %v", got["BEADS_DOLT_SERVER_DATABASE"], env)
 	}
 	if got["BD_DOLT_AUTO_COMMIT"] != "on" {
 		t.Fatalf("BD_DOLT_AUTO_COMMIT = %q, want on in %v", got["BD_DOLT_AUTO_COMMIT"], env)

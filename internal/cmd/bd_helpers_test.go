@@ -537,8 +537,8 @@ func TestBdCmd_DirPinsBeadsDirAndStripsInheritedDatabase(t *testing.T) {
 	if envMap["BEADS_DIR"] != beadsDir {
 		t.Fatalf("BEADS_DIR = %q, want %q in %v", envMap["BEADS_DIR"], beadsDir, cmd.Env)
 	}
-	if value, ok := envMap["BEADS_DOLT_SERVER_DATABASE"]; ok {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, cmd.Env)
+	if envMap["BEADS_DOLT_SERVER_DATABASE"] != "gastown" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want gastown in %v", envMap["BEADS_DOLT_SERVER_DATABASE"], cmd.Env)
 	}
 	for _, key := range []string{"BEADS_DB", "BD_DB", "BEADS_DOLT_DATA_DIR"} {
 		if value, ok := envMap[key]; ok {
@@ -582,8 +582,8 @@ func TestBdCmd_WithBeadsDirFollowsRedirectBeforeMetadata(t *testing.T) {
 	if envMap["BEADS_DIR"] != canonicalBeadsDir {
 		t.Fatalf("BEADS_DIR = %q, want canonical %q in %v", envMap["BEADS_DIR"], canonicalBeadsDir, cmd.Env)
 	}
-	if value, ok := envMap["BEADS_DOLT_SERVER_DATABASE"]; ok {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, cmd.Env)
+	if envMap["BEADS_DOLT_SERVER_DATABASE"] != "gastown" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want gastown in %v", envMap["BEADS_DOLT_SERVER_DATABASE"], cmd.Env)
 	}
 	if envMap["BEADS_DOLT_SERVER_HOST"] != "127.0.0.2" || envMap["BEADS_DOLT_SERVER_PORT"] != "4407" || envMap["BEADS_DOLT_PORT"] != "4407" {
 		t.Fatalf("connection env used stale redirect metadata: %v", cmd.Env)
@@ -657,8 +657,8 @@ func TestBdCmd_WithBeadsDir_OverridesInheritedDoltTarget(t *testing.T) {
 	if envMap["BEADS_DIR"] != beadsDir {
 		t.Errorf("BEADS_DIR = %q, want %q", envMap["BEADS_DIR"], beadsDir)
 	}
-	if value, ok := envMap["BEADS_DOLT_SERVER_DATABASE"]; ok {
-		t.Errorf("BEADS_DOLT_SERVER_DATABASE should be stripped when BEADS_DIR is pinned, got %q", value)
+	if envMap["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+		t.Errorf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb", envMap["BEADS_DOLT_SERVER_DATABASE"])
 	}
 	if envMap["BEADS_DOLT_SERVER_HOST"] != "127.0.0.1" {
 		t.Errorf("BEADS_DOLT_SERVER_HOST = %q, want 127.0.0.1", envMap["BEADS_DOLT_SERVER_HOST"])
@@ -861,8 +861,8 @@ func TestBdCmd_UsesCentralReadMutationModes(t *testing.T) {
 				if envMap["BEADS_DIR"] != beadsDir {
 					t.Fatalf("BEADS_DIR = %q, want %q in %v", envMap["BEADS_DIR"], beadsDir, cmd.Env)
 				}
-				if value, ok := envMap["BEADS_DOLT_SERVER_DATABASE"]; ok {
-					t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be absent for pinned command, got %q in %v", value, cmd.Env)
+				if envMap["BEADS_DOLT_SERVER_DATABASE"] != "rigdb" {
+					t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want rigdb in %v", envMap["BEADS_DOLT_SERVER_DATABASE"], cmd.Env)
 				}
 			} else {
 				if value, ok := envMap["BEADS_DIR"]; ok {

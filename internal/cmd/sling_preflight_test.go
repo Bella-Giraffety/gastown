@@ -223,8 +223,8 @@ func assertPreflightUsedRigBeadsDir(t *testing.T, logPath, rigDir string) {
 		if parts[1] != wantBeadsDir {
 			t.Fatalf("preflight BEADS_DIR = %q, want %q (line %q)", parts[1], wantBeadsDir, line)
 		}
-		if parts[2] != "" {
-			t.Fatalf("preflight leaked BEADS_DOLT_SERVER_DATABASE %q (line %q)", parts[2], line)
+		if parts[2] != "gastown" {
+			t.Fatalf("preflight BEADS_DOLT_SERVER_DATABASE = %q, want gastown (line %q)", parts[2], line)
 		}
 		return
 	}
