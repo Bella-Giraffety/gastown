@@ -495,6 +495,7 @@ func runHookShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("not in a beads workspace: %w", err)
 	}
+	beadsDir := ""
 	if len(args) > 0 && !isTownLevelRole(target) {
 		townRoot, townErr := workspace.FindFromCwd()
 		if townErr == nil && townRoot != "" {
@@ -502,7 +503,10 @@ func runHookShow(cmd *cobra.Command, args []string) error {
 			if rigName != "" && rigName != "mayor" && rigName != "deacon" {
 				// Agent beads can be stale or missing during recovery. The source
 				// work assignment is authoritative, so query the target rig DB directly.
-				if rigDir := beads.GetRigDirForName(townRoot, rigName); rigDir != "" {
+				if targetBeadsDir, ok := beads.ResolveRepoAliasBeadsDir(townRoot, rigName); ok {
+					workDir = filepath.Dir(targetBeadsDir)
+					beadsDir = targetBeadsDir
+				} else if rigDir := beads.GetRigDirForName(townRoot, rigName); rigDir != "" {
 					workDir = rigDir
 				} else {
 					workDir = filepath.Join(townRoot, rigName)
@@ -512,6 +516,9 @@ func runHookShow(cmd *cobra.Command, args []string) error {
 	}
 
 	b := beads.New(workDir)
+	if beadsDir != "" {
+		b = beads.NewWithBeadsDir(workDir, beadsDir)
+	}
 	// Query for hooked beads assigned to the target
 	hookedBeads, err := b.List(beads.ListOptions{
 		Status:   beads.StatusHooked,

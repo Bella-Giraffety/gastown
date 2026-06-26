@@ -807,7 +807,7 @@ func findAgentWorkOnce(ctx RoleContext, agentID string) (*beads.Issue, error) {
 	// rely on .beads/redirect which can fail to resolve in edge cases, causing
 	// polecats to miss hooked work and exit immediately. The rig root directory
 	// always has the authoritative .beads/ database. (GH#2503)
-	b := beads.New(rigBeadsRoot(ctx))
+	b := rigWorkBeads(ctx)
 
 	// Agent bead's hook_bead field. NOTE: updateAgentHookBead was made a no-op
 	// (see sling_helpers.go), so HookBead is typically empty. Kept for backward
@@ -904,6 +904,15 @@ func rigBeadsRoot(ctx RoleContext) string {
 		return filepath.Join(ctx.TownRoot, ctx.Rig)
 	}
 	return ctx.WorkDir
+}
+
+func rigWorkBeads(ctx RoleContext) *beads.Beads {
+	if ctx.Rig != "" && ctx.TownRoot != "" {
+		if beadsDir, ok := beads.ResolveRepoAliasBeadsDir(ctx.TownRoot, ctx.Rig); ok {
+			return beads.NewWithBeadsDir(filepath.Dir(beadsDir), beadsDir)
+		}
+	}
+	return beads.New(rigBeadsRoot(ctx))
 }
 
 // outputAutonomousDirective displays the AUTONOMOUS WORK MODE header and instructions.
