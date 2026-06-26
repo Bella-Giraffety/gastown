@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // U-01: Simple 2-node cycle A→B→A
@@ -2417,23 +2419,14 @@ func TestJSONFlag_RegisteredOnCommand(t *testing.T) {
 }
 
 func TestJSONOutput_NoArgsReturnsEnvelope(t *testing.T) {
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	convoyStageJSON = true
-	defer func() { convoyStageJSON = false }()
-
-	err := runConvoyStage(nil, nil)
-	w.Close()
-	os.Stdout = oldStdout
-
+	cmd := newJSONStageTestCommand(t)
+	output, stderrOutput, err := runStageCommandJSONTest(t, cmd, "--json")
 	if err == nil {
 		t.Fatal("expected error for missing stage args, got nil")
 	}
-
-	outBytes, _ := io.ReadAll(r)
-	output := string(outBytes)
+	if stderrOutput != "" {
+		t.Fatalf("stderr should be empty in JSON mode, got:\n%s", stderrOutput)
+	}
 
 	var parsed StageResult
 	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
@@ -2454,6 +2447,69 @@ func TestJSONOutput_NoArgsReturnsEnvelope(t *testing.T) {
 	if parsed.Waves == nil || parsed.Tree == nil || parsed.Warnings == nil {
 		t.Fatalf("JSON arrays should be empty arrays, not null: %#v", parsed)
 	}
+}
+
+func TestJSONOutput_FlagParseErrorReturnsEnvelope(t *testing.T) {
+	cmd := newJSONStageTestCommand(t)
+	output, stderrOutput, err := runStageCommandJSONTest(t, cmd, "--json", "--unknown")
+	if err == nil {
+		t.Fatal("expected error for unknown flag, got nil")
+	}
+	if stderrOutput != "" {
+		t.Fatalf("stderr should be empty in JSON mode, got:\n%s", stderrOutput)
+	}
+
+	var parsed StageResult
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("flag parse error output should be valid JSON: %v\nraw:\n%s", err, output)
+	}
+	if parsed.Status != "error" {
+		t.Errorf("status should be 'error', got %q", parsed.Status)
+	}
+	if len(parsed.Errors) != 1 {
+		t.Fatalf("expected one JSON error, got %d", len(parsed.Errors))
+	}
+	if parsed.Errors[0].Category != "validation" {
+		t.Errorf("error category = %q, want validation", parsed.Errors[0].Category)
+	}
+	if parsed.Errors[0].BeadIDs == nil || parsed.Waves == nil || parsed.Tree == nil || parsed.Warnings == nil {
+		t.Fatalf("JSON arrays should be empty arrays, not null: %#v", parsed)
+	}
+}
+
+func newJSONStageTestCommand(t *testing.T) *cobra.Command {
+	t.Helper()
+	oldJSON := convoyStageJSON
+	convoyStageJSON = false
+	t.Cleanup(func() { convoyStageJSON = oldJSON })
+
+	cmd := &cobra.Command{Use: "stage", RunE: runConvoyStage}
+	cmd.Flags().BoolVar(&convoyStageJSON, "json", false, "Output machine-readable JSON")
+	cmd.SetFlagErrorFunc(convoyStageFlagError)
+	return cmd
+}
+
+func runStageCommandJSONTest(t *testing.T, cmd *cobra.Command, args ...string) (string, string, error) {
+	t.Helper()
+	oldStdout := os.Stdout
+	stdoutR, stdoutW, _ := os.Pipe()
+	os.Stdout = stdoutW
+
+	oldStderr := os.Stderr
+	stderrR, stderrW, _ := os.Pipe()
+	os.Stderr = stderrW
+
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+
+	stdoutW.Close()
+	stderrW.Close()
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	outBytes, _ := io.ReadAll(stdoutR)
+	stderrBytes, _ := io.ReadAll(stderrR)
+	return string(outBytes), string(stderrBytes), err
 }
 
 // IT-22: --json output: no human-readable text on stdout.

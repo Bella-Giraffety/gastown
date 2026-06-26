@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -36,6 +37,7 @@ func init() {
 	convoyStageCmd.Flags().BoolVar(&convoyStageLaunch, "launch", false, "Launch the convoy immediately after staging (transition to open)")
 	convoyStageCmd.Flags().StringVar(&convoyStageTitle, "title", "", "Human-readable title for the convoy (default: derived from epic title or auto-generated)")
 	convoyStageCmd.Flags().BoolVar(&convoyStageNoValidate, "no-validate", false, "Skip automatic validation bead creation (epic input only)")
+	convoyStageCmd.SetFlagErrorFunc(convoyStageFlagError)
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +214,43 @@ Three input forms:
 
 The staged convoy can later be launched with 'gt convoy launch'.`,
 	RunE: runConvoyStage,
+}
+
+func convoyStageFlagError(cmd *cobra.Command, err error) error {
+	if !convoyStageFlagEnabled(cmd) {
+		return err
+	}
+	if cmd != nil {
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+	}
+	convoyStageJSON = true
+	return emitStageJSONError("validation", nil, err, nil, nil)
+}
+
+func convoyStageFlagEnabled(cmd *cobra.Command) bool {
+	if convoyStageJSON {
+		return true
+	}
+	if cmd == nil {
+		return argsRequestConvoyStageJSON(os.Args[1:])
+	}
+	jsonFlag, err := cmd.Flags().GetBool("json")
+	return err == nil && jsonFlag || argsRequestConvoyStageJSON(os.Args[1:])
+}
+
+func argsRequestConvoyStageJSON(args []string) bool {
+	for _, arg := range args {
+		if arg == "--json" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--json=") {
+			value := strings.TrimPrefix(arg, "--json=")
+			parsed, err := strconv.ParseBool(value)
+			return err == nil && parsed
+		}
+	}
+	return false
 }
 
 func runConvoyStage(cmd *cobra.Command, args []string) error {
@@ -493,12 +532,7 @@ func runConvoyStageJSON(dag *ConvoyDAG, input *StageInput, errs, warns []Staging
 		result.ConvoyID = convoyID
 	}
 
-	out, err := renderJSON(result)
-	if err != nil {
-		return err
-	}
-	fmt.Print(out)
-	return nil
+	return emitStageJSONResult(result, nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -752,9 +786,7 @@ func createStagedConvoy(dag *ConvoyDAG, waves []Wave, status string, title strin
 	// Track each slingable bead via the typed dependency helper.
 	for _, beadID := range slingableIDs {
 		if err := addTrackingRelationFn(townBeads, convoyID, beadID); err != nil {
-			if !convoyStageJSON {
-				fmt.Printf("  Warning: could not track %s in convoy: %v\n", beadID, err)
-			}
+			printStageWarning("  Warning: could not track %s in convoy: %v\n", beadID, err)
 		}
 	}
 
@@ -790,9 +822,7 @@ func updateStagedConvoy(existingConvoyID string, dag *ConvoyDAG, waves []Wave, s
 	for _, id := range desiredIDs {
 		if !currentIDs[id] {
 			if err := addTrackingRelationFn(townBeads, existingConvoyID, id); err != nil {
-				if !convoyStageJSON {
-					fmt.Printf("  Warning: could not track %s in convoy: %v\n", id, err)
-				}
+				printStageWarning("  Warning: could not track %s in convoy: %v\n", id, err)
 			}
 		}
 	}
@@ -801,9 +831,7 @@ func updateStagedConvoy(existingConvoyID string, dag *ConvoyDAG, waves []Wave, s
 	for id := range currentIDs {
 		if !desiredSet[id] {
 			if err := removeTrackingRelationFn(townBeads, existingConvoyID, id); err != nil {
-				if !convoyStageJSON {
-					fmt.Printf("  Warning: could not untrack %s from convoy: %v\n", id, err)
-				}
+				printStageWarning("  Warning: could not untrack %s from convoy: %v\n", id, err)
 			}
 		}
 	}
@@ -1126,9 +1154,7 @@ func appendValidationWave(dag *ConvoyDAG, waves []Wave, epicID string) ([]Wave, 
 		if out, err := BdCmd("dep", "add", beadID, validationID, "--type=blocks").
 			Dir(townBeads).WithAutoCommit().StripBeadsDir().
 			CombinedOutput(); err != nil {
-			if !convoyStageJSON {
-				fmt.Printf("  Warning: could not add blocking dep %s → %s: %v\n", beadID, validationID, err)
-			}
+			printStageWarning("  Warning: could not add blocking dep %s → %s: %v\n", beadID, validationID, err)
 			_ = out
 		}
 	}
@@ -1609,7 +1635,7 @@ func beadsDirForID(beadID string) string {
 // collectBeads gathers all beads for staging based on the input kind.
 // For epic input: recursively walks parent-child tree via bd list --parent=<id> --json
 // For task list input: validates each bead exists via bd show <id> --json
-// For convoy input: reads tracked beads via bd dep list <id> --type=tracks --json
+// For convoy input: reads tracked beads via typed dependency target columns.
 // Returns BeadInfo slice and DepInfo slice for all collected beads.
 func collectBeads(input *StageInput) ([]BeadInfo, []DepInfo, error) {
 	switch input.Kind {
@@ -2227,6 +2253,13 @@ func emitStageJSONResult(result StageResult, returnErr error) error {
 	}
 	fmt.Print(out)
 	return returnErr
+}
+
+func printStageWarning(format string, args ...any) {
+	if convoyStageJSON {
+		return
+	}
+	fmt.Printf(format, args...)
 }
 
 // buildFindingsJSON converts StagingFinding slices to FindingJSON slices.
