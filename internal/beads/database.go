@@ -21,6 +21,10 @@ var bdTargetEnvKeys = []string{
 // DatabaseNameFromMetadata reads the dolt_database field from .beads/metadata.json.
 // Returns empty string if metadata doesn't exist or has no database configured.
 func DatabaseNameFromMetadata(beadsDir string) string {
+	beadsDir = canonicalBeadsDir(beadsDir)
+	if beadsDir == "" {
+		return ""
+	}
 	data, err := os.ReadFile(filepath.Join(beadsDir, "metadata.json"))
 	if err != nil {
 		return ""
@@ -81,6 +85,7 @@ func BuildPinnedBDEnv(base []string, beadsDir string) []string {
 	if beadsDir == "" {
 		return addGTDerivedDoltTargetEnv(env)
 	}
+	beadsDir = canonicalBeadsDir(beadsDir)
 	env = append(env, "BEADS_DIR="+beadsDir)
 	env = append(env, doltTargetEnvFromBeadsDir(beadsDir)...)
 	if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
@@ -94,6 +99,7 @@ func BuildPinnedBDEnv(base []string, beadsDir string) []string {
 // connection host/port from fallbackBeadsDir so routing can choose the database.
 func BuildRoutingBDEnv(base []string, fallbackBeadsDir string) []string {
 	env := SuppressBDSideEffects(StripBDTargetEnv(base))
+	fallbackBeadsDir = canonicalBeadsDir(fallbackBeadsDir)
 	env = append(env, doltTargetEnvFromBeadsDir(fallbackBeadsDir)...)
 	return addGTDerivedDoltTargetEnv(env)
 }
@@ -251,6 +257,7 @@ func forceBDMutation(env []string) []string {
 }
 
 func doltTargetEnvFromBeadsDir(beadsDir string) []string {
+	beadsDir = canonicalBeadsDir(beadsDir)
 	if beadsDir == "" {
 		return nil
 	}
@@ -273,6 +280,10 @@ type doltMetadata struct {
 
 func readDoltMetadata(beadsDir string) doltMetadata {
 	var meta doltMetadata
+	beadsDir = canonicalBeadsDir(beadsDir)
+	if beadsDir == "" {
+		return meta
+	}
 	if data, err := os.ReadFile(filepath.Join(beadsDir, "dolt-server.port")); err == nil {
 		meta.Port = strings.TrimSpace(string(data))
 	}
@@ -292,6 +303,13 @@ func readDoltMetadata(beadsDir string) doltMetadata {
 		meta.Port = strconv.Itoa(raw.DoltServerPort)
 	}
 	return meta
+}
+
+func canonicalBeadsDir(beadsDir string) string {
+	if beadsDir == "" {
+		return ""
+	}
+	return ResolveBeadsDir(beadsDir)
 }
 
 // StripEnvKey removes all entries for key. Environment keys are case-insensitive

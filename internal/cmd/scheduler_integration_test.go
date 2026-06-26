@@ -1323,6 +1323,73 @@ func TestSchedulerActualDispatchRoutesPollutedEnvToTargetRig(t *testing.T) {
 	}
 }
 
+func TestSchedulerFormulaDispatchRoutesPollutedEnvToTargetRig(t *testing.T) {
+	hqPath, rigPath, _, _ := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Polluted env formula dispatch")
+	rigBeads := beads.NewWithBeadsDir(rigPath, filepath.Join(rigPath, ".beads"))
+	ctxBead, err := rigBeads.CreateSlingContext("dispatch: "+beadID, beadID, &capacity.SlingContextFields{
+		Version:    1,
+		WorkBeadID: beadID,
+		TargetRig:  "testrig",
+		Formula:    "mol-polecat-work",
+		EnqueuedAt: "2026-01-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("CreateSlingContext: %v", err)
+	}
+
+	prevSpawn := spawnPolecatForSling
+	t.Cleanup(func() { spawnPolecatForSling = prevSpawn })
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		if rigName != "testrig" {
+			t.Fatalf("spawn rig = %q, want testrig", rigName)
+		}
+		return &SpawnedPolecatInfo{
+			RigName:     rigName,
+			PolecatName: "formulaenv",
+			ClonePath:   rigPath,
+			Pane:        "test-pane",
+		}, nil
+	}
+
+	t.Setenv("BEADS_DIR", filepath.Join(hqPath, ".beads"))
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", beads.DatabaseNameFromMetadata(filepath.Join(hqPath, ".beads")))
+	t.Setenv("BEADS_DB", filepath.Join(hqPath, "wrong.db"))
+	t.Setenv("BD_DB", filepath.Join(hqPath, "wrong.bd"))
+	t.Setenv("BEADS_DOLT_DATA_DIR", filepath.Join(hqPath, ".wrong-dolt-data"))
+
+	dispatched, err := dispatchScheduledWork(hqPath, "test", 1, false)
+	if err != nil {
+		t.Fatalf("dispatchScheduledWork: %v", err)
+	}
+	if dispatched != 1 {
+		t.Fatalf("dispatched = %d, want 1", dispatched)
+	}
+
+	issue, err := rigBeads.Show(beadID)
+	if err != nil {
+		t.Fatalf("rig bead show after dispatch: %v", err)
+	}
+	if issue.Status != "hooked" || issue.Assignee != "testrig/polecats/formulaenv" {
+		t.Fatalf("rig bead state = status:%q assignee:%q, want hooked testrig/polecats/formulaenv", issue.Status, issue.Assignee)
+	}
+	attachment := beads.ParseAttachmentFields(issue)
+	if attachment == nil || attachment.AttachedFormula != "mol-polecat-work" || attachment.AttachedMolecule == "" {
+		t.Fatalf("attachment fields = %#v, want mol-polecat-work with attached molecule (description: %s)", attachment, issue.Description)
+	}
+
+	openContexts, err := rigBeads.ListOpenSlingContexts()
+	if err != nil {
+		t.Fatalf("ListOpenSlingContexts: %v", err)
+	}
+	for _, ctx := range openContexts {
+		if ctx.ID == ctxBead.ID {
+			t.Fatalf("sling context %s still open after successful formula dispatch", ctxBead.ID)
+		}
+	}
+}
+
 func TestSchedulerDispatchFailureRecordedInContextSourceDB(t *testing.T) {
 	hqPath, rigPath, _, _ := setupSchedulerIntegrationTown(t)
 

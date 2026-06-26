@@ -502,7 +502,11 @@ func runHookShow(cmd *cobra.Command, args []string) error {
 			if rigName != "" && rigName != "mayor" && rigName != "deacon" {
 				// Agent beads can be stale or missing during recovery. The source
 				// work assignment is authoritative, so query the target rig DB directly.
-				workDir = filepath.Join(townRoot, rigName, "mayor", "rig")
+				if rigDir := beads.GetRigDirForName(townRoot, rigName); rigDir != "" {
+					workDir = rigDir
+				} else {
+					workDir = filepath.Join(townRoot, rigName)
+				}
 			}
 		}
 	}

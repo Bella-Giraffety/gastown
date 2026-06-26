@@ -547,6 +547,52 @@ func TestBdCmd_DirPinsMetadataDatabaseOverInheritedDefault(t *testing.T) {
 	}
 }
 
+func TestBdCmd_WithBeadsDirFollowsRedirectBeforeMetadata(t *testing.T) {
+	rigRoot := t.TempDir()
+	redirectBeadsDir := filepath.Join(rigRoot, ".beads")
+	canonicalBeadsDir := filepath.Join(rigRoot, "mayor", "rig", ".beads")
+	for _, dir := range []string{redirectBeadsDir, canonicalBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(redirectBeadsDir, "redirect"), []byte("mayor/rig/.beads\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(redirectBeadsDir, "metadata.json"), []byte(`{"dolt_database":"hq","dolt_server_host":"wrong-host","dolt_server_port":9999}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(canonicalBeadsDir, "metadata.json"), []byte(`{"dolt_database":"gastown","dolt_server_host":"127.0.0.2","dolt_server_port":4407}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	bdc := &bdCmd{
+		args: []string{"show", "gt-abc", "--json"},
+		env: []string{
+			"PATH=/usr/bin",
+			"BEADS_DIR=/town/.beads",
+			"BEADS_DOLT_SERVER_DATABASE=hq",
+			"BEADS_DOLT_DATA_DIR=/wrong/data",
+		},
+		stderr: os.Stderr,
+	}
+	cmd := bdc.WithBeadsDir(redirectBeadsDir).Build()
+	envMap := parseEnv(cmd.Env)
+
+	if envMap["BEADS_DIR"] != canonicalBeadsDir {
+		t.Fatalf("BEADS_DIR = %q, want canonical %q in %v", envMap["BEADS_DIR"], canonicalBeadsDir, cmd.Env)
+	}
+	if envMap["BEADS_DOLT_SERVER_DATABASE"] != "gastown" {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want gastown in %v", envMap["BEADS_DOLT_SERVER_DATABASE"], cmd.Env)
+	}
+	if envMap["BEADS_DOLT_SERVER_HOST"] != "127.0.0.2" || envMap["BEADS_DOLT_SERVER_PORT"] != "4407" || envMap["BEADS_DOLT_PORT"] != "4407" {
+		t.Fatalf("connection env used stale redirect metadata: %v", cmd.Env)
+	}
+	if _, ok := envMap["BEADS_DOLT_DATA_DIR"]; ok {
+		t.Fatalf("BEADS_DOLT_DATA_DIR should be stripped in %v", cmd.Env)
+	}
+}
+
 func TestBdCmd_WithBeadsDir_OverridesInherited(t *testing.T) {
 	// WithBeadsDir should override an inherited BEADS_DIR from the parent
 	// process. This is the core fix for gt-ctir: without overriding,
