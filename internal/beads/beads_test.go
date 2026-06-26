@@ -4772,6 +4772,7 @@ func TestBuildRunEnv_OverridesStaleDoltPortFromBeadsDir(t *testing.T) {
 	}
 
 	t.Setenv("BEADS_DOLT_PORT", "3307")
+	t.Setenv("GT_DOLT_PORT", "")
 
 	env := (&Beads{workDir: tmpDir}).buildRunEnv()
 
@@ -4800,6 +4801,7 @@ func TestBuildRoutingEnv_OverridesStaleDoltPortFromBeadsDir(t *testing.T) {
 	}
 
 	t.Setenv("BEADS_DOLT_PORT", "3307")
+	t.Setenv("GT_DOLT_PORT", "")
 
 	env := (&Beads{workDir: tmpDir}).buildRoutingEnv()
 

@@ -185,7 +185,7 @@ func TestCloseCompletedHookedMoleculeUsesBdCmdEnv(t *testing.T) {
 	for _, want := range []string{
 		"args:[close][gt-old][--force][--reason=Auto-replaced by gt hook (molecule complete)][--session=ses-hook-test]",
 		"BEADS_DIR=" + beadsDir,
-		"BEADS_DOLT_SERVER_DATABASE=hookdb",
+		"BEADS_DOLT_SERVER_DATABASE=\n",
 		"\nBD_READONLY=\n",
 		"BD_DOLT_AUTO_COMMIT=on",
 	} {
