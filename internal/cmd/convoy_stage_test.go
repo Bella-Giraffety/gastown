@@ -2416,6 +2416,46 @@ func TestJSONFlag_RegisteredOnCommand(t *testing.T) {
 	}
 }
 
+func TestJSONOutput_NoArgsReturnsEnvelope(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	convoyStageJSON = true
+	defer func() { convoyStageJSON = false }()
+
+	err := runConvoyStage(nil, nil)
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err == nil {
+		t.Fatal("expected error for missing stage args, got nil")
+	}
+
+	outBytes, _ := io.ReadAll(r)
+	output := string(outBytes)
+
+	var parsed StageResult
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("missing-args output should be valid JSON: %v\nraw:\n%s", err, output)
+	}
+	if parsed.Status != "error" {
+		t.Errorf("status should be 'error', got %q", parsed.Status)
+	}
+	if len(parsed.Errors) != 1 {
+		t.Fatalf("expected one JSON error, got %d", len(parsed.Errors))
+	}
+	if parsed.Errors[0].Category != "validation" {
+		t.Errorf("error category = %q, want validation", parsed.Errors[0].Category)
+	}
+	if parsed.Errors[0].BeadIDs == nil {
+		t.Error("error bead_ids should be an empty array, not null")
+	}
+	if parsed.Waves == nil || parsed.Tree == nil || parsed.Warnings == nil {
+		t.Fatalf("JSON arrays should be empty arrays, not null: %#v", parsed)
+	}
+}
+
 // IT-22: --json output: no human-readable text on stdout.
 // Verify JSON mode suppresses tree/table/error output.
 // Note: rigFromBeadID() is a stub returning "", so tasks get no-rig errors.
