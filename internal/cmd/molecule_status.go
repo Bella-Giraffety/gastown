@@ -496,8 +496,8 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 		status.HasWork = true
 		status.PinnedBead = hookBead
 
-		// Check for attached molecule
-		attachment := beads.ParseAttachmentFields(hookBead)
+		// Check for attached molecule or a legacy root-only patrol wisp.
+		attachment := workflowAttachmentForHookedBead(hookBead)
 		if attachment != nil {
 			status.AttachedMolecule = attachment.AttachedMolecule
 			status.AttachedFormula = attachment.AttachedFormula
@@ -512,22 +512,11 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 				progress, _ := getMoleculeProgressInfo(b, attachment.AttachedMolecule)
 				status.Progress = progress
 				status.NextAction = determineNextAction(status)
-			} else if attachment.AttachedFormula != "" {
-				progress, _ := getMoleculeProgressInfo(b, hookBead.ID)
-				status.Progress = progress
-				status.NextAction = determineNextAction(status)
 			}
 		}
 	}
 
-	// Determine next action if no work is slung
-	if !status.HasWork {
-		status.NextAction = "Check inbox for work assignments: gt mail inbox"
-	} else if status.AttachedMolecule == "" && status.AttachedFormula == "" {
-		status.NextAction = "Attach a molecule to start work: gt mol attach <bead-id> <molecule-id>"
-	} else if status.AttachedFormula != "" && status.NextAction == "" && status.PinnedBead != nil {
-		status.NextAction = "Show the workflow steps: gt prime or bd mol current " + status.PinnedBead.ID
-	}
+	status.NextAction = fallbackNextAction(status)
 
 	// JSON output
 	if moleculeJSON {
@@ -713,6 +702,22 @@ func determineNextAction(status MoleculeStatusInfo) string {
 		return "All remaining steps are blocked - waiting on dependencies"
 	}
 
+	return ""
+}
+
+func fallbackNextAction(status MoleculeStatusInfo) string {
+	if status.NextAction != "" {
+		return status.NextAction
+	}
+	if !status.HasWork {
+		return "Check inbox for work assignments: gt mail inbox"
+	}
+	if status.AttachedMolecule == "" && status.AttachedFormula == "" {
+		return "Attach a molecule to start work: gt mol attach <bead-id> <molecule-id>"
+	}
+	if status.AttachedFormula != "" && status.PinnedBead != nil {
+		return "Show the workflow steps: gt prime"
+	}
 	return ""
 }
 

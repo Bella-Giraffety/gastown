@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/constants"
 )
 
 func TestOutputMoleculeStatus_StandaloneFormulaShowsVars(t *testing.T) {
@@ -53,15 +54,8 @@ func TestOutputMoleculeStatus_FormulaWispShowsWorkflowContext(t *testing.T) {
 		HasWork:         true,
 		PinnedBead:      &beads.Issue{ID: "tool-wisp-demo", Title: "demo-hello"},
 		AttachedFormula: "demo-hello",
-		Progress: &MoleculeProgressInfo{
-			RootID:     "tool-wisp-demo",
-			RootTitle:  "demo-hello",
-			TotalSteps: 3,
-			DoneSteps:  0,
-			ReadySteps: []string{"tool-wisp-step-1"},
-		},
-		NextAction: "Show the workflow steps: gt prime or bd mol current tool-wisp-demo",
 	}
+	status.NextAction = fallbackNextAction(status)
 
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
@@ -84,7 +78,54 @@ func TestOutputMoleculeStatus_FormulaWispShowsWorkflowContext(t *testing.T) {
 	if strings.Contains(output, "Attach a molecule to start work") {
 		t.Fatalf("formula wisp should not suggest gt mol attach, got:\n%s", output)
 	}
-	if !strings.Contains(output, "Show the workflow steps: gt prime or bd mol current tool-wisp-demo") {
+	if !strings.Contains(output, "Show the workflow steps: gt prime") {
 		t.Fatalf("expected workflow next action, got:\n%s", output)
+	}
+	if strings.Contains(output, "bd mol current") {
+		t.Fatalf("formula-only wisp should not suggest bd mol current, got:\n%s", output)
+	}
+	if strings.Contains(output, "Progress:") {
+		t.Fatalf("root-only formula wisp should not show child-step progress, got:\n%s", output)
+	}
+}
+
+func TestOutputMoleculeStatus_PatrolWispUsesInferredWorkflowContext(t *testing.T) {
+	bead := &beads.Issue{
+		ID:    "hq-wisp-refinery",
+		Title: constants.MolRefineryPatrol + " (wisp)",
+		Type:  "molecule",
+	}
+	attachment := workflowAttachmentForHookedBead(bead)
+	if attachment == nil || attachment.AttachedFormula != constants.MolRefineryPatrol {
+		t.Fatalf("workflowAttachmentForHookedBead() = %#v, want %q", attachment, constants.MolRefineryPatrol)
+	}
+
+	status := MoleculeStatusInfo{
+		HasWork:         true,
+		PinnedBead:      bead,
+		AttachedFormula: attachment.AttachedFormula,
+	}
+	status.NextAction = fallbackNextAction(status)
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	outputMoleculeStatus(status)
+
+	w.Close()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	os.Stdout = oldStdout
+	output := buf.String()
+
+	if !strings.Contains(output, "📐 Formula: "+constants.MolRefineryPatrol) {
+		t.Fatalf("expected inferred patrol formula in output, got:\n%s", output)
+	}
+	if strings.Contains(output, "No molecule attached") || strings.Contains(output, "Attach a molecule to start work") {
+		t.Fatalf("patrol wisp should not render as naked hooked work, got:\n%s", output)
+	}
+	if strings.Contains(output, "bd mol current") {
+		t.Fatalf("patrol wisp should not suggest bd mol current, got:\n%s", output)
 	}
 }

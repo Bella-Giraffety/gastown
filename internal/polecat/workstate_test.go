@@ -14,14 +14,37 @@ func TestDecideWorkstateCanonicalFields(t *testing.T) {
 			want: WorkstateDisposition{Verdict: WorkstateVerdictSafeToNuke, Reason: "reusable", Reusable: true, SafeToNuke: true, ReuseStatus: "idle-clean"},
 		},
 		{
-			name: "dirty idle needs recovery and capacity",
+			name: "dirty idle needs recovery without capacity",
 			in:   WorkstateInput{State: StateIdle, CleanupStatus: CleanupUnpushed},
-			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "cleanup-has_unpushed", NeedsRecovery: true, CountsTowardCapacity: true, ReuseStatus: "idle-recovery-needed"},
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "cleanup-has_unpushed", NeedsRecovery: true, ReuseStatus: "idle-recovery-needed"},
+		},
+		{
+			name: "active hook blocks clean idle cleanup",
+			in:   WorkstateInput{State: StateIdle, CleanupStatus: CleanupClean, HookBead: "gt-work", ActiveWorkCountsTowardCapacity: true},
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "hook-still-set", NeedsRecovery: true, CountsTowardCapacity: true, ReuseStatus: "idle-recovery-needed"},
+		},
+		{
+			name: "agent state only blocks idle cleanup without capacity",
+			in:   activeWorkstateInput(StateIdle, CleanupClean, ActiveWorkEvidence{Active: true, BlocksCleanup: true, RequiresRestart: true, Blocker: "agent_state=working"}),
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "active-work", NeedsRecovery: true, ReuseStatus: "idle-recovery-needed"},
+		},
+		{
+			name: "protected assigned work plus stale agent state does not synthesize capacity",
+			in: activeWorkstateInput(StateIdle, CleanupClean, mergedActiveWorkEvidence(
+				ActiveWorkEvidence{Protected: true, BlocksCleanup: true, Blocker: "assigned_work=gt-work status=blocked", AssignedIssue: "gt-work"},
+				ActiveWorkEvidence{Active: true, BlocksCleanup: true, RequiresRestart: true, Blocker: "agent_state=working"},
+			)),
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "active-work", NeedsRecovery: true, ReuseStatus: "idle-recovery-needed"},
 		},
 		{
 			name: "unsubmitted branch needs mq submit",
 			in:   WorkstateInput{State: StateIdle, CleanupStatus: CleanupClean, Branch: "polecat/test", MQCheckRequired: true, HasSubmittableWork: true},
-			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsMQSubmit, Reason: "mq-not-submitted", NeedsRecovery: true, NeedsMQSubmit: true, MQStatus: "not_submitted", CountsTowardCapacity: true, ReuseStatus: "idle-recovery-needed"},
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsMQSubmit, Reason: "mq-not-submitted", NeedsRecovery: true, NeedsMQSubmit: true, MQStatus: "not_submitted", ReuseStatus: "idle-recovery-needed"},
+		},
+		{
+			name: "unknown mq lookup needs recovery",
+			in:   WorkstateInput{State: StateIdle, CleanupStatus: CleanupClean, Branch: "polecat/test", MQCheckRequired: true, HasSubmittableWork: true, MQLookupFailed: true},
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "mq-lookup-failed", NeedsRecovery: true, MQStatus: "unknown", ReuseStatus: "idle-recovery-needed"},
 		},
 		{
 			name: "terminal source makes mq submitted",
@@ -43,6 +66,16 @@ func TestDecideWorkstateCanonicalFields(t *testing.T) {
 			in:   WorkstateInput{State: StateWorking, CleanupStatus: CleanupClean},
 			want: WorkstateDisposition{Verdict: WorkstateVerdictWorking, Reason: "not-idle", NeedsRecovery: false, CountsTowardCapacity: true},
 		},
+		{
+			name: "idle malformed active mr needs recovery",
+			in:   WorkstateInput{State: StateIdle, CleanupStatus: CleanupClean, ActiveMR: "gt-mr", ActiveMRBlocker: "active_mr=gt-mr source_issue=<missing> reconcile_needed=malformed_source", ActiveMRMalformed: true},
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "active-mr-malformed", NeedsRecovery: true, ReuseStatus: "idle-recovery-needed"},
+		},
+		{
+			name: "working malformed active mr needs recovery",
+			in:   WorkstateInput{State: StateWorking, CleanupStatus: CleanupClean, ActiveMR: "gt-mr", ActiveMRBlocker: "active_mr=gt-mr source_issue=<missing> reconcile_needed=malformed_source", ActiveMRMalformed: true},
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "active-mr-malformed", NeedsRecovery: true, CountsTowardCapacity: true, ReuseStatus: "idle-recovery-needed"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -53,4 +86,15 @@ func TestDecideWorkstateCanonicalFields(t *testing.T) {
 			}
 		})
 	}
+}
+
+func activeWorkstateInput(state State, cleanup CleanupStatus, evidence ActiveWorkEvidence) WorkstateInput {
+	in := WorkstateInput{State: state, CleanupStatus: cleanup}
+	in.ApplyActiveWork(evidence)
+	return in
+}
+
+func mergedActiveWorkEvidence(first, second ActiveWorkEvidence) ActiveWorkEvidence {
+	first.Merge(second)
+	return first
 }

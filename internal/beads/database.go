@@ -77,9 +77,8 @@ func isBDTargetEnv(entry string) bool {
 }
 
 // BuildPinnedBDEnv returns env for a bd subprocess pinned to beadsDir. BEADS_DIR
-// and the metadata-backed Dolt database are the authoritative target selectors;
-// inherited selectors are stripped first so stale shell state cannot make bd
-// write to a different database than the selected .beads directory.
+// is the authoritative target selector; inherited database selectors are
+// stripped so bd can apply its own .beads/config/redirect database resolution.
 func BuildPinnedBDEnv(base []string, beadsDir string) []string {
 	env := SuppressBDSideEffects(StripBDTargetEnv(base))
 	if beadsDir == "" {
@@ -88,9 +87,6 @@ func BuildPinnedBDEnv(base []string, beadsDir string) []string {
 	beadsDir = canonicalBeadsDir(beadsDir)
 	env = append(env, "BEADS_DIR="+beadsDir)
 	env = append(env, doltTargetEnvFromBeadsDir(beadsDir)...)
-	if dbEnv := DatabaseEnv(beadsDir); dbEnv != "" {
-		env = append(env, dbEnv)
-	}
 	return addGTDerivedDoltTargetEnv(env)
 }
 
@@ -342,18 +338,21 @@ func envKeyHasPrefix(keyName, prefix string) bool {
 }
 
 func addGTDerivedDoltTargetEnv(env []string) []string {
+	gtData := envValue(env, "GT_DOLT_DATA")
 	gtHost := envValue(env, "GT_DOLT_HOST")
 	gtPort := envValue(env, "GT_DOLT_PORT")
+	if gtData != "" && envValue(env, "BEADS_DOLT_DATA_DIR") == "" {
+		env = append(env, "BEADS_DOLT_DATA_DIR="+gtData)
+	}
 	if gtHost != "" && envValue(env, "BEADS_DOLT_SERVER_HOST") == "" {
 		env = append(env, "BEADS_DOLT_SERVER_HOST="+gtHost)
 	}
 	if gtPort != "" {
-		if envValue(env, "BEADS_DOLT_SERVER_PORT") == "" {
-			env = append(env, "BEADS_DOLT_SERVER_PORT="+gtPort)
-		}
-		if envValue(env, "BEADS_DOLT_PORT") == "" {
-			env = append(env, "BEADS_DOLT_PORT="+gtPort)
-		}
+		// .beads metadata supplies selected connection defaults, but GT_DOLT_PORT
+		// is the authoritative daemon runtime port for managed subprocesses.
+		env = StripEnvKey(env, "BEADS_DOLT_SERVER_PORT")
+		env = StripEnvKey(env, "BEADS_DOLT_PORT")
+		env = append(env, "BEADS_DOLT_SERVER_PORT="+gtPort, "BEADS_DOLT_PORT="+gtPort)
 	}
 	return env
 }

@@ -15,9 +15,10 @@ const (
 type WorkstateInput struct {
 	State                          State
 	HookBead                       string
+	ActiveWorkBlocker              string
+	ActiveWorkCountsTowardCapacity bool
 	CleanupStatus                  CleanupStatus
 	IgnoreCleanupStatus            bool
-	PartialSpawnWithoutDurableHook bool
 	PushFailed                     bool
 	MRFailed                       bool
 	Branch                         string
@@ -29,6 +30,7 @@ type WorkstateInput struct {
 	GitCheckFailedReason           string
 	ActiveMR                       string
 	ActiveMRBlocker                string
+	ActiveMRMalformed              bool
 	MQCheckRequired                bool
 	HasSubmittableWork             bool
 	MQNotRequired                  bool
@@ -53,8 +55,34 @@ type WorkstateDisposition struct {
 	Blockers             []string `json:"blockers,omitempty"`
 }
 
+// ApplyActiveWork projects shared active/protected work evidence into the
+// workstate input fields that block reuse and cleanup.
+func (in *WorkstateInput) ApplyActiveWork(evidence ActiveWorkEvidence) {
+	if !evidence.BlocksCleanup {
+		return
+	}
+	in.ActiveWorkBlocker = evidence.Blocker
+	in.HookBead = evidence.HookBead
+	in.ActiveWorkCountsTowardCapacity = in.ActiveWorkCountsTowardCapacity || evidence.CountsTowardCapacity
+}
+
 // DecideWorkstate returns the canonical disposition for a polecat.
 func DecideWorkstate(in WorkstateInput) WorkstateDisposition {
+	if in.ActiveMRMalformed {
+		blocker := in.ActiveMRBlocker
+		if blocker == "" {
+			blocker = "active_mr=" + in.ActiveMR + " reconcile_needed=malformed_source"
+		}
+		return WorkstateDisposition{
+			Verdict:              WorkstateVerdictNeedsRecovery,
+			Reason:               "active-mr-malformed",
+			NeedsRecovery:        true,
+			CountsTowardCapacity: in.State != StateIdle || in.ActiveWorkCountsTowardCapacity,
+			ReuseStatus:          "idle-recovery-needed",
+			Blockers:             []string{blocker},
+		}
+	}
+
 	if in.State != StateIdle {
 		verdict := WorkstateVerdictNeedsRecovery
 		needsRecovery := true
@@ -80,7 +108,13 @@ func DecideWorkstate(in WorkstateInput) WorkstateDisposition {
 		}
 	}
 
-	if in.HookBead != "" && !in.PartialSpawnWithoutDurableHook {
+	if in.ActiveWorkBlocker != "" {
+		reason := "active-work"
+		if in.HookBead != "" {
+			reason = "hook-still-set"
+		}
+		block(reason, in.ActiveWorkBlocker)
+	} else if in.HookBead != "" {
 		block("hook-still-set", "has work on hook ("+in.HookBead+")")
 	}
 	if in.PushFailed {
@@ -133,7 +167,7 @@ func DecideWorkstate(in WorkstateInput) WorkstateDisposition {
 		}
 		d.Verdict = WorkstateVerdictNeedsRecovery
 		d.NeedsRecovery = true
-		d.CountsTowardCapacity = true
+		d.CountsTowardCapacity = in.ActiveWorkCountsTowardCapacity
 		d.ReuseStatus = "idle-recovery-needed"
 		return d
 	}
@@ -144,14 +178,19 @@ func DecideWorkstate(in WorkstateInput) WorkstateDisposition {
 		} else if in.AssignedBeadTerminal || in.MRSubmitted {
 			d.MQStatus = "submitted"
 		} else if in.MQLookupFailed {
+			d.Verdict = WorkstateVerdictNeedsRecovery
+			d.Reason = "mq-lookup-failed"
+			d.NeedsRecovery = true
 			d.MQStatus = "unknown"
+			d.ReuseStatus = "idle-recovery-needed"
+			d.Blockers = append(d.Blockers, "mq_status=unknown")
+			return d
 		} else {
 			d.Verdict = WorkstateVerdictNeedsMQSubmit
 			d.Reason = "mq-not-submitted"
 			d.NeedsRecovery = true
 			d.NeedsMQSubmit = true
 			d.MQStatus = "not_submitted"
-			d.CountsTowardCapacity = true
 			d.ReuseStatus = "idle-recovery-needed"
 			d.Blockers = append(d.Blockers, "mq_status=not_submitted")
 			return d

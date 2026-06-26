@@ -237,6 +237,62 @@ func hasSlingContext(t *testing.T, hqPath, workBeadID string) bool {
 	return findSlingContext(t, hqPath, workBeadID) != nil
 }
 
+func withFakeTmuxNoSessions(t *testing.T, env []string) []string {
+	t.Helper()
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir fake tmux bin: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "tmux"), []byte(`#!/bin/sh
+cmdline="$*"
+for arg in "$@"; do
+  if [ "$arg" = "has-session" ]; then
+    case "$cmdline" in
+      *toast*) ;;
+      *) echo "unexpected tmux session: $cmdline" >&2; exit 2 ;;
+    esac
+    echo "can't find session" >&2
+    exit 1
+  fi
+done
+echo "unexpected tmux command: $*" >&2
+exit 2
+`), 0755); err != nil {
+		t.Fatalf("write fake tmux: %v", err)
+	}
+
+	updated := append([]string(nil), env...)
+	for i, entry := range updated {
+		if strings.HasPrefix(entry, "PATH=") {
+			updated[i] = "PATH=" + binDir + string(os.PathListSeparator) + strings.TrimPrefix(entry, "PATH=")
+			return updated
+		}
+	}
+	return append(updated, "PATH="+binDir)
+}
+
+func getBeadStatusAndAssignee(t *testing.T, beadID, dir string) (string, string) {
+	t.Helper()
+	args := beads.MaybePrependAllowStale([]string{"show", beadID, "--json"})
+	cmd := exec.Command("bd", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("bd show %s failed: %v", beadID, err)
+	}
+	var issues []struct {
+		Status   string `json:"status"`
+		Assignee string `json:"assignee"`
+	}
+	if err := json.Unmarshal(out, &issues); err != nil {
+		t.Fatalf("parse bd show %s: %v", beadID, err)
+	}
+	if len(issues) == 0 {
+		t.Fatalf("bd show %s returned no results", beadID)
+	}
+	return issues[0].Status, issues[0].Assignee
+}
+
 // --------------------------------------------------------------------------
 // Tests
 // --------------------------------------------------------------------------
@@ -535,6 +591,91 @@ func TestSchedulerSlingContextIdempotency(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 sling context for %s, got %d", beadID, count)
+	}
+}
+
+func TestSchedulerClearThenDirectSlingIgnoresClosedContext(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Clear then direct sling test")
+	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig")
+	if !hasSlingContext(t, hqPath, beadID) {
+		t.Fatalf("bead %s has no sling context after scheduling", beadID)
+	}
+
+	out := runGTCmdOutput(t, gtBinary, hqPath, env, "scheduler", "clear", "--bead", beadID)
+	if !strings.Contains(out, "closed 1 context") {
+		t.Fatalf("scheduler clear output = %q, want closed context count", out)
+	}
+	if hasSlingContext(t, hqPath, beadID) {
+		t.Fatalf("bead %s still has open sling context after scheduler clear", beadID)
+	}
+
+	t.Chdir(hqPath)
+	scheduled := areScheduled([]string{beadID})
+	singleScheduled := isScheduled(beadID)
+	if scheduled[beadID] || singleScheduled {
+		t.Fatalf("bead %s still considered scheduled after scheduler clear: %v", beadID, scheduled)
+	}
+
+	configureScheduler(t, hqPath, -1, 1)
+	out = runGTCmdOutput(t, gtBinary, hqPath, env, "sling", beadID, "testrig", "--hook-raw-bead", "--dry-run")
+	if strings.Contains(out, "already scheduled") || strings.Contains(out, "Would schedule") {
+		t.Fatalf("direct sling after scheduler clear used stale scheduler state:\n%s", out)
+	}
+	if !strings.Contains(out, "Would run: bd update "+beadID) {
+		t.Fatalf("direct sling dry-run output = %q, want hook update", out)
+	}
+
+	updateCmd := exec.Command("bd", "update", beadID, "--status=hooked", "--assignee=testrig/polecats/toast")
+	updateCmd.Dir = rigPath
+	if out, err := updateCmd.CombinedOutput(); err != nil {
+		t.Fatalf("bd update %s to stale hooked assignment failed: %v\n%s", beadID, err, out)
+	}
+	out = runGTCmdOutput(t, gtBinary, hqPath, withFakeTmuxNoSessions(t, env), "sling", beadID, "testrig", "--hook-raw-bead", "--dry-run")
+	if strings.Contains(out, "already scheduled") || strings.Contains(out, "Use --force") {
+		t.Fatalf("direct sling after scheduler clear still treated stale state as a lock:\n%s", out)
+	}
+	if !strings.Contains(out, "auto-forcing re-sling") {
+		t.Fatalf("direct sling output = %q, want dead-assignee auto-force", out)
+	}
+	if !strings.Contains(out, "Would run: bd update "+beadID+" --status=open --assignee=") {
+		t.Fatalf("direct sling output = %q, want dry-run stale unhook", out)
+	}
+	wantHookUpdate := "Would run: bd update " + beadID + " --status=hooked --assignee=testrig/polecats/<new>"
+	if !strings.Contains(out, wantHookUpdate) {
+		t.Fatalf("direct sling output = %q, want hook update after stale assignment", out)
+	}
+	status, assignee := getBeadStatusAndAssignee(t, beadID, rigPath)
+	if status != "hooked" || assignee != "testrig/polecats/toast" {
+		t.Fatalf("dry-run mutated stale assignment: status=%q assignee=%q", status, assignee)
+	}
+}
+
+func TestScheduleBead_WorkStatusBeatsOpenContextIdempotency(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Scheduled but already assigned")
+	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig")
+	if !hasSlingContext(t, hqPath, beadID) {
+		t.Fatalf("bead %s has no sling context after scheduling", beadID)
+	}
+
+	updateCmd := exec.Command("bd", "update", beadID, "--status=hooked", "--assignee=testrig/polecats/toast")
+	updateCmd.Dir = rigPath
+	if out, err := updateCmd.CombinedOutput(); err != nil {
+		t.Fatalf("bd update %s to hooked failed: %v\n%s", beadID, err, out)
+	}
+
+	out, err := runGTCmdMayFail(t, gtBinary, hqPath, env, "sling", beadID, "testrig", "--hook-raw-bead")
+	if err == nil {
+		t.Fatalf("expected gt sling to fail for already hooked bead, got success\noutput: %s", out)
+	}
+	if strings.Contains(out, "already scheduled") {
+		t.Fatalf("scheduleBead returned stale context idempotency instead of work status:\n%s", out)
+	}
+	if !strings.Contains(out, "already hooked") || !strings.Contains(out, "testrig/polecats/toast") {
+		t.Fatalf("gt sling output = %q, want hooked status error", out)
 	}
 }
 

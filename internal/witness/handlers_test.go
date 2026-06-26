@@ -705,7 +705,7 @@ func TestFindAnyCleanupWisp_NoBdAvailable(t *testing.T) {
 	t.Parallel()
 	// When bd is not available (test environment), findAnyCleanupWisp
 	// should return empty string without panicking
-	result := findAnyCleanupWisp(DefaultBdCli(), "/nonexistent", "testpolecat")
+	result := findAnyCleanupWisp(DefaultBdCli(), "/nonexistent", "", "testpolecat")
 	if result != "" {
 		t.Errorf("findAnyCleanupWisp = %q, want empty when bd unavailable", result)
 	}
@@ -714,7 +714,8 @@ func TestFindAnyCleanupWisp_NoBdAvailable(t *testing.T) {
 // mockBdCalls captures bd invocations and returns canned responses.
 // Returns a slice that accumulates "arg0 arg1 ..." strings for each call.
 type mockBdCalls struct {
-	calls []string
+	calls    []string
+	workDirs []string
 }
 
 // mockBd creates a test-local *BdCli with mock exec/run functions.
@@ -724,10 +725,12 @@ func mockBd(execFn func(args []string) (string, error), runFn func(args []string
 	mock := &mockBdCalls{}
 	bd := &BdCli{
 		Exec: func(workDir string, args ...string) (string, error) {
+			mock.workDirs = append(mock.workDirs, workDir)
 			mock.calls = append(mock.calls, strings.Join(args, " "))
 			return execFn(stripMockBdFlags(args))
 		},
 		Run: func(workDir string, args ...string) error {
+			mock.workDirs = append(mock.workDirs, workDir)
 			mock.calls = append(mock.calls, strings.Join(args, " "))
 			return runFn(stripMockBdFlags(args))
 		},
@@ -778,6 +781,133 @@ func fakeBd() (*BdCli, *mockBdCalls) {
 	)
 }
 
+func setupCleanupWispRoutingTown(t *testing.T, rigName string) (string, string) {
+	t.Helper()
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(townBeadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	rigWorkDir := filepath.Join(townRoot, rigName, "mayor", "rig")
+	if err := os.MkdirAll(filepath.Join(rigWorkDir, ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	routePath := filepath.ToSlash(filepath.Join(rigName, "mayor", "rig"))
+	routes := fmt.Sprintf("{\"prefix\":\"hq-\",\"path\":\".\"}\n{\"prefix\":\"gt-\",\"path\":\"%s\"}\n", routePath)
+	if err := os.WriteFile(filepath.Join(townBeadsDir, "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return townRoot, rigWorkDir
+}
+
+func assertMockWorkDirs(t *testing.T, mock *mockBdCalls, want string) {
+	t.Helper()
+	if len(mock.workDirs) == 0 {
+		t.Fatal("no bd calls captured")
+	}
+	want = filepath.Clean(want)
+	for _, got := range mock.workDirs {
+		if filepath.Clean(got) != want {
+			t.Fatalf("bd workDir = %q, want %q; calls=%v", got, want, mock.calls)
+		}
+	}
+}
+
+func TestCleanupWispWorkDirFallsBackForUnknownRig(t *testing.T) {
+	t.Parallel()
+	townRoot, _ := setupCleanupWispRoutingTown(t, "gastown")
+	if got := cleanupWispWorkDir(townRoot, "missing"); got != townRoot {
+		t.Fatalf("cleanupWispWorkDir unknown rig = %q, want %q", got, townRoot)
+	}
+}
+
+func TestCleanupWispHelpersUseActiveRigWorkDir(t *testing.T) {
+	t.Parallel()
+	townRoot, rigWorkDir := setupCleanupWispRoutingTown(t, "gastown")
+	bd, mock := mockBd(
+		func(args []string) (string, error) {
+			switch args[0] {
+			case "create":
+				return `{"id":"gt-wisp-new"}`, nil
+			case "list":
+				return `[{"id":"gt-wisp-aaa"},{"id":"gt-wisp-bbb"}]`, nil
+			case "show":
+				return `[{"labels":["cleanup","polecat:nux","state:pending"]}]`, nil
+			}
+			return "{}", nil
+		},
+		func(args []string) error { return nil },
+	)
+
+	if _, err := createCleanupWisp(bd, townRoot, "gastown", "nux", "gt-src", "branch"); err != nil {
+		t.Fatalf("createCleanupWisp: %v", err)
+	}
+	if _, err := findCleanupWisp(bd, townRoot, "gastown", "nux"); err != nil {
+		t.Fatalf("findCleanupWisp: %v", err)
+	}
+	_ = findAnyCleanupWisp(bd, townRoot, "gastown", "nux")
+	_ = findAllCleanupWisps(bd, townRoot, "gastown", "nux")
+	if err := UpdateCleanupWispState(bd, townRoot, "gastown", "gt-wisp-aaa", "merged"); err != nil {
+		t.Fatalf("UpdateCleanupWispState: %v", err)
+	}
+
+	assertMockWorkDirs(t, mock, rigWorkDir)
+}
+
+func TestHandleZombieRestartDuplicateCloseUsesActiveRigWorkDir(t *testing.T) {
+	oldVerify := verifyBranchAlreadyMerged
+	verifyBranchAlreadyMerged = func(workDir, rigName, polecatName string) (bool, error) {
+		return false, nil
+	}
+	t.Cleanup(func() { verifyBranchAlreadyMerged = oldVerify })
+
+	townRoot, rigWorkDir := setupCleanupWispRoutingTown(t, "gastown")
+	listCalls := 0
+	bd, mock := mockBd(
+		func(args []string) (string, error) {
+			switch args[0] {
+			case "list":
+				if strings.Contains(strings.Join(args, " "), "--assignee") {
+					return "[]", nil
+				}
+				listCalls++
+				if listCalls == 1 {
+					return "[]", nil
+				}
+				return `[{"id":"gt-wisp-aaa"},{"id":"gt-wisp-bbb"}]`, nil
+			case "create":
+				return `{"id":"gt-wisp-bbb"}`, nil
+			case "close":
+				return "{}", nil
+			}
+			return "[]", nil
+		},
+		func(args []string) error { return nil },
+	)
+
+	z := &ZombieResult{PolecatName: "nux", HookBead: "gt-src"}
+	handleZombieRestart(bd, townRoot, "gastown", "nux", "", "gt-src", "has_unpushed", z)
+
+	closed := false
+	for i, call := range mock.calls {
+		if strings.HasPrefix(call, "close ") {
+			closed = true
+			if filepath.Clean(mock.workDirs[i]) != filepath.Clean(rigWorkDir) {
+				t.Fatalf("close workDir = %q, want %q", mock.workDirs[i], rigWorkDir)
+			}
+		}
+	}
+	if !closed {
+		t.Fatalf("expected duplicate close call, calls=%v action=%q", mock.calls, z.Action)
+	}
+}
+
 func setupActiveMRGitSafeWorkDir(t *testing.T, rigName, polecatName string) string {
 	t.Helper()
 	townRoot := t.TempDir()
@@ -824,6 +954,16 @@ func TestHasPendingMRFromSnapshotAssessesMRStatus(t *testing.T) {
 	}{
 		{
 			name: "open MR is pending",
+			show: func(id string) (string, error) {
+				if id == "gt-mr" {
+					return issueJSON(id, "open", "source_issue: gt-src\n"), nil
+				}
+				return issueJSON(id, "open", ""), nil
+			},
+			want: true,
+		},
+		{
+			name: "open MR with missing source still blocks cleanup",
 			show: func(id string) (string, error) {
 				return issueJSON(id, "open", ""), nil
 			},
@@ -982,6 +1122,34 @@ func TestHasPendingMRCleanupWispFailsClosed(t *testing.T) {
 	}
 }
 
+func TestHasPendingMRCleanupWispBlocksMalformedActiveMR(t *testing.T) {
+	workDir := setupActiveMRGitSafeWorkDir(t, "gastown", "nux")
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "list":
+				return `[{"id":"gt-cleanup"}]`, nil
+			case "show":
+				switch args[1] {
+				case "gt-agent":
+					return `[{"active_mr":"gt-mr","description":"active_mr: gt-mr\n"}]`, nil
+				case "gt-mr":
+					return `[{"id":"gt-mr","status":"open","description":"branch: polecat/nux\ntarget: main\n"}]`, nil
+				}
+			}
+			return "", errors.New("not found")
+		},
+		func(args []string) error { return nil },
+	)
+
+	if got := hasPendingMR(bd, workDir, "gastown", "nux", "gt-agent"); !got {
+		t.Fatalf("hasPendingMR() = false, want true for malformed active_mr cleanup safety")
+	}
+}
+
 func TestTerminalSafeDoneSnapshot(t *testing.T) {
 	workDir := setupActiveMRGitSafeWorkDir(t, "gastown", "nux")
 	bd, _ := mockBd(
@@ -1008,7 +1176,7 @@ func TestFindCleanupWisp_UsesCorrectBdListFlags(t *testing.T) {
 	bd, mock := fakeBd()
 	workDir := t.TempDir()
 
-	_, _ = findCleanupWisp(bd, workDir, "nux")
+	_, _ = findCleanupWisp(bd, workDir, "", "nux")
 
 	got := strings.Join(mock.calls, "\n")
 
@@ -1036,7 +1204,7 @@ func TestFindAnyCleanupWisp_UsesCorrectBdListFlags(t *testing.T) {
 	bd, mock := fakeBd()
 	workDir := t.TempDir()
 
-	_ = findAnyCleanupWisp(bd, workDir, "bravo")
+	_ = findAnyCleanupWisp(bd, workDir, "", "bravo")
 
 	got := strings.Join(mock.calls, "\n")
 
@@ -1062,7 +1230,7 @@ func TestFindAnyCleanupWisp_UsesCorrectBdListFlags(t *testing.T) {
 func TestFindAllCleanupWisps_NoBdAvailable(t *testing.T) {
 	t.Parallel()
 	// When bd is not available, findAllCleanupWisps should return nil
-	result := findAllCleanupWisps(DefaultBdCli(), "/nonexistent", "testpolecat")
+	result := findAllCleanupWisps(DefaultBdCli(), "/nonexistent", "", "testpolecat")
 	if result != nil {
 		t.Errorf("findAllCleanupWisps = %v, want nil when bd unavailable", result)
 	}
@@ -1081,7 +1249,7 @@ func TestFindAllCleanupWisps_ReturnsAllIDs(t *testing.T) {
 	)
 	workDir := t.TempDir()
 
-	result := findAllCleanupWisps(bd, workDir, "nux")
+	result := findAllCleanupWisps(bd, workDir, "", "nux")
 
 	if len(result) != 2 {
 		t.Fatalf("findAllCleanupWisps: got %d items, want 2", len(result))
@@ -1109,7 +1277,7 @@ func TestFindAllCleanupWisps_EmptyList(t *testing.T) {
 	)
 	workDir := t.TempDir()
 
-	result := findAllCleanupWisps(bd, workDir, "nux")
+	result := findAllCleanupWisps(bd, workDir, "", "nux")
 	if result != nil {
 		t.Errorf("findAllCleanupWisps: got %v, want nil for empty list", result)
 	}
@@ -1123,7 +1291,7 @@ func TestUpdateCleanupWispState_UsesCorrectBdUpdateFlags(t *testing.T) {
 	// UpdateCleanupWispState first calls "bd show <id> --json", then "bd update".
 	// Our mock returns valid JSON for show with polecat:testpol label,
 	// so polecatName will be "testpol". Then it calls bd update with new labels.
-	_ = UpdateCleanupWispState(bd, workDir, "gt-wisp-abc", "merged")
+	_ = UpdateCleanupWispState(bd, workDir, "", "gt-wisp-abc", "merged")
 
 	got := strings.Join(mock.calls, "\n")
 
@@ -1281,18 +1449,16 @@ func TestDetectZombie_DoneOrNukedNotZombie(t *testing.T) {
 	t.Parallel()
 	// GH#2795: Polecats with agent_state=done or agent_state=nuked and a dead
 	// session should NOT be treated as zombies, even if hook_bead is still set.
-	// Without this, isZombieState returns true (hookBead != ""), and the witness
-	// floods the mayor inbox with RECOVERY_NEEDED alerts every patrol cycle.
+	// Without terminal-state handling, stale hook evidence can flood the mayor
+	// inbox with RECOVERY_NEEDED alerts every patrol cycle.
 	for _, state := range []beads.AgentState{beads.AgentStateDone, beads.AgentStateNuked} {
-		hookBead := "gt-some-issue"
-		// isZombieState returns true because hookBead != ""
-		if !isZombieState(state, hookBead) {
-			t.Errorf("isZombieState(%q, %q) = false, want true (pre-condition)", state, hookBead)
-		}
-		// But the done/nuked check in detectZombieDeadSession should skip these.
-		// Verify the states are terminal (not active).
+		// The done/nuked check in detectZombieDeadSession should skip these.
+		// Verify the states are terminal (not active) and do not require restart.
 		if state.IsActive() {
 			t.Errorf("state %q should not be active", state)
+		}
+		if evidence := polecat.AssessAgentStateWork(state); evidence.RequiresRestart || evidence.BlocksCleanup {
+			t.Errorf("AssessAgentStateWork(%q) = %+v, want terminal-safe state", state, evidence)
 		}
 	}
 }
@@ -2706,7 +2872,7 @@ func TestHandleZombieRestart_SkipsWhenBranchAlreadyMerged(t *testing.T) {
 	)
 
 	z := &ZombieResult{PolecatName: "scavenger", HookBead: "ma-poc.4"}
-	handleZombieRestart(bd, t.TempDir(), "testrig", "scavenger", "ma-poc.4", "has_unpushed", z)
+	handleZombieRestart(bd, t.TempDir(), "testrig", "scavenger", "", "ma-poc.4", "has_unpushed", z)
 
 	// Action must reflect the archive decision; must NOT be a "restarted*" action.
 	if !strings.Contains(z.Action, "work-already-merged") {
@@ -2735,10 +2901,170 @@ func TestHandleZombieRestart_RestartsWhenBranchNotMerged(t *testing.T) {
 	)
 
 	z := &ZombieResult{PolecatName: "scavenger", HookBead: "ma-poc.4"}
-	handleZombieRestart(bd, t.TempDir(), "testrig", "scavenger", "ma-poc.4", "clean", z)
+	handleZombieRestart(bd, t.TempDir(), "testrig", "scavenger", "", "ma-poc.4", "clean", z)
 
 	// Should NOT take the archive path.
 	if strings.Contains(z.Action, "work-already-merged") {
 		t.Errorf("action = %q, should not archive when work is not merged", z.Action)
+	}
+}
+
+// Not parallel: overrides the package-level verifyBranchAlreadyMerged var.
+func TestHandleZombieRestart_ActiveHookBeatsBranchAlreadyMergedArchive(t *testing.T) {
+	oldVerify := verifyBranchAlreadyMerged
+	verifyBranchAlreadyMerged = func(workDir, rigName, polecatName string) (bool, error) {
+		return true, nil
+	}
+	t.Cleanup(func() { verifyBranchAlreadyMerged = oldVerify })
+
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) > 0 && args[0] == "list" {
+				return "[]", nil
+			}
+			return `[{"status":"hooked"}]`, nil
+		},
+		func(args []string) error { return nil },
+	)
+
+	z := &ZombieResult{PolecatName: "scavenger", HookBead: "ma-poc.4"}
+	handleZombieRestart(bd, t.TempDir(), "testrig", "scavenger", beads.AgentStateSpawning, "ma-poc.4", "clean", z)
+
+	if strings.Contains(z.Action, "work-already-merged") {
+		t.Fatalf("action = %q, active hook must restart/resume before archive", z.Action)
+	}
+	if !strings.HasPrefix(z.Action, "restarted") && !strings.HasPrefix(z.Action, "restart-") {
+		t.Fatalf("action = %q, active hook must route to restart/resume", z.Action)
+	}
+}
+
+func TestDetectSubmittedStillRunningIgnoresProtectedHookStatus(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) > 0 && args[0] == "show" {
+				return `[{"status":"blocked"}]`, nil
+			}
+			return "[]", nil
+		},
+		func(args []string) error { return nil },
+	)
+	snap := &agentBeadSnapshot{
+		AgentState: string(beads.AgentStateWorking),
+		HookBead:   "ma-poc.4",
+		ActiveMR:   "mr-123",
+		Fields:     &beads.AgentFields{ActiveMR: "mr-123", CleanupStatus: "clean"},
+		UpdatedAt:  time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
+	}
+
+	if _, found := detectSubmittedStillRunning(bd, t.TempDir(), "scavenger", "gt-test", nil, nil, snap, time.Minute); found {
+		t.Fatalf("blocked hook status must not be treated as submitted-still-running active hook")
+	}
+}
+
+func TestWitnessActiveWorkEvidencePrefersHookOverSpawningState(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "[]", nil
+			}
+			switch args[0] {
+			case "list":
+				return "[]", nil
+			case "show":
+				return `[{"status":"hooked"}]`, nil
+			default:
+				return "[]", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+
+	got := witnessActiveWorkEvidence(bd, t.TempDir(), "testrig", "scavenger", beads.AgentStateSpawning, "ma-poc.4")
+	if got.Blocker != "hook_bead=ma-poc.4 status=hooked" {
+		t.Fatalf("blocker = %q, want hook blocker before lifecycle state", got.Blocker)
+	}
+	if !got.BlocksCleanup || !got.RequiresRestart || got.HookSafe || got.HookTerminal {
+		t.Fatalf("active work evidence = %+v, want active unsafe hook requiring restart", got)
+	}
+}
+
+func TestWitnessActiveWorkEvidenceMissingHookFailsClosed(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) > 0 && args[0] == "list" {
+				return "[]", nil
+			}
+			return "[]", nil
+		},
+		func(args []string) error { return nil },
+	)
+
+	got := witnessActiveWorkEvidence(bd, t.TempDir(), "testrig", "scavenger", beads.AgentStateIdle, "ma-poc.4")
+	if !got.BlocksCleanup || got.HookSafe || got.HookTerminal {
+		t.Fatalf("active work evidence = %+v, want missing hook to fail closed", got)
+	}
+	if got.Blocker != "hook_bead=ma-poc.4 status=missing" {
+		t.Fatalf("blocker = %q, want missing hook blocker", got.Blocker)
+	}
+}
+
+func TestGetBeadStatusEmptyResultIsUnverified(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) { return "[]", nil },
+		func(args []string) error { return nil },
+	)
+
+	status, ok := getBeadStatus(bd, t.TempDir(), "ma-poc.4")
+	if ok || status != "" {
+		t.Fatalf("getBeadStatus(empty) = (%q, %v), want unverified", status, ok)
+	}
+}
+
+func TestNukePolecatRefusesActiveHookBeforeSessionKill(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "[]", nil
+			}
+			switch args[0] {
+			case "list":
+				return "[]", nil
+			case "show":
+				if len(args) > 1 && args[1] == "ma-poc.4" {
+					return `[{"status":"hooked"}]`, nil
+				}
+				return `[{"agent_state":"spawning","hook_bead":"ma-poc.4","active_mr":"","description":""}]`, nil
+			default:
+				return "[]", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+
+	err := NukePolecat(bd, t.TempDir(), "testrig", "scavenger")
+	if err == nil || !strings.Contains(err.Error(), "hook_bead=ma-poc.4 status=hooked") {
+		t.Fatalf("NukePolecat error = %v, want active hook refusal", err)
+	}
+}
+
+func TestNukePolecatRefusesMissingAgentSnapshotBeforeSessionKill(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "[]", nil
+			}
+			switch args[0] {
+			case "show", "list":
+				return "[]", nil
+			default:
+				return "[]", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+
+	err := NukePolecat(bd, t.TempDir(), "testrig", "scavenger")
+	if err == nil || !strings.Contains(err.Error(), "agent bead") || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("NukePolecat error = %v, want fail-closed missing agent bead refusal", err)
 	}
 }

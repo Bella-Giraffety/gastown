@@ -617,6 +617,11 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("checking bead status: %w", err)
 	}
+	if len(args) > 1 && isPolecatWorkTarget(args[1]) {
+		if err := validateConcreteWorkBeadInfo(beadID, info); err != nil {
+			return err
+		}
+	}
 
 	// Guard against slinging beads with flag-like titles (gt-e0kx5).
 	// These are garbage beads created by flag-parsing bugs. Slinging them
@@ -627,7 +632,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 
 	// Guard against dispatching closed/tombstone beads (defense-in-depth).
 	// Not bypassed by --force — if you need to re-dispatch, reopen the bead first.
-	if info.Status == "closed" || info.Status == "tombstone" {
+	if isTerminalWorkStatus(info.Status) {
 		return fmt.Errorf("bead %s is %s (work already completed)", beadID, info.Status)
 	}
 
@@ -641,13 +646,13 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	originalStatus := info.Status
 	originalAssignee := info.Assignee
 	force := slingForce // local copy to avoid mutating package-level flag
-	if (info.Status == "pinned" || info.Status == "hooked" || info.Status == "in_progress") && !force {
+	if isProtectedDispatchStatus(info.Status) && !force {
 		// Auto-force when hooked/in_progress agent's session is confirmed dead (gt-pqf9x, GH#1380).
 		// This eliminates the #1 friction in convoy feeding: stale hooks from
 		// dead polecats blocking re-sling without --force.
 		// IMPORTANT: Stale-hook check must run BEFORE idempotency check so that
 		// a dead polecat with a matching target triggers re-sling, not a no-op.
-		if (info.Status == "hooked" || info.Status == "in_progress") && info.Assignee != "" && isHookedAgentDeadFn(info.Assignee) {
+		if isActiveAssignmentStatus(info.Status) && info.Assignee != "" && isHookedAgentDeadFn(info.Assignee) {
 			fmt.Printf("%s Hooked agent %s has no active session, auto-forcing re-sling...\n",
 				style.Warning.Render("⚠"), info.Assignee)
 			force = true
@@ -702,13 +707,63 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// that executeSling does not cover. The rig-target case could be factored out
 	// to use executeSling, limiting this to non-rig targets only.
 	//
-	// Resolve target agent using shared dispatch logic.
-	// Note: args[1] == args[len(args)-1] here because batch mode (len(args) > 2
-	// with rig last arg) exits at line 234. The only remaining case is len(args) <= 2.
 	var target string
 	if len(args) > 1 {
 		target = args[1]
 	}
+
+	if formulaName == "" && !slingHookRawBead && isPolecatWorkTarget(target) {
+		targetRig := ""
+		if rigName, isRig := IsRigName(target); isRig {
+			targetRig = rigName
+		} else if parts := strings.SplitN(target, "/", 2); len(parts) >= 1 {
+			targetRig = parts[0]
+		}
+		if targetRig != "" {
+			if err := verifyBeadResolvesForTargetRig(beadID, targetRig, townRoot); err != nil {
+				return err
+			}
+		}
+		formulaName = resolveFormula(slingFormula, false, townRoot, targetRig)
+		preflightVars := append([]string(nil), loadRigCommandVars(townRoot, targetRig)...)
+		preflightVars = append(preflightVars, slingVars...)
+		if slingBaseBranch != "" && slingBaseBranch != "main" {
+			preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", slingBaseBranch))
+		}
+		if slingResumeBranch != "" {
+			preflightVars = append(preflightVars, fmt.Sprintf("resume_branch=%s", slingResumeBranch))
+		}
+		if err := preflightFormulaBond(formulaName, beadID, info.Title, "", townRoot, preflightVars); err != nil {
+			return err
+		}
+	} else if formulaName != "" && isPolecatWorkTarget(target) {
+		targetRig := ""
+		if rigName, isRig := IsRigName(target); isRig {
+			targetRig = rigName
+		} else if parts := strings.SplitN(target, "/", 2); len(parts) >= 1 {
+			targetRig = parts[0]
+		}
+		if targetRig != "" {
+			if err := verifyBeadResolvesForTargetRig(beadID, targetRig, townRoot); err != nil {
+				return err
+			}
+		}
+		preflightVars := append([]string(nil), loadRigCommandVars(townRoot, targetRig)...)
+		preflightVars = append(preflightVars, slingVars...)
+		if slingBaseBranch != "" && slingBaseBranch != "main" {
+			preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", slingBaseBranch))
+		}
+		if slingResumeBranch != "" {
+			preflightVars = append(preflightVars, fmt.Sprintf("resume_branch=%s", slingResumeBranch))
+		}
+		if err := preflightFormulaBond(formulaName, beadID, info.Title, "", townRoot, preflightVars); err != nil {
+			return err
+		}
+	}
+
+	// Resolve target agent using shared dispatch logic.
+	// Note: args[1] == args[len(args)-1] here because batch mode (len(args) > 2
+	// with rig last arg) exits at line 234. The only remaining case is len(args) <= 2.
 	resolved, err := resolveTarget(target, ResolveTargetOptions{
 		DryRun:       slingDryRun,
 		Force:        force,
@@ -729,6 +784,11 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	targetPane := resolved.Pane
 	hookWorkDir := resolved.WorkDir
 	hookSetAtomically := resolved.HookSetAtomically
+	if strings.Contains(targetAgent, "/polecats/") {
+		if err := validateConcreteWorkBeadInfo(beadID, info); err != nil {
+			return err
+		}
+	}
 	var admission *polecatAdmissionHandle
 	if !slingDryRun && !hookSetAtomically && strings.Contains(targetAgent, "/polecats/") {
 		parts := strings.Split(targetAgent, "/")
@@ -788,7 +848,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	}
 
 	// Handle --force when bead is already hooked/in_progress: send shutdown to old polecat and unhook (GH#1380)
-	if (info.Status == "hooked" || info.Status == "in_progress") && force && info.Assignee != "" {
+	if isActiveAssignmentStatus(info.Status) && force && info.Assignee != "" {
 		fmt.Printf("%s Bead already hooked to %s, forcing reassignment...\n", style.Warning.Render("⚠"), info.Assignee)
 
 		// Determine requester identity from env vars, fall back to "gt-sling"
@@ -804,10 +864,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		if len(assigneeParts) >= 3 && assigneeParts[1] == "polecats" {
 			oldRigName := assigneeParts[0]
 			oldPolecatName := assigneeParts[2]
-
-			// Send LIFECYCLE:Shutdown to witness - will auto-nuke if clean,
-			// otherwise create cleanup wisp for manual intervention
-			if townRoot != "" {
+			if slingDryRun {
+				fmt.Printf("Would send LIFECYCLE:Shutdown to %s/witness for %s\n", oldRigName, oldPolecatName)
+			} else if townRoot != "" {
 				router := mail.NewRouter(townRoot)
 				defer router.WaitPendingNotifications()
 				shutdownMsg := &mail.Message{
@@ -826,9 +885,10 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			}
 		}
 
-		// Unhook the bead from old owner (set status back to open)
 		unhookDir := beads.ResolveHookDir(townRoot, beadID, "")
-		if err := BdCmd("update", beadID, "--status=open", "--assignee=").
+		if slingDryRun {
+			fmt.Printf("Would run: bd update %s --status=open --assignee=\n", beadID)
+		} else if err := BdCmd("update", beadID, "--status=open", "--assignee=").
 			Dir(unhookDir).
 			WithAutoCommit().
 			Run(); err != nil {

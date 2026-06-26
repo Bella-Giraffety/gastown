@@ -16,6 +16,7 @@ import (
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
+	githubrepo "github.com/steveyegge/gastown/internal/github"
 	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/rig"
@@ -86,6 +87,28 @@ func doneContaminationBaseRef(defaultBranch, explicitTarget string) string {
 	return "origin/" + targetBranch
 }
 
+func noMergePRRepoFromOriginPushURL(pushURL string, pushErr error) (string, error) {
+	if pushErr != nil {
+		return "", fmt.Errorf("get origin push URL: %w", pushErr)
+	}
+	repo, err := githubrepo.RepoFromRemoteURL(pushURL)
+	if err != nil {
+		return "", fmt.Errorf("parse origin push URL: %w", err)
+	}
+	return repo, nil
+}
+
+func noMergePRCreateArgs(repo, base, head, title, body string) []string {
+	return []string{
+		"pr", "create",
+		"--repo", repo,
+		"--base", base,
+		"--head", head,
+		"--title", title,
+		"--body", body,
+	}
+}
+
 func shouldSyncIdlePolecatWorktree(exitType, mergeStrategy string, pushFailed, mrFailed, syncSafe bool) bool {
 	if exitType != ExitCompleted || pushFailed || mrFailed || !syncSafe {
 		return false
@@ -93,11 +116,32 @@ func shouldSyncIdlePolecatWorktree(exitType, mergeStrategy string, pushFailed, m
 	return mergeStrategy != "local"
 }
 
+func shouldUpdateAgentStateOnDone(pushFailed, mrFailed bool) bool {
+	return !pushFailed && !mrFailed
+}
+
 func cleanupStatusAfterSuccessfulPush(status string) string {
 	if status == "unpushed" || status == "has_unpushed" {
 		return "clean"
 	}
 	return status
+}
+
+func shouldRejectZeroCommitPolecat(isPolecat bool, cleanupStatus string, mqNotRequiredSource, branchPushedWithWork bool) bool {
+	return isPolecat && cleanupStatus != "clean" && !mqNotRequiredSource && !branchPushedWithWork
+}
+
+func shouldVerifyNoMRClose(skipVerify, mqNotRequiredSource, isPolecat bool, cleanupStatus string) (bool, string) {
+	switch {
+	case skipVerify:
+		return false, "--skip-verify on no-MR close"
+	case mqNotRequiredSource:
+		return false, "mq-not-required source on no-MR close"
+	case isPolecat && cleanupStatus == "clean":
+		return false, "polecat clean no-MR completion"
+	default:
+		return true, ""
+	}
 }
 
 func init() {
@@ -579,18 +623,13 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			}
 		}
 
-		// Check no_merge or review_only flags on the hooked bead. When set,
+		// Check no_merge, review_only, or local merge strategy on the hooked bead. When set,
 		// this is a non-code task (email, research, analysis, PRD review)
 		// where zero commits is expected.
 		// Must be checked before the zero-commit guard below (GH#2496, gt-kvf).
-		isNoMergeTask := false
+		mqNotRequiredSource := false
 		if issueID != "" {
-			noMergeBd := beads.New(cwd)
-			if noMergeIssue, showErr := noMergeBd.Show(issueID); showErr == nil {
-				if af := beads.ParseAttachmentFields(noMergeIssue); af != nil && (af.NoMerge || af.ReviewOnly) {
-					isNoMergeTask = true
-				}
-			}
+			mqNotRequiredSource = isMQNotRequiredSource(beads.New(cwd), issueID)
 		}
 
 		// If no commits ahead, work was likely pushed directly to main (or already merged)
@@ -602,24 +641,25 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// IMPORTANT: The error message must NOT mention --cleanup-status=clean.
 		// LLM agents read error messages and self-bypass (the original bug).
 		if aheadCount == 0 {
-			if os.Getenv("GT_POLECAT") != "" && doneCleanupStatus != "clean" && !isNoMergeTask {
+			isPolecat := os.Getenv("GT_POLECAT") != ""
+			branchPushedWithWork := false
+			if isPolecat && doneCleanupStatus != "clean" && !mqNotRequiredSource {
 				// Before failing, check whether commits exist on the remote feature branch.
 				// After a polecat pushes to origin/<feature-branch> and submits an MR,
 				// if master advances (e.g., other MRs land), the feature branch is no
 				// longer ahead of origin/master — but the work WAS committed and pushed.
 				// In that case, treat as "MR already submitted" and fall through. (GH#wd7)
-				branchPushedWithWork := false
 				if branch != defaultBranch {
 					pushed, unpushed, pushErr := g.BranchPushedToRemote(branch, "origin")
 					branchPushedWithWork = pushErr == nil && pushed && unpushed == 0
 				}
-				if !branchPushedWithWork {
-					return fmt.Errorf("cannot complete: no commits on branch ahead of %s\n"+
-						"Polecats must have at least 1 commit to submit.\n"+
-						"If the bug was already fixed upstream: gt done --status DEFERRED\n"+
-						"If you're blocked: gt done --status ESCALATED",
-						originDefault)
-				}
+			}
+			if shouldRejectZeroCommitPolecat(isPolecat, doneCleanupStatus, mqNotRequiredSource, branchPushedWithWork) {
+				return fmt.Errorf("cannot complete: no commits on branch ahead of %s\n"+
+					"Polecats must have at least 1 commit to submit.\n"+
+					"If the bug was already fixed upstream: gt done --status DEFERRED\n"+
+					"If you're blocked: gt done --status ESCALATED",
+					originDefault)
 			}
 
 			// Non-polecat (crew/mayor), polecat with --cleanup-status=clean
@@ -655,12 +695,17 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				if !skipClose {
 					closeReason := "Completed with no code changes (already fixed or pushed directly to main)"
 					noMRCommitSHA, _ := g.Rev("HEAD")
-					if doneSkipVerify {
-						noteVerifiedPushSkipped(cwd, issueID, defaultBranch, noMRCommitSHA, "--skip-verify on no-MR close")
+					verifyNoMRClose, skipVerifyReason := shouldVerifyNoMRClose(doneSkipVerify, mqNotRequiredSource, isPolecat, doneCleanupStatus)
+					if !verifyNoMRClose {
+						noteVerifiedPushSkipped(cwd, issueID, defaultBranch, noMRCommitSHA, skipVerifyReason)
 						if noMRCommitSHA != "" {
-							closeReason = fmt.Sprintf("%s\nskip_verify: true\ntarget_branch: %s\ncommit_sha: %s", closeReason, defaultBranch, noMRCommitSHA)
+							if doneSkipVerify {
+								closeReason = fmt.Sprintf("%s\nskip_verify: true\ntarget_branch: %s\ncommit_sha: %s", closeReason, defaultBranch, noMRCommitSHA)
+							} else {
+								closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, defaultBranch, noMRCommitSHA)
+							}
 						}
-					} else if !isNoMergeTask {
+					} else {
 						if verifyErr := g.VerifyPushedCommit("origin", defaultBranch, noMRCommitSHA); verifyErr != nil {
 							noteVerifiedPushFailure(cwd, issueID, defaultBranch, noMRCommitSHA, verifyErr)
 							return fmt.Errorf("cannot close no-MR code bead: %w", verifyErr)
@@ -948,6 +993,20 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 		// Check for no_merge flag - if set, skip merge queue and notify for review
 		sourceIssueForNoMerge, err := bd.Show(issueID)
+		if err != nil {
+			mrFailed = true
+			errMsg := fmt.Sprintf("source issue validation failed: source_issue %s could not be resolved: %v", issueID, err)
+			doneErrors = append(doneErrors, errMsg)
+			style.PrintWarning("%s\nBranch is pushed but MR bead not created. Witness will be notified.", errMsg)
+			goto notifyWitness
+		}
+		if err := validateConcreteSourceIssue(issueID, sourceIssueForNoMerge); err != nil {
+			mrFailed = true
+			errMsg := fmt.Sprintf("source issue validation failed: %v", err)
+			doneErrors = append(doneErrors, errMsg)
+			style.PrintWarning("%s\nBranch is pushed but MR bead not created. Witness will be notified.", errMsg)
+			goto notifyWitness
+		}
 		if err == nil {
 			attachmentFields := beads.ParseAttachmentFields(sourceIssueForNoMerge)
 			if attachmentFields != nil && attachmentFields.NoMerge {
@@ -996,16 +1055,28 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					prBodyBuilder.WriteString("---\n")
 					prBodyBuilder.WriteString(fmt.Sprintf("*Polecat: %s | Issue: %s*\n", worker, issueID))
 					prBody := prBodyBuilder.String()
-					ghCmd := exec.CommandContext(context.Background(), "gh", "pr", "create",
-						"--base", defaultBranch,
-						"--head", branch,
-						"--title", prTitle,
-						"--body", prBody,
-					)
+					originPushURL, originPushErr := g.GetPushURL("origin")
+					prRepo, prRepoErr := noMergePRRepoFromOriginPushURL(originPushURL, originPushErr)
+					if prRepoErr != nil {
+						mrFailed = true
+						errMsg := fmt.Sprintf("could not determine GitHub repo for PR creation: %v", prRepoErr)
+						doneErrors = append(doneErrors, errMsg)
+						style.PrintWarning("%s\nBranch is pushed but source issue left open for review.", errMsg)
+						goto notifyWitness
+					}
+
+					ghCmd := exec.CommandContext(context.Background(), "gh", noMergePRCreateArgs(prRepo, defaultBranch, branch, prTitle, prBody)...)
 					ghCmd.Dir = cwd
-					prOutput, prErr := ghCmd.Output()
+					prOutput, prErr := ghCmd.CombinedOutput()
 					if prErr != nil {
-						style.PrintWarning("could not create GitHub PR: %v", prErr)
+						mrFailed = true
+						errMsg := fmt.Sprintf("could not create GitHub PR: %v", prErr)
+						if output := strings.TrimSpace(string(prOutput)); output != "" {
+							errMsg = fmt.Sprintf("%s: %s", errMsg, output)
+						}
+						doneErrors = append(doneErrors, errMsg)
+						style.PrintWarning("%s\nBranch is pushed but source issue left open for review.", errMsg)
+						goto notifyWitness
 					} else {
 						prURL = strings.TrimSpace(string(prOutput))
 						fmt.Printf("%s GitHub PR created: %s\n", style.Bold.Render("✓"), prURL)
@@ -1185,12 +1256,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		if donePriority >= 0 {
 			priority = donePriority
 		} else {
-			sourceIssue, err := bd.Show(issueID)
-			if err != nil {
-				priority = 2 // Default
-			} else {
-				priority = sourceIssue.Priority
-			}
+			priority = sourceIssueForNoMerge.Priority
 		}
 
 		// Pre-declare for checkpoint goto (gt-aufru)
@@ -1213,6 +1279,13 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if cpMR, cpErr := bd.Show(cpMRID); cpErr == nil && cpMR != nil {
 				branchPrefix := "branch: " + branch + "\n"
 				if strings.HasPrefix(cpMR.Description, branchPrefix) {
+					if err := validateMergeRequestSource(bd, cpMR, issueID); err != nil {
+						mrFailed = true
+						errMsg := fmt.Sprintf("MR checkpoint validation failed: %v", err)
+						doneErrors = append(doneErrors, errMsg)
+						style.PrintWarning("%s\nBranch is pushed but MR checkpoint is malformed. Witness will be notified.", errMsg)
+						goto notifyWitness
+					}
 					mrID = cpMRID
 					fmt.Printf("%s MR already created (resumed from checkpoint: %s)\n", style.Bold.Render("✓"), mrID)
 					goto afterMR
@@ -1235,6 +1308,13 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		}
 
 		if existingMR != nil {
+			if err := validateMergeRequestSource(bd, existingMR, issueID); err != nil {
+				mrFailed = true
+				errMsg := fmt.Sprintf("existing MR validation failed: %v", err)
+				doneErrors = append(doneErrors, errMsg)
+				style.PrintWarning("%s\nBranch is pushed but existing MR is malformed. Witness will be notified.", errMsg)
+				goto notifyWitness
+			}
 			// MR already exists with same branch AND commit — true idempotent retry
 			mrID = existingMR.ID
 			fmt.Printf("%s MR already exists (idempotent)\n", style.Bold.Render("✓"))
@@ -1443,8 +1523,13 @@ notifyWitness:
 		style.PrintWarning("could not log feed event: %v", err)
 	}
 
-	// Update agent bead state (ZFC: self-report completion)
-	updateAgentStateOnDone(cwd, townRoot, exitType, issueID)
+	// Update agent bead state (ZFC: self-report completion). If push/MR failed,
+	// keep the hook intact so Witness can recover the still-open work.
+	if shouldUpdateAgentStateOnDone(pushFailed, mrFailed) {
+		updateAgentStateOnDone(cwd, townRoot, exitType, issueID)
+	} else {
+		style.PrintWarning("skipping agent idle cleanup because push or MR submission failed")
+	}
 
 	// Nudge witness only after hook/cleanup state is updated. Otherwise witness can
 	// evaluate slot availability against stale hook_bead or cleanup_status and emit

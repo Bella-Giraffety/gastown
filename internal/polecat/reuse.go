@@ -11,6 +11,7 @@ var ErrPolecatNeedsRecovery = errors.New("polecat needs recovery before reuse")
 type SlotReuseInput struct {
 	State                State
 	HookBead             string
+	ActiveWorkBlocker    string
 	CleanupStatus        CleanupStatus
 	IgnoreCleanupStatus  bool
 	PushFailed           bool
@@ -24,6 +25,7 @@ type SlotReuseInput struct {
 	GitCheckFailedReason string
 	ActiveMR             string
 	ActiveMRBlocker      string
+	ActiveMRMalformed    bool
 	MQCheckRequired      bool
 	HasSubmittableWork   bool
 	MQNotRequired        bool
@@ -44,6 +46,7 @@ func DecideSlotReuse(in SlotReuseInput) SlotReuseDecision {
 	d := DecideWorkstate(WorkstateInput{
 		State:                in.State,
 		HookBead:             in.HookBead,
+		ActiveWorkBlocker:    in.ActiveWorkBlocker,
 		CleanupStatus:        in.CleanupStatus,
 		IgnoreCleanupStatus:  in.IgnoreCleanupStatus,
 		PushFailed:           in.PushFailed,
@@ -57,6 +60,7 @@ func DecideSlotReuse(in SlotReuseInput) SlotReuseDecision {
 		GitCheckFailedReason: in.GitCheckFailedReason,
 		ActiveMR:             in.ActiveMR,
 		ActiveMRBlocker:      in.ActiveMRBlocker,
+		ActiveMRMalformed:    in.ActiveMRMalformed,
 		MQCheckRequired:      in.MQCheckRequired,
 		HasSubmittableWork:   in.HasSubmittableWork,
 		MQNotRequired:        in.MQNotRequired,

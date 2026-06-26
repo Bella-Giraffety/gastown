@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -25,6 +26,7 @@ import (
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/telemetry"
 	"github.com/steveyegge/gastown/internal/tmux"
+	"github.com/steveyegge/gastown/internal/workitem"
 	"github.com/steveyegge/gastown/internal/workspace"
 )
 
@@ -98,6 +100,139 @@ type beadInfo struct {
 	Labels       []string         `json:"labels,omitempty"`
 	Dependencies []beads.IssueDep `json:"dependencies,omitempty"`
 	IssueType    string           `json:"issue_type,omitempty"`
+	Ephemeral    bool             `json:"ephemeral,omitempty"`
+}
+
+var errBeadTargetRigMismatch = errors.New("bead does not resolve to target rig")
+
+func workSnapshotFromBeadInfo(beadID string, info *beadInfo) workitem.Snapshot {
+	if info == nil {
+		return workitem.Snapshot{ID: beadID}
+	}
+	return workitem.Snapshot{
+		ID:        beadID,
+		Title:     info.Title,
+		Type:      info.IssueType,
+		Labels:    info.Labels,
+		Ephemeral: info.Ephemeral,
+	}
+}
+
+func workSnapshotFromIssue(issue *beads.Issue) workitem.Snapshot {
+	if issue == nil {
+		return workitem.Snapshot{}
+	}
+	return workitem.Snapshot{
+		ID:        issue.ID,
+		Title:     issue.Title,
+		Type:      issue.Type,
+		Labels:    issue.Labels,
+		Ephemeral: issue.Ephemeral,
+	}
+}
+
+func validateConcreteWorkBeadInfo(beadID string, info *beadInfo) error {
+	assessment := workitem.AssessConcrete(workSnapshotFromBeadInfo(beadID, info))
+	if assessment.Concrete {
+		return nil
+	}
+	return fmt.Errorf("refusing to dispatch internal artifact %s (%s): expected a concrete work bead", beadID, assessment.Reason)
+}
+
+func validateConcreteSourceIssue(issueID string, issue *beads.Issue) error {
+	assessment := workitem.AssessConcrete(workSnapshotFromIssue(issue))
+	if assessment.Concrete {
+		return nil
+	}
+	if issueID == "" {
+		issueID = "<missing>"
+	}
+	return fmt.Errorf("refusing to create merge request for non-concrete source_issue %s (%s)", issueID, assessment.Reason)
+}
+
+type mrIssueShower interface {
+	Show(issueID string) (*beads.Issue, error)
+}
+
+func validateMergeRequestSource(shower mrIssueShower, mr *beads.Issue, expectedIssueID string) error {
+	if mr == nil {
+		return fmt.Errorf("merge request is missing")
+	}
+	fields := beads.ParseMRFields(mr)
+	if fields == nil || strings.TrimSpace(fields.SourceIssue) == "" {
+		return fmt.Errorf("merge request %s has missing source_issue", mr.ID)
+	}
+	if expectedIssueID != "" && fields.SourceIssue != expectedIssueID {
+		return fmt.Errorf("merge request %s source_issue=%s does not match expected %s", mr.ID, fields.SourceIssue, expectedIssueID)
+	}
+	if shower == nil {
+		return nil
+	}
+	issue, err := shower.Show(fields.SourceIssue)
+	if err != nil {
+		return fmt.Errorf("merge request %s source_issue %s could not be resolved: %w", mr.ID, fields.SourceIssue, err)
+	}
+	return validateConcreteSourceIssue(fields.SourceIssue, issue)
+}
+
+func isPolecatWorkTarget(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	if _, isRig := IsRigName(target); isRig {
+		return true
+	}
+	if isPolecatTarget(target) {
+		return true
+	}
+	parts := strings.Split(target, "/")
+	if len(parts) == 2 {
+		if _, isRig := IsRigName(parts[0]); isRig {
+			switch parts[1] {
+			case "crew", "witness", "refinery", "mayor", "deacon":
+				return false
+			default:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isSelfPolecatFormulaTarget(target string) bool {
+	target = strings.TrimSpace(target)
+	if target != "" && target != "." {
+		return false
+	}
+	if role := os.Getenv("GT_ROLE"); role != "" {
+		parsedRole, _, _ := parseRoleString(role)
+		return parsedRole == RolePolecat
+	}
+	return os.Getenv("GT_POLECAT") != ""
+}
+
+func validateStandaloneFormulaTarget(formulaName, target string) error {
+	if isPolecatWorkTarget(target) || isSelfPolecatFormulaTarget(target) {
+		if strings.TrimSpace(target) == "" {
+			target = "."
+		}
+		return fmt.Errorf("refusing standalone formula %s sling to polecat target %q: use --on <concrete-issue> so the formula attaches to durable work", formulaName, target)
+	}
+	return nil
+}
+
+func isTerminalWorkStatus(status string) bool {
+	return beads.IssueStatus(strings.TrimSpace(status)).IsTerminal()
+}
+
+func isProtectedDispatchStatus(status string) bool {
+	s := beads.IssueStatus(strings.TrimSpace(status))
+	return s == beads.IssueStatusPinned || s.IsAssigned()
+}
+
+func isActiveAssignmentStatus(status string) bool {
+	return beads.IssueStatus(strings.TrimSpace(status)).IsAssigned()
 }
 
 // isDeferredBead checks whether a bead should be rejected from slinging because
@@ -307,11 +442,10 @@ func verifyBeadExists(beadID string) error {
 	return nil
 }
 
-// verifyBeadExistsInTargetRigDatabase checks the target rig's beads database
-// directly instead of following prefix routing. This prevents gt sling from
-// spawning polecats or creating molecule/hook side effects for beads that only
-// resolve from HQ or another rig database.
-func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) error {
+// verifyBeadResolvesForTargetRig checks the bead through the same prefix-routed
+// database context used by gt show, hook updates, scheduler readiness, and
+// formula bonding, then verifies that context belongs to the target rig.
+func verifyBeadResolvesForTargetRig(beadID, targetRig, townRoot string) error {
 	if beadID == "" {
 		return nil
 	}
@@ -322,23 +456,24 @@ func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) err
 		return fmt.Errorf("cannot verify bead %s in target rig %q: town root is unavailable; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
 	}
 
+<<<<<<< HEAD
 	targetBeadsDir, ok := beads.ResolveRepoAliasBeadsDir(townRoot, targetRig)
 	if !ok {
+=======
+	targetBeadsDir := targetRigBeadsDir(townRoot, targetRig)
+	if targetBeadsDir == "" {
+>>>>>>> origin/main
 		return fmt.Errorf("cannot resolve target rig %q beads database for bead %s; refusing to sling before creating hooks or molecule side effects", targetRig, beadID)
 	}
 	targetRigDir := filepath.Dir(targetBeadsDir)
 
-	out, err := BdCmd("show", beadID, "--json").
-		AllowStale().
-		Dir(targetRigDir).
-		WithBeadsDir(targetBeadsDir).
-		StripBeadsDir().
-		Stderr(io.Discard).
-		Output()
+	resolvedBeadsDir := beads.ResolveBeadsDirForID(filepath.Join(townRoot, ".beads"), beadID)
+	if !sameBeadsDir(resolvedBeadsDir, targetBeadsDir) {
+		return fmt.Errorf("%w: bead %s does not resolve to target rig %q beads database; refusing to sling before creating hooks or molecule side effects", errBeadTargetRigMismatch, beadID, targetRig)
+	}
+
+	out, err := bdShowBeadDirectCmdFromTownRoot(townRoot, beadID).Stderr(io.Discard).Output()
 	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-		if routedBeadExistsForTargetRig(beadID, targetRig, townRoot) {
-			return nil
-		}
 		return fmt.Errorf("bead %s is not present in target rig %q beads database; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
 	}
 
@@ -347,22 +482,37 @@ func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) err
 		return fmt.Errorf("checking target rig %q database for bead %s: %w", targetRig, beadID, err)
 	}
 	if len(infos) == 0 {
-		if routedBeadExistsForTargetRig(beadID, targetRig, townRoot) {
-			return nil
-		}
 		return fmt.Errorf("bead %s is not present in target rig %q beads database; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
 	}
 
 	return nil
 }
 
-func routedBeadExistsForTargetRig(beadID, targetRig, townRoot string) bool {
-	prefixRig := beads.GetRigNameForPrefix(townRoot, beads.ExtractPrefix(beadID))
-	if prefixRig != targetRig {
+func targetRigBeadsDir(townRoot, targetRig string) string {
+	targetRigDir := beads.GetRigDirForName(townRoot, targetRig)
+	if targetRigDir != "" {
+		return beads.ResolveBeadsDir(targetRigDir)
+	}
+	targetBeadsDir := doltserver.FindRigBeadsDir(townRoot, targetRig)
+	if targetBeadsDir == "" {
+		return ""
+	}
+	return targetBeadsDir
+}
+
+func sameBeadsDir(a, b string) bool {
+	if a == "" || b == "" {
 		return false
 	}
-	out, err := bdShowBeadRoutedCmdFromTownRoot(townRoot, beadID).Stderr(io.Discard).Output()
-	return err == nil && len(strings.TrimSpace(string(out))) > 0
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if resolved, err := filepath.EvalSymlinks(a); err == nil {
+		a = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(b); err == nil {
+		b = resolved
+	}
+	return a == b
 }
 
 func bdShowBeadOutput(beadID string) ([]byte, error) {
@@ -912,6 +1062,44 @@ type FormulaOnBeadResult struct {
 	FormulaVars []string // Vars used to instantiate/render the formula
 }
 
+func formulaVarsForBead(formulaName, beadID, title string, extraVars []string) []string {
+	vars := []string{
+		fmt.Sprintf("feature=%s", title),
+		fmt.Sprintf("issue=%s", beadID),
+	}
+	vars = append(vars, extraVars...)
+	return ensureFormulaRequiredVars(formulaName, vars)
+}
+
+func preflightFormulaBond(formulaName, beadID, title, hookWorkDir, townRoot string, extraVars []string) error {
+	formulaWorkDir := beads.ResolveHookDir(townRoot, beadID, hookWorkDir)
+	vars := formulaVarsForBead(formulaName, beadID, title, extraVars)
+	if err := preflightFormulaBondWithFormula(formulaName, beadID, formulaWorkDir, townRoot, vars); err == nil {
+		return nil
+	} else {
+		resolvedFormula, cleanup := resolveFormulaToTempFile(formulaName)
+		if cleanup != nil {
+			defer cleanup()
+		}
+		if resolvedFormula != formulaName {
+			if retryErr := preflightFormulaBondWithFormula(resolvedFormula, beadID, formulaWorkDir, townRoot, vars); retryErr == nil {
+				return nil
+			} else {
+				return fmt.Errorf("formula bond preflight for %s on %s failed: %w (embedded retry: %v)", formulaName, beadID, err, retryErr)
+			}
+		}
+		return fmt.Errorf("formula bond preflight for %s on %s failed: %w", formulaName, beadID, err)
+	}
+}
+
+func preflightFormulaBondWithFormula(formulaName, beadID, formulaWorkDir, townRoot string, vars []string) error {
+	args := []string{"mol", "bond", formulaName, beadID, "--dry-run", "--ephemeral"}
+	for _, variable := range vars {
+		args = append(args, "--var", variable)
+	}
+	return BdCmd(args...).Dir(formulaWorkDir).WithGTRoot(townRoot).Run()
+}
+
 // InstantiateFormulaOnBead creates a wisp from a formula, bonds it to a bead.
 // This is the formula-on-bead pattern used by issue #288 for auto-applying mol-polecat-work.
 //
@@ -966,11 +1154,9 @@ func InstantiateFormulaOnBead(ctx context.Context, formulaName, beadID, title, h
 
 	// Build variable list once so both legacy and fallback paths use
 	// identical formula inputs.
+	formulaVars := formulaVarsForBead(formulaName, beadID, title, extraVars)
 	featureVar := fmt.Sprintf("feature=%s", title)
 	issueVar := fmt.Sprintf("issue=%s", beadID)
-	formulaVars := []string{featureVar, issueVar}
-	formulaVars = append(formulaVars, extraVars...)
-	formulaVars = ensureFormulaRequiredVars(formulaName, formulaVars)
 
 	// Step 2: Create wisp with feature and issue variables from bead.
 	// Use resolvedFormula which may be a temp file path if the embedded fallback was used.

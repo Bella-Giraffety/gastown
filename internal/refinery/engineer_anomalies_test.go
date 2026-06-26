@@ -1,11 +1,42 @@
 package refinery
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/workitem"
 )
+
+type fakeMRRefChecker struct {
+	exists    map[string]bool
+	contained bool
+	cherry    string
+	err       error
+}
+
+func (f fakeMRRefChecker) RefExists(ref string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.exists[ref], nil
+}
+
+func (f fakeMRRefChecker) IsAncestor(_, _ string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.contained, nil
+}
+
+func (f fakeMRRefChecker) Cherry(_, _ string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.cherry, nil
+}
 
 func TestDetectQueueAnomalies_StaleClaim(t *testing.T) {
 	now := time.Date(2026, 2, 10, 12, 0, 0, 0, time.UTC)
@@ -92,5 +123,119 @@ worker: nux`,
 	// ZFC: no severity field — agent classifies from type + context.
 	if anomalies[0].ID != "gt-orphan" {
 		t.Fatalf("anomaly ID = %q, want gt-orphan", anomalies[0].ID)
+	}
+}
+
+func TestDetectQueueAnomalies_MalformedMRFields(t *testing.T) {
+	now := time.Date(2026, 2, 10, 12, 0, 0, 0, time.UTC)
+	issues := []*beads.Issue{
+		{
+			ID:          "gt-missing-fields",
+			Status:      "open",
+			Description: "created by older tooling before MR fields existed",
+		},
+		{
+			ID:     "gt-missing-branch",
+			Status: "open",
+			Description: `target: main
+source_issue: gt-src`,
+		},
+	}
+
+	anomalies := detectQueueAnomalies(issues, now, 2*time.Hour, func(branch string) (bool, bool, error) {
+		t.Fatalf("branch existence should not be checked for malformed MR fields, got %q", branch)
+		return false, false, nil
+	})
+
+	if len(anomalies) != 2 {
+		t.Fatalf("expected 2 anomalies, got %d (%+v)", len(anomalies), anomalies)
+	}
+	for _, anomaly := range anomalies {
+		if anomaly.Type != "malformed-mr" {
+			t.Fatalf("anomaly type = %q, want malformed-mr", anomaly.Type)
+		}
+		if !strings.Contains(anomaly.Detail, "MR bead") {
+			t.Fatalf("anomaly detail missing MR context: %+v", anomaly)
+		}
+	}
+}
+
+func TestMalformedMRBranchEvidence(t *testing.T) {
+	tests := []struct {
+		name      string
+		checker   fakeMRRefChecker
+		branch    string
+		target    string
+		wantParts []string
+	}{
+		{
+			name:   "contained",
+			branch: "polecat/fix",
+			target: "main",
+			checker: fakeMRRefChecker{exists: map[string]bool{
+				"origin/polecat/fix": true,
+				"origin/main":        true,
+			}, contained: true},
+			wantParts: []string{"branch_containment=contained", "branch_ref=origin/polecat/fix", "target_ref=origin/main"},
+		},
+		{
+			name:   "uncontained with patch count",
+			branch: "polecat/fix",
+			target: "main",
+			checker: fakeMRRefChecker{exists: map[string]bool{
+				"origin/polecat/fix": true,
+				"origin/main":        true,
+			}, cherry: "+ abc\n- def\n+ fed\n"},
+			wantParts: []string{"branch_containment=uncontained", "unpreserved_patches=2"},
+		},
+		{
+			name:      "missing branch",
+			branch:    "polecat/missing",
+			target:    "main",
+			checker:   fakeMRRefChecker{exists: map[string]bool{"origin/main": true}},
+			wantParts: []string{"branch_containment=unknown", "reason=missing"},
+		},
+		{
+			name:      "lookup error",
+			branch:    "polecat/fix",
+			target:    "main",
+			checker:   fakeMRRefChecker{err: errors.New("git exploded")},
+			wantParts: []string{"branch_containment=unknown", "lookup_error:git exploded"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := malformedMRBranchEvidence(tt.checker, tt.branch, tt.target)
+			for _, want := range tt.wantParts {
+				if !strings.Contains(got, want) {
+					t.Fatalf("malformedMRBranchEvidence() = %q, want to contain %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestMalformedSourceMarkedDescription(t *testing.T) {
+	issue := &beads.Issue{Description: "branch: polecat/fix\ntarget: main\nsource_issue: gt-wisp-abc"}
+	desc, changed := malformedSourceMarkedDescription(issue, workitem.Assessment{Reason: "wisp-id"}, "branch_containment=contained branch_ref=origin/polecat/fix target_ref=origin/main")
+	if !changed {
+		t.Fatalf("malformedSourceMarkedDescription changed = false, want true")
+	}
+	for _, want := range []string{
+		"malformed_source: true",
+		"malformed_source_reason: wisp-id",
+		"malformed_branch_evidence: branch_containment=contained branch_ref=origin/polecat/fix target_ref=origin/main",
+		"source_issue: gt-wisp-abc",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("description missing %q:\n%s", want, desc)
+		}
+	}
+
+	issue.Description = desc
+	desc, changed = malformedSourceMarkedDescription(issue, workitem.Assessment{Reason: "wisp-id"}, "branch_containment=contained branch_ref=origin/polecat/fix target_ref=origin/main")
+	if changed {
+		t.Fatalf("malformedSourceMarkedDescription changed = true for already marked description:\n%s", desc)
 	}
 }

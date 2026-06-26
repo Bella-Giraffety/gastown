@@ -55,6 +55,10 @@ switch ($cmd) {
     Write-Error '{"error":"not found"}'
     exit 1
   }
+  'query' {
+    Write-Output '[{"id":"mock-agent","title":"agent","issue_type":"task","status":"open","labels":["gt:agent"],"description":"agent\n\nrole_type: polecat\nagent_state: idle\nhook_bead: null\ncleanup_status: clean"}]'
+    exit 0
+  }
   default { exit 0 }
 }
 `
@@ -88,6 +92,10 @@ case "$cmd" in
       esac
     done
     echo "{\"id\":\"$bead_id\",\"status\":\"open\",\"created_at\":\"2025-01-01T00:00:00Z\"}"
+    exit 0
+    ;;
+  query)
+    printf '[{"id":"mock-agent","title":"agent","issue_type":"task","status":"open","labels":["gt:agent"],"description":"agent\\n\\nrole_type: polecat\\nagent_state: idle\\nhook_bead: null\\ncleanup_status: clean"}]\n'
     exit 0
     ;;
   show)
@@ -288,11 +296,12 @@ func TestActiveWorkBeadsForCleanupFiltersAssignedIssues(t *testing.T) {
 		{ID: "agent", Status: "open", Type: "agent"},
 		{ID: "protected", Status: "open", Type: "task", Labels: []string{"gt:keep"}},
 		{ID: "deferred", Status: "deferred", Type: "task"},
+		{ID: "pinned", Status: "pinned", Type: "task"},
 		nil,
 	}
 
 	got := activeWorkBeadsForCleanup(issues)
-	want := []string{"open-work", "progress-work", "hooked-work"}
+	want := []string{"open-work", "progress-work", "hooked-work", "deferred", "pinned"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d issue(s), want %d: %#v", len(got), len(want), got)
 	}
@@ -300,6 +309,38 @@ func TestActiveWorkBeadsForCleanupFiltersAssignedIssues(t *testing.T) {
 		if got[i].ID != want[i] {
 			t.Fatalf("got IDs %v, want %v", issueIDs(got), want)
 		}
+	}
+}
+
+func TestAssessStalenessBlocksActiveWork(t *testing.T) {
+	tests := []struct {
+		name string
+		info *StalenessInfo
+	}{
+		{
+			name: "active assigned work",
+			info: &StalenessInfo{CommitsBehind: 100, ActiveWorkBlocker: "assigned_work=gt-work status=hooked", RequiresRestart: true},
+		},
+		{
+			name: "working agent state",
+			info: &StalenessInfo{CommitsBehind: 100, ActiveWorkBlocker: "agent_state=working", RequiresRestart: true},
+		},
+		{
+			name: "spawning agent state",
+			info: &StalenessInfo{CommitsBehind: 100, ActiveWorkBlocker: "agent_state=spawning", RequiresRestart: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stale, reason := assessStaleness(tt.info, 20)
+			if stale {
+				t.Fatalf("assessStaleness() stale=true, want false")
+			}
+			if reason != tt.info.ActiveWorkBlocker {
+				t.Fatalf("reason = %q, want %q", reason, tt.info.ActiveWorkBlocker)
+			}
+		})
 	}
 }
 
@@ -951,14 +992,26 @@ func TestIsCurrentHookedIssueForAssignee(t *testing.T) {
 		{
 			name: "hooked and matching assignee",
 			issue: &beads.Issue{
+				ID:       "gt-work",
 				Status:   beads.StatusHooked,
 				Assignee: assignee,
 			},
 			want: true,
 		},
 		{
+			name: "hooked matching assignee but non-concrete",
+			issue: &beads.Issue{
+				ID:        "gt-wisp-abc",
+				Status:    beads.StatusHooked,
+				Assignee:  assignee,
+				Ephemeral: true,
+			},
+			want: false,
+		},
+		{
 			name: "hooked but different assignee",
 			issue: &beads.Issue{
+				ID:       "gt-work",
 				Status:   beads.StatusHooked,
 				Assignee: "testrig/polecats/nux",
 			},
@@ -1319,6 +1372,84 @@ func TestReuseIdlePolecat_SetupCommandFailureCleansWorktree(t *testing.T) {
 	dirtyPath := filepath.Join(mgr.clonePath("toast"), "dirty-setup-marker")
 	if _, statErr := os.Stat(dirtyPath); !os.IsNotExist(statErr) {
 		t.Fatalf("dirty setup marker %s still exists after setup_command cleanup", dirtyPath)
+	}
+}
+
+func TestReuseIdlePolecat_DoesNotCleanTargetBeforeStartPointResolved(t *testing.T) {
+	mgr, _ := setupCanonicalBranchManagerTest(t)
+
+	polecat, err := mgr.AddWithOptions("toast", AddOptions{})
+	if err != nil {
+		t.Fatalf("AddWithOptions: %v", err)
+	}
+	worktreeGit := git.NewGit(polecat.ClonePath)
+	_ = worktreeGit.CleanForce()
+
+	headBefore, err := worktreeGit.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev HEAD before reuse: %v", err)
+	}
+	branchBefore, err := worktreeGit.CurrentBranch()
+	if err != nil {
+		t.Fatalf("CurrentBranch before reuse: %v", err)
+	}
+	excludeCmd := exec.Command("git", "rev-parse", "--git-path", "info/exclude")
+	excludeCmd.Dir = polecat.ClonePath
+	excludeOut, err := excludeCmd.Output()
+	if err != nil {
+		t.Fatalf("resolve local exclude path: %v", err)
+	}
+	excludePath := strings.TrimSpace(string(excludeOut))
+	if !filepath.IsAbs(excludePath) {
+		excludePath = filepath.Join(polecat.ClonePath, excludePath)
+	}
+	if err := os.MkdirAll(filepath.Dir(excludePath), 0755); err != nil {
+		t.Fatalf("mkdir local exclude dir: %v", err)
+	}
+	if f, err := os.OpenFile(excludePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err != nil {
+		t.Fatalf("open local exclude: %v", err)
+	} else {
+		if _, err := f.WriteString("\ntarget/\n"); err != nil {
+			_ = f.Close()
+			t.Fatalf("write local exclude: %v", err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatalf("close local exclude: %v", err)
+		}
+	}
+
+	targetMarker := filepath.Join(polecat.ClonePath, "target", "debug", "marker")
+	if err := os.MkdirAll(filepath.Dir(targetMarker), 0755); err != nil {
+		t.Fatalf("mkdir target marker dir: %v", err)
+	}
+	if err := os.WriteFile(targetMarker, []byte("preserve"), 0644); err != nil {
+		t.Fatalf("write target marker: %v", err)
+	}
+	counterPath := targetCleanCounterFile(mgr.polecatDir("toast"))
+
+	_, err = mgr.ReuseIdlePolecat("toast", AddOptions{HookBead: "gt-next", BaseBranch: "origin/missing-start-point"})
+	if err == nil || !strings.Contains(err.Error(), "start point origin/missing-start-point not found") {
+		t.Fatalf("ReuseIdlePolecat error = %v, want missing start point", err)
+	}
+	if _, err := os.Stat(targetMarker); err != nil {
+		t.Fatalf("target marker was mutated before start point resolved: %v", err)
+	}
+	if _, err := os.Stat(counterPath); !os.IsNotExist(err) {
+		t.Fatalf("target-clean counter mutated before start point resolved: %v", err)
+	}
+	headAfter, err := worktreeGit.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev HEAD after reuse: %v", err)
+	}
+	if headAfter != headBefore {
+		t.Fatalf("HEAD changed before start point resolved: before %s after %s", headBefore, headAfter)
+	}
+	branchAfter, err := worktreeGit.CurrentBranch()
+	if err != nil {
+		t.Fatalf("CurrentBranch after reuse: %v", err)
+	}
+	if branchAfter != branchBefore {
+		t.Fatalf("branch changed before start point resolved: before %s after %s", branchBefore, branchAfter)
 	}
 }
 

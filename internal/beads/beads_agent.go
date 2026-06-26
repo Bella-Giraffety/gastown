@@ -4,7 +4,6 @@ package beads
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -628,12 +627,17 @@ func (b *Beads) GetAgentBead(id string) (*Issue, *AgentFields, error) {
 		return target.GetAgentBead(id)
 	}
 
-	issue, err := b.Show(id)
+	issue, err := b.GetAgentIssueBead(id)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
+		return nil, nil, err
+	}
+	if issue == nil {
+		if wispBeads, _ := b.ListAgentBeadsFromWisps(); wispBeads != nil {
+			issue = wispBeads[id]
+		}
+		if issue == nil {
 			return nil, nil, nil
 		}
-		return nil, nil, err
 	}
 
 	if !IsAgentBead(issue) {
@@ -645,6 +649,32 @@ func (b *Beads) GetAgentBead(id string) (*Issue, *AgentFields, error) {
 	return issue, fields, nil
 }
 
+// GetAgentIssueBead retrieves one issue-backed agent bead without using bd show,
+// whose broad issue/wisp lookup fails when a durable issue and wisp share an ID.
+func (b *Beads) GetAgentIssueBead(id string) (*Issue, error) {
+	clauses := []string{
+		"ephemeral=false",
+		"id=" + quoteBDQueryValue(id),
+		"label=" + quoteBDQueryValue("gt:agent"),
+	}
+	out, err := b.run("query", "--json", strings.Join(clauses, " AND "), "--all", "--limit=0")
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 || !isJSONBytes(out) {
+		return nil, nil
+	}
+
+	var issues []*Issue
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return nil, fmt.Errorf("parsing bd query output: %w", err)
+	}
+	if len(issues) == 0 {
+		return nil, nil
+	}
+	return issues[0], nil
+}
+
 // ListAgentBeads returns all agent beads in a single query.
 // Returns a map of agent bead ID to Issue.
 //
@@ -652,21 +682,9 @@ func (b *Beads) GetAgentBead(id string) (*Issue, *AgentFields, error) {
 // wisps table (fallback existence source). Issues take precedence for duplicate
 // IDs so labels/type are preserved for doctor validation.
 func (b *Beads) ListAgentBeads() (map[string]*Issue, error) {
-	// Query issues table first. Issues include labels and type metadata used by
-	// doctor checks (for example, validating gt:agent labels).
-	// Agent beads are type=agent (infrastructure), hidden by bd list default filter.
-	// Use --include-infra so they appear in results.
-	out, err := b.run("list", "--label=gt:agent", "--include-infra", "--json", "--flat", "--no-pager")
+	issuesByID, err := b.ListAgentIssueBeads("")
 	if err != nil {
 		return nil, err
-	}
-	issuesByID := make(map[string]*Issue)
-	var issues []*Issue
-	if jsonErr := json.Unmarshal(out, &issues); jsonErr != nil {
-		return nil, fmt.Errorf("parsing bd list --json output: %w (raw output %d bytes)", jsonErr, len(out))
-	}
-	for _, issue := range issues {
-		issuesByID[issue.ID] = issue
 	}
 
 	// Query wisps table as a fallback source.
@@ -675,6 +693,42 @@ func (b *Beads) ListAgentBeads() (map[string]*Issue, error) {
 	wispBeads, _ := b.ListAgentBeadsFromWisps()
 
 	return mergeAgentBeadSources(issuesByID, wispBeads), nil
+}
+
+// ListAgentIssueBeads returns issue-backed agent beads only. It deliberately
+// avoids bd list because bd's list path merges issues and wisps before GT can
+// apply agent-specific precedence, so duplicate issue/wisp IDs can abort the
+// query (for example hq-deacon).
+func (b *Beads) ListAgentIssueBeads(status string) (map[string]*Issue, error) {
+	clauses := []string{"ephemeral=false", "label=" + quoteBDQueryValue("gt:agent")}
+	if status != "" && status != "all" {
+		clauses = append(clauses, "status="+quoteBDQueryValue(status))
+	}
+
+	args := []string{"query", "--json", strings.Join(clauses, " AND ")}
+	if status == "all" {
+		args = append(args, "--all")
+	}
+	args = append(args, "--limit=0")
+
+	out, err := b.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 || !isJSONBytes(out) {
+		return nil, nil
+	}
+
+	var issues []*Issue
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return nil, fmt.Errorf("parsing bd query output: %w", err)
+	}
+
+	issuesByID := make(map[string]*Issue, len(issues))
+	for _, issue := range issues {
+		issuesByID[issue.ID] = issue
+	}
+	return issuesByID, nil
 }
 
 // mergeAgentBeadSources merges issue-backed and wisp-backed agent bead maps.
@@ -748,6 +802,57 @@ func isAgentBeadByID(id string) bool {
 		}
 	}
 	return false
+}
+
+// isRoutableAgentBeadID returns true when an ID is an agent bead whose owning
+// database should be the town DB. Full-form and collapsed rig agent IDs must
+// match the rig configured for their prefix; this prevents work beads such as
+// gt-health-polecat-fix from being misrouted to town just because they contain
+// a role word.
+func isRoutableAgentBeadID(townRoot, id string) bool {
+	if townRoot == "" {
+		return false
+	}
+	prefix := ExtractPrefix(id)
+	if prefix == "" {
+		return false
+	}
+	rigPath := GetRigPathForPrefix(townRoot, prefix)
+	if rigPath == "" {
+		return false
+	}
+
+	rest := strings.TrimPrefix(id, prefix)
+	parts := strings.Split(rest, "-")
+	if isTownAgentSuffix(parts) {
+		return true
+	}
+
+	rig := GetRigNameForPrefix(townRoot, prefix)
+	if rig == "" {
+		return false
+	}
+	if strings.HasPrefix(rest, rig+"-") {
+		return isRigAgentSuffix(strings.Split(strings.TrimPrefix(rest, rig+"-"), "-"))
+	}
+	if rig == strings.TrimSuffix(prefix, "-") {
+		return isRigAgentSuffix(parts)
+	}
+	return false
+}
+
+func isTownAgentSuffix(parts []string) bool {
+	if len(parts) == 1 {
+		return isTownLevelRole(parts[0])
+	}
+	return len(parts) > 1 && isTownLevelNamedRole(parts[0]) && parts[1] != ""
+}
+
+func isRigAgentSuffix(parts []string) bool {
+	if len(parts) == 1 {
+		return isRigLevelRole(parts[0])
+	}
+	return len(parts) > 1 && isNamedRole(parts[0]) && parts[1] != ""
 }
 
 // ListWispIDs returns a set of all wisp IDs in the wisps table.

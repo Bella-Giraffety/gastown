@@ -343,8 +343,8 @@ func TestBuildRefineryPatrolVars_BoolFormat(t *testing.T) {
 	trueVal := true
 	falseVal2 := false
 	mq := &config.MergeQueueConfig{
-		Enabled:                         true,
-		IntegrationBranchAutoLand:       &trueVal,
+		Enabled:                          true,
+		IntegrationBranchAutoLand:        &trueVal,
 		IntegrationBranchRefineryEnabled: &trueVal,
 		RunTests:                         &trueVal,
 		SetupCommand:                     "npm ci",
@@ -696,6 +696,36 @@ func TestFindActivePatrolHooked(t *testing.T) {
 	}
 	if issue.Status != beads.StatusHooked {
 		t.Errorf("patrol status = %q, want %q", issue.Status, beads.StatusHooked)
+	}
+}
+
+func TestRunPatrolReportNoActivePatrolStartsReplacement(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	oldSpawner := autoSpawnPatrolForReport
+	called := 0
+	autoSpawnPatrolForReport = func(cfg PatrolConfig) (string, error) {
+		called++
+		if cfg.RoleName != "witness" || cfg.PatrolMolName != "mol-test-patrol" || cfg.Assignee != "testrig/witness" {
+			t.Fatalf("unexpected patrol config: %+v", cfg)
+		}
+		return "pt-wisp-new", nil
+	}
+	t.Cleanup(func() { autoSpawnPatrolForReport = oldSpawner })
+
+	err := runPatrolReportWithConfig(PatrolConfig{
+		RoleName:      "witness",
+		PatrolMolName: "mol-test-patrol",
+		BeadsDir:      tmpDir,
+		Assignee:      "testrig/witness",
+		Beads:         b,
+	})
+	if err != nil {
+		t.Fatalf("runPatrolReportWithConfig: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("autoSpawnPatrolForReport calls = %d, want 1", called)
 	}
 }
 

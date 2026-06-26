@@ -1121,7 +1121,7 @@ func (m *Manager) Remove(name string, force bool) error {
 
 // RemoveWithOptions deletes a polecat worktree with explicit control over safety checks.
 // force=true: bypass uncommitted changes and unpushed commits check
-// nuclear=true: bypass ALL safety checks including stashes
+// nuclear=true: bypass cleanup/git safety checks, but never active assigned or hooked work
 // selfNuke=true: bypass cwd-in-worktree check (for polecat deleting its own worktree)
 //
 // ZFC #10: Uses cleanup_status from agent bead if available (polecat self-report),
@@ -1143,6 +1143,10 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 	clonePath := m.clonePath(name)
 	// Polecat dir is the parent directory (polecats/<name>/)
 	polecatDir := m.polecatDir(name)
+
+	if activeWork := m.activeWorkEvidence(name); activeWork.BlocksCleanup {
+		return fmt.Errorf("cannot remove polecat %s: %s", name, activeWork.Blocker)
+	}
 
 	// Check for uncommitted work unless bypassed
 	if !nuclear {
@@ -1699,23 +1703,6 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		return nil, fmt.Errorf("idle polecat worktree not found at %s: %w", clonePath, err)
 	}
 
-	// hq-x0v7v: per-bead target/ clean hook.
-	// Rust polecats accumulate huge target/ dirs (30-50 GB each) when reused
-	// across many beads; the dipgt daemon has hit 100% disk twice from this.
-	// Policy is per-town config (polecat.target_clean_policy). target/ is
-	// gitignored, so the subsequent reset/clean below won't touch it on its own.
-	// Errors are logged as warnings — reuse must not fail because a cleanup did.
-	{
-		policy := m.targetCleanPolicy()
-		polecatDir := m.polecatDir(name)
-		msg, err := RunTargetCleanHook(polecatDir, clonePath, policy)
-		if err != nil {
-			style.PrintWarning("target-clean hook for %s: %v", name, err)
-		} else if msg != "" {
-			fmt.Println(msg)
-		}
-	}
-
 	polecatGit := git.NewGit(clonePath)
 
 	// Fetch latest from origin (non-fatal: may be offline)
@@ -1758,6 +1745,23 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		return nil, fmt.Errorf("checking ref %s: %w", startPoint, err)
 	} else if !exists {
 		return nil, fmt.Errorf("start point %s not found — fall back to full repair", startPoint)
+	}
+
+	// hq-x0v7v: per-bead target/ clean hook.
+	// Rust polecats accumulate huge target/ dirs (30-50 GB each) when reused
+	// across many beads; the dipgt daemon has hit 100% disk twice from this.
+	// Policy is per-town config (polecat.target_clean_policy). target/ is
+	// gitignored, so the subsequent reset/clean below won't touch it on its own.
+	// Errors are logged as warnings — reuse must not fail because a cleanup did.
+	{
+		policy := m.targetCleanPolicy()
+		polecatDir := m.polecatDir(name)
+		msg, err := RunTargetCleanHook(polecatDir, clonePath, policy)
+		if err != nil {
+			style.PrintWarning("target-clean hook for %s: %v", name, err)
+		} else if msg != "" {
+			fmt.Println(msg)
+		}
 	}
 
 	// GH#2536: Clean worktree state before branch switch — the worktree may have
@@ -2186,16 +2190,14 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 	activeMR := ""
 	sourceHint := ""
 	_, fields, err := m.agentBeads().GetAgentBead(agentID)
-	hookSafe := true
-	hookTerminal := false
+	activeWork := m.activeWorkEvidence(name)
+	hookSafe := activeWork.HookSafe
+	hookTerminal := activeWork.HookTerminal
+	input.ApplyActiveWork(activeWork)
 	if err != nil {
 		input.GitCheckFailed = true
 	}
 	if err == nil && fields != nil {
-		hookSafe, hookTerminal = m.hookBeadSafeForWorkstate(fields.HookBead)
-		if !hookSafe {
-			input.HookBead = fields.HookBead
-		}
 		input.PushFailed = fields.PushFailed
 		input.MRFailed = fields.MRFailed
 		input.ActiveMR = fields.ActiveMR
@@ -2245,10 +2247,11 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 	activeMRSafe := true
 	sourceTerminal := sourceHint != "" && m.assignedBeadTerminal(sourceHint)
 	if activeMR != "" {
-		assessment := AssessActiveMR(m.agentBeads(), ActiveMRInput{ActiveMR: activeMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: gitSafe})
+		assessment := AssessActiveMR(m.beads, ActiveMRInput{ActiveMR: activeMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: gitSafe})
 		if assessment.Pending {
 			input.ActiveMRBlocker = assessment.Reason
 		}
+		input.ActiveMRMalformed = assessment.SourceMalformed
 		activeMRSafe = !assessment.Pending
 		if assessment.SourceTerminal {
 			sourceTerminal = true
@@ -2271,20 +2274,6 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 		}
 	}
 	return input
-}
-
-func (m *Manager) hookBeadSafeForWorkstate(hookBead string) (safe bool, terminal bool) {
-	if hookBead == "" {
-		return true, false
-	}
-	issue, err := m.beads.Show(hookBead)
-	if err != nil || issue == nil {
-		return false, false
-	}
-	if beads.IssueStatus(issue.Status).IsTerminal() {
-		return true, true
-	}
-	return false, false
 }
 
 func (m *Manager) assignedBeadTerminal(issueID string) bool {
@@ -2577,28 +2566,33 @@ func (m *Manager) unassignWorkBeads(name string) {
 }
 
 func activeWorkBeadsForCleanup(issues []*beads.Issue) []*beads.Issue {
-	activeStatuses := map[string]bool{
-		"open":             true,
-		"in_progress":      true,
-		beads.StatusHooked: true,
-	}
 	var work []*beads.Issue
 	for _, issue := range issues {
-		if issue == nil || !activeStatuses[issue.Status] {
-			continue
-		}
-		// Skip agent beads — handled by ResetAgentBeadForReuse.
-		if beads.IsAgentBead(issue) {
-			continue
-		}
-		// Skip protected beads (standing orders, role defs, etc.) — they should
-		// retain status and assignee across polecat lifecycles.
-		if beads.IsProtectedBead(issue) {
+		if !assignedIssueBlocksCleanup(issue) {
 			continue
 		}
 		work = append(work, issue)
 	}
 	return work
+}
+
+func (m *Manager) activeWorkEvidence(name string) ActiveWorkEvidence {
+	agentID := m.agentBeadID(name)
+	agentIssue, fields, err := m.agentBeads().GetAgentBead(agentID)
+	var agentState beads.AgentState
+	hookBead := ""
+	if agentIssue != nil {
+		hookBead = agentIssue.HookBead
+	}
+	if fields != nil {
+		agentState = beads.AgentState(fields.AgentState)
+		if hookBead == "" {
+			hookBead = fields.HookBead
+		}
+	}
+	evidence := AssessActiveWork(m.beads, m.assigneeID(name), agentState, hookBead)
+	evidence.Merge(AssessAgentRecord(agentID, agentIssue, fields, err))
+	return evidence
 }
 
 // loadFromBeads gets polecat info from hooked work beads + beads assignee field + tmux session state.
@@ -2644,6 +2638,20 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 		Priority: -1,
 	})
 	if hookedErr == nil && len(hookedBeads) > 0 {
+		var hookedIssue *beads.Issue
+		for _, candidate := range hookedBeads {
+			if assessConcreteIssue(candidate).Concrete {
+				hookedIssue = candidate
+				break
+			}
+		}
+		if hookedIssue == nil {
+			issueID := ""
+			if hookedBeads[0] != nil {
+				issueID = hookedBeads[0].ID
+			}
+			return m.polecatWithState(name, clonePath, branchName, StateReviewNeeded, issueID), nil
+		}
 		state := StateWorking
 		if sessionDead {
 			state = StateStalled
@@ -2654,7 +2662,7 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 			State:     state,
 			ClonePath: clonePath,
 			Branch:    branchName,
-			Issue:     hookedBeads[0].ID,
+			Issue:     hookedIssue.ID,
 		}, nil
 	}
 
@@ -2708,6 +2716,9 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 	issueID := ""
 	if issue != nil {
 		issueID = issue.ID
+		if !assessConcreteIssue(issue).Concrete {
+			return m.polecatWithState(name, clonePath, branchName, StateReviewNeeded, issueID), nil
+		}
 	}
 
 	state := StateIdle
@@ -2730,6 +2741,17 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 	}, nil
 }
 
+func (m *Manager) polecatWithState(name, clonePath, branchName string, state State, issueID string) *Polecat {
+	return &Polecat{
+		Name:      name,
+		Rig:       m.rig.Name,
+		State:     state,
+		ClonePath: clonePath,
+		Branch:    branchName,
+		Issue:     issueID,
+	}
+}
+
 func (m *Manager) polecatSessionState(name string) (running bool, stale bool) {
 	if m.tmux == nil {
 		return false, false
@@ -2747,7 +2769,8 @@ func (m *Manager) polecatSessionState(name string) (running bool, stale bool) {
 func isCurrentHookedIssueForAssignee(issue *beads.Issue, assignee string) bool {
 	return issue != nil &&
 		issue.Status == beads.StatusHooked &&
-		issue.Assignee == assignee
+		issue.Assignee == assignee &&
+		assessConcreteIssue(issue).Concrete
 }
 
 // setupSharedBeads creates a redirect file so the polecat uses the rig's shared .beads database.
@@ -2903,6 +2926,8 @@ type StalenessInfo struct {
 	HasActiveSession   bool   // Whether tmux session is running
 	HasUncommittedWork bool   // Whether there's uncommitted or unpushed work
 	AgentState         string // From agent bead (empty if no bead)
+	ActiveWorkBlocker  string // Shared active/protected work cleanup blocker
+	RequiresRestart    bool   // Active work should restart/resume instead of cleanup
 	IsStale            bool   // Overall assessment: safe to clean up
 	Reason             string // Why it's considered stale (or not)
 }
@@ -2957,6 +2982,9 @@ func (m *Manager) DetectStalePolecats(threshold int) ([]*StalenessInfo, error) {
 		if err == nil && fields != nil {
 			info.AgentState = fields.AgentState
 		}
+		activeWork := m.activeWorkEvidence(p.Name)
+		info.ActiveWorkBlocker = activeWork.Blocker
+		info.RequiresRestart = activeWork.RequiresRestart
 
 		// Determine staleness
 		info.IsStale, info.Reason = assessStaleness(info, threshold)
@@ -2997,6 +3025,10 @@ func assessStaleness(info *StalenessInfo, threshold int) (bool, string) {
 	// If session is active, not stale (tmux is source of truth for liveness)
 	if info.HasActiveSession {
 		return false, "session active"
+	}
+
+	if info.ActiveWorkBlocker != "" {
+		return false, info.ActiveWorkBlocker
 	}
 
 	// No active session - this polecat is a cleanup candidate

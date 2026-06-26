@@ -39,6 +39,7 @@ func TestBdReadOnlyEnv(t *testing.T) {
 }
 
 func TestBdReadOnlyPinnedEnvUsesSelectedBeadsDir(t *testing.T) {
+	t.Setenv("GT_DOLT_PORT", "")
 	beadsDir := filepath.Join(t.TempDir(), ".beads")
 	if err := os.MkdirAll(beadsDir, 0755); err != nil {
 		t.Fatal(err)
@@ -54,7 +55,7 @@ func TestBdReadOnlyPinnedEnvUsesSelectedBeadsDir(t *testing.T) {
 
 	env := bdReadOnlyPinnedEnv(beadsDir)
 	assertSingleEnvValue(t, env, "BEADS_DIR", beadsDir)
-	assertSingleEnvValue(t, env, "BEADS_DOLT_SERVER_DATABASE", "rigdb")
+	assertEnvAbsent(t, env, "BEADS_DOLT_SERVER_DATABASE")
 	assertSingleEnvValue(t, env, "BEADS_DOLT_SERVER_PORT", "4407")
 	assertSingleEnvValue(t, env, "BEADS_DOLT_PORT", "4407")
 	assertSingleEnvValue(t, env, "BD_DOLT_AUTO_COMMIT", "off")
@@ -63,6 +64,7 @@ func TestBdReadOnlyPinnedEnvUsesSelectedBeadsDir(t *testing.T) {
 }
 
 func TestBdReadOnlyRoutingEnvDoesNotPinDatabase(t *testing.T) {
+	t.Setenv("GT_DOLT_PORT", "")
 	townRoot := t.TempDir()
 	beadsDir := filepath.Join(townRoot, ".beads")
 	if err := os.MkdirAll(beadsDir, 0755); err != nil {

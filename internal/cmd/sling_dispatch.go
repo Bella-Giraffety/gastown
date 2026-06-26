@@ -106,7 +106,7 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 
 	beadsDir := params.BeadsDir
 	if beadsDir == "" {
-		beadsDir = filepath.Join(townRoot, ".beads")
+		beadsDir = beads.ResolveBeadsDirForID(filepath.Join(townRoot, ".beads"), params.BeadID)
 	}
 
 	result := &SlingResult{
@@ -131,10 +131,14 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		result.ErrMsg = err.Error()
 		return result, fmt.Errorf("could not get bead info: %w", err)
 	}
+	if err := validateConcreteWorkBeadInfo(params.BeadID, info); err != nil {
+		result.ErrMsg = err.Error()
+		return result, err
+	}
 
 	// Guard against dispatching closed/tombstone beads (defense-in-depth).
 	// Not bypassed by --force — if you need to re-dispatch, reopen the bead first.
-	if info.Status == "closed" || info.Status == "tombstone" {
+	if isTerminalWorkStatus(info.Status) {
 		result.ErrMsg = "already " + info.Status
 		return result, fmt.Errorf("bead %s is %s (work already completed)", params.BeadID, info.Status)
 	}
@@ -143,11 +147,11 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	// gate below still requires an explicit --force for deferred beads.
 	explicitForce := params.Force
 
-	if (info.Status == "pinned" || info.Status == "hooked" || info.Status == "in_progress") && !params.Force {
+	if isProtectedDispatchStatus(info.Status) && !params.Force {
 		// Auto-force when hooked/in_progress agent's session is confirmed dead (gt-npzy, GH#1380).
 		// Mirrors the dead-agent detection in runSling (sling.go) so that
 		// programmatic dispatch also handles stale hooks from nuked polecats.
-		if (info.Status == "hooked" || info.Status == "in_progress") && info.Assignee != "" && isHookedAgentDeadFn(info.Assignee) {
+		if isActiveAssignmentStatus(info.Status) && info.Assignee != "" && isHookedAgentDeadFn(info.Assignee) {
 			fmt.Printf("  %s Hooked agent %s has no active session, auto-forcing dispatch...\n",
 				style.Warning.Render("⚠"), info.Assignee)
 			params.Force = true
@@ -166,7 +170,25 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	}
 
 	if params.RigName != "" {
-		if err := verifyBeadExistsInTargetRigDatabase(params.BeadID, params.RigName, townRoot); err != nil {
+		if err := verifyBeadResolvesForTargetRig(params.BeadID, params.RigName, townRoot); err != nil {
+			result.ErrMsg = err.Error()
+			return result, err
+		}
+	}
+
+	if params.FormulaName != "" {
+		preflightVars := append([]string(nil), loadRigCommandVars(townRoot, params.RigName)...)
+		preflightVars = append(preflightVars, params.Vars...)
+		if params.BaseBranch != "" && params.BaseBranch != "main" {
+			preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", params.BaseBranch))
+		}
+		if params.ResumeBranch != "" {
+			preflightVars = append(preflightVars, fmt.Sprintf("resume_branch=%s", params.ResumeBranch))
+		}
+		if priorVars := lookupPriorAttempt(beadsDir, params.BeadID); len(priorVars) > 0 {
+			preflightVars = append(preflightVars, priorVars...)
+		}
+		if err := preflightFormulaBond(params.FormulaName, params.BeadID, info.Title, "", townRoot, preflightVars); err != nil {
 			result.ErrMsg = err.Error()
 			return result, err
 		}
@@ -175,7 +197,7 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	// Send LIFECYCLE:Shutdown to the witness when force-stealing a bead from a
 	// live polecat. Without this, the old polecat becomes a zombie — still running
 	// but unaware it lost its hook. Mirrors the same logic in runSling (sling.go).
-	if (info.Status == "hooked" || info.Status == "in_progress") && params.Force && info.Assignee != "" {
+	if isActiveAssignmentStatus(info.Status) && params.Force && info.Assignee != "" {
 		assigneeParts := strings.Split(info.Assignee, "/")
 		if len(assigneeParts) >= 3 && assigneeParts[1] == "polecats" {
 			oldRigName := assigneeParts[0]
@@ -301,6 +323,9 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		allVars = append(rigCmdVars, params.Vars...)
 		if spawnInfo.BaseBranch != "" && spawnInfo.BaseBranch != "main" {
 			allVars = append(allVars, fmt.Sprintf("base_branch=%s", spawnInfo.BaseBranch))
+		}
+		if params.ResumeBranch != "" {
+			allVars = append(allVars, fmt.Sprintf("resume_branch=%s", params.ResumeBranch))
 		}
 
 		// GH#gt-zqvj: Inject prior attempt context when re-dispatching an issue

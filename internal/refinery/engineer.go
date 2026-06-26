@@ -24,6 +24,7 @@ import (
 	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/util"
+	"github.com/steveyegge/gastown/internal/workitem"
 )
 
 // shortSHA returns at most 8 characters of a SHA for display.
@@ -235,7 +236,7 @@ type MRInfo struct {
 type MRAnomaly struct {
 	ID       string        `json:"id"`
 	Branch   string        `json:"branch"`
-	Type     string        `json:"type"` // stale-claim | orphaned-branch
+	Type     string        `json:"type"` // stale-claim | orphaned-branch | malformed-source
 	Assignee string        `json:"assignee,omitempty"`
 	Age      time.Duration `json:"age,omitempty"`
 	Detail   string        `json:"detail"`
@@ -1734,6 +1735,29 @@ func (e *Engineer) firstOpenBlocker(issue *beads.Issue) string {
 	return ""
 }
 
+func (e *Engineer) assessMRSourceIssue(sourceIssue string) (workitem.Assessment, error) {
+	if strings.TrimSpace(sourceIssue) == "" {
+		return workitem.AssessConcrete(workitem.Snapshot{}), nil
+	}
+	issue, err := e.beads.Show(sourceIssue)
+	if err != nil {
+		if errors.Is(err, beads.ErrNotFound) {
+			return workitem.Assessment{Reason: "source-missing"}, nil
+		}
+		return workitem.Assessment{}, err
+	}
+	if issue == nil {
+		return workitem.Assessment{Reason: "source-missing"}, nil
+	}
+	return workitem.AssessConcrete(workitem.Snapshot{
+		ID:        issue.ID,
+		Title:     issue.Title,
+		Type:      issue.Type,
+		Labels:    issue.Labels,
+		Ephemeral: issue.Ephemeral,
+	}), nil
+}
+
 // ListReadyMRs returns MRs that are ready for processing:
 // - Not claimed by another worker (checked via assignee field)
 // - Not blocked by an open task (checked via firstOpenBlocker)
@@ -1783,6 +1807,12 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 
 		// Filter by rig — wisps are shared across all rigs (GH#2718).
 		if fields.Rig != "" && !strings.EqualFold(fields.Rig, e.rig.Name) {
+			continue
+		}
+		if sourceAssessment, sourceErr := e.assessMRSourceIssue(fields.SourceIssue); sourceErr != nil {
+			return nil, fmt.Errorf("validating MR %s source_issue %s: %w", issue.ID, fields.SourceIssue, sourceErr)
+		} else if !sourceAssessment.Concrete {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s: invalid source_issue %q (%s)\n", issue.ID, fields.SourceIssue, sourceAssessment.Reason)
 			continue
 		}
 
@@ -1921,7 +1951,7 @@ func (e *Engineer) ListQueueAnomalies(now time.Time) ([]*MRAnomaly, error) {
 		filtered = append(filtered, issue)
 	}
 
-	return detectQueueAnomalies(filtered, now, e.config.StaleClaimWarningAfter, func(branch string) (bool, bool, error) {
+	anomalies := detectQueueAnomalies(filtered, now, e.config.StaleClaimWarningAfter, func(branch string) (bool, bool, error) {
 		localExists, err := e.git.BranchExists(branch)
 		if err != nil {
 			return false, false, err
@@ -1931,7 +1961,150 @@ func (e *Engineer) ListQueueAnomalies(now time.Time) ([]*MRAnomaly, error) {
 			return false, false, err
 		}
 		return localExists, remoteTrackingExists, nil
-	}), nil
+	})
+	for _, issue := range filtered {
+		if issue == nil || issue.Status != "open" {
+			continue
+		}
+		fields := beads.ParseMRFields(issue)
+		if fields == nil {
+			continue
+		}
+		assessment, sourceErr := e.assessMRSourceIssue(fields.SourceIssue)
+		if sourceErr != nil || assessment.Concrete {
+			continue
+		}
+		evidence := malformedMRBranchEvidence(e.git, fields.Branch, fields.Target)
+		if markErr := e.markMalformedSourceMR(issue, assessment, evidence); markErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to mark malformed MR %s: %v\n", issue.ID, markErr)
+		}
+		anomalies = append(anomalies, &MRAnomaly{
+			ID:     issue.ID,
+			Branch: fields.Branch,
+			Type:   "malformed-source",
+			Detail: malformedSourceDetail(fields, assessment, evidence),
+		})
+	}
+	return anomalies, nil
+}
+
+func (e *Engineer) markMalformedSourceMR(issue *beads.Issue, assessment workitem.Assessment, evidence string) error {
+	if e == nil || e.beads == nil {
+		return nil
+	}
+	description, changed := malformedSourceMarkedDescription(issue, assessment, evidence)
+	if !changed {
+		return nil
+	}
+	return e.beads.Update(issue.ID, beads.UpdateOptions{Description: &description})
+}
+
+type mrRefChecker interface {
+	RefExists(ref string) (bool, error)
+	IsAncestor(ancestor, descendant string) (bool, error)
+	Cherry(upstream, head string) (string, error)
+}
+
+func malformedSourceDetail(fields *beads.MRFields, assessment workitem.Assessment, evidence string) string {
+	detail := fmt.Sprintf("MR source_issue %q is not concrete work (%s); reconcile before processing", fields.SourceIssue, assessment.Reason)
+	if evidence != "" {
+		detail += "; " + evidence
+	}
+	return detail
+}
+
+func malformedSourceMarkedDescription(issue *beads.Issue, assessment workitem.Assessment, evidence string) (string, bool) {
+	if issue == nil {
+		return "", false
+	}
+	description := issue.Description
+	description = setKeyValueLine(description, "malformed_source", "true")
+	description = setKeyValueLine(description, "malformed_source_reason", assessment.Reason)
+	if evidence != "" {
+		description = setKeyValueLine(description, "malformed_branch_evidence", evidence)
+	}
+	return description, description != issue.Description
+}
+
+func setKeyValueLine(description, key, value string) string {
+	line := key + ": " + strings.TrimSpace(value)
+	if strings.TrimSpace(description) == "" {
+		return line
+	}
+	lowerKey := strings.ToLower(key) + ":"
+	lines := strings.Split(description, "\n")
+	found := false
+	for i, existing := range lines {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(existing)), lowerKey) {
+			lines[i] = line
+			found = true
+		}
+	}
+	if !found {
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func malformedMRBranchEvidence(checker mrRefChecker, branch, target string) string {
+	if checker == nil {
+		return "branch_containment=unknown reason=no_git_checker"
+	}
+	branch = strings.TrimSpace(branch)
+	target = strings.TrimSpace(target)
+	if branch == "" {
+		return "branch_containment=unknown branch_ref=<missing>"
+	}
+	if target == "" {
+		return fmt.Sprintf("branch_containment=unknown branch_ref=%s target_ref=<missing>", branch)
+	}
+
+	branchRef, branchReason := resolveMRComparisonRef(checker, branch)
+	if branchRef == "" {
+		return fmt.Sprintf("branch_containment=unknown branch_ref=%s reason=%s", branch, branchReason)
+	}
+	targetRef, targetReason := resolveMRComparisonRef(checker, target)
+	if targetRef == "" {
+		return fmt.Sprintf("branch_containment=unknown branch_ref=%s target_ref=%s reason=%s", branchRef, target, targetReason)
+	}
+
+	contained, err := checker.IsAncestor(branchRef, targetRef)
+	if err != nil {
+		return fmt.Sprintf("branch_containment=unknown branch_ref=%s target_ref=%s reason=%v", branchRef, targetRef, err)
+	}
+	if contained {
+		return fmt.Sprintf("branch_containment=contained branch_ref=%s target_ref=%s", branchRef, targetRef)
+	}
+	cherryOut, err := checker.Cherry(targetRef, branchRef)
+	if err != nil {
+		return fmt.Sprintf("branch_containment=uncontained branch_ref=%s target_ref=%s unpreserved_patches=unknown reason=%v", branchRef, targetRef, err)
+	}
+	return fmt.Sprintf("branch_containment=uncontained branch_ref=%s target_ref=%s unpreserved_patches=%d", branchRef, targetRef, git.CountCherryUnmergedCommits(cherryOut))
+}
+
+func resolveMRComparisonRef(checker mrRefChecker, ref string) (string, string) {
+	for _, candidate := range mrComparisonRefCandidates(ref) {
+		exists, err := checker.RefExists(candidate)
+		if err != nil {
+			return "", fmt.Sprintf("lookup_error:%v", err)
+		}
+		if exists {
+			return candidate, ""
+		}
+	}
+	return "", "missing"
+}
+
+func mrComparisonRefCandidates(ref string) []string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	if strings.HasPrefix(ref, "refs/") {
+		return []string{ref}
+	}
+	branch := strings.TrimPrefix(ref, "origin/")
+	return []string{ref, "origin/" + branch, "refs/heads/" + branch, "refs/remotes/origin/" + branch}
 }
 
 func detectQueueAnomalies(
@@ -1947,7 +2120,20 @@ func detectQueueAnomalies(
 			continue
 		}
 		fields := beads.ParseMRFields(issue)
-		if fields == nil || fields.Branch == "" {
+		if fields == nil {
+			anomalies = append(anomalies, &MRAnomaly{
+				ID:     issue.ID,
+				Type:   "malformed-mr",
+				Detail: "MR bead has no parseable merge-request fields",
+			})
+			continue
+		}
+		if strings.TrimSpace(fields.Branch) == "" {
+			anomalies = append(anomalies, &MRAnomaly{
+				ID:     issue.ID,
+				Type:   "malformed-mr",
+				Detail: "MR bead is missing branch",
+			})
 			continue
 		}
 

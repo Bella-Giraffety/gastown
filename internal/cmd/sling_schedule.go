@@ -78,7 +78,7 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 	if _, isRig := IsRigName(rigName); !isRig {
 		return fmt.Errorf("'%s' is not a known rig", rigName)
 	}
-	if err := verifyBeadExistsInTargetRigDatabase(beadID, rigName, townRoot); err != nil {
+	if err := verifyBeadResolvesForTargetRig(beadID, rigName, townRoot); err != nil {
 		return err
 	}
 
@@ -91,6 +91,18 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 	info, err := getBeadInfo(beadID)
 	if err != nil {
 		return fmt.Errorf("checking bead status: %w", err)
+	}
+	if err := validateConcreteWorkBeadInfo(beadID, info); err != nil {
+		return err
+	}
+
+	// Canonical work-bead state wins over stale queue state. A terminal or
+	// already-assigned bead must not be hidden behind an old sling context.
+	if isTerminalWorkStatus(info.Status) {
+		return fmt.Errorf("bead %s is %s (work already completed)", beadID, info.Status)
+	}
+	if isProtectedDispatchStatus(info.Status) && !opts.Force {
+		return fmt.Errorf("bead %s is already %s to %s\nUse --force to override", beadID, info.Status, info.Assignee)
 	}
 
 	// Idempotency: check for existing open sling context for this work bead.
@@ -112,20 +124,6 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 		fmt.Printf("%s Bead %s is already scheduled (context: %s), no-op\n",
 			style.Dim.Render("○"), beadID, existingCtx.ID)
 		return nil
-	}
-
-	// Guard against scheduling closed/tombstone beads (defense-in-depth, hq-ki2).
-	// Mirrors the closed-bead guards in runSling (sling.go) and executeSling
-	// (sling_dispatch.go). The daemon's stranded scan can route closed cross-prefix
-	// beads through scheduleBead in deferred dispatch mode; without this check, a
-	// fresh ghost convoy is created for already-completed work. Not bypassed by
-	// --force — if you need to re-dispatch, reopen the bead first.
-	if info.Status == "closed" || info.Status == "tombstone" {
-		return fmt.Errorf("bead %s is %s (work already completed)", beadID, info.Status)
-	}
-
-	if (info.Status == "pinned" || info.Status == "hooked" || info.Status == "in_progress") && !opts.Force {
-		return fmt.Errorf("bead %s is already %s to %s\nUse --force to override", beadID, info.Status, info.Assignee)
 	}
 
 	if opts.Formula != "" {
