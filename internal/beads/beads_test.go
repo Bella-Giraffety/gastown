@@ -168,7 +168,6 @@ func TestBuildPinnedBDEnvUsesSelectedConnectionMetadataWithoutDatabaseOverride(t
 	}
 }
 
-<<<<<<< HEAD
 func TestBuildPinnedBDEnvFollowsRedirectBeforeMetadata(t *testing.T) {
 	rigRoot := t.TempDir()
 	rigBeadsDir := filepath.Join(rigRoot, ".beads")
@@ -199,8 +198,8 @@ func TestBuildPinnedBDEnvFollowsRedirectBeforeMetadata(t *testing.T) {
 	if got["BEADS_DIR"] != canonicalBeadsDir {
 		t.Fatalf("BEADS_DIR = %q, want canonical %q in %v", got["BEADS_DIR"], canonicalBeadsDir, env)
 	}
-	if got["BEADS_DOLT_SERVER_DATABASE"] != "gastown" {
-		t.Fatalf("BEADS_DOLT_SERVER_DATABASE = %q, want gastown in %v", got["BEADS_DOLT_SERVER_DATABASE"], env)
+	if value, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
+		t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, env)
 	}
 	if got["BEADS_DOLT_SERVER_HOST"] != "127.0.0.2" || got["BEADS_DOLT_SERVER_PORT"] != "4407" || got["BEADS_DOLT_PORT"] != "4407" {
 		t.Fatalf("connection env used stale redirect metadata: %v", env)
@@ -223,7 +222,9 @@ func TestBuildPinnedBDEnvFollowsRedirectBeforeMetadata(t *testing.T) {
 	}
 	if routingGot["BEADS_DOLT_SERVER_HOST"] != "127.0.0.2" || routingGot["BEADS_DOLT_SERVER_PORT"] != "4407" || routingGot["BEADS_DOLT_PORT"] != "4407" {
 		t.Fatalf("routing env should use canonical connection metadata: %v", routingEnv)
-=======
+	}
+}
+
 func TestBuildBDEnvGTDoltPortOverridesStaleMetadata(t *testing.T) {
 	beadsDir := filepath.Join(t.TempDir(), ".beads")
 	if err := os.MkdirAll(beadsDir, 0755); err != nil {
@@ -304,7 +305,6 @@ func TestBuildBDEnvRestoresGTDoltDataDir(t *testing.T) {
 				t.Fatalf("BEADS_DOLT_SERVER_DATABASE should be stripped, got %q in %v", value, tc.env)
 			}
 		})
->>>>>>> origin/main
 	}
 }
 

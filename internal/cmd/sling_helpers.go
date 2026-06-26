@@ -20,6 +20,7 @@ import (
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/daemon"
+	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/formula"
 	rigpkg "github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
@@ -456,16 +457,10 @@ func verifyBeadResolvesForTargetRig(beadID, targetRig, townRoot string) error {
 		return fmt.Errorf("cannot verify bead %s in target rig %q: town root is unavailable; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
 	}
 
-<<<<<<< HEAD
-	targetBeadsDir, ok := beads.ResolveRepoAliasBeadsDir(townRoot, targetRig)
-	if !ok {
-=======
 	targetBeadsDir := targetRigBeadsDir(townRoot, targetRig)
 	if targetBeadsDir == "" {
->>>>>>> origin/main
 		return fmt.Errorf("cannot resolve target rig %q beads database for bead %s; refusing to sling before creating hooks or molecule side effects", targetRig, beadID)
 	}
-	targetRigDir := filepath.Dir(targetBeadsDir)
 
 	resolvedBeadsDir := beads.ResolveBeadsDirForID(filepath.Join(townRoot, ".beads"), beadID)
 	if !sameBeadsDir(resolvedBeadsDir, targetBeadsDir) {
