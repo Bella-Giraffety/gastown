@@ -2450,30 +2450,38 @@ func TestJSONOutput_NoArgsReturnsEnvelope(t *testing.T) {
 }
 
 func TestJSONOutput_FlagParseErrorReturnsEnvelope(t *testing.T) {
-	cmd := newJSONStageTestCommand(t)
-	output, stderrOutput, err := runStageCommandJSONTest(t, cmd, "--json", "--unknown")
-	if err == nil {
-		t.Fatal("expected error for unknown flag, got nil")
-	}
-	if stderrOutput != "" {
-		t.Fatalf("stderr should be empty in JSON mode, got:\n%s", stderrOutput)
-	}
+	for _, args := range [][]string{{"--json", "--unknown"}, {"--unknown", "--json"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			cmd := newJSONStageTestCommand(t)
+			oldArgs := os.Args
+			os.Args = append([]string{"gt", "convoy", "stage"}, args...)
+			t.Cleanup(func() { os.Args = oldArgs })
 
-	var parsed StageResult
-	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
-		t.Fatalf("flag parse error output should be valid JSON: %v\nraw:\n%s", err, output)
-	}
-	if parsed.Status != "error" {
-		t.Errorf("status should be 'error', got %q", parsed.Status)
-	}
-	if len(parsed.Errors) != 1 {
-		t.Fatalf("expected one JSON error, got %d", len(parsed.Errors))
-	}
-	if parsed.Errors[0].Category != "validation" {
-		t.Errorf("error category = %q, want validation", parsed.Errors[0].Category)
-	}
-	if parsed.Errors[0].BeadIDs == nil || parsed.Waves == nil || parsed.Tree == nil || parsed.Warnings == nil {
-		t.Fatalf("JSON arrays should be empty arrays, not null: %#v", parsed)
+			output, stderrOutput, err := runStageCommandJSONTest(t, cmd, args...)
+			if err == nil {
+				t.Fatal("expected error for unknown flag, got nil")
+			}
+			if stderrOutput != "" {
+				t.Fatalf("stderr should be empty in JSON mode, got:\n%s", stderrOutput)
+			}
+
+			var parsed StageResult
+			if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+				t.Fatalf("flag parse error output should be valid JSON: %v\nraw:\n%s", err, output)
+			}
+			if parsed.Status != "error" {
+				t.Errorf("status should be 'error', got %q", parsed.Status)
+			}
+			if len(parsed.Errors) != 1 {
+				t.Fatalf("expected one JSON error, got %d", len(parsed.Errors))
+			}
+			if parsed.Errors[0].Category != "validation" {
+				t.Errorf("error category = %q, want validation", parsed.Errors[0].Category)
+			}
+			if parsed.Errors[0].BeadIDs == nil || parsed.Waves == nil || parsed.Tree == nil || parsed.Warnings == nil {
+				t.Fatalf("JSON arrays should be empty arrays, not null: %#v", parsed)
+			}
+		})
 	}
 }
 
