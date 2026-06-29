@@ -319,12 +319,12 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 		legacyPort := os.Getenv("BEADS_DOLT_PORT")
 		serverPort := os.Getenv("BEADS_DOLT_SERVER_PORT")
 		switch {
-		case legacyPort != "":
-			env["BEADS_DOLT_PORT"] = legacyPort
-			env["BEADS_DOLT_SERVER_PORT"] = legacyPort
 		case serverPort != "":
 			env["BEADS_DOLT_PORT"] = serverPort
 			env["BEADS_DOLT_SERVER_PORT"] = serverPort
+		case legacyPort != "":
+			env["BEADS_DOLT_PORT"] = legacyPort
+			env["BEADS_DOLT_SERVER_PORT"] = legacyPort
 		}
 	}
 

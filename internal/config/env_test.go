@@ -913,13 +913,13 @@ func TestAgentEnv_PropagatesDoltPort(t *testing.T) {
 		assertEnv(t, env, "BEADS_DOLT_SERVER_PORT", "3307")
 	})
 
-	t.Run("conflicting_beads_ports_legacy_wins", func(t *testing.T) {
+	t.Run("conflicting_beads_ports_server_wins", func(t *testing.T) {
 		t.Setenv("GT_DOLT_PORT", "")
 		t.Setenv("BEADS_DOLT_PORT", "3308")
 		t.Setenv("BEADS_DOLT_SERVER_PORT", "9999")
 		env := AgentEnv(AgentEnvConfig{Role: "witness", Rig: "myrig"})
-		assertEnv(t, env, "BEADS_DOLT_PORT", "3308")
-		assertEnv(t, env, "BEADS_DOLT_SERVER_PORT", "3308")
+		assertEnv(t, env, "BEADS_DOLT_PORT", "9999")
+		assertEnv(t, env, "BEADS_DOLT_SERVER_PORT", "9999")
 	})
 
 	// Subtest: neither set → neither propagated
