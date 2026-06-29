@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/steveyegge/gastown/internal/tmux"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -710,6 +711,88 @@ func TestHasPendingEvents_WithEventFiles(t *testing.T) {
 
 	if !d.hasPendingEvents("refinery") {
 		t.Error("expected true when .event files exist")
+	}
+}
+
+func TestEnsureRefineryRunning_SafetyStoppedPendingEventDoesNotSpawn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock bd/tmux scripts use POSIX shell")
+	}
+	townRoot := t.TempDir()
+	rigName := "testrig"
+	rigPath := filepath.Join(townRoot, rigName)
+	for _, dir := range []string{
+		filepath.Join(townRoot, "mayor"),
+		filepath.Join(townRoot, ".beads"),
+		rigPath,
+		filepath.Join(townRoot, "events", "refinery"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0o644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "events", "refinery", "1.event"), []byte(`{"type":"MQ_SUBMIT"}`), 0o644); err != nil {
+		t.Fatalf("write event: %v", err)
+	}
+
+	fakeBinDir := t.TempDir()
+	tmuxLog := filepath.Join(t.TempDir(), "tmux.log")
+	if err := os.WriteFile(tmuxLog, nil, 0o644); err != nil {
+		t.Fatalf("create tmux log: %v", err)
+	}
+	writeFakeTmux(t, fakeBinDir)
+	writeDaemonSafetyStopMockBD(t, fakeBinDir)
+	t.Setenv("PATH", fakeBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMUX_LOG", tmuxLog)
+
+	d := &Daemon{
+		config: &Config{TownRoot: townRoot},
+		logger: log.New(io.Discard, "", 0),
+		tmux:   tmux.NewTmux(),
+	}
+	d.ensureRefineryRunning(rigName)
+
+	data, err := os.ReadFile(tmuxLog)
+	if err != nil {
+		t.Fatalf("read tmux log: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.HasPrefix(line, "new-session ") {
+			t.Fatalf("safety-stopped refinery spawned a tmux session; log:\n%s", data)
+		}
+	}
+}
+
+func writeDaemonSafetyStopMockBD(t *testing.T, binDir string) {
+	t.Helper()
+	script := `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+case "$cmd" in
+  version)
+    echo "bd test"
+    ;;
+  show)
+    printf '%s\n' '[{"id":"gt-rig-testrig","title":"Rig","issue_type":"task","labels":["gt:rig"],"status":"open"}]'
+    ;;
+  query)
+    printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
 	}
 }
 

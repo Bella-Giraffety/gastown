@@ -325,7 +325,7 @@ func (b *Beads) CreateOrReopenAgentBead(id, title string, fields *AgentFields) (
 	updateOpts := UpdateOptions{
 		Title:       &title,
 		Description: &description,
-		SetLabels:   []string{"gt:agent"},
+		AddLabels:   []string{"gt:agent"},
 	}
 	if err := target.Update(id, updateOpts); err != nil {
 		return nil, fmt.Errorf("updating agent bead: %w", err)

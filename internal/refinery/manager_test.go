@@ -1,8 +1,10 @@
 package refinery
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -64,6 +66,96 @@ func TestManager_SessionName(t *testing.T) {
 	got := mgr.SessionName()
 	if got != want {
 		t.Errorf("SessionName() = %s, want %s", got, want)
+	}
+}
+
+func TestSafetyStopFromIssue(t *testing.T) {
+	stop := safetyStopFromIssue("", &beads.Issue{
+		ID:     "gt-testrig-refinery",
+		Labels: []string{"gt:agent", "safety_stop:hq-vmrwr"},
+	})
+	if stop == nil {
+		t.Fatal("expected safety stop")
+	}
+	if stop.AgentID != "gt-testrig-refinery" || stop.Label != "safety_stop:hq-vmrwr" || stop.StopID != "hq-vmrwr" {
+		t.Fatalf("stop = %+v", stop)
+	}
+
+	if got := safetyStopFromIssue("gt-testrig-refinery", &beads.Issue{Labels: []string{"gt:agent"}}); got != nil {
+		t.Fatalf("unexpected safety stop: %+v", got)
+	}
+}
+
+func TestManager_StartSafetyStoppedDoesNotTouchTmux(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock bd/tmux scripts use POSIX shell")
+	}
+	setupTestRegistry(t)
+
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0o755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0o644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0o755); err != nil {
+		t.Fatalf("mkdir town beads: %v", err)
+	}
+	rigPath := filepath.Join(townRoot, "testrig")
+	if err := os.MkdirAll(rigPath, 0o755); err != nil {
+		t.Fatalf("mkdir rig: %v", err)
+	}
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	writeRefinerySafetyStopMockBD(t, binDir, logPath)
+	if err := os.WriteFile(filepath.Join(binDir, "tmux"), []byte("#!/bin/sh\necho tmux-called \"$@\" >> \"$COMMAND_LOG\"\nexit 99\n"), 0o755); err != nil {
+		t.Fatalf("write fake tmux: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("COMMAND_LOG", logPath)
+
+	mgr := NewManager(&rig.Rig{Name: "testrig", Path: rigPath})
+	err := mgr.Start(false, "")
+	if !errors.Is(err, ErrSafetyStopped) {
+		t.Fatalf("Start error = %v, want ErrSafetyStopped", err)
+	}
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read command log: %v", err)
+	}
+	if strings.Contains(string(logData), "tmux-called") {
+		t.Fatalf("Start touched tmux despite safety stop; log:\n%s", logData)
+	}
+}
+
+func writeRefinerySafetyStopMockBD(t *testing.T, binDir, logPath string) {
+	t.Helper()
+	script := `#!/bin/sh
+printf 'bd %s\n' "$*" >> "$COMMAND_LOG"
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+case "$cmd" in
+  version)
+    echo "bd test"
+    ;;
+  query)
+    printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+    ;;
+  *)
+    echo "unexpected bd command: $*" >&2
+    exit 9
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
 	}
 }
 

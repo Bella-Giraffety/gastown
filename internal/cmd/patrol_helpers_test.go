@@ -5,16 +5,20 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/refinery"
 	"github.com/steveyegge/gastown/internal/testutil"
 )
 
@@ -726,6 +730,84 @@ func TestRunPatrolReportNoActivePatrolStartsReplacement(t *testing.T) {
 	}
 	if called != 1 {
 		t.Fatalf("autoSpawnPatrolForReport calls = %d, want 1", called)
+	}
+}
+
+func TestAutoSpawnPatrol_RefinerySafetyStoppedSkipsWispCreate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock bd/gt scripts use POSIX shell")
+	}
+	townRoot := t.TempDir()
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), filepath.Join(townRoot, ".beads"), filepath.Join(townRoot, "testrig")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0o644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	writePatrolSafetyStopMockBins(t, binDir, logPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("COMMAND_LOG", logPath)
+
+	patrolID, err := autoSpawnPatrol(PatrolConfig{
+		RoleName:      "refinery",
+		PatrolMolName: "mol-refinery-patrol",
+		BeadsDir:      townRoot,
+		Assignee:      "testrig/refinery",
+	})
+	if patrolID != "" {
+		t.Fatalf("patrolID = %q, want empty", patrolID)
+	}
+	if !errors.Is(err, refinery.ErrSafetyStopped) {
+		t.Fatalf("autoSpawnPatrol error = %v, want ErrSafetyStopped", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read command log: %v", err)
+	}
+	logOutput := string(data)
+	if strings.Contains(logOutput, "gt formula list") || strings.Contains(logOutput, "mol wisp create") || strings.Contains(logOutput, "update ") {
+		t.Fatalf("safety-stopped patrol creation mutated or listed patrol state; log:\n%s", logOutput)
+	}
+}
+
+func writePatrolSafetyStopMockBins(t *testing.T, binDir, logPath string) {
+	t.Helper()
+	bdScript := `#!/bin/sh
+printf 'bd %s\n' "$*" >> "$COMMAND_LOG"
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+case "$cmd" in
+  version)
+    echo "bd test"
+    ;;
+  query)
+    printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0o755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+	gtScript := `#!/bin/sh
+printf 'gt %s\n' "$*" >> "$COMMAND_LOG"
+exit 9
+`
+	if err := os.WriteFile(filepath.Join(binDir, "gt"), []byte(gtScript), 0o755); err != nil {
+		t.Fatalf("write fake gt: %v", err)
 	}
 }
 
