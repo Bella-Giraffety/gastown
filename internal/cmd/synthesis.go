@@ -324,8 +324,7 @@ func runSynthesisClose(cmd *cobra.Command, args []string) error {
 
 	// Read convoy to validate lifecycle state before closing
 	showArgs := []string{"show", convoyID, "--json"}
-	showCmd := exec.Command("bd", showArgs...)
-	showCmd.Dir = townBeads
+	showCmd := beads.Command(townBeads, townBeads, beads.ReadOnlyPinned, showArgs...)
 	var showOut bytes.Buffer
 	showCmd.Stdout = &showOut
 	if err := showCmd.Run(); err != nil {

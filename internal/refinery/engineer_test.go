@@ -1235,6 +1235,92 @@ exit 0
 	}
 }
 
+func TestEngineerNotifyConvoyCompletion_RollsBackStampWhenExportFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	tmpDir := t.TempDir()
+	townRoot := filepath.Join(tmpDir, "town")
+	rigDir := filepath.Join(townRoot, "testrig")
+	townBeads := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(townBeads, 0755); err != nil {
+		t.Fatalf("mkdir town beads: %v", err)
+	}
+	if err := os.MkdirAll(rigDir, 0755); err != nil {
+		t.Fatalf("mkdir rig: %v", err)
+	}
+
+	binDir := t.TempDir()
+	updateLogPath := filepath.Join(binDir, "update.log")
+	exportLogPath := filepath.Join(binDir, "export.log")
+	mailLogPath := filepath.Join(binDir, "mail.log")
+	bdScript := `#!/bin/sh
+if [ "$1" = "--allow-stale" ]; then
+  shift
+fi
+case "$1" in
+  version)
+    exit 0
+    ;;
+  show)
+    printf '%s\n' '[{"id":"hq-cv-ref-fail","description":"Owner: mayor/"}]'
+    exit 0
+    ;;
+  update)
+    echo "$@" >> "` + updateLogPath + `"
+    exit 0
+    ;;
+  export)
+    echo "$@" >> "` + exportLogPath + `"
+    printf 'export failed\n' >&2
+    exit 1
+    ;;
+esac
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	gtScript := `#!/bin/sh
+if [ "$1" = "mail" ] && [ "$2" = "send" ]; then
+  echo "$@" >> "` + mailLogPath + `"
+fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "gt"), []byte(gtScript), 0755); err != nil {
+		t.Fatalf("write gt stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	e := NewEngineer(&rig.Rig{Name: "testrig", Path: rigDir})
+	e.notifyConvoyCompletion(townRoot, "hq-cv-ref-fail", "Refinery Export Failure", "Owner: mayor/")
+
+	updates, err := os.ReadFile(updateLogPath)
+	if err != nil {
+		t.Fatalf("read update log: %v", err)
+	}
+	if got := strings.Count(string(updates), "update hq-cv-ref-fail"); got != 2 {
+		t.Fatalf("update calls = %d, want stamp and rollback; log:\n%s", got, string(updates))
+	}
+	if !strings.Contains(string(updates), "completion_notified_at:") {
+		t.Fatalf("stamp update missing completion_notified_at:\n%s", string(updates))
+	}
+	if !strings.Contains(string(updates), "--description=Owner: mayor/") {
+		t.Fatalf("rollback update missing original description:\n%s", string(updates))
+	}
+	exports, err := os.ReadFile(exportLogPath)
+	if err != nil {
+		t.Fatalf("read export log: %v", err)
+	}
+	if got := strings.Count(string(exports), "export -o"); got != 1 {
+		t.Fatalf("export calls = %d, want 1; log:\n%s", got, string(exports))
+	}
+	if mailData, err := os.ReadFile(mailLogPath); err == nil && strings.Contains(string(mailData), "mail send") {
+		t.Fatalf("mail sent despite failed durable notification stamp:\n%s", string(mailData))
+	}
+}
+
 func TestIsClaimStale(t *testing.T) {
 	timeout := DefaultStaleClaimTimeout
 

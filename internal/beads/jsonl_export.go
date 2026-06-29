@@ -1,9 +1,15 @@
 package beads
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/steveyegge/gastown/internal/constants"
 )
 
 // ExportJSONL writes the resolved beads database to issues.jsonl without
@@ -25,13 +31,28 @@ func ExportJSONL(dir, fallbackBeadsDir string) error {
 		workDir = beadsDir
 	}
 	issuesPath := filepath.Join(beadsDir, "issues.jsonl")
-	cmd := Command(workDir, beadsDir, ReadOnlyPinned, "export", "-o", issuesPath)
+	deadline := exportJSONLTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	cmd := CommandContext(ctx, workDir, beadsDir, ReadOnlyPinned, "export", "-o", issuesPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("exporting beads JSONL to %s timed out after %v: %w", issuesPath, deadline, err)
+		}
 		if msg := strings.TrimSpace(string(out)); msg != "" {
 			return fmt.Errorf("exporting beads JSONL to %s: %w: %s", issuesPath, err, msg)
 		}
 		return fmt.Errorf("exporting beads JSONL to %s: %w", issuesPath, err)
 	}
 	return nil
+}
+
+func exportJSONLTimeout() time.Duration {
+	if v := os.Getenv("GT_BD_TIMEOUT_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return constants.BdCommandTimeout
 }

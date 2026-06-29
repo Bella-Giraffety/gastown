@@ -2458,6 +2458,12 @@ func (e *Engineer) claimConvoyCompletionNotification(townRoot, convoyID, fallbac
 	}
 	if err := beads.ExportJSONL(townBeads, townBeads); err != nil {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not persist convoy completion notification state for %s: %v\n", convoyID, err)
+		rollbackArgs := beads.MaybePrependAllowStaleWithEnv(mutationEnv, []string{"update", convoyID, "--description=" + description})
+		rollbackCmd := beads.Command(townBeads, townBeads, beads.MutationPinned, rollbackArgs...)
+		if rollbackErr := rollbackCmd.Run(); rollbackErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not roll back convoy completion notification state for %s: %v\n", convoyID, rollbackErr)
+		}
+		return fields, false
 	}
 
 	return fields, true

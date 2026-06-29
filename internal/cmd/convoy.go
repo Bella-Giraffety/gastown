@@ -1719,6 +1719,10 @@ func notifyConvoyCompletion(townBeads, convoyID, title string) {
 	}
 	if err := beads.ExportJSONL(townBeads, ""); err != nil {
 		style.PrintWarning("could not persist convoy completion notification state for %s: %v", convoyID, err)
+		if rollbackErr := BdCmd("update", convoyID, "--description="+convoys[0].Description).Dir(townBeads).WithAutoCommit().Run(); rollbackErr != nil {
+			style.PrintWarning("could not roll back convoy completion notification state for %s: %v", convoyID, rollbackErr)
+		}
+		return
 	}
 
 	// Compute duration since convoy was created.

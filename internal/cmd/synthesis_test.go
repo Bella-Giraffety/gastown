@@ -127,6 +127,7 @@ func TestRunSynthesisClose_ExportsJSONLAfterClose(t *testing.T) {
 LOG="` + logPath + `"
 case "$1" in
   show)
+    printf 'show|%s|%s|%s|%s|%s|%s|%s|%s\n' "$*" "$(pwd)" "${BEADS_DIR:-}" "${BEADS_DOLT_SERVER_DATABASE:-}" "${BEADS_DB:-}" "${BD_DB:-}" "${BD_DOLT_AUTO_COMMIT:-}" "${BD_READONLY:-}" >> "$LOG"
     printf '%s\n' '[{"status":"open"}]'
     exit 0
     ;;
@@ -151,6 +152,13 @@ exit 1
 	t.Setenv("BD_DOLT_AUTO_COMMIT", "off")
 	t.Setenv("BD_READONLY", "true")
 	t.Setenv("BD_NO_GIT_OPS", "false")
+	t.Setenv("BEADS_DIR", filepath.Join(townRoot, "wrong", ".beads"))
+	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "wrong-db")
+	t.Setenv("BEADS_DB", "wrong-beads-db")
+	t.Setenv("BD_DB", "wrong-bd-db")
+	t.Setenv("GT_DOLT_DATA", "")
+	t.Setenv("GT_DOLT_HOST", "")
+	t.Setenv("GT_DOLT_PORT", "")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -170,10 +178,27 @@ exit 1
 		t.Fatalf("read log: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("log lines = %v, want close and export", lines)
+	if len(lines) != 3 {
+		t.Fatalf("log lines = %v, want show, close, and export", lines)
 	}
-	closeFields := strings.Split(lines[0], "|")
+	showFields := strings.Split(lines[0], "|")
+	if len(showFields) != 9 {
+		t.Fatalf("show fields = %v, want 9", showFields)
+	}
+	if showFields[1] != "show hq-cv-synth --json" {
+		t.Fatalf("show args = %q, want synthesis show", showFields[1])
+	}
+	if showFields[2] != townRoot || showFields[3] != filepath.Join(townRoot, ".beads") {
+		t.Fatalf("show target = cwd %q BEADS_DIR %q, want town root and town .beads", showFields[2], showFields[3])
+	}
+	if showFields[4] != "" || showFields[5] != "" || showFields[6] != "" {
+		t.Fatalf("show stale target env leaked: DB=%q BEADS_DB=%q BD_DB=%q", showFields[4], showFields[5], showFields[6])
+	}
+	if showFields[7] != "off" || showFields[8] != "true" {
+		t.Fatalf("show env = BD_DOLT_AUTO_COMMIT=%q BD_READONLY=%q, want read-only", showFields[7], showFields[8])
+	}
+
+	closeFields := strings.Split(lines[1], "|")
 	if len(closeFields) != 7 {
 		t.Fatalf("close fields = %v, want 7", closeFields)
 	}
@@ -187,7 +212,7 @@ exit 1
 		t.Fatalf("close env = BD_DOLT_AUTO_COMMIT=%q BD_READONLY=%q BD_NO_GIT_OPS=%q, want mutation/suppressed", closeFields[4], closeFields[5], closeFields[6])
 	}
 
-	exportFields := strings.Split(lines[1], "|")
+	exportFields := strings.Split(lines[2], "|")
 	if len(exportFields) != 7 {
 		t.Fatalf("export fields = %v, want 7", exportFields)
 	}

@@ -99,6 +99,89 @@ exit 0
 	}
 }
 
+func TestNotifyConvoyCompletion_RollsBackStampWhenExportFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	binDir := t.TempDir()
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	updateLogPath := filepath.Join(binDir, "update.log")
+	exportLogPath := filepath.Join(binDir, "export.log")
+	mailLogPath := filepath.Join(binDir, "mail.log")
+	bdScript := `#!/bin/sh
+if [ "$1" = "--allow-stale" ]; then
+  shift
+fi
+case "$1" in
+  version)
+    exit 0
+    ;;
+  show)
+    printf '%s\n' '[{"id":"hq-cv-fail","description":"Owner: mayor/","created_at":"2026-05-25T02:00:00Z"}]'
+    exit 0
+    ;;
+  update)
+    echo "$@" >> "` + updateLogPath + `"
+    exit 0
+    ;;
+  export)
+    echo "$@" >> "` + exportLogPath + `"
+    printf 'export failed\n' >&2
+    exit 1
+    ;;
+  sql)
+    printf '%s\n' '[]'
+    exit 0
+    ;;
+esac
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	gtScript := `#!/bin/sh
+if [ "$1" = "mail" ] && [ "$2" = "send" ]; then
+  echo "$@" >> "` + mailLogPath + `"
+fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "gt"), []byte(gtScript), 0755); err != nil {
+		t.Fatalf("write gt stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	notifyConvoyCompletion(townRoot, "hq-cv-fail", "Export Failure")
+
+	updates, err := os.ReadFile(updateLogPath)
+	if err != nil {
+		t.Fatalf("read update log: %v", err)
+	}
+	if got := strings.Count(string(updates), "update hq-cv-fail"); got != 2 {
+		t.Fatalf("update calls = %d, want stamp and rollback; log:\n%s", got, string(updates))
+	}
+	if !strings.Contains(string(updates), "completion_notified_at:") {
+		t.Fatalf("stamp update missing completion_notified_at:\n%s", string(updates))
+	}
+	if !strings.Contains(string(updates), "--description=Owner: mayor/") {
+		t.Fatalf("rollback update missing original description:\n%s", string(updates))
+	}
+	exports, err := os.ReadFile(exportLogPath)
+	if err != nil {
+		t.Fatalf("read export log: %v", err)
+	}
+	if got := strings.Count(string(exports), "export -o"); got != 1 {
+		t.Fatalf("export calls = %d, want 1; log:\n%s", got, string(exports))
+	}
+	if mailData, err := os.ReadFile(mailLogPath); err == nil && strings.Contains(string(mailData), "mail send") {
+		t.Fatalf("mail sent despite failed durable notification stamp:\n%s", string(mailData))
+	}
+}
+
 func TestCloseConvoyIfComplete_ExportsJSONLBeforeNotification(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping on windows - shell stubs")
