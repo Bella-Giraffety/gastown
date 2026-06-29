@@ -48,6 +48,42 @@ func TestResolveNonForkKeepsOriginBaseAndAllowsDirectPush(t *testing.T) {
 	}
 }
 
+func TestResolveConfigOnlyForkBlocksDefaultPush(t *testing.T) {
+	rigPath, workDir := setupPolicyRepo(t)
+	run(t, workDir, "git", "remote", "set-url", "origin", "https://github.com/Bella-Giraffety/gastown.git")
+
+	policy := Resolve(git.NewGit(workDir), rigPath, "main", "main")
+
+	if !policy.ForkBacked {
+		t.Fatal("expected config git_url vs origin fork to be detected as fork-backed")
+	}
+	if err := policy.CheckDefaultBranchDirectPush("main"); err == nil {
+		t.Fatal("expected config-only fork to refuse default direct push")
+	}
+}
+
+func TestResolveAllowDirectDefaultPushOverride(t *testing.T) {
+	rigPath, workDir := setupPolicyRepo(t)
+	run(t, workDir, "git", "remote", "set-url", "origin", "https://github.com/Bella-Giraffety/gastown.git")
+	run(t, workDir, "git", "remote", "add", "upstream", "https://github.com/gastownhall/gastown.git")
+	writeMergeQueuePolicy(t, rigPath, "direct", true)
+
+	policy := Resolve(git.NewGit(workDir), rigPath, "main", "main")
+	if err := policy.CheckDefaultBranchDirectPush("main"); err != nil {
+		t.Fatalf("explicit allow_direct_default_push should allow direct push in direct mode: %v", err)
+	}
+}
+
+func TestResolvePRModeIgnoresAllowDirectDefaultPush(t *testing.T) {
+	rigPath, workDir := setupPolicyRepo(t)
+	writeMergeQueuePolicy(t, rigPath, "pr", true)
+
+	policy := Resolve(git.NewGit(workDir), rigPath, "main", "main")
+	if err := policy.CheckDefaultBranchDirectPush("main"); err == nil {
+		t.Fatal("merge_strategy=pr should refuse direct default push even with explicit allow")
+	}
+}
+
 func TestNormalizeBaseRefPreservesQualifiedRefs(t *testing.T) {
 	rigPath, workDir := setupPolicyRepo(t)
 	g := git.NewGit(workDir)
@@ -64,6 +100,28 @@ func TestNormalizeBaseRefPreservesQualifiedRefs(t *testing.T) {
 		if got := NormalizeBaseRef(g, rigPath, tc.in, "main"); got != tc.want {
 			t.Fatalf("NormalizeBaseRef(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func writeMergeQueuePolicy(t *testing.T, rigPath, strategy string, allow bool) {
+	t.Helper()
+	cfg := map[string]any{
+		"type":           "rig",
+		"version":        1,
+		"name":           "gastown",
+		"git_url":        "https://github.com/gastownhall/gastown.git",
+		"default_branch": "main",
+		"merge_queue": map[string]any{
+			"merge_strategy":            strategy,
+			"allow_direct_default_push": allow,
+		},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rigPath, "config.json"), data, 0644); err != nil {
+		t.Fatal(err)
 	}
 }
 

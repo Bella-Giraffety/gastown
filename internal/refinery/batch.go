@@ -215,6 +215,10 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 	if len(batch) == 1 {
 		return e.processSingleMR(ctx, batch[0], target)
 	}
+	if policyErr := e.landingPolicy(target).CheckDefaultBranchDirectPush(target); policyErr != nil {
+		result.Error = policyErr
+		return result
+	}
 
 	_, _ = fmt.Fprintf(e.output, "[Batch] Processing batch of %d MRs targeting %s\n", len(batch), target)
 

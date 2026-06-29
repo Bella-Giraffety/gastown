@@ -1724,13 +1724,19 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		}
 		startPoint = "origin/" + opts.ResumeBranch
 	case opts.BaseBranch != "":
-		startPoint = opts.BaseBranch
+		startPoint = landing.NormalizeBaseRef(polecatGit, m.rig.Path, opts.BaseBranch, "")
 	default:
-		defaultBranch := "main"
-		if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-			defaultBranch = rigCfg.DefaultBranch
+		startPoint = landing.NormalizeBaseRef(polecatGit, m.rig.Path, "", "")
+	}
+	if remote := landing.RemoteFromRef(startPoint); remote != "" && remote != "origin" {
+		if repoGit != nil {
+			if err := repoGit.Fetch(remote); err != nil {
+				style.PrintWarning("could not fetch %s on bare repo: %v", remote, err)
+			}
 		}
-		startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		if err := polecatGit.Fetch(remote); err != nil {
+			style.PrintWarning("could not fetch %s in worktree: %v", remote, err)
+		}
 	}
 
 	// Validate that startPoint ref exists

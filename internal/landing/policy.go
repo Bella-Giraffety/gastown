@@ -60,7 +60,7 @@ func Resolve(g *git.Git, rigPath, targetBranch, defaultBranch string) Policy {
 	policy.PRMode = strategy == "pr"
 
 	rigCfg, _ := rig.LoadRigConfig(rigPath)
-	originFetch, originPush, upstreamURL := remoteTopology(g, rigCfg)
+	_, originPush, upstreamURL := remoteTopology(g, rigCfg)
 	canonicalURL := upstreamURL
 	if canonicalURL == "" && rigCfg != nil {
 		canonicalURL = rigCfg.GitURL
@@ -73,13 +73,11 @@ func Resolve(g *git.Git, rigPath, targetBranch, defaultBranch string) Policy {
 		// A distinct push target plus an upstream/canonical repo means target-branch
 		// pushes land in a fork, not the canonical base. Default branches must fail
 		// closed unless explicitly allowed.
-		if upstreamURL != "" || (originFetch != "" && !sameRemoteRepo(originFetch, originPush)) || (rigCfg != nil && (rigCfg.PushURL != "" || rigCfg.UpstreamURL != "")) {
-			policy.ForkBacked = true
-			policy.Reason = "fork-backed topology detected"
-			if upstreamURL != "" && target == defaultBranch {
-				policy.CleanBaseRef = "upstream/" + target
-				policy.CleanBaseRemote = "upstream"
-			}
+		policy.ForkBacked = true
+		policy.Reason = "fork-backed topology detected"
+		if upstreamURL != "" && target == defaultBranch {
+			policy.CleanBaseRef = "upstream/" + target
+			policy.CleanBaseRemote = "upstream"
 		}
 	}
 

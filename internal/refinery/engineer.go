@@ -1180,14 +1180,18 @@ func (e *Engineer) ProcessMRInfo(ctx context.Context, mr *MRInfo) ProcessResult 
 		_, _ = fmt.Fprintf(e.output, "  Pre-verified: yes (base=%s)\n", mr.PreVerifiedBase[:min(8, len(mr.PreVerifiedBase))])
 		// Check if the policy base HEAD still matches the verified base.
 		baseRef := e.landingPolicy(mr.Target).CleanBaseRef
+		baseFresh := true
 		if remote := landing.RemoteFromRef(baseRef); remote != "" {
 			if fetchErr := e.git.Fetch(remote); fetchErr != nil {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not fetch %s for pre-verification check: %v\n", remote, fetchErr)
+				baseFresh = false
 			}
 		}
 		targetHead, err := e.git.Rev(baseRef)
 		if err != nil {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not resolve %s HEAD: %v (falling through to normal gates)\n", baseRef, err)
+		} else if !baseFresh {
+			_, _ = fmt.Fprintln(e.output, "[Engineer] Pre-verification base may be stale — running gates normally")
 		} else if targetHead == mr.PreVerifiedBase {
 			_, _ = fmt.Fprintln(e.output, "[Engineer] Pre-verification valid — target unchanged, skipping gates (fast-path)")
 			skipGates = true

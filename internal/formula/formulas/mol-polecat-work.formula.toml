@@ -95,7 +95,7 @@ If a prior branch exists, check it out instead of creating a new one:
 ```bash
 git fetch origin
 git branch -a | grep <branch-from-notes>
-# If it exists: git checkout <branch> && git rebase origin/{{base_branch}}
+# If it exists: git checkout <branch> && git rebase {{base_ref}}
 ```
 
 This lets you make a targeted fix rather than starting from scratch.
@@ -279,7 +279,7 @@ Tried: <what you've attempted>"
 ```
 
 **Exit criteria (HARD GATE):** Implementation complete AND code committed to git.
-- Code tasks: `git status` shows clean working tree, `git log origin/{{base_branch}}..HEAD` shows at least 1 commit
+- Code tasks: `git status` shows clean working tree, `git log {{base_ref}}..HEAD` shows at least 1 commit
 - Report tasks: all findings persisted to bead via --notes or --design
 Do NOT proceed to the next step with uncommitted changes."""
 
@@ -310,7 +310,7 @@ git add -A && git commit -m "<type>: <descriptive message> ({{issue}})"
 
 **4. VERIFY commits exist (HARD GATE — do NOT close this step without passing):**
 ```bash
-git log origin/{{base_branch}}..HEAD --oneline
+git log {{base_ref}}..HEAD --oneline
 ```
 
 This MUST show at least 1 commit. If it shows NOTHING:
@@ -334,7 +334,7 @@ bd show {{issue}}    # Check notes/design fields have your findings
 If findings are persisted, proceed to review. Report-only tasks with findings
 persisted can skip commit verification.
 
-**Exit criteria:** Working tree clean AND either (a) at least 1 commit ahead of origin/{{base_branch}}, or (b) report-only task with findings persisted to bead."""
+**Exit criteria:** Working tree clean AND either (a) at least 1 commit ahead of {{base_ref}}, or (b) report-only task with findings persisted to bead."""
 
 [[steps]]
 id = "self-review"
@@ -355,8 +355,8 @@ and specific fix suggestions. Fix any CRITICAL or MAJOR issues before proceeding
 
 **1. Review the diff:**
 ```bash
-git diff origin/{{base_branch}}...HEAD     # All changes vs {{base_branch}}
-git log --oneline origin/{{base_branch}}..HEAD  # All commits
+git diff {{base_ref}}...HEAD     # All changes vs {{base_branch}}
+git log --oneline {{base_ref}}..HEAD  # All commits
 ```
 
 **2. Check for common issues:**
@@ -374,7 +374,7 @@ Don't just note them - fix them now. Amend or add commits as needed.
 
 **4. Verify no unintended changes:**
 ```bash
-git diff --stat origin/{{base_branch}}...HEAD
+git diff --stat {{base_ref}}...HEAD
 # Only files relevant to {{issue}} should appear
 ```
 

@@ -578,6 +578,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	}
 	rigPath := filepath.Join(townRoot, rigName)
 	basePolicy := landing.Resolve(g, rigPath, doneTarget, defaultBranch)
+	defaultPushPolicy := landing.Resolve(g, rigPath, defaultBranch, defaultBranch)
 
 	// For COMPLETED, we need an issue ID and branch must not be the default branch
 	var mrID string
@@ -793,7 +794,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// Strip Gas Town overlay from CLAUDE.md / CLAUDE.local.md (gt-p35).
 		// Polecats commit the overlay (polecat lifecycle boilerplate) into repos,
 		// overwriting project-specific CLAUDE.md content. Detect and revert before push.
-		if stripped := stripOverlayCLAUDEmd(g, defaultBranch); stripped {
+		if stripped := stripOverlayCLAUDEmd(g, defaultBranch, basePolicy.CleanBaseRef); stripped {
 			// Recalculate commits ahead since we added a cleanup commit
 			aheadCount, _ = g.CommitsAhead("origin/"+defaultBranch, "HEAD")
 		}
@@ -828,7 +829,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 		// Handle "direct" strategy: push to target branch, skip MR
 		if convoyInfo != nil && convoyInfo.MergeStrategy == "direct" {
-			if policyErr := basePolicy.CheckDefaultBranchDirectPush(defaultBranch); policyErr != nil {
+			if policyErr := defaultPushPolicy.CheckDefaultBranchDirectPush(defaultBranch); policyErr != nil {
 				style.PrintWarning("%v — submitting through merge queue instead", policyErr)
 			} else {
 				fmt.Printf("%s Direct merge strategy: pushing to %s\n", style.Bold.Render("→"), defaultBranch)
@@ -1176,7 +1177,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			convoyInfo = getConvoyInfoForIssue(issueID)
 		}
 		if convoyInfo != nil && convoyInfo.MergeStrategy == "direct" {
-			if policyErr := basePolicy.CheckDefaultBranchDirectPush(defaultBranch); policyErr != nil {
+			if policyErr := defaultPushPolicy.CheckDefaultBranchDirectPush(defaultBranch); policyErr != nil {
 				style.PrintWarning("%v — leaving branch in merge queue", policyErr)
 			} else {
 				fmt.Printf("%s Late-detected direct merge strategy: pushing to %s\n", style.Bold.Render("→"), defaultBranch)
@@ -1609,10 +1610,14 @@ notifyWitness:
 			// Remember the old branch so we can delete it after switching
 			oldBranch := branch
 
-			fmt.Printf("%s Syncing worktree to %s...\n", style.Bold.Render("→"), defaultBranch)
-			syncRef := "origin/" + defaultBranch
-			if err := g.Fetch("origin"); err != nil {
-				style.PrintWarning("could not fetch origin before idle sync: %v (using local refs)", err)
+			fmt.Printf("%s Syncing worktree to %s...\n", style.Bold.Render("→"), basePolicy.CleanBaseRef)
+			syncRef := basePolicy.CleanBaseRef
+			fetchRemote := landing.RemoteFromRef(syncRef)
+			if fetchRemote == "" {
+				fetchRemote = "origin"
+			}
+			if err := g.Fetch(fetchRemote); err != nil {
+				style.PrintWarning("could not fetch %s before idle sync: %v (using local refs)", fetchRemote, err)
 			}
 			if err := g.CheckoutDetach(syncRef); err != nil {
 				if fallbackErr := g.CheckoutDetach(defaultBranch); fallbackErr != nil {
@@ -2316,11 +2321,13 @@ func isPolecatActor(actor string) bool {
 // and a cleanup commit is created.
 //
 // Returns true if a cleanup commit was created.
-func stripOverlayCLAUDEmd(g *git.Git, defaultBranch string) bool {
-	originRef := "origin/" + defaultBranch
+func stripOverlayCLAUDEmd(g *git.Git, defaultBranch, baseRef string) bool {
+	if baseRef == "" {
+		baseRef = "origin/" + defaultBranch
+	}
 
-	// Check which files changed on this branch vs origin/main
-	changedFiles, err := g.DiffNameOnly(originRef, "HEAD")
+	// Check which files changed on this branch vs the clean base.
+	changedFiles, err := g.DiffNameOnly(baseRef, "HEAD")
 	if err != nil {
 		// Can't determine diff — skip silently (push will still work)
 		return false
@@ -2348,20 +2355,20 @@ func stripOverlayCLAUDEmd(g *git.Git, defaultBranch string) bool {
 		// Read current CLAUDE.md from HEAD
 		currentContent, showErr := g.ShowFile("HEAD", "CLAUDE.md")
 		if showErr == nil && strings.Contains(currentContent, templates.PolecatLifecycleMarker) {
-			// Current CLAUDE.md has overlay content — restore from origin
-			origContent, origErr := g.ShowFile(originRef, "CLAUDE.md")
+			// Current CLAUDE.md has overlay content — restore from the clean base.
+			origContent, origErr := g.ShowFile(baseRef, "CLAUDE.md")
 			if origErr != nil {
-				// CLAUDE.md didn't exist on origin/main — the overlay created it.
+				// CLAUDE.md didn't exist on the clean base — the overlay created it.
 				// Remove it from tracking.
 				if rmErr := g.RmCached("CLAUDE.md"); rmErr == nil {
 					needsCommit = true
 					fmt.Printf("%s Removed overlay CLAUDE.md (did not exist on %s)\n",
-						style.Bold.Render("→"), defaultBranch)
+						style.Bold.Render("→"), baseRef)
 				}
 			} else {
-				// CLAUDE.md existed on origin — restore original content
+				// CLAUDE.md existed on the clean base — restore original content
 				_ = origContent // Restore via checkout
-				if coErr := g.CheckoutFileFromRef(originRef, "CLAUDE.md"); coErr == nil {
+				if coErr := g.CheckoutFileFromRef(baseRef, "CLAUDE.md"); coErr == nil {
 					if addErr := g.Add("CLAUDE.md"); addErr == nil {
 						needsCommit = true
 						fmt.Printf("%s Restored original CLAUDE.md (stripped Gas Town overlay)\n",
