@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 )
@@ -1239,6 +1240,24 @@ func TestBatchSlingRejectsMissingTargetRigDatabaseBeforeSpawn(t *testing.T) {
 	}
 	if spawnCalled {
 		t.Fatal("spawnPolecatForSling was called before target-rig resolver validation rejected the bead")
+	}
+}
+
+func TestSchedulerRejectsReviewOnlyForEpicConvoy(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("review-only", false, "")
+	if err := cmd.Flags().Set("review-only", "true"); err != nil {
+		t.Fatalf("set review-only flag: %v", err)
+	}
+
+	for _, mode := range []string{"epic", "convoy"} {
+		err := validateNoTaskOnlySchedulerFlags(cmd, mode)
+		if err == nil {
+			t.Fatalf("validateNoTaskOnlySchedulerFlags(%s) accepted --review-only", mode)
+		}
+		if !strings.Contains(err.Error(), "--review-only") {
+			t.Fatalf("validateNoTaskOnlySchedulerFlags(%s) error = %v, want --review-only", mode, err)
+		}
 	}
 }
 

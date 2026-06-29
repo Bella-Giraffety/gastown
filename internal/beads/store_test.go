@@ -17,6 +17,7 @@ type mockStorage struct {
 	issues          map[string]*beadsdk.Issue
 	labels          map[string][]string // issueID -> labels
 	deps            map[string][]string // issueID -> depends-on IDs
+	comments        map[string][]*beadsdk.Comment
 	nextID          int
 	prefix          string
 	closed          map[string]bool
@@ -34,11 +35,12 @@ type mockStorage struct {
 
 func newMockStorage() *mockStorage {
 	return &mockStorage{
-		issues: make(map[string]*beadsdk.Issue),
-		labels: make(map[string][]string),
-		deps:   make(map[string][]string),
-		closed: make(map[string]bool),
-		prefix: "test",
+		issues:   make(map[string]*beadsdk.Issue),
+		labels:   make(map[string][]string),
+		deps:     make(map[string][]string),
+		comments: make(map[string][]*beadsdk.Comment),
+		closed:   make(map[string]bool),
+		prefix:   "test",
 	}
 }
 
@@ -70,6 +72,9 @@ func (m *mockStorage) GetIssueComments(_ context.Context, id string) ([]*beadsdk
 	issue, ok := m.issues[id]
 	if !ok {
 		return nil, fmt.Errorf("issue %s not found", id)
+	}
+	if comments, ok := m.comments[id]; ok {
+		return comments, nil
 	}
 	return issue.Comments, nil
 }
@@ -353,6 +358,46 @@ func TestStoreShow(t *testing.T) {
 	}
 	if issue.Priority != 2 {
 		t.Fatalf("expected priority 2, got %d", issue.Priority)
+	}
+}
+
+func TestStoreShowMapsReviewEvidenceFields(t *testing.T) {
+	store := newMockStorage()
+	b := newTestBeads(store)
+
+	store.CreateIssue(context.Background(), &beadsdk.Issue{
+		Title:  "review issue",
+		Notes:  "REPORT: reviewed upstream PR",
+		Design: "FINDINGS: no blockers",
+	}, "actor")
+	createdAt := time.Unix(123, 0).UTC()
+	store.comments["test-1"] = []*beadsdk.Comment{{
+		ID:        "comment-1",
+		IssueID:   "test-1",
+		Author:    "reviewer",
+		Text:      "EVIDENCE: CI green",
+		CreatedAt: createdAt,
+	}}
+
+	issue, err := b.Show("test-1")
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if issue.Notes != "REPORT: reviewed upstream PR" {
+		t.Fatalf("Notes = %q", issue.Notes)
+	}
+	if issue.Design != "FINDINGS: no blockers" {
+		t.Fatalf("Design = %q", issue.Design)
+	}
+	if len(issue.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(issue.Comments))
+	}
+	comment := issue.Comments[0]
+	if comment.ID != "comment-1" || comment.IssueID != "test-1" || comment.Author != "reviewer" || comment.Text != "EVIDENCE: CI green" {
+		t.Fatalf("unexpected comment mapping: %+v", comment)
+	}
+	if comment.CreatedAt != createdAt.Format(time.RFC3339) {
+		t.Fatalf("CreatedAt = %q", comment.CreatedAt)
 	}
 }
 
