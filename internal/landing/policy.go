@@ -17,9 +17,9 @@ import (
 // It deliberately separates the clean base ref used by git from the target
 // branch name stored in MR metadata and PR bases.
 type Policy struct {
-	DefaultBranch string
-	TargetBranch  string
-	CleanBaseRef  string
+	DefaultBranch   string
+	TargetBranch    string
+	CleanBaseRef    string
 	CleanBaseRemote string
 
 	ForkBacked bool
@@ -49,11 +49,11 @@ func Resolve(g *git.Git, rigPath, targetBranch, defaultBranch string) Policy {
 	}
 
 	policy := Policy{
-		DefaultBranch:             defaultBranch,
-		TargetBranch:              target,
-		CleanBaseRef:              "origin/" + target,
-		CleanBaseRemote:           "origin",
-		DirectDefaultPushAllowed:  true,
+		DefaultBranch:            defaultBranch,
+		TargetBranch:             target,
+		CleanBaseRef:             "origin/" + target,
+		CleanBaseRemote:          "origin",
+		DirectDefaultPushAllowed: true,
 	}
 
 	strategy, allowDirect := loadMergeQueuePolicy(rigPath)

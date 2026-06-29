@@ -831,54 +831,54 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if policyErr := basePolicy.CheckDefaultBranchDirectPush(defaultBranch); policyErr != nil {
 				style.PrintWarning("%v — submitting through merge queue instead", policyErr)
 			} else {
-			fmt.Printf("%s Direct merge strategy: pushing to %s\n", style.Bold.Render("→"), defaultBranch)
-			// Push submodule changes before direct push (gt-dzs)
-			pushSubmoduleChanges(g, defaultBranch)
-			directRefspec := branch + ":" + defaultBranch
-			directPushErr := g.Push("origin", directRefspec, false)
-			if directPushErr != nil {
-				pushFailed = true
-				errMsg := fmt.Sprintf("direct push to %s failed: %v", defaultBranch, directPushErr)
-				doneErrors = append(doneErrors, errMsg)
-				style.PrintWarning("%s", errMsg)
-				goto notifyWitness
-			}
-			directCommitSHA, _ := g.Rev("HEAD")
-			if doneSkipVerify {
-				noteVerifiedPushSkipped(cwd, issueID, defaultBranch, directCommitSHA, "--skip-verify on direct merge")
-			} else if verifyErr := g.VerifyPushedCommit("origin", defaultBranch, directCommitSHA); verifyErr != nil {
-				pushFailed = true
-				errMsg := verifyErr.Error()
-				doneErrors = append(doneErrors, errMsg)
-				noteVerifiedPushFailure(cwd, issueID, defaultBranch, directCommitSHA, verifyErr)
-				style.PrintWarning("%s\nDirect merge pushed but remote verification failed. Source bead will remain in progress.", errMsg)
-				goto notifyWitness
-			}
-			fmt.Printf("%s Branch pushed directly to %s\n", style.Bold.Render("✓"), defaultBranch)
-			doneCleanupStatus = cleanupStatusAfterSuccessfulPush(doneCleanupStatus)
+				fmt.Printf("%s Direct merge strategy: pushing to %s\n", style.Bold.Render("→"), defaultBranch)
+				// Push submodule changes before direct push (gt-dzs)
+				pushSubmoduleChanges(g, defaultBranch)
+				directRefspec := branch + ":" + defaultBranch
+				directPushErr := g.Push("origin", directRefspec, false)
+				if directPushErr != nil {
+					pushFailed = true
+					errMsg := fmt.Sprintf("direct push to %s failed: %v", defaultBranch, directPushErr)
+					doneErrors = append(doneErrors, errMsg)
+					style.PrintWarning("%s", errMsg)
+					goto notifyWitness
+				}
+				directCommitSHA, _ := g.Rev("HEAD")
+				if doneSkipVerify {
+					noteVerifiedPushSkipped(cwd, issueID, defaultBranch, directCommitSHA, "--skip-verify on direct merge")
+				} else if verifyErr := g.VerifyPushedCommit("origin", defaultBranch, directCommitSHA); verifyErr != nil {
+					pushFailed = true
+					errMsg := verifyErr.Error()
+					doneErrors = append(doneErrors, errMsg)
+					noteVerifiedPushFailure(cwd, issueID, defaultBranch, directCommitSHA, verifyErr)
+					style.PrintWarning("%s\nDirect merge pushed but remote verification failed. Source bead will remain in progress.", errMsg)
+					goto notifyWitness
+				}
+				fmt.Printf("%s Branch pushed directly to %s\n", style.Bold.Render("✓"), defaultBranch)
+				doneCleanupStatus = cleanupStatusAfterSuccessfulPush(doneCleanupStatus)
 
-			// Close the base issue — no MR/refinery will close it
-			if issueID != "" {
-				directBd := beads.New(cwd)
-				closeReason := fmt.Sprintf("Direct merge to %s (convoy strategy)", defaultBranch)
-				var closeErr error
-				for attempt := 1; attempt <= 3; attempt++ {
-					closeErr = directBd.ForceCloseWithReason(closeReason, issueID)
-					if closeErr == nil {
-						fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
-						break
+				// Close the base issue — no MR/refinery will close it
+				if issueID != "" {
+					directBd := beads.New(cwd)
+					closeReason := fmt.Sprintf("Direct merge to %s (convoy strategy)", defaultBranch)
+					var closeErr error
+					for attempt := 1; attempt <= 3; attempt++ {
+						closeErr = directBd.ForceCloseWithReason(closeReason, issueID)
+						if closeErr == nil {
+							fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
+							break
+						}
+						if attempt < 3 {
+							style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
+							time.Sleep(time.Duration(attempt*2) * time.Second)
+						}
 					}
-					if attempt < 3 {
-						style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
-						time.Sleep(time.Duration(attempt*2) * time.Second)
+					if closeErr != nil {
+						style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
 					}
 				}
-				if closeErr != nil {
-					style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
-				}
-			}
 
-			goto notifyWitness
+				goto notifyWitness
 			}
 		}
 
@@ -1179,52 +1179,52 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if policyErr := basePolicy.CheckDefaultBranchDirectPush(defaultBranch); policyErr != nil {
 				style.PrintWarning("%v — leaving branch in merge queue", policyErr)
 			} else {
-			fmt.Printf("%s Late-detected direct merge strategy: pushing to %s\n", style.Bold.Render("→"), defaultBranch)
-			fmt.Printf("  Convoy: %s\n", convoyInfo.ID)
+				fmt.Printf("%s Late-detected direct merge strategy: pushing to %s\n", style.Bold.Render("→"), defaultBranch)
+				fmt.Printf("  Convoy: %s\n", convoyInfo.ID)
 
-			// Push branch directly to main (the earlier push went to origin/<branch>)
-			directRefspec := branch + ":" + defaultBranch
-			directPushErr := g.Push("origin", directRefspec, false)
-			if directPushErr != nil {
-				// Direct push failed — fall through to normal MR creation
-				style.PrintWarning("late direct push to %s failed: %v — falling through to MR", defaultBranch, directPushErr)
-			} else {
-				lateDirectCommitSHA, _ := g.Rev("HEAD")
-				if doneSkipVerify {
-					noteVerifiedPushSkipped(cwd, issueID, defaultBranch, lateDirectCommitSHA, "--skip-verify on late direct merge")
-				} else if verifyErr := g.VerifyPushedCommit("origin", defaultBranch, lateDirectCommitSHA); verifyErr != nil {
-					pushFailed = true
-					errMsg := verifyErr.Error()
-					doneErrors = append(doneErrors, errMsg)
-					noteVerifiedPushFailure(cwd, issueID, defaultBranch, lateDirectCommitSHA, verifyErr)
-					style.PrintWarning("%s\nLate direct merge pushed but remote verification failed. Source bead will remain in progress.", errMsg)
+				// Push branch directly to main (the earlier push went to origin/<branch>)
+				directRefspec := branch + ":" + defaultBranch
+				directPushErr := g.Push("origin", directRefspec, false)
+				if directPushErr != nil {
+					// Direct push failed — fall through to normal MR creation
+					style.PrintWarning("late direct push to %s failed: %v — falling through to MR", defaultBranch, directPushErr)
+				} else {
+					lateDirectCommitSHA, _ := g.Rev("HEAD")
+					if doneSkipVerify {
+						noteVerifiedPushSkipped(cwd, issueID, defaultBranch, lateDirectCommitSHA, "--skip-verify on late direct merge")
+					} else if verifyErr := g.VerifyPushedCommit("origin", defaultBranch, lateDirectCommitSHA); verifyErr != nil {
+						pushFailed = true
+						errMsg := verifyErr.Error()
+						doneErrors = append(doneErrors, errMsg)
+						noteVerifiedPushFailure(cwd, issueID, defaultBranch, lateDirectCommitSHA, verifyErr)
+						style.PrintWarning("%s\nLate direct merge pushed but remote verification failed. Source bead will remain in progress.", errMsg)
+						goto notifyWitness
+					}
+					fmt.Printf("%s Branch pushed directly to %s\n", style.Bold.Render("✓"), defaultBranch)
+					doneCleanupStatus = cleanupStatusAfterSuccessfulPush(doneCleanupStatus)
+
+					// Close the issue directly — refinery won't process it.
+					if issueID != "" {
+						var closeErr error
+						for attempt := 1; attempt <= 3; attempt++ {
+							closeErr = bd.ForceCloseWithReason(
+								fmt.Sprintf("Direct merge to %s (convoy strategy, late detection)", defaultBranch), issueID)
+							if closeErr == nil {
+								fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
+								break
+							}
+							if attempt < 3 {
+								style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
+								time.Sleep(time.Duration(attempt*2) * time.Second)
+							}
+						}
+						if closeErr != nil {
+							style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
+						}
+					}
+
 					goto notifyWitness
 				}
-				fmt.Printf("%s Branch pushed directly to %s\n", style.Bold.Render("✓"), defaultBranch)
-				doneCleanupStatus = cleanupStatusAfterSuccessfulPush(doneCleanupStatus)
-
-				// Close the issue directly — refinery won't process it.
-				if issueID != "" {
-					var closeErr error
-					for attempt := 1; attempt <= 3; attempt++ {
-						closeErr = bd.ForceCloseWithReason(
-							fmt.Sprintf("Direct merge to %s (convoy strategy, late detection)", defaultBranch), issueID)
-						if closeErr == nil {
-							fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
-							break
-						}
-						if attempt < 3 {
-							style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
-							time.Sleep(time.Duration(attempt*2) * time.Second)
-						}
-					}
-					if closeErr != nil {
-						style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
-					}
-				}
-
-				goto notifyWitness
-			}
 			}
 		}
 

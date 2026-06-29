@@ -22,6 +22,7 @@ import (
 	"github.com/steveyegge/gastown/internal/daemon"
 	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/formula"
+	"github.com/steveyegge/gastown/internal/landing"
 	rigpkg "github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/style"
@@ -1315,6 +1316,7 @@ func ensureFormulaRequiredVars(formulaName string, vars []string) []string {
 		Value string
 	}{
 		{"base_branch", "main"},
+		{"base_ref", "origin/main"},
 		{"setup_command", ""},
 		{"typecheck_command", ""},
 		{"lint_command", ""},
@@ -1532,10 +1534,19 @@ func loadRigCommandVars(townRoot, rig string) []string {
 	var vars []string
 
 	// Load default_branch from rig root config.json (single source of truth per 5ee9abcc).
-	// This sets base_branch for formula instantiation so polecats fork from the right branch.
+	// base_branch remains the MR/PR target; base_ref is the git ref used for clean branch bases.
+	defaultBranch := "main"
 	rigCfg, err := rigpkg.LoadRigConfig(filepath.Join(townRoot, rig))
 	if err == nil && rigCfg != nil && rigCfg.DefaultBranch != "" {
-		vars = append(vars, fmt.Sprintf("base_branch=%s", rigCfg.DefaultBranch))
+		defaultBranch = rigCfg.DefaultBranch
+		vars = append(vars, fmt.Sprintf("base_branch=%s", defaultBranch))
+	}
+	baseRef := "origin/" + defaultBranch
+	if repoGit, repoErr := getRigGit(filepath.Join(townRoot, rig)); repoErr == nil {
+		baseRef = landing.NormalizeBaseRef(repoGit, filepath.Join(townRoot, rig), defaultBranch, defaultBranch)
+	}
+	if baseRef != "origin/main" {
+		vars = append(vars, fmt.Sprintf("base_ref=%s", baseRef))
 	}
 
 	// Load repo-sourced settings (floor — committed to git, always present after clone)

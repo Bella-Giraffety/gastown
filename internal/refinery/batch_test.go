@@ -741,6 +741,56 @@ func TestProcessBatch_PushesAndLands(t *testing.T) {
 	}
 }
 
+func TestProcessBatch_ForkBackedDirectDefaultPushRefused(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+	run(t, workDir, "git", "remote", "add", "upstream", filepath.Join(filepath.Dir(workDir), "upstream.git"))
+
+	createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
+	createFeatureBranch(t, workDir, "feature-b", "b.txt", "hello b\n")
+
+	e := newTestEngineer(t, workDir, g)
+	batch := []*MRInfo{
+		makeMR("mr-a", "feature-a", "main"),
+		makeMR("mr-b", "feature-b", "main"),
+	}
+
+	result := e.ProcessBatch(context.Background(), batch, "main", DefaultBatchConfig())
+	if result.Error == nil {
+		t.Fatal("expected fork-backed batch direct push to be refused")
+	}
+	if !strings.Contains(result.Error.Error(), "direct push to default branch main is disabled") {
+		t.Fatalf("error = %v, want landing policy refusal", result.Error)
+	}
+
+	verifyDir := filepath.Join(filepath.Dir(workDir), "verify-refused")
+	bareDir := filepath.Join(filepath.Dir(workDir), "origin.git")
+	run(t, filepath.Dir(workDir), "git", "clone", bareDir, verifyDir)
+	if _, err := os.Stat(filepath.Join(verifyDir, "a.txt")); !os.IsNotExist(err) {
+		t.Fatalf("a.txt should not have landed after refused batch push")
+	}
+}
+
+func TestProcessBatch_PRStrategyRefusesMultiMRBatch(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.MergeStrategy = "pr"
+	batch := []*MRInfo{
+		makeMR("mr-a", "feature-a", "main"),
+		makeMR("mr-b", "feature-b", "main"),
+	}
+
+	result := e.ProcessBatch(context.Background(), batch, "main", DefaultBatchConfig())
+	if result.Error == nil {
+		t.Fatal("expected PR strategy multi-MR batch to be refused")
+	}
+	if !strings.Contains(result.Error.Error(), "batch direct push disabled") {
+		t.Fatalf("error = %v, want PR batch refusal", result.Error)
+	}
+}
+
 func TestProcessBatch_BisectAndMergeGood(t *testing.T) {
 	workDir, g, cleanup := testGitRepo(t)
 	defer cleanup()

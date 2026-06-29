@@ -14,6 +14,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/landing"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/workspace"
 )
@@ -518,6 +519,9 @@ func runMqIntegrationLand(cmd *cobra.Command, args []string) error {
 	targetBranch := beads.GetBaseBranchField(epic.Description)
 	if targetBranch == "" {
 		targetBranch = r.DefaultBranch()
+	}
+	if policyErr := landing.Resolve(g, r.Path, targetBranch, r.DefaultBranch()).CheckDefaultBranchDirectPush(targetBranch); policyErr != nil {
+		return policyErr
 	}
 
 	fmt.Printf("Landing integration branch for epic: %s\n", epicID)

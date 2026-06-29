@@ -30,6 +30,7 @@
         "integration_branch_refinery_enabled": true,
         "integration_branch_template": "integration/{epic}",
         "integration_branch_auto_land": false,
+        "merge_strategy": "direct",
         "on_conflict": "assign_back",
         "run_tests": true,
         "test_command": "",

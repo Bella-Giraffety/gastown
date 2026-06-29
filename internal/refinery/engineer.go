@@ -345,22 +345,22 @@ func (e *Engineer) LoadConfig() error {
 	// Parse merge_queue section into our config struct
 	// We need special handling for poll_interval (string -> Duration)
 	var mqRaw struct {
-		Enabled              *bool                     `json:"enabled"`
-		OnConflict           *string                   `json:"on_conflict"`
-		RunTests             *bool                     `json:"run_tests"`
-		TestCommand          *string                   `json:"test_command"`
-		DeleteMergedBranches *bool                     `json:"delete_merged_branches"`
-		RetryFlakyTests      *int                      `json:"retry_flaky_tests"`
-		PollInterval         *string                   `json:"poll_interval"`
-		MaxConcurrent        *int                      `json:"max_concurrent"`
-		StaleClaimTimeout    *string                   `json:"stale_claim_timeout"`
-		Gates                map[string]*gateConfigRaw `json:"gates"`
-		GatesParallel        *bool                     `json:"gates_parallel"`
-		AutoPush             *bool                     `json:"auto_push"`
-		MergeStrategy        *string                   `json:"merge_strategy"`
-		VCSProvider          *string                   `json:"vcs_provider"`
-		RequireReview        *bool                     `json:"require_review"`
-		AllowDirectDefaultPush *bool                   `json:"allow_direct_default_push"`
+		Enabled                *bool                     `json:"enabled"`
+		OnConflict             *string                   `json:"on_conflict"`
+		RunTests               *bool                     `json:"run_tests"`
+		TestCommand            *string                   `json:"test_command"`
+		DeleteMergedBranches   *bool                     `json:"delete_merged_branches"`
+		RetryFlakyTests        *int                      `json:"retry_flaky_tests"`
+		PollInterval           *string                   `json:"poll_interval"`
+		MaxConcurrent          *int                      `json:"max_concurrent"`
+		StaleClaimTimeout      *string                   `json:"stale_claim_timeout"`
+		Gates                  map[string]*gateConfigRaw `json:"gates"`
+		GatesParallel          *bool                     `json:"gates_parallel"`
+		AutoPush               *bool                     `json:"auto_push"`
+		MergeStrategy          *string                   `json:"merge_strategy"`
+		VCSProvider            *string                   `json:"vcs_provider"`
+		RequireReview          *bool                     `json:"require_review"`
+		AllowDirectDefaultPush *bool                     `json:"allow_direct_default_push"`
 	}
 
 	if err := json.Unmarshal(rawConfig.MergeQueue, &mqRaw); err != nil {
@@ -1178,10 +1178,16 @@ func (e *Engineer) ProcessMRInfo(ctx context.Context, mr *MRInfo) ProcessResult 
 	skipGates := false
 	if mr.PreVerified && mr.PreVerifiedBase != "" {
 		_, _ = fmt.Fprintf(e.output, "  Pre-verified: yes (base=%s)\n", mr.PreVerifiedBase[:min(8, len(mr.PreVerifiedBase))])
-		// Check if target HEAD still matches the verified base
-		targetHead, err := e.git.Rev("origin/" + mr.Target)
+		// Check if the policy base HEAD still matches the verified base.
+		baseRef := e.landingPolicy(mr.Target).CleanBaseRef
+		if remote := landing.RemoteFromRef(baseRef); remote != "" {
+			if fetchErr := e.git.Fetch(remote); fetchErr != nil {
+				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not fetch %s for pre-verification check: %v\n", remote, fetchErr)
+			}
+		}
+		targetHead, err := e.git.Rev(baseRef)
 		if err != nil {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not resolve origin/%s HEAD: %v (falling through to normal gates)\n", mr.Target, err)
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not resolve %s HEAD: %v (falling through to normal gates)\n", baseRef, err)
 		} else if targetHead == mr.PreVerifiedBase {
 			_, _ = fmt.Fprintln(e.output, "[Engineer] Pre-verification valid — target unchanged, skipping gates (fast-path)")
 			skipGates = true

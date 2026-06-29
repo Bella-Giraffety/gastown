@@ -51,9 +51,9 @@ func TestEngineer_LoadConfig_MergeStrategyDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := map[string]interface{}{
-		"type":    "rig",
-		"version": 1,
-		"name":    "test-rig",
+		"type":        "rig",
+		"version":     1,
+		"name":        "test-rig",
 		"merge_queue": map[string]interface{}{},
 	}
 
@@ -117,6 +117,24 @@ func TestDoMerge_DirectStrategy_SkipsPRPath(t *testing.T) {
 	output := e.output.(*bytes.Buffer).String()
 	if strings.Contains(output, "PR merge strategy") {
 		t.Error("direct merge should not mention PR merge strategy")
+	}
+}
+
+func TestDoMerge_ForkBackedDirectDefaultPushRefused(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	e := newTestEngineer(t, workDir, g)
+	e.config.MergeStrategy = ""
+	run(t, workDir, "git", "remote", "add", "upstream", filepath.Join(filepath.Dir(workDir), "upstream.git"))
+
+	createFeatureBranch(t, workDir, "feat/fork-direct", "fork.txt", "no direct push\n")
+
+	result := e.doMerge(context.Background(), "feat/fork-direct", "main", "gt-test")
+
+	if result.Success {
+		t.Fatal("expected fork-backed direct default push to be refused")
+	}
+	if !strings.Contains(result.Error, "direct push to default branch main is disabled") {
+		t.Fatalf("error = %q, want landing policy refusal", result.Error)
 	}
 }
 

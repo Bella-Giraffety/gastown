@@ -36,7 +36,8 @@ stale, the refinery falls through to normal gate execution.
 | Variable | Source | Description |
 |----------|--------|-------------|
 | issue | hook_bead | The issue ID you're assigned to work on |
-| base_branch | sling vars | The base branch to rebase on (default: main) |
+| base_branch | sling vars | The MR/PR target branch (default: main) |
+| base_ref | sling vars | The git ref to branch/rebase from (default: origin/main; fork rigs may use upstream/main) |
 | setup_command | rig config | Setup/install command (e.g., `pnpm install`). Empty = skip. |
 | typecheck_command | rig config | Type check command (e.g., `tsc --noEmit`). Empty = skip. |
 | test_command | rig config | Test command. Empty = skip. Rig must configure for its language. |
@@ -124,7 +125,7 @@ id = "branch-setup"
 title = "Set up working branch"
 needs = ["load-context"]
 description = """
-Ensure you're on a FRESH branch named for THIS bead, based on latest origin/{{base_branch}}.
+Ensure you're on a FRESH branch named for THIS bead, based on latest {{base_ref}}.
 
 **The branch name is load-bearing metadata.** `gt done` infers the MR's
 source_issue from the bead-id embedded in your branch name. A reused branch
@@ -153,7 +154,8 @@ git fetch origin
 git branch -r | grep <prior-branch>
 # If found, check it out:
 git checkout -b <prior-branch> origin/<prior-branch>
-git rebase origin/{{base_branch}}
+git fetch --all
+git rebase {{base_ref}}
 ```
 
 This exception applies ONLY when the prior branch is for {{issue}}. A branch
@@ -161,8 +163,8 @@ from a different bead is never reusable.
 
 **3. Otherwise, create a fresh branch NAMED FOR THE HOOKED BEAD:**
 ```bash
-git fetch origin
-git checkout -b "polecat/<name>/{{issue}}@$(openssl rand -hex 3)" origin/{{base_branch}}
+git fetch --all
+git checkout -b "polecat/<name>/{{issue}}@$(openssl rand -hex 3)" {{base_ref}}
 ```
 
 The format is `polecat/<your-name>/<bead-id>@<short-unique-suffix>`. The
@@ -186,10 +188,10 @@ git stash push -m "unrelated changes before {{issue}}"
 git checkout -- .
 ```
 
-**5. Sync with {{base_branch}}:**
+**5. Sync with {{base_ref}}:**
 ```bash
-git fetch origin
-git rebase origin/{{base_branch}}      # Get latest, rebase your branch
+git fetch --all
+git rebase {{base_ref}}      # Get latest, rebase your branch
 ```
 
 If rebase conflicts:
@@ -206,7 +208,7 @@ If setup_command is set, run it to install dependencies:
 This ensures dependencies are installed before you start work.
 Empty setup_command means "not configured" — skip this step.
 
-**Exit criteria:** You're on a clean feature branch whose name embeds {{issue}}, rebased on latest {{base_branch}}, dependencies installed."""
+**Exit criteria:** You're on a clean feature branch whose name embeds {{issue}}, rebased on latest {{base_ref}}, dependencies installed."""
 
 [[steps]]
 id = "implement"
@@ -447,8 +449,8 @@ instead of minutes).
 
 **1. Fetch and rebase onto target:**
 ```bash
-git fetch origin {{base_branch}}
-git rebase origin/{{base_branch}}
+git fetch --all
+git rebase {{base_ref}}
 ```
 
 If rebase conflicts:
@@ -494,7 +496,7 @@ that you ran the full gate suite on a rebased branch, enabling fast-path merge.
 project, you may skip this step and use `gt done` without --pre-verified.
 The refinery will run gates normally (slower but still correct).
 
-**Exit criteria:** Branch rebased onto latest origin/{{base_branch}}, all configured gates pass."""
+**Exit criteria:** Branch rebased onto latest {{base_ref}}, all configured gates pass."""
 
 [[steps]]
 id = "submit-and-exit"
@@ -512,7 +514,7 @@ Once you run `gt done`, you're gone. The command:
 
 **Pre-flight: Verify you have actual work to submit (HARD GATE):**
 ```bash
-git log origin/{{base_branch}}..HEAD --oneline
+git log {{base_ref}}..HEAD --oneline
 ```
 This MUST show at least 1 commit. If it shows nothing, do NOT run `gt done`.
 `gt done` will reject zero-commit branches for polecats.
@@ -557,8 +559,12 @@ description = "The issue ID assigned to this polecat"
 required = true
 
 [vars.base_branch]
-description = "The base branch to rebase on and compare against (e.g., main, integration/epic-id)"
+description = "The target branch for MR/PR submission (e.g., main, integration/epic-id)"
 default = "main"
+
+[vars.base_ref]
+description = "The git ref to branch/rebase from (e.g., origin/main, upstream/main)"
+default = "origin/main"
 
 [vars.setup_command]
 description = "Setup/install command (e.g., pnpm install). Empty = skip."

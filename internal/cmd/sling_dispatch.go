@@ -324,6 +324,9 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		if spawnInfo.BaseBranch != "" && spawnInfo.BaseBranch != "main" {
 			allVars = append(allVars, fmt.Sprintf("base_branch=%s", spawnInfo.BaseBranch))
 		}
+		if spawnInfo.BaseRef != "" && spawnInfo.BaseRef != "origin/main" {
+			allVars = append(allVars, fmt.Sprintf("base_ref=%s", spawnInfo.BaseRef))
+		}
 		if params.ResumeBranch != "" {
 			allVars = append(allVars, fmt.Sprintf("resume_branch=%s", params.ResumeBranch))
 		}
