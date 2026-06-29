@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -281,6 +282,7 @@ func TestResolveDependencyDB_EmptyRoutes(t *testing.T) {
 
 func TestResolveHost(t *testing.T) {
 	t.Setenv("GT_DOLT_HOST", "")
+	t.Setenv("BEADS_DOLT_SERVER_HOST", "")
 	t.Setenv("DOLT_HOST", "")
 
 	// Flag takes precedence
@@ -288,15 +290,22 @@ func TestResolveHost(t *testing.T) {
 		t.Errorf("resolveHost with flag = %q, want 192.168.1.1", got)
 	}
 
-	// GT_DOLT_HOST takes precedence over DOLT_HOST.
+	// GT_DOLT_HOST takes precedence over Beads and legacy plugin env.
 	t.Setenv("GT_DOLT_HOST", "10.0.0.2")
+	t.Setenv("BEADS_DOLT_SERVER_HOST", "10.0.0.3")
 	t.Setenv("DOLT_HOST", "10.0.0.1")
 	if got := resolveHost(""); got != "10.0.0.2" {
 		t.Errorf("resolveHost with GT_DOLT_HOST = %q, want 10.0.0.2", got)
 	}
 
-	// DOLT_HOST is the fallback env var.
+	// BEADS_DOLT_SERVER_HOST is the managed-session fallback.
 	t.Setenv("GT_DOLT_HOST", "")
+	if got := resolveHost(""); got != "10.0.0.3" {
+		t.Errorf("resolveHost with BEADS_DOLT_SERVER_HOST = %q, want 10.0.0.3", got)
+	}
+
+	// DOLT_HOST is the fallback env var.
+	t.Setenv("BEADS_DOLT_SERVER_HOST", "")
 	if got := resolveHost(""); got != "10.0.0.1" {
 		t.Errorf("resolveHost with DOLT_HOST = %q, want 10.0.0.1", got)
 	}
@@ -309,33 +318,62 @@ func TestResolveHost(t *testing.T) {
 }
 
 func TestResolvePort(t *testing.T) {
-	os.Unsetenv("GT_DOLT_PORT")
-	os.Unsetenv("DOLT_PORT")
+	t.Setenv("GT_DOLT_PORT", "")
+	t.Setenv("BEADS_DOLT_SERVER_PORT", "")
+	t.Setenv("BEADS_DOLT_PORT", "")
+	t.Setenv("DOLT_PORT", "")
 
 	// Flag takes precedence
 	if got := resolvePort("3308"); got != "3308" {
 		t.Errorf("resolvePort with flag = %q, want 3308", got)
 	}
 
-	// GT_DOLT_PORT takes precedence over DOLT_PORT
-	os.Setenv("GT_DOLT_PORT", "3309")
-	os.Setenv("DOLT_PORT", "3310")
-	defer os.Unsetenv("GT_DOLT_PORT")
-	defer os.Unsetenv("DOLT_PORT")
+	// GT_DOLT_PORT takes precedence over Beads and legacy plugin env.
+	t.Setenv("GT_DOLT_PORT", "3309")
+	t.Setenv("BEADS_DOLT_SERVER_PORT", "3311")
+	t.Setenv("BEADS_DOLT_PORT", "3312")
+	t.Setenv("DOLT_PORT", "3310")
 	if got := resolvePort(""); got != "3309" {
 		t.Errorf("resolvePort with GT_DOLT_PORT = %q, want 3309", got)
 	}
 
+	// BEADS_DOLT_SERVER_PORT is the canonical Beads fallback.
+	t.Setenv("GT_DOLT_PORT", "")
+	if got := resolvePort(""); got != "3311" {
+		t.Errorf("resolvePort with BEADS_DOLT_SERVER_PORT = %q, want 3311", got)
+	}
+
+	// BEADS_DOLT_PORT is the legacy Beads fallback.
+	t.Setenv("BEADS_DOLT_SERVER_PORT", "")
+	if got := resolvePort(""); got != "3312" {
+		t.Errorf("resolvePort with BEADS_DOLT_PORT = %q, want 3312", got)
+	}
+
 	// DOLT_PORT fallback
-	os.Unsetenv("GT_DOLT_PORT")
+	t.Setenv("BEADS_DOLT_PORT", "")
 	if got := resolvePort(""); got != "3310" {
 		t.Errorf("resolvePort with DOLT_PORT = %q, want 3310", got)
 	}
 
 	// Default
-	os.Unsetenv("DOLT_PORT")
+	t.Setenv("DOLT_PORT", "")
 	if got := resolvePort(""); got != "3307" {
 		t.Errorf("resolvePort default = %q, want 3307", got)
+	}
+}
+
+func TestDoltDSNRejectsUnsafeEndpoint(t *testing.T) {
+	if _, err := doltDSN("127.0.0.1)/other?x=", "3307"); err == nil {
+		t.Fatal("doltDSN accepted unsafe host")
+	}
+	if _, err := doltDSN("127.0.0.1", "not-a-port"); err == nil {
+		t.Fatal("doltDSN accepted non-numeric port")
+	}
+	if _, err := doltDSN("127.0.0.1", "70000"); err == nil {
+		t.Fatal("doltDSN accepted out-of-range port")
+	}
+	if dsn, err := doltDSN("127.0.0.1", "3307"); err != nil || !strings.Contains(dsn, "127.0.0.1:3307") {
+		t.Fatalf("doltDSN valid endpoint = %q, %v", dsn, err)
 	}
 }
 

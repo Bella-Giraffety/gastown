@@ -10,8 +10,26 @@ set -euo pipefail
 
 # --- Configuration -----------------------------------------------------------
 
-DOLT_HOST="${GT_DOLT_HOST:-${DOLT_HOST:-127.0.0.1}}"
-DOLT_PORT="${GT_DOLT_PORT:-${DOLT_PORT:-3307}}"
+resolve_dolt_host() {
+  printf '%s\n' "${GT_DOLT_HOST:-${BEADS_DOLT_SERVER_HOST:-${DOLT_HOST:-127.0.0.1}}}"
+}
+
+resolve_dolt_port() {
+  local port="${GT_DOLT_PORT:-${BEADS_DOLT_SERVER_PORT:-${BEADS_DOLT_PORT:-${DOLT_PORT:-3307}}}}"
+  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+    echo "[dolt-archive] ERROR: Invalid Dolt port: $port" >&2
+    exit 1
+  fi
+  local port_num=$((10#$port))
+  if (( port_num < 1 || port_num > 65535 )); then
+    echo "[dolt-archive] ERROR: Invalid Dolt port: $port" >&2
+    exit 1
+  fi
+  printf '%s\n' "$port"
+}
+
+DOLT_HOST="$(resolve_dolt_host)"
+DOLT_PORT="$(resolve_dolt_port)"
 DOLT_USER="${DOLT_USER:-root}"
 DOLT_DATA_DIR="${DOLT_DATA_DIR:-$HOME/gt/.dolt-data}"
 JSONL_EXPORT_DIR="$HOME/gt/.dolt-archive/jsonl"

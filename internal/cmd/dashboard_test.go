@@ -93,6 +93,7 @@ func TestEnsureDoltPortEnv_ReadsStateFile(t *testing.T) {
 	// Clear any existing env vars
 	t.Setenv("GT_DOLT_PORT", "")
 	t.Setenv("BEADS_DOLT_PORT", "")
+	t.Setenv("BEADS_DOLT_SERVER_PORT", "")
 
 	ensureDoltPortEnv(townRoot)
 
@@ -113,6 +114,7 @@ func TestEnsureDoltPortEnv_FallsBackToDefault(t *testing.T) {
 
 	t.Setenv("GT_DOLT_PORT", "")
 	t.Setenv("BEADS_DOLT_PORT", "")
+	t.Setenv("BEADS_DOLT_SERVER_PORT", "")
 
 	ensureDoltPortEnv(townRoot)
 
@@ -132,6 +134,7 @@ func TestEnsureDoltPortEnv_OverridesWrongPort(t *testing.T) {
 	// Simulate the bug: BEADS_DOLT_PORT set to dashboard HTTP port (8080)
 	t.Setenv("GT_DOLT_PORT", "8080")
 	t.Setenv("BEADS_DOLT_PORT", "8080")
+	t.Setenv("BEADS_DOLT_SERVER_PORT", "8080")
 
 	// Create dolt-state.json with the correct port
 	townRoot := t.TempDir()

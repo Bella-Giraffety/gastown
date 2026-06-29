@@ -322,18 +322,8 @@ func runUp(cmd *cobra.Command, args []string) error {
 	// was skipped, polling the port would just burn the full timeout. (review finding #1)
 	if !doltSkipped && doltOK {
 		waitForDoltReady(townRoot)
-		// Propagate Dolt connection info to process env so all subsequently spawned
-		// agents (witnesses, refineries, crew) inherit it. Without this,
-		// bd auto-starts rogue Dolt instances in agent tmux sessions. (GH#2412)
-		// Host propagation prevents bd from falling back to 127.0.0.1 when the
-		// Dolt server runs on a remote machine (e.g., mini2 over Tailscale).
-		doltCfg := doltserver.DefaultConfig(townRoot)
-		portStr := fmt.Sprintf("%d", doltCfg.Port)
-		os.Setenv("GT_DOLT_PORT", portStr)
-		os.Setenv("BEADS_DOLT_PORT", portStr)
-		if doltCfg.Host != "" {
-			os.Setenv("BEADS_DOLT_SERVER_HOST", doltCfg.Host)
-		}
+		// Propagate the resolved Dolt endpoint to all subsequently spawned agents.
+		ensureDoltPortEnv(townRoot)
 	}
 
 	// Orphaned bead recovery: detect beads stuck in hooked/in_progress status
@@ -1065,4 +1055,3 @@ func recoverOrphanedBeads(townRoot string, rigs []string, prefetchedRigs map[str
 
 	return services
 }
-

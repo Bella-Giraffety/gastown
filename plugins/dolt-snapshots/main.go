@@ -17,18 +17,21 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysql "github.com/go-sql-driver/mysql"
 )
 
 var (
-	safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9-]`)
-	multiDash  = regexp.MustCompile(`-{2,}`)
+	safeNameRe         = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+	safeEndpointHostRe = regexp.MustCompile(`^[a-zA-Z0-9._:-]+$`)
+	multiDash          = regexp.MustCompile(`-{2,}`)
 )
 
 // route represents a single entry from routes.jsonl.
@@ -67,7 +70,10 @@ func main() {
 		return
 	}
 
-	dsn := fmt.Sprintf("root@tcp(%s:%s)/information_schema?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s", h, p)
+	dsn, err := doltDSN(h, p)
+	if err != nil {
+		log.Fatalf("Invalid Dolt endpoint: %v", err)
+	}
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatalf("Failed to connect to Dolt: %v", err)
@@ -115,6 +121,9 @@ func resolveHost(flag string) string {
 	if h := os.Getenv("GT_DOLT_HOST"); h != "" {
 		return h
 	}
+	if h := os.Getenv("BEADS_DOLT_SERVER_HOST"); h != "" {
+		return h
+	}
 	if h := os.Getenv("DOLT_HOST"); h != "" {
 		return h
 	}
@@ -128,10 +137,37 @@ func resolvePort(flag string) string {
 	if p := os.Getenv("GT_DOLT_PORT"); p != "" {
 		return p
 	}
+	if p := os.Getenv("BEADS_DOLT_SERVER_PORT"); p != "" {
+		return p
+	}
+	if p := os.Getenv("BEADS_DOLT_PORT"); p != "" {
+		return p
+	}
 	if p := os.Getenv("DOLT_PORT"); p != "" {
 		return p
 	}
 	return "3307"
+}
+
+func doltDSN(host, port string) (string, error) {
+	if strings.TrimSpace(host) == "" || !safeEndpointHostRe.MatchString(host) {
+		return "", fmt.Errorf("unsafe Dolt host %q", host)
+	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return "", fmt.Errorf("invalid Dolt port %q", port)
+	}
+
+	cfg := mysql.NewConfig()
+	cfg.User = "root"
+	cfg.Net = "tcp"
+	cfg.Addr = net.JoinHostPort(host, strconv.Itoa(portNum))
+	cfg.DBName = "information_schema"
+	cfg.ParseTime = true
+	cfg.Timeout = 5 * time.Second
+	cfg.ReadTimeout = 30 * time.Second
+	cfg.WriteTimeout = 30 * time.Second
+	return cfg.FormatDSN(), nil
 }
 
 func resolveRoutesFile(flag string) string {
@@ -612,7 +648,10 @@ func watchEvents(host, port, routesFile string, cleanup bool) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	dsn := fmt.Sprintf("root@tcp(%s:%s)/information_schema?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s", host, port)
+	dsn, err := doltDSN(host, port)
+	if err != nil {
+		return fmt.Errorf("invalid Dolt endpoint: %w", err)
+	}
 
 	log.Printf("Watching %s for convoy events...", eventsPath)
 
