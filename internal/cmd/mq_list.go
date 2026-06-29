@@ -64,7 +64,7 @@ func runMQList(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("querying ready MRs: %w", err)
 		}
 		for _, issue := range allOpen {
-			if beads.HasUnresolvedBlockers(issue) {
+			if !isMergeRequestReadyForSelection(issue) {
 				continue // Skip blocked issues
 			}
 			issues = append(issues, issue)
@@ -206,7 +206,7 @@ func runMQList(cmd *cobra.Command, args []string) error {
 		// Determine display status
 		displayStatus := issue.Status
 		if issue.Status == "open" {
-			if beads.HasUnresolvedBlockers(issue) {
+			if !isMergeRequestReadyForSelection(issue) {
 				displayStatus = "blocked"
 			} else {
 				displayStatus = "ready"

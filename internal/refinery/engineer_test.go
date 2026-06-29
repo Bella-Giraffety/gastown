@@ -87,6 +87,98 @@ func TestFirstOpenBlockerUsesDependencyDetails(t *testing.T) {
 	}
 }
 
+func TestListReadyAndBlockedMRsHonorDependencyDetails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+
+	beads.ResetBdAllowStaleCacheForTest()
+	t.Cleanup(beads.ResetBdAllowStaleCacheForTest)
+
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+if [ "${1:-}" = "--allow-stale" ]; then
+  if [ "${2:-}" = "version" ]; then
+    echo "Error: unknown flag: --allow-stale" >&2
+    exit 0
+  fi
+  shift
+fi
+case "${1:-}" in
+  list)
+    printf '%s\n' '[]'
+    exit 0
+    ;;
+  sql)
+    printf '%s\n' '[{"id":"gt-mr-ready","title":"Merge: ready","description":"branch: polecat/test/gt-src-ready@abc\ntarget: main\nsource_issue: gt-src-ready\nrig: gastown\n","status":"open","priority":1,"assignee":"","created_at":"2026-06-29T00:00:00Z","updated_at":"2026-06-29T00:00:00Z","created_by":"tester","labels_csv":"gt:merge-request"},{"id":"gt-mr-blocked","title":"Merge: blocked","description":"branch: polecat/test/gt-src-blocked@abc\ntarget: main\nsource_issue: gt-src-blocked\nrig: gastown\n","status":"open","priority":1,"assignee":"","created_at":"2026-06-29T00:00:00Z","updated_at":"2026-06-29T00:00:00Z","created_by":"tester","labels_csv":"gt:merge-request"}]'
+    exit 0
+    ;;
+  show)
+    shift
+    if [ "${1:-}" = "--json" ]; then
+      shift
+    fi
+    out="["
+    first=1
+    for id in "$@"; do
+      [ "$id" = "--json" ] && continue
+      obj=""
+      case "$id" in
+        gt-mr-ready)
+          obj='{"id":"gt-mr-ready","title":"Merge: ready","description":"branch: polecat/test/gt-src-ready@abc\ntarget: main\nsource_issue: gt-src-ready\nrig: gastown\n","status":"open","priority":1,"issue_type":"task","ephemeral":true,"labels":["gt:merge-request"],"created_at":"2026-06-29T00:00:00Z","updated_at":"2026-06-29T00:00:00Z","created_by":"tester"}'
+          ;;
+        gt-mr-blocked)
+          obj='{"id":"gt-mr-blocked","title":"Merge: blocked","description":"branch: polecat/test/gt-src-blocked@abc\ntarget: main\nsource_issue: gt-src-blocked\nrig: gastown\n","status":"open","priority":1,"issue_type":"task","ephemeral":true,"labels":["gt:merge-request"],"dependencies":[{"id":"gt-blocker","title":"Blocker","status":"open","priority":1,"issue_type":"task","dependency_type":"blocks"}],"dependency_count":1,"created_at":"2026-06-29T00:00:00Z","updated_at":"2026-06-29T00:00:00Z","created_by":"tester"}'
+          ;;
+        gt-src-ready|gt-src-blocked)
+          obj='{"id":"'"$id"'","title":"Source","status":"open","priority":1,"issue_type":"bug","created_at":"2026-06-29T00:00:00Z","updated_at":"2026-06-29T00:00:00Z"}'
+          ;;
+      esac
+      [ -z "$obj" ] && continue
+      if [ $first -eq 0 ]; then
+        out="$out,"
+      fi
+      out="$out$obj"
+      first=0
+    done
+    printf '%s\n' "$out]"
+    exit 0
+    ;;
+  *)
+    printf '%s\n' '[]'
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	engineer := &Engineer{
+		rig:    &rig.Rig{Name: "gastown", Path: t.TempDir()},
+		beads:  beads.New(t.TempDir()),
+		config: DefaultMergeQueueConfig(),
+		output: io.Discard,
+	}
+
+	ready, err := engineer.ListReadyMRs()
+	if err != nil {
+		t.Fatalf("ListReadyMRs() error = %v", err)
+	}
+	if len(ready) != 1 || ready[0].ID != "gt-mr-ready" {
+		t.Fatalf("ListReadyMRs() = %#v, want only gt-mr-ready", ready)
+	}
+
+	blocked, err := engineer.ListBlockedMRs()
+	if err != nil {
+		t.Fatalf("ListBlockedMRs() error = %v", err)
+	}
+	if len(blocked) != 1 || blocked[0].ID != "gt-mr-blocked" || blocked[0].BlockedBy != "gt-blocker" {
+		t.Fatalf("ListBlockedMRs() = %#v, want gt-mr-blocked blocked by gt-blocker", blocked)
+	}
+}
+
 func TestEngineerClearAgentActiveMRUsesTownBeadsDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses Unix shell script mock for bd")

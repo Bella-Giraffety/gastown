@@ -227,23 +227,28 @@ func HasLabel(issue *Issue, label string) bool {
 	return false
 }
 
-// IsBlockingDependencyType matches Beads' ready-work dependency semantics and
-// treats an omitted type as a blocking edge for older bd show output.
+// IsBlockingDependencyType matches Gastown execution-edge semantics. Hierarchy
+// and metadata edges such as parent-child, tracks, related, and empty/unknown
+// types do not block ready-work selection.
 func IsBlockingDependencyType(depType string) bool {
 	switch strings.ToLower(strings.TrimSpace(depType)) {
-	case "", "blocks", "parent-child", "conditional-blocks", "waits-for":
+	case "blocks", "conditional-blocks", "waits-for", "merge-blocks":
 		return true
 	default:
 		return false
 	}
 }
 
-// IsResolvedDependencyStatus returns true when a dependency target no longer
-// blocks ready-work calculation.
-func IsResolvedDependencyStatus(status string) bool {
-	switch IssueStatus(strings.ToLower(strings.TrimSpace(status))) {
-	case StatusClosed, StatusTombstone, IssueStatusPinned:
+// IsResolvedBlockingDependency returns true when a blocking dependency target no
+// longer blocks ready-work calculation.
+func IsResolvedBlockingDependency(dep IssueDep) bool {
+	depType := strings.ToLower(strings.TrimSpace(dep.DependencyType))
+	status := IssueStatus(strings.ToLower(strings.TrimSpace(dep.Status)))
+	switch status {
+	case StatusTombstone:
 		return true
+	case StatusClosed:
+		return depType != "merge-blocks" || strings.HasPrefix(dep.CloseReason, "Merged in ")
 	default:
 		return false
 	}
@@ -261,7 +266,7 @@ func UnresolvedBlockingDependencyIDs(issue *Issue) []string {
 		ids := make([]string, 0, len(issue.Dependencies))
 		seen := make(map[string]struct{}, len(issue.Dependencies))
 		for _, dep := range issue.Dependencies {
-			if !IsBlockingDependencyType(dep.DependencyType) || IsResolvedDependencyStatus(dep.Status) {
+			if !IsBlockingDependencyType(dep.DependencyType) || IsResolvedBlockingDependency(dep) {
 				continue
 			}
 			id := strings.TrimSpace(ExtractIssueID(dep.ID))
@@ -376,6 +381,7 @@ type IssueDep struct {
 	ID             string `json:"id"`
 	Title          string `json:"title"`
 	Status         string `json:"status"`
+	CloseReason    string `json:"close_reason,omitempty"`
 	Priority       int    `json:"priority"`
 	Type           string `json:"issue_type"`
 	DependencyType string `json:"dependency_type,omitempty"`

@@ -96,23 +96,37 @@ func TestUnresolvedBlockingDependencyIDs(t *testing.T) {
 		{
 			name: "blocking types match ready-work semantics",
 			deps: []IssueDep{
-				{ID: "gt-parent", Status: "open", DependencyType: "parent-child"},
 				{ID: "gt-conditional", Status: "open", DependencyType: "conditional-blocks"},
 				{ID: "gt-waits", Status: "open", DependencyType: "waits-for"},
+				{ID: "gt-merge", Status: "open", DependencyType: "merge-blocks"},
 			},
-			want: []string{"gt-parent", "gt-conditional", "gt-waits"},
+			want: []string{"gt-conditional", "gt-waits", "gt-merge"},
 		},
 		{
-			name: "closed pinned and tombstone dependencies are resolved",
+			name: "closed and tombstone dependencies are resolved",
 			deps: []IssueDep{
 				{ID: "gt-closed", Status: "closed", DependencyType: "blocks"},
-				{ID: "gt-pinned", Status: "pinned", DependencyType: "blocks"},
 				{ID: "gt-tombstone", Status: "tombstone", DependencyType: "blocks"},
 			},
 		},
 		{
+			name: "pinned dependency is unresolved",
+			deps: []IssueDep{{ID: "gt-pinned", Status: "pinned", DependencyType: "blocks"}},
+			want: []string{"gt-pinned"},
+		},
+		{
+			name: "merge-blocks requires merged close reason",
+			deps: []IssueDep{
+				{ID: "gt-closed-only", Status: "closed", DependencyType: "merge-blocks"},
+				{ID: "gt-merged", Status: "closed", DependencyType: "merge-blocks", CloseReason: "Merged in abc123"},
+			},
+			want: []string{"gt-closed-only"},
+		},
+		{
 			name: "nonblocking dependency types do not block",
 			deps: []IssueDep{
+				{ID: "gt-empty", Status: "open"},
+				{ID: "gt-parent", Status: "open", DependencyType: "parent-child"},
 				{ID: "gt-track", Status: "open", DependencyType: "tracks"},
 				{ID: "gt-related", Status: "open", DependencyType: "related"},
 				{ID: "gt-custom", Status: "open", DependencyType: "custom-link"},
@@ -122,11 +136,6 @@ func TestUnresolvedBlockingDependencyIDs(t *testing.T) {
 			name: "external dependency IDs are normalized",
 			deps: []IssueDep{{ID: "external:gt:gt-blocker", Status: "open", DependencyType: "blocks"}},
 			want: []string{"gt-blocker"},
-		},
-		{
-			name: "missing dependency type fails closed",
-			deps: []IssueDep{{ID: "gt-unknown-type", Status: "open"}},
-			want: []string{"gt-unknown-type"},
 		},
 		{
 			name: "missing status fails closed",
