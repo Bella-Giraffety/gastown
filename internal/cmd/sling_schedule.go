@@ -248,6 +248,7 @@ func runBatchSchedule(beadIDs []string, rigName, townRoot string) error {
 			DryRun:       false,
 			Force:        slingForce,
 			NoMerge:      slingNoMerge,
+			ReviewOnly:   slingReviewOnly,
 			Account:      slingAccount,
 			Agent:        slingAgent,
 			HookRawBead:  slingHookRawBead,

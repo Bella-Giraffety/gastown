@@ -217,7 +217,7 @@ type Issue struct {
 	// delegation state (delegated_from key) and merge-slot state (holder/waiters).
 	// Populated by both bd show --json and the in-process store path.
 	Metadata json.RawMessage `json:"metadata,omitempty"`
-	Comments []Comment `json:"comments,omitempty"`
+	Comments []Comment       `json:"comments,omitempty"`
 }
 
 // Comment represents a beads issue comment.

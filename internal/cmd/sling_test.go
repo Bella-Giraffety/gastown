@@ -385,7 +385,9 @@ exit /b 0
 		}
 	}
 
-	for _, line := range logLines {
+	firstReviewOnlyMetadataIndex := -1
+	lastHookIndex := -1
+	for i, line := range logLines {
 		parts := strings.SplitN(line, "|", 7)
 		if len(parts) != 7 {
 			t.Fatalf("malformed bd log line: %q", line)
@@ -436,12 +438,16 @@ exit /b 0
 			assertTargetRig("mol bond", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--status=hooked"):
 			gotHook = true
+			lastHookIndex = i
 			assertTargetRig("hook update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--description=<attached-molecule-and-formula-fields>"):
 			gotMetadata = true
 			assertTargetRig("metadata update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--description=<review-only-fields>"):
 			gotReviewOnlyMetadata = true
+			if firstReviewOnlyMetadataIndex == -1 {
+				firstReviewOnlyMetadataIndex = i
+			}
 			assertTargetRig("review-only metadata update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--description="):
 			assertTargetRig("description update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
@@ -456,6 +462,9 @@ exit /b 0
 	if !gotCreate || !gotTargetDBCheck || !gotPolecatCook || !gotPolecatWisp || !gotReviewCook || !gotReviewWisp || gotBondCount < 2 || !gotHook || !gotMetadata || !gotReviewOnlyMetadata {
 		t.Fatalf("missing expected bd commands: create=%v targetDBCheck=%v polecat(cook=%v wisp=%v) review(cook=%v wisp=%v) bondCount=%d hook=%v metadata=%v reviewOnlyMetadata=%v (log: %q)",
 			gotCreate, gotTargetDBCheck, gotPolecatCook, gotPolecatWisp, gotReviewCook, gotReviewWisp, gotBondCount, gotHook, gotMetadata, gotReviewOnlyMetadata, string(logBytes))
+	}
+	if firstReviewOnlyMetadataIndex == -1 || lastHookIndex == -1 || firstReviewOnlyMetadataIndex > lastHookIndex {
+		t.Fatalf("review-only metadata must be stored before raw hook assignment: metadataIndex=%d hookIndex=%d log: %q", firstReviewOnlyMetadataIndex, lastHookIndex, string(logBytes))
 	}
 }
 

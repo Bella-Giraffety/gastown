@@ -110,16 +110,11 @@ func sdkIssueToIssue(si *beadsdk.Issue) *Issue {
 		Metadata:           si.Metadata,
 	}
 	for _, c := range si.Comments {
-		if c == nil {
+		comment, ok := sdkCommentToComment(c)
+		if !ok {
 			continue
 		}
-		issue.Comments = append(issue.Comments, Comment{
-			ID:        c.ID,
-			IssueID:   c.IssueID,
-			Author:    c.Author,
-			Text:      c.Text,
-			CreatedAt: c.CreatedAt.Format(time.RFC3339),
-		})
+		issue.Comments = append(issue.Comments, comment)
 	}
 
 	if si.ClosedAt != nil {
@@ -149,6 +144,19 @@ func sdkIssueToIssue(si *beadsdk.Issue) *Issue {
 	}
 
 	return issue
+}
+
+func sdkCommentToComment(c *beadsdk.Comment) (Comment, bool) {
+	if c == nil {
+		return Comment{}, false
+	}
+	return Comment{
+		ID:        c.ID,
+		IssueID:   c.IssueID,
+		Author:    c.Author,
+		Text:      c.Text,
+		CreatedAt: c.CreatedAt.Format(time.RFC3339),
+	}, true
 }
 
 // sdkIssuesToIssues converts a slice of SDK issues to gastown issues.
@@ -272,16 +280,11 @@ func (b *Beads) storeShow(id string) (*Issue, error) {
 		comments, commentsErr := b.store.GetIssueComments(ctx, id)
 		if commentsErr == nil {
 			for _, c := range comments {
-				if c == nil {
+				comment, ok := sdkCommentToComment(c)
+				if !ok {
 					continue
 				}
-				issue.Comments = append(issue.Comments, Comment{
-					ID:        c.ID,
-					IssueID:   c.IssueID,
-					Author:    c.Author,
-					Text:      c.Text,
-					CreatedAt: c.CreatedAt.Format(time.RFC3339),
-				})
+				issue.Comments = append(issue.Comments, comment)
 			}
 		}
 	}

@@ -870,19 +870,43 @@ func TestReviewOnlyCloseRequiresEvidence(t *testing.T) {
 		{
 			name: "notes allow close",
 			mutate: func(issue *beads.Issue) {
-				issue.Notes = "Review report: no blockers"
+				issue.Notes = "REPORT: reviewed PR and found no blockers"
 			},
 		},
 		{
 			name: "design allows close",
 			mutate: func(issue *beads.Issue) {
-				issue.Design = "Review evidence"
+				issue.Design = "FINDINGS: review evidence captured"
 			},
+		},
+		{
+			name: "stale notes are not evidence",
+			mutate: func(issue *beads.Issue) {
+				issue.Notes = "prior analysis, not a report"
+			},
+			wantSkip:  "no report/evidence",
+			wantFatal: true,
+		},
+		{
+			name: "stale design is not evidence",
+			mutate: func(issue *beads.Issue) {
+				issue.Design = "implementation sketch, not a review result"
+			},
+			wantSkip:  "no report/evidence",
+			wantFatal: true,
+		},
+		{
+			name: "unchecked acceptance criteria without evidence still fatally blocks",
+			mutate: func(issue *beads.Issue) {
+				issue.AcceptanceCriteria = "- [ ] append report"
+			},
+			wantSkip:  "no report/evidence",
+			wantFatal: true,
 		},
 		{
 			name: "unchecked acceptance criteria still blocks with evidence",
 			mutate: func(issue *beads.Issue) {
-				issue.Notes = "Review report present"
+				issue.Notes = "REPORT: review report present"
 				issue.AcceptanceCriteria = "- [ ] append report"
 			},
 			wantSkip: "unchecked acceptance criteria",

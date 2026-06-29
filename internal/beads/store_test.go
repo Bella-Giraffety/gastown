@@ -14,22 +14,22 @@ import (
 // Embeds beadsdk.Storage to satisfy unimplemented methods (they panic if called).
 type mockStorage struct {
 	beadsdk.Storage // embedded for unimplemented methods
-	issues     map[string]*beadsdk.Issue
-	labels     map[string][]string // issueID -> labels
-	deps       map[string][]string // issueID -> depends-on IDs
-	nextID     int
-	prefix     string
-	closed     map[string]bool
-	closeErr   error
-	createErr  error
-	updateErr  error
-	searchErr  error
-	getErr     error
-	addLabelErr    error
-	removeLabelErr error
-	addDepErr      error
-	removeDepErr   error
-	getLabelsErr   error
+	issues          map[string]*beadsdk.Issue
+	labels          map[string][]string // issueID -> labels
+	deps            map[string][]string // issueID -> depends-on IDs
+	nextID          int
+	prefix          string
+	closed          map[string]bool
+	closeErr        error
+	createErr       error
+	updateErr       error
+	searchErr       error
+	getErr          error
+	addLabelErr     error
+	removeLabelErr  error
+	addDepErr       error
+	removeDepErr    error
+	getLabelsErr    error
 }
 
 func newMockStorage() *mockStorage {
@@ -64,6 +64,14 @@ func (m *mockStorage) GetIssue(_ context.Context, id string) (*beadsdk.Issue, er
 		return nil, fmt.Errorf("issue %s not found", id)
 	}
 	return issue, nil
+}
+
+func (m *mockStorage) GetIssueComments(_ context.Context, id string) ([]*beadsdk.Comment, error) {
+	issue, ok := m.issues[id]
+	if !ok {
+		return nil, fmt.Errorf("issue %s not found", id)
+	}
+	return issue.Comments, nil
 }
 
 func (m *mockStorage) GetIssuesByIDs(_ context.Context, ids []string) ([]*beadsdk.Issue, error) {
@@ -213,7 +221,6 @@ func (m *mockStorage) RemoveDependency(_ context.Context, issueID, dependsOnID, 
 	}
 	return nil
 }
-
 
 func (m *mockStorage) AddLabel(_ context.Context, issueID, label, _ string) error {
 	if m.addLabelErr != nil {
