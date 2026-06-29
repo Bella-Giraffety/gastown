@@ -948,6 +948,10 @@ case "$*" in
     assert_town_write_env
     exit 0
     ;;
+  "export -o $TOWN_BEADS/issues.jsonl")
+    assert_town_read_env
+    exit 0
+    ;;
   *)
     echo "unexpected bd args: $*" >&2
     exit 1
@@ -1157,11 +1161,13 @@ func TestEngineerNotifyConvoyCompletion_StampsAndSkipsDuplicate(t *testing.T) {
 	binDir := t.TempDir()
 	statePath := filepath.Join(binDir, "notified.state")
 	mailLogPath := filepath.Join(binDir, "mail.log")
+	exportLogPath := filepath.Join(binDir, "export.log")
 	bdPath := filepath.Join(binDir, "bd")
 	gtPath := filepath.Join(binDir, "gt")
 
 	bdScript := `#!/bin/sh
 STATE="` + statePath + `"
+EXPORT_LOG="` + exportLogPath + `"
 if [ "$1" = "--allow-stale" ]; then
   shift
 fi
@@ -1179,6 +1185,10 @@ case "$1" in
     ;;
   update)
     touch "$STATE"
+    exit 0
+    ;;
+  export)
+    echo "$@" >> "$EXPORT_LOG"
     exit 0
     ;;
 esac
@@ -1212,6 +1222,13 @@ exit 0
 	}
 	if _, err := os.Stat(statePath); err != nil {
 		t.Fatalf("completion notification state was not recorded: %v", err)
+	}
+	exportData, err := os.ReadFile(exportLogPath)
+	if err != nil {
+		t.Fatalf("read export log: %v", err)
+	}
+	if got := strings.Count(string(exportData), "export -o"); got != 1 {
+		t.Fatalf("bd export calls = %d, want 1; log:\n%s", got, string(exportData))
 	}
 }
 
