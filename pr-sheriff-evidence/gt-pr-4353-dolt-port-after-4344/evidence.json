@@ -1,0 +1,239 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-06-29T14:56:26Z",
+  "run_id": "gt-pr-4353-dolt-port-after-4344-2026-06-29",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request_replacement",
+    "change_id": "4353",
+    "url": "https://github.com/gastownhall/gastown/pull/4353",
+    "title": "fix: propagate resolved Dolt port to agents",
+    "author": "Bella-Giraffety",
+    "author_tier": "trusted",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "d403e69d5c2757398b95e93e4a6fe92bb0f7d9de",
+    "head_ref": "polecat/deathclaw/gt-pr-4353-dolt-port-after-4344@mqz9sprq",
+    "head_sha": "3dac4dfbfa1f4d0c62577e678930381025a0802d",
+    "diff_summary": {
+      "additions": 313,
+      "deletions": 47,
+      "changed_files": 14,
+      "paths": [
+        "internal/cmd/dashboard_test.go",
+        "internal/cmd/up.go",
+        "internal/cmd/up_test.go",
+        "internal/config/env.go",
+        "internal/config/env_test.go",
+        "plugins/compactor-dog/plugin.md",
+        "plugins/compactor-dog/run.sh",
+        "plugins/compactor-dog/run_test.sh",
+        "plugins/dolt-archive/plugin.md",
+        "plugins/dolt-archive/run.sh",
+        "plugins/dolt-archive/run_test.sh",
+        "plugins/dolt-snapshots/main.go",
+        "plugins/dolt-snapshots/main_test.go",
+        "plugins/dolt-snapshots/plugin.md"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["local_report", "artifact_store", "bead"],
+    "baseline_checks": [],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-pr-4353-replacement",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-pr-4353-replacement",
+    "summary": "Carry forward the remaining PR #4353 bug fix after #4344 as a cleanup-first replacement: reuse the existing Dolt endpoint helper in gt up, make BEADS_DOLT_SERVER_PORT canonical over legacy BEADS_DOLT_PORT, and make dog plugins honor managed-session Dolt endpoint env without broad routing changes.",
+    "created_at": "2026-06-29T14:30:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/review-approved", "family": "status", "semantic_value": "review-approved"},
+      {"name": "priority/p1", "family": "priority", "semantic_value": "p1"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "review-approved",
+    "priority": "p1",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {"id": "label-snapshot", "kind": "label_snapshot", "uri": "urn:bead:gt-pr-4353-dolt-port-after-4344:labels", "actor": "deathclaw", "created_at": "2026-06-29T14:56:26Z", "digest": null, "summary": "Original PR #4353 is kind/bug priority/p1 but status/reviewing and dirty; local replacement branch received 5/5 final post-review approvals and is treated as review-approved for MQ replacement."},
+    {"id": "implementation-head", "kind": "git_commit", "uri": "urn:git:commit:3dac4dfbfa1f4d0c62577e678930381025a0802d", "actor": "deathclaw", "created_at": "2026-06-29T14:55:00Z", "digest": "3dac4dfbfa1f4d0c62577e678930381025a0802d", "summary": "Final rebased replacement head based on origin/main d403e69d5."},
+    {"id": "verification-focused", "kind": "test_log", "uri": "urn:local:test:gt-pr-4353-focused-2026-06-29", "actor": "deathclaw", "created_at": "2026-06-29T14:56:00Z", "digest": null, "summary": "Focused checks passed: internal/config AgentEnv/ResolveDoltPort tests, CGO_ENABLED=0 internal/cmd ensure/up wiring tests, plugins/dolt-snapshots go test, compactor/archive shell tests, bash -n, git diff --check, gofmt -l clean."},
+    {"id": "blocker-scan", "kind": "review_report", "uri": "urn:pr-sheriff:blocker-scan:4353", "actor": "deathclaw", "created_at": "2026-06-29T14:56:26Z", "digest": null, "summary": "External PR #4353 remains open but mergeable=CONFLICTING, status/reviewing, and stale red; replacement branch is clean, fast-forward from origin/main, and 5/5 post-reviewed."},
+    {"id": "original-pr-reference", "kind": "pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4353", "actor": "deathclaw", "created_at": "2026-06-29T14:56:26Z", "digest": "a0b65d3541d234f0fa8b7bf229ee43987f0c0e55", "summary": "Original PR #4353 by Bella-Giraffety supplied the Dolt port propagation intent; local branch preserves that issue/PR reference in the evidence and bead."},
+    {"id": "post-01-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:POSTH01", "actor": "post-review-scope-cleanup", "created_at": "2026-06-29T14:55:00Z", "digest": null, "summary": "Approved final stack scope: Dolt endpoint propagation/precedence plus tests/docs/format only."},
+    {"id": "post-02-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:POSTH02", "actor": "post-review-correctness", "created_at": "2026-06-29T14:55:00Z", "digest": null, "summary": "Approved final AgentEnv precedence, gt up readiness ordering, plugin endpoint precedence, and helper-extraction tests."},
+    {"id": "post-03-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:POSTH03", "actor": "post-review-security", "created_at": "2026-06-29T14:55:00Z", "digest": null, "summary": "Approved final security: no shell eval, ports validated, Go DSN uses mysql.Config/net.JoinHostPort, AgentEnv remains allowlist/narrow."},
+    {"id": "post-04-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:POSTH04", "actor": "post-review-tests", "created_at": "2026-06-29T14:55:00Z", "digest": null, "summary": "Approved final tests; prior gofmt block was resolved by final import-order commit."},
+    {"id": "post-05-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:POSTH05", "actor": "post-review-integration", "created_at": "2026-06-29T14:55:00Z", "digest": null, "summary": "Approved local submission via gt done --target main without --pre-verified; external PR #4353 blocked merge-as-is."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-06-29T14:36:00Z",
+    "modified_paths": [
+      "internal/cmd/dashboard_test.go",
+      "internal/cmd/up.go",
+      "internal/cmd/up_test.go",
+      "internal/config/env.go",
+      "internal/config/env_test.go",
+      "plugins/compactor-dog/plugin.md",
+      "plugins/compactor-dog/run.sh",
+      "plugins/compactor-dog/run_test.sh",
+      "plugins/dolt-archive/plugin.md",
+      "plugins/dolt-archive/run.sh",
+      "plugins/dolt-archive/run_test.sh",
+      "plugins/dolt-snapshots/main.go",
+      "plugins/dolt-snapshots/main_test.go",
+      "plugins/dolt-snapshots/plugin.md"
+    ],
+    "commits": [
+      "bbe9ebf75",
+      "427188d14",
+      "65e2058ce",
+      "3dac4dfbfa1f4d0c62577e678930381025a0802d"
+    ]
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "R01-pr-metadata", "artifact_ref": "urn:opencode:research:R01", "completed_at": "2026-06-29T14:01:00Z", "actor": "research-R01", "lens": "PR metadata", "summary": "PR #4353 is open, dirty/conflicting, status/reviewing, and stale after #4344."},
+      {"id": "research-02", "independence_key": "R02-pr-diff-review", "artifact_ref": "urn:opencode:research:R02", "completed_at": "2026-06-29T14:02:00Z", "actor": "research-R02", "lens": "diff review", "summary": "Original PR centralizes runtime Dolt port propagation but is broad/stale and cannot merge as-is."},
+      {"id": "research-03", "independence_key": "R03-dolt-port-flow", "artifact_ref": "urn:opencode:research:R03", "completed_at": "2026-06-29T14:03:00Z", "actor": "research-R03", "lens": "Dolt port flow", "summary": "Runtime daemon state should be client endpoint truth; stale default paths remained in plugins and agent env fallbacks."},
+      {"id": "research-04", "independence_key": "R04-agent-env", "artifact_ref": "urn:opencode:research:R04", "completed_at": "2026-06-29T14:04:00Z", "actor": "research-R04", "lens": "agent env", "summary": "AgentEnv had central propagation but legacy-only fallback and plugin env consumption needed canonical server-port alignment."},
+      {"id": "research-05", "independence_key": "R05-pr4344-impact", "artifact_ref": "urn:opencode:research:R05", "completed_at": "2026-06-29T14:05:00Z", "actor": "research-R05", "lens": "PR #4344 impact", "summary": "#4344 merged but did not fully subsume #4353; the live #4348 incident was operational drift, so only remaining real regressions should be fixed."},
+      {"id": "research-06", "independence_key": "R06-existing-tests", "artifact_ref": "urn:opencode:research:R06", "completed_at": "2026-06-29T14:06:00Z", "actor": "research-R06", "lens": "tests", "summary": "Focused tests identified for AgentEnv, gt up env, plugin endpoint resolution, and shell helpers."},
+      {"id": "research-07", "independence_key": "R07-ci-status", "artifact_ref": "urn:opencode:research:R07", "completed_at": "2026-06-29T14:07:00Z", "actor": "research-R07", "lens": "CI status", "summary": "Original PR #4353 has stale failing Test, Integration Tests, and remove-triage-label checks; branch is behind and conflicting."},
+      {"id": "research-08", "independence_key": "R08-runtime-config", "artifact_ref": "urn:opencode:research:R08", "completed_at": "2026-06-29T14:08:00Z", "actor": "research-R08", "lens": "runtime config", "summary": "Do not add another resolver; use existing runtime endpoint propagation and distinguish startup config from client runtime endpoint."},
+      {"id": "research-09", "independence_key": "R09-dogs-workflows", "artifact_ref": "urn:opencode:research:R09", "completed_at": "2026-06-29T14:09:00Z", "actor": "research-R09", "lens": "dogs workflows", "summary": "Dog plugins still fell back to 3307 when launched with Beads endpoint env only; gt up propagated only two port vars."},
+      {"id": "research-10", "independence_key": "R10-cli-startup", "artifact_ref": "urn:opencode:research:R10", "completed_at": "2026-06-29T14:10:00Z", "actor": "research-R10", "lens": "CLI startup", "summary": "Fix should be centralized in AgentEnv/ensureDoltPortEnv and Beads env helpers, not local one-off command shims."},
+      {"id": "research-11", "independence_key": "R11-security", "artifact_ref": "urn:opencode:research:R11", "completed_at": "2026-06-29T14:11:00Z", "actor": "research-R11", "lens": "security", "summary": "Endpoint env propagation has low security risk if ports are validated and shell args remain quoted."},
+      {"id": "research-12", "independence_key": "R12-cleanup-fit", "artifact_ref": "urn:opencode:research:R12", "completed_at": "2026-06-29T14:12:00Z", "actor": "research-R12", "lens": "cleanup fit", "summary": "Replacement should collapse onto existing helpers and avoid broad compatibility matrices."},
+      {"id": "research-13", "independence_key": "R13-current-main-comparison", "artifact_ref": "urn:opencode:research:R13", "completed_at": "2026-06-29T14:13:00Z", "actor": "research-R13", "lens": "main comparison", "summary": "Current origin/main already includes core propagation; remaining deltas are plugin consumption, gt up propagation, and Beads env precedence."},
+      {"id": "research-14", "independence_key": "R14-repro-path", "artifact_ref": "urn:opencode:research:R14", "completed_at": "2026-06-29T14:14:00Z", "actor": "research-R14", "lens": "repro path", "summary": "Non-default daemon port should reach spawned sessions as GT_DOLT_PORT, BEADS_DOLT_PORT, and BEADS_DOLT_SERVER_PORT."},
+      {"id": "research-15", "independence_key": "R15-labels-blockers", "artifact_ref": "urn:opencode:research:R15", "completed_at": "2026-06-29T14:15:00Z", "actor": "research-R15", "lens": "labels/blockers", "summary": "Original PR label status/reviewing and dirty red checks block merge-as-is; replacement/fixup path is required."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "P01-scope-minimality", "artifact_ref": "urn:opencode:pre-review:P01", "reviewed_action_ref": "action-plan-pr-4353-replacement", "completed_at": "2026-06-29T14:31:00Z", "actor": "pre-P01", "verdict": "approve", "summary": "Approved narrow plugin fallback plus gt up env propagation scope."},
+      {"id": "pre-02", "independence_key": "P02-correctness", "artifact_ref": "urn:opencode:pre-review:P02", "reviewed_action_ref": "action-plan-pr-4353-replacement", "completed_at": "2026-06-29T14:32:00Z", "actor": "pre-P02", "verdict": "approve", "summary": "Approved with required order GT_DOLT_PORT before BEADS_DOLT_SERVER_PORT before legacy BEADS_DOLT_PORT."},
+      {"id": "pre-03", "independence_key": "P03-security", "artifact_ref": "urn:opencode:pre-review:P03", "reviewed_action_ref": "action-plan-pr-4353-replacement", "completed_at": "2026-06-29T14:33:00Z", "actor": "pre-P03", "verdict": "approve", "summary": "Approved with port validation and safe Go DSN construction constraints."},
+      {"id": "pre-04", "independence_key": "P04-test-plan", "artifact_ref": "urn:opencode:pre-review:P04", "reviewed_action_ref": "action-plan-pr-4353-replacement", "completed_at": "2026-06-29T14:34:00Z", "actor": "pre-P04", "verdict": "approve", "summary": "Approved with tests for shell helpers, snapshots resolver/DSN, and gt up propagation."},
+      {"id": "pre-05", "independence_key": "P05-integration", "artifact_ref": "urn:opencode:pre-review:P05", "reviewed_action_ref": "action-plan-pr-4353-replacement", "completed_at": "2026-06-29T14:35:00Z", "actor": "pre-P05", "verdict": "approve", "summary": "Approved fold into #4353 replacement without touching #4344 routing."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "post-01", "independence_key": "POSTH01-scope-cleanup", "artifact_ref": "post-01-artifact", "reviewed_action_ref": "action-plan-pr-4353-replacement", "reviewed_head_sha": "3dac4dfbfa1f4d0c62577e678930381025a0802d", "completed_at": "2026-06-29T14:55:00Z", "actor": "post-POSTH01", "verdict": "approve", "summary": "Final stack remains endpoint propagation/precedence plus tests/docs/format only."},
+      {"id": "post-02", "independence_key": "POSTH02-correctness", "artifact_ref": "post-02-artifact", "reviewed_action_ref": "action-plan-pr-4353-replacement", "reviewed_head_sha": "3dac4dfbfa1f4d0c62577e678930381025a0802d", "completed_at": "2026-06-29T14:55:00Z", "actor": "post-POSTH02", "verdict": "approve", "summary": "Final AgentEnv, gt up, plugins, and tests are correct."},
+      {"id": "post-03", "independence_key": "POSTH03-security", "artifact_ref": "post-03-artifact", "reviewed_action_ref": "action-plan-pr-4353-replacement", "reviewed_head_sha": "3dac4dfbfa1f4d0c62577e678930381025a0802d", "completed_at": "2026-06-29T14:55:00Z", "actor": "post-POSTH03", "verdict": "approve", "summary": "Final security review found no blockers."},
+      {"id": "post-04", "independence_key": "POSTH04-tests", "artifact_ref": "post-04-artifact", "reviewed_action_ref": "action-plan-pr-4353-replacement", "reviewed_head_sha": "3dac4dfbfa1f4d0c62577e678930381025a0802d", "completed_at": "2026-06-29T14:55:00Z", "actor": "post-POSTH04", "verdict": "approve", "summary": "Final test review passed; gofmt block resolved."},
+      {"id": "post-05", "independence_key": "POSTH05-integration", "artifact_ref": "post-05-artifact", "reviewed_action_ref": "action-plan-pr-4353-replacement", "reviewed_head_sha": "3dac4dfbfa1f4d0c62577e678930381025a0802d", "completed_at": "2026-06-29T14:55:00Z", "actor": "post-POSTH05", "verdict": "approve", "summary": "Final integration review approved local gt done submission without pre-verified."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "acceptable_minimal",
+    "rationale": "The replacement collapses gt up onto existing ensureDoltPortEnv, aligns AgentEnv and plugin endpoint precedence with canonical BEADS_DOLT_SERVER_PORT, and avoids adding a new resolver layer or touching #4344 routing.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "internal/config AgentEnv", "command_or_check": "CGO_ENABLED=0 go test ./internal/config -run 'TestAgentEnv_PropagatesDoltPort|TestResolveDoltPort' -count=1", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Covers resolved port and canonical server-port precedence."},
+      {"name": "internal/cmd gt up env", "command_or_check": "CGO_ENABLED=0 go test ./internal/cmd -run 'TestEnsureDoltPortEnv|TestRunUpPropagatesDoltEndpointAfterReadiness' -count=1", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Covers helper env exports and gt up readiness order."},
+      {"name": "plugins/dolt-snapshots", "command_or_check": "go test . -count=1", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Covers host/port precedence and DSN validation."},
+      {"name": "compactor dog shell", "command_or_check": "bash plugins/compactor-dog/run_test.sh", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Covers extracted production endpoint helpers and invalid ports."},
+      {"name": "archive dog shell", "command_or_check": "bash plugins/dolt-archive/run_test.sh", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Covers extracted production endpoint helpers and invalid ports."},
+      {"name": "format/whitespace", "command_or_check": "gofmt -l changed Go files; git diff --check origin/main..HEAD", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Final gofmt and whitespace checks are clean."}
+    ],
+    "ci_checks": []
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4353",
+    "replacement_change_url": null,
+    "replacement_branch": "polecat/deathclaw/gt-pr-4353-dolt-port-after-4344@mqz9sprq",
+    "replacement_commit_refs": [
+      "bbe9ebf75",
+      "427188d14",
+      "65e2058ce",
+      "3dac4dfbfa1f4d0c62577e678930381025a0802d"
+    ],
+    "original_author": "Bella-Giraffety",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["original-pr-reference"],
+      "fresh_artifact_refs": ["implementation-head", "verification-focused", "post-01-artifact", "post-02-artifact", "post-03-artifact", "post-04-artifact", "post-05-artifact"],
+      "rationale": "Original PR intent was reused; implementation and verification are fresh for the replacement branch on current origin/main."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement carries forward PR #4353 intent from Bella-Giraffety.",
+      "preserved": true,
+      "method": "comment_credit",
+      "artifact_refs": ["original-pr-reference"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "blocker-scan",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "ci_checks", "bead_notes"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": [],
+    "scanned_at": "2026-06-29T14:56:26Z",
+    "summary": "External PR #4353 remains blocked merge-as-is, but replacement branch blockers were resolved: final head is clean, current with origin/main, focused checks pass, and 5/5 final post reviews approved."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "urn:git-branch:polecat/deathclaw/gt-pr-4353-dolt-port-after-4344@mqz9sprq",
+    "target_head_sha": "3dac4dfbfa1f4d0c62577e678930381025a0802d",
+    "decided_by": "gastown/polecats/deathclaw",
+    "decided_at": "2026-06-29T14:56:26Z",
+    "reason": "Original PR #4353 is stale/conflicting after #4344, while the local replacement branch carries forward the remaining real Dolt endpoint regression with focused cleanup-first changes and passed all Sheriff evidence gates. Submit via gt done without --pre-verified so MQ runs full gates.",
+    "required_actions": ["After replacement lands, mark external PR #4353 superseded/closed with attribution preserved."]
+  }
+}
