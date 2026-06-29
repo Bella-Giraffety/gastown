@@ -63,6 +63,8 @@ func TestIssueStatusBlocksRemoval(t *testing.T) {
 		{IssueStatusPinned, false},
 		{StatusInProgress, false},
 		{StatusTombstone, false},
+		{StatusBlocked, false},
+		{StatusDeferred, false},
 	}
 	for _, tt := range tests {
 		if got := tt.status.BlocksRemoval(); got != tt.want {
@@ -82,6 +84,8 @@ func TestIssueStatusIsTerminal(t *testing.T) {
 		{StatusOpen, false},
 		{IssueStatusHooked, false},
 		{StatusInProgress, false},
+		{StatusBlocked, false},
+		{StatusDeferred, false},
 		{IssueStatusPinned, false},
 	}
 	for _, tt := range tests {
@@ -100,6 +104,8 @@ func TestIssueStatusIsAssigned(t *testing.T) {
 		{IssueStatusHooked, true},
 		{StatusInProgress, true},
 		{StatusOpen, false},
+		{StatusBlocked, false},
+		{StatusDeferred, false},
 		{StatusClosed, false},
 		{IssueStatusPinned, false},
 	}
@@ -141,6 +147,7 @@ func TestIssueStatusConstants(t *testing.T) {
 		StatusInProgress:  "in_progress",
 		StatusTombstone:   "tombstone",
 		StatusBlocked:     "blocked",
+		StatusDeferred:    "deferred",
 		IssueStatusPinned: "pinned",
 		IssueStatusHooked: "hooked",
 	}

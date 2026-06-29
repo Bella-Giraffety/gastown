@@ -510,8 +510,9 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 
 		// Track known polecat names from filesystem for zombie detection
 		knownNames := make(map[string]bool)
+		prefix := beads.GetPrefixForRig(filepath.Dir(r.Path), r.Name)
 		for _, name := range polecatNames {
-			agentBeadID := polecatBeadIDForRig(r, r.Name, name)
+			agentBeadID := beads.PolecatBeadIDWithPrefix(prefix, r.Name, name)
 			var fields *beads.AgentFields
 			if issue := agents[agentBeadID]; issue != nil {
 				fields = beads.ParseAgentFields(issue.Description)

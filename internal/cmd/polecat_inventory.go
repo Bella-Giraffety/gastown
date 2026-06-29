@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/steveyegge/gastown/internal/beads"
@@ -56,6 +56,7 @@ func (s polecatSessionSet) namesForRig(rigName string) []string {
 			names = append(names, sessionName)
 		}
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -85,23 +86,29 @@ func buildPolecatInventoryItem(rigName, polecatName string, fields *beads.AgentF
 		input.ActiveMR = item.ActiveMR
 	}
 
-	if activeWork != nil && activeWorkBlocksSummary(activeWork) {
-		item.Issue = activeWork.ID
-		if running {
-			item.State = polecat.StateWorking
+	activeWorkEvidence := polecat.AssessAssignedIssueWork(activeWork)
+	if activeWorkEvidence.BlocksCleanup {
+		item.Issue = activeWorkEvidence.AssignedIssue
+		if activeWorkEvidence.RequiresRestart || activeWorkEvidence.CountsTowardCapacity {
+			if running {
+				item.State = polecat.StateWorking
+			} else {
+				item.State = polecat.StateStalled
+			}
+		} else if running && !polecat.CleanupStatus(item.CleanupStatus).IsSafe() {
+			item.State = polecat.StateReviewNeeded
 		} else {
-			item.State = polecat.StateStalled
+			item.State = polecat.StateIdle
 		}
-		input.ApplyActiveWork(activeWorkEvidenceForSummary(activeWork))
+		input.ApplyActiveWork(activeWorkEvidence)
 	} else if running && !polecat.CleanupStatus(item.CleanupStatus).IsSafe() {
 		item.State = polecat.StateReviewNeeded
 	} else {
 		item.State = polecat.StateIdle
 	}
 
-	if fields != nil && activeWork == nil && strings.TrimSpace(fields.HookBead) != "" {
-		input.HookBead = strings.TrimSpace(fields.HookBead)
-		input.ActiveWorkBlocker = fmt.Sprintf("hook_bead=%s status=unverified", input.HookBead)
+	if fields != nil && !activeWorkEvidence.BlocksCleanup && strings.TrimSpace(fields.HookBead) != "" {
+		input.ApplyActiveWork(polecat.AssessHookWork(nil, strings.TrimSpace(fields.HookBead)))
 	}
 	if item.ActiveMR != "" {
 		input.ActiveMRBlocker = "active_mr=" + item.ActiveMR + " status=unknown"
@@ -112,27 +119,52 @@ func buildPolecatInventoryItem(rigName, polecatName string, fields *beads.AgentF
 	return item
 }
 
+var polecatSummaryWorkStatuses = []beads.IssueStatus{
+	beads.IssueStatusHooked,
+	beads.StatusInProgress,
+	beads.StatusOpen,
+	beads.StatusBlocked,
+	beads.StatusDeferred,
+}
+
+var polecatSummaryWorkStatusRank = func() map[string]int {
+	ranks := make(map[string]int, len(polecatSummaryWorkStatuses))
+	for i, status := range polecatSummaryWorkStatuses {
+		ranks[string(status)] = i
+	}
+	return ranks
+}()
+
 func listActivePolecatWorkByName(bd *beads.Beads, rigName string) (map[string]*beads.Issue, error) {
 	byName := make(map[string]*beads.Issue)
-	for _, status := range []string{beads.StatusHooked, string(beads.StatusInProgress), string(beads.StatusOpen)} {
-		issues, err := bd.List(beads.ListOptions{Status: status, Priority: -1})
-		if err != nil {
-			return nil, err
+	issues, err := bd.ListIssueStatuses(polecatSummaryWorkStatuses...)
+	if err != nil {
+		return nil, err
+	}
+	for _, issue := range issues {
+		evidence := polecat.AssessAssignedIssueWork(issue)
+		if !evidence.BlocksCleanup {
+			continue
 		}
-		for _, issue := range issues {
-			if !activeWorkBlocksSummary(issue) {
-				continue
-			}
-			name, ok := polecatNameFromAssignee(rigName, issue.Assignee)
-			if !ok {
-				continue
-			}
-			if _, exists := byName[name]; !exists {
-				byName[name] = issue
-			}
+		name, ok := polecatNameFromAssignee(rigName, issue.Assignee)
+		if !ok {
+			continue
+		}
+		if current := byName[name]; current == nil || polecatSummaryIssueRank(issue) < polecatSummaryIssueRank(current) {
+			byName[name] = issue
 		}
 	}
 	return byName, nil
+}
+
+func polecatSummaryIssueRank(issue *beads.Issue) int {
+	if issue == nil {
+		return len(polecatSummaryWorkStatuses)
+	}
+	if rank, ok := polecatSummaryWorkStatusRank[issue.Status]; ok {
+		return rank
+	}
+	return len(polecatSummaryWorkStatuses)
 }
 
 func polecatNameFromAssignee(rigName, assignee string) (string, bool) {
@@ -145,34 +177,4 @@ func polecatNameFromAssignee(rigName, assignee string) (string, bool) {
 		return "", false
 	}
 	return name, true
-}
-
-func activeWorkBlocksSummary(issue *beads.Issue) bool {
-	if issue == nil || beads.IsAgentBead(issue) || beads.IsProtectedBead(issue) {
-		return false
-	}
-	return !beads.IssueStatus(issue.Status).IsTerminal()
-}
-
-func activeWorkEvidenceForSummary(issue *beads.Issue) polecat.ActiveWorkEvidence {
-	active := issueRequiresRestartForSummary(beads.IssueStatus(issue.Status))
-	return polecat.ActiveWorkEvidence{
-		Active:               active,
-		Protected:            !active,
-		BlocksCleanup:        true,
-		RequiresRestart:      active,
-		CountsTowardCapacity: active,
-		Blocker:              fmt.Sprintf("assigned_work=%s status=%s", issue.ID, issue.Status),
-		AssignedIssue:        issue.ID,
-		HookSafe:             true,
-	}
-}
-
-func issueRequiresRestartForSummary(status beads.IssueStatus) bool {
-	switch status {
-	case beads.StatusOpen, beads.StatusInProgress, beads.IssueStatusHooked:
-		return true
-	default:
-		return false
-	}
 }

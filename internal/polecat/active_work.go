@@ -171,22 +171,33 @@ func assessAssignedWork(reader ActiveWorkReader, assignee string) ActiveWorkEvid
 		return ActiveWorkEvidence{BlocksCleanup: true, Blocker: fmt.Sprintf("assigned_work assignee=%s status=lookup_error: %v", assignee, err), HookSafe: true}
 	}
 	for _, issue := range issues {
-		if !assignedIssueBlocksCleanup(issue) {
+		evidence := AssessAssignedIssueWork(issue)
+		if !evidence.BlocksCleanup {
 			continue
 		}
-		active := assignedIssueRequiresRestart(issue)
-		return ActiveWorkEvidence{
-			Active:               active,
-			Protected:            !active,
-			BlocksCleanup:        true,
-			RequiresRestart:      active,
-			CountsTowardCapacity: active,
-			Blocker:              fmt.Sprintf("assigned_work=%s status=%s", issue.ID, issue.Status),
-			AssignedIssue:        issue.ID,
-			HookSafe:             true,
-		}
+		return evidence
 	}
 	return ActiveWorkEvidence{HookSafe: true}
+}
+
+// AssessAssignedIssueWork classifies one already-loaded assigned issue without
+// performing any additional bead lookups. Summary paths use this to stay bounded
+// while sharing the destructive-cleanup policy with full active-work checks.
+func AssessAssignedIssueWork(issue *beads.Issue) ActiveWorkEvidence {
+	if !assignedIssueBlocksCleanup(issue) {
+		return ActiveWorkEvidence{HookSafe: true}
+	}
+	active := assignedIssueRequiresRestart(issue)
+	return ActiveWorkEvidence{
+		Active:               active,
+		Protected:            !active,
+		BlocksCleanup:        true,
+		RequiresRestart:      active,
+		CountsTowardCapacity: active,
+		Blocker:              fmt.Sprintf("assigned_work=%s status=%s", issue.ID, issue.Status),
+		AssignedIssue:        issue.ID,
+		HookSafe:             true,
+	}
 }
 
 func assignedIssueBlocksCleanup(issue *beads.Issue) bool {

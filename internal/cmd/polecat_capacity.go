@@ -191,12 +191,19 @@ func polecatCapacitySnapshotForTownNoCleanup(townRoot string) (polecatCapacitySn
 
 	tmuxClient := tmux.NewTmux()
 	sessions := polecatSessionSet{}
-	if sessionSet, err := tmuxClient.GetSessionSet(); err == nil {
+	sessionSet, err := tmuxClient.GetSessionSet()
+	if err != nil {
+		return snapshot, fmt.Errorf("listing tmux sessions for polecat capacity: %w", err)
+	}
+	if sessionSet != nil {
 		sessions = newPolecatSessionSet(sessionSet.Names())
 	}
 	for rigName := range rigsConfig.Rigs {
 		rigPath := filepath.Join(townRoot, rigName)
 		if _, err := os.Stat(rigPath); err != nil {
+			if !os.IsNotExist(err) {
+				return snapshot, fmt.Errorf("stat rig path for %s capacity: %w", rigName, err)
+			}
 			continue
 		}
 		polecatNames, err := listPolecatDirectoryNames(rigPath)
