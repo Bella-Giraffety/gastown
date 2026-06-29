@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -462,11 +463,16 @@ func runBdJSONWithOptions(dir string, allowStale bool, args ...string) ([]byte, 
 	if allowStale {
 		bdc.AllowStale()
 	}
-	cmd := bdc.Build()
-	cmd.Dir = dir
+	deadline := resolveBdCmdTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	cmd := bdc.buildContextCommand(ctx)
 	cmd.Stdout = &stdout
 
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("bd %s timed out after %v: %w", args[0], deadline, err)
+		}
 		if errMsg := strings.TrimSpace(stderr.String()); errMsg != "" {
 			return nil, fmt.Errorf("bd %s: %s", args[0], errMsg)
 		}

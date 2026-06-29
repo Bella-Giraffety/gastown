@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -102,6 +103,88 @@ func TestConvoyMeta(t *testing.T) {
 
 	if len(meta.LegIssues) != 3 {
 		t.Errorf("len(LegIssues) = %d, want 3", len(meta.LegIssues))
+	}
+}
+
+func TestCreateSynthesisBead_ExportsAfterCreateAndTracking(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	binDir := t.TempDir()
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"type":"town","name":"test"}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	orderPath := filepath.Join(binDir, "order.log")
+	bdScript := `#!/bin/sh
+ORDER="` + orderPath + `"
+case "$1" in
+  create)
+    echo create >> "$ORDER"
+    printf '%s\n' '{"id":"gt-synthesis"}'
+    exit 0
+    ;;
+  export)
+    echo export:"$@" >> "$ORDER"
+    exit 0
+    ;;
+esac
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(townRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	oldAddTracking := addTrackingRelationFn
+	addTrackingRelationFn = func(townRoot, convoyID, issueID string) error {
+		f, err := os.OpenFile(orderPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = fmt.Fprintf(f, "track:%s:%s\n", convoyID, issueID)
+		return err
+	}
+	t.Cleanup(func() { addTrackingRelationFn = oldAddTracking })
+
+	id, err := createSynthesisBead("hq-cv-synth", &ConvoyMeta{ID: "hq-cv-synth", Title: "Test Convoy"}, nil, []LegOutput{{LegID: "one", Title: "One", Status: "closed"}}, "review-1")
+	if err != nil {
+		t.Fatalf("createSynthesisBead returned error: %v", err)
+	}
+	if id != "gt-synthesis" {
+		t.Fatalf("id = %q, want gt-synthesis", id)
+	}
+
+	data, err := os.ReadFile(orderPath)
+	if err != nil {
+		t.Fatalf("read order log: %v", err)
+	}
+	got := strings.TrimSpace(string(data))
+	want := strings.Join([]string{
+		"create",
+		"track:hq-cv-synth:gt-synthesis",
+		"export:export -o " + filepath.Join(townRoot, ".beads", "issues.jsonl"),
+	}, "\n")
+	if got != want {
+		t.Fatalf("operation order mismatch:\n got:\n%s\nwant:\n%s", got, want)
 	}
 }
 

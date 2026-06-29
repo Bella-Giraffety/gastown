@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -324,10 +325,16 @@ func runSynthesisClose(cmd *cobra.Command, args []string) error {
 
 	// Read convoy to validate lifecycle state before closing
 	showArgs := []string{"show", convoyID, "--json"}
-	showCmd := beads.Command(townBeads, beads.ResolveBeadsDir(townBeads), beads.ReadOnlyPinned, showArgs...)
+	deadline := resolveBdCmdTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	showCmd := beads.CommandContext(ctx, townBeads, beads.ResolveBeadsDir(townBeads), beads.ReadOnlyPinned, showArgs...)
 	var showOut bytes.Buffer
 	showCmd.Stdout = &showOut
 	if err := showCmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("reading convoy '%s' timed out after %v: %w", convoyID, deadline, err)
+		}
 		return fmt.Errorf("reading convoy '%s': %w", convoyID, err)
 	}
 	var convoys []struct {
@@ -612,6 +619,9 @@ func createSynthesisBead(convoyID string, meta *ConvoyMeta, f *formula.Formula,
 
 	// Add tracking relation: convoy tracks synthesis.
 	_ = addTrackingRelationFn(townBeads, convoyID, result.ID) // Non-fatal if this fails
+	if err := beads.ExportJSONL(townBeads, ""); err != nil {
+		return "", fmt.Errorf("persisting synthesis bead to JSONL: %w", err)
+	}
 
 	return result.ID, nil
 }
