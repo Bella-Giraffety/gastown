@@ -1,0 +1,8 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-pr-4354-sheriff-review/evidence.json
+Exit code: 0
+Target PR SHA: e77a26f5aaa651e988b849ff7170004689c56328
+
+PR Sheriff: PASS
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 6 pass, 6 not_applicable, 0 waived, 2 fail

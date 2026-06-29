@@ -1,0 +1,187 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-06-29T18:10:00Z",
+  "run_id": "gt-pr-4354-sheriff-review-2026-06-29",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "4354",
+    "url": "https://github.com/gastownhall/gastown/pull/4354",
+    "title": "fix(daemon): checkpoint_dog fails to unstage nested runtime dirs (ac-d39p9)",
+    "author": "ryanwclark1",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "5118351294c8e3cad288314b9a9b7d106ebce960",
+    "head_ref": "ryanwclark1/gastown:polecat/ace/ac-d39p9",
+    "head_sha": "e77a26f5aaa651e988b849ff7170004689c56328",
+    "diff_summary": {
+      "additions": 107,
+      "deletions": 0,
+      "changed_files": 2,
+      "paths": [
+        "internal/daemon/checkpoint_dog.go",
+        "internal/daemon/checkpoint_dog_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["pr_thread", "review_thread", "issue_tracker", "artifact_store", "ci_log", "local_report", "bead"],
+    "baseline_checks": ["Test", "Integration Tests", "Lint", "Windows Smoke Test", "Reject go.mod replace directives", "Reject issues.jsonl"],
+    "no_verification_reasons": ["docs_only", "config_only", "not_executable_in_sandbox"]
+  },
+  "action_plan": {
+    "id": "action-plan-4354-defer-fixup",
+    "mode": "none",
+    "proposed_action_ref": "action-plan-4354-defer-fixup",
+    "summary": "Do not merge PR #4354 as-is. Preserve current labels, record evidence, and carry the valid bug forward with a cleanup-first maintainer replacement/fixup that converges runtime checkpoint exclusions, adds an end-to-end checkpointWorktree regression, preserves Ryan Clark attribution, rebases, and re-runs CI.",
+    "created_at": "2026-06-29T18:03:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/accepted", "family": "status", "semantic_value": "accepted"},
+      {"name": "priority/p2", "family": "priority", "semantic_value": "p2"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "accepted",
+    "priority": "p2",
+    "kind": "bug",
+    "snapshot_artifact_ref": "artifact-label-snapshot"
+  },
+  "artifacts": [
+    {"id": "artifact-pr-facts", "kind": "pr_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4354", "actor": "radrat", "created_at": "2026-06-29T17:56:00Z", "digest": null, "summary": "PR #4354 head e77a26f5aaa651e988b849ff7170004689c56328, base 5118351294c8e3cad288314b9a9b7d106ebce960, mergeable but UNSTABLE, 2 files, +107/-0."},
+    {"id": "artifact-label-snapshot", "kind": "label_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4354", "actor": "radrat", "created_at": "2026-06-29T17:56:10Z", "digest": null, "summary": "Observed labels: kind/bug, priority/p2, status/accepted. Recommendation: keep kind/bug and priority/p2; keep status/accepted until fixup/replacement has green CI and review approval."},
+    {"id": "artifact-ci", "kind": "ci_log", "uri": "https://github.com/gastownhall/gastown/actions/runs/28249199223", "actor": "github-actions", "created_at": "2026-06-26T16:04:25Z", "digest": null, "summary": "PR #4354 CI: Test failed, Integration Tests failed, Lint passed, Reject go.mod replace directives passed, Reject issues.jsonl passed; Windows Smoke Test passed in run 28249199261. Codecov reports two JSON-output tests as flaky, but Integration Tests remain red on PR head and need rebase/rerun or explicit waiver before merge readiness."},
+    {"id": "artifact-body", "kind": "pr_description", "uri": "https://github.com/gastownhall/gastown/pull/4354", "actor": "ryanwclark1", "created_at": "2026-06-26T15:51:23Z", "digest": null, "summary": "PR body explains the bug: root-level runtimeExcludeDirs reset unstages .beads/ at repo root only; previously tracked nested paths like web/.beads/redirect are re-staged by git add -A despite .gitignore."},
+    {"id": "artifact-codecov", "kind": "coverage_comment", "uri": "https://github.com/gastownhall/gastown/pull/4354#issuecomment-4811262018", "actor": "codecov-commenter", "created_at": "2026-06-26T16:04:34Z", "digest": null, "summary": "Codecov reports two failed tests as flaky: TestJSONOutput_ErrorsReturnNonZeroExit and TestJSONOutput_NoHumanReadableText, both with high main flake rate."},
+    {"id": "artifact-bead", "kind": "beads_note", "uri": "beads://gastown/gt-pr-4354-sheriff-review", "actor": "gastown/polecats/radrat", "created_at": "2026-06-29T17:56:20Z", "digest": null, "summary": "Assignment bead asks for PR Sheriff evidence, label recommendation, blocker scan, cleanup-first assessment, and merge-gate evidence or cleanup-first replacement/fixup plan for PR #4354."},
+    {"id": "artifact-r01", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r01", "actor": "r1-problem-validity", "created_at": "2026-06-29T17:57:00Z", "digest": null, "summary": "Problem validity passed: git add -A restages previously tracked nested .beads/redirect despite .gitignore, and git reset HEAD -- .beads/ does not unstage web/.beads/redirect."},
+    {"id": "artifact-r02", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r02", "actor": "r2-checkpoint-flow", "created_at": "2026-06-29T17:57:10Z", "digest": null, "summary": "Checkpoint flow placement is directionally correct: nested runtime unstaging after git add -A and root excludes, before deletion reset, addresses the bug without weakening deletion protection."},
+    {"id": "artifact-r03", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r03", "actor": "r3-diff-correctness", "created_at": "2026-06-29T17:57:20Z", "digest": null, "summary": "Diff correctness mostly passes for intended paths; unit tests cover the helper, but merge readiness remains blocked by status and red CI."},
+    {"id": "artifact-r04", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r04", "actor": "r4-helper-edge-cases", "created_at": "2026-06-29T17:57:30Z", "digest": null, "summary": "Helper handles empty, root skip, nested, dedupe, exact-component matching, and spaces under normal git output; uncovered edge cases include filename-equals-runtime-dir and explicit backslash input on non-Windows."},
+    {"id": "artifact-r05", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r05", "actor": "r5-test-coverage", "created_at": "2026-06-29T17:57:40Z", "digest": null, "summary": "Targeted daemon tests pass with CGO_ENABLED=0, but coverage is incomplete for the actual bug because there is no end-to-end checkpointWorktree regression proving nested tracked runtime artifacts are not checkpoint-committed."},
+    {"id": "artifact-r06", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r06", "actor": "r6-ci-failures", "created_at": "2026-06-29T17:57:50Z", "digest": null, "summary": "Test failures match known/base flaky JSON-output failures, but Integration Tests are red on PR head; PR is 18 commits behind main and needs rebase/rerun or explicit baseline-red waiver before merge readiness."},
+    {"id": "artifact-r07", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r07", "actor": "r7-blocker-scan", "created_at": "2026-06-29T17:58:00Z", "digest": null, "summary": "No do-not-merge, changes-requested, security, ownership, or review-comment blocker found; merge path remains blocked by red checks and status/accepted."},
+    {"id": "artifact-r08", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r08", "actor": "r8-label-policy", "created_at": "2026-06-29T17:58:10Z", "digest": null, "summary": "Label cardinality passes with exactly one status, priority, and kind; status/accepted is not merge-ready. Label recommendation: keep status/accepted until fixup/replacement evidence is ready."},
+    {"id": "artifact-r09", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r09", "actor": "r9-security-runtime", "created_at": "2026-06-29T17:58:20Z", "digest": null, "summary": "Security/runtime review: intent reduces accidental runtime-state checkpoints, but bespoke newline-delimited parsing and narrower daemon-local runtime policy leave residual risk; prefer robust pathspec/NUL parsing and centralized runtime policy."},
+    {"id": "artifact-r10", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r10", "actor": "r10-cleanup-first", "created_at": "2026-06-29T17:58:30Z", "digest": null, "summary": "Cleanup-first classification acceptable_minimal for the submitted PR, with a cleaner follow-up shape to collapse root and nested runtime handling into one staged-path or pathspec-based exclusion strategy."},
+    {"id": "artifact-r11", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r11", "actor": "r11-merge-compatibility", "created_at": "2026-06-29T17:58:40Z", "digest": null, "summary": "GitHub reports PR mergeable/rebaseable; it is 18 commits behind current main, and post-base commits do not touch checkpoint_dog files. Merge state remains UNSTABLE due CI."},
+    {"id": "artifact-r12", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r12", "actor": "r12-cross-platform", "created_at": "2026-06-29T17:58:50Z", "digest": null, "summary": "Cross-platform review: ordinary slash-separated paths and trailing slash pathspecs are safe; newline-delimited diff output is not robust for arbitrary Git-valid path names."},
+    {"id": "artifact-r13", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r13", "actor": "r13-error-handling", "created_at": "2026-06-29T17:59:00Z", "digest": null, "summary": "Error handling is consistent with nearby checkpoint_dog patterns; silent skip risk remains if diff or reset fails, but it does not alter deletion reset behavior outside nested runtime paths."},
+    {"id": "artifact-r14", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r14", "actor": "r14-alternatives", "created_at": "2026-06-29T17:59:10Z", "digest": null, "summary": "More convergent alternatives exist: use Git pathspec magic or central runtime artifact policy instead of a bespoke parser; recommendation is replacement/fixup before merge."},
+    {"id": "artifact-r15", "kind": "research_report", "uri": "beads://gastown/gt-pr-4354-sheriff-review#r15", "actor": "r15-focused-verification", "created_at": "2026-06-29T17:59:20Z", "digest": null, "summary": "Focused verification supports the intended fix: CGO_ENABLED=0 daemon tests and lightweight git repro passed. Full CI remains red and not merge-ready."},
+    {"id": "artifact-pre01", "kind": "pre_review", "uri": "beads://gastown/gt-pr-4354-sheriff-review#pre01", "actor": "pre1-policy", "created_at": "2026-06-29T18:03:10Z", "digest": null, "summary": "Approve the proposed non-merge defer/fixup action. Merge-as-is remains blocked by status/accepted, red CI, no approvals, and cleanup-first concerns."},
+    {"id": "artifact-pre02", "kind": "pre_review", "uri": "beads://gastown/gt-pr-4354-sheriff-review#pre02", "actor": "pre2-cleanup", "created_at": "2026-06-29T18:03:20Z", "digest": null, "summary": "Approve cleanup-first replacement/fixup: reuse or expose centralized runtime artifact handling, add end-to-end checkpointWorktree regression, preserve attribution, and avoid label mutation now."},
+    {"id": "artifact-pre03", "kind": "pre_review", "uri": "beads://gastown/gt-pr-4354-sheriff-review#pre03", "actor": "pre3-verification", "created_at": "2026-06-29T18:03:30Z", "digest": null, "summary": "Approve verification plan: no merge-as-is with red CI; replacement/fixup must run focused daemon tests, rebase, and full CI; no baseline-red waiver without human approval."},
+    {"id": "artifact-pre04", "kind": "pre_review", "uri": "beads://gastown/gt-pr-4354-sheriff-review#pre04", "actor": "pre4-security", "created_at": "2026-06-29T18:03:40Z", "digest": null, "summary": "Approve security-focused defer/fixup: avoid newline-sensitive parsing, align runtime policy including .opencode if intended, and preserve Ryan Clark attribution."},
+    {"id": "artifact-pre05", "kind": "pre_review", "uri": "beads://gastown/gt-pr-4354-sheriff-review#pre05", "actor": "pre5-flow", "created_at": "2026-06-29T18:03:50Z", "digest": null, "summary": "Approve report-only flow: durable evidence plus specific cleanup-first replacement/fixup next action satisfies the bead without unauthorized PR mutation."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": false,
+    "mode": "none",
+    "first_code_change_at": null,
+    "modified_paths": [],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "r1-problem-validity", "artifact_ref": "artifact-r01", "completed_at": "2026-06-29T17:57:00Z", "actor": "r1-problem-validity", "lens": "problem validity", "summary": "Git semantics reproduce the nested tracked runtime artifact bug."},
+      {"id": "research-02", "independence_key": "r2-checkpoint-flow", "artifact_ref": "artifact-r02", "completed_at": "2026-06-29T17:57:10Z", "actor": "r2-checkpoint-flow", "lens": "checkpoint flow", "summary": "PR insertion point fits checkpointWorktree order."},
+      {"id": "research-03", "independence_key": "r3-diff-correctness", "artifact_ref": "artifact-r03", "completed_at": "2026-06-29T17:57:20Z", "actor": "r3-diff-correctness", "lens": "diff correctness", "summary": "Diff is plausible for intended paths, but merge-readiness blockers remain."},
+      {"id": "research-04", "independence_key": "r4-helper-edge-cases", "artifact_ref": "artifact-r04", "completed_at": "2026-06-29T17:57:30Z", "actor": "r4-helper-edge-cases", "lens": "helper edge cases", "summary": "Helper covers main path shapes; unusual path cases remain uncovered."},
+      {"id": "research-05", "independence_key": "r5-test-coverage", "artifact_ref": "artifact-r05", "completed_at": "2026-06-29T17:57:40Z", "actor": "r5-test-coverage", "lens": "test coverage", "summary": "Unit helper tests pass; end-to-end checkpointWorktree regression is missing."},
+      {"id": "research-06", "independence_key": "r6-ci-failures", "artifact_ref": "artifact-r06", "completed_at": "2026-06-29T17:57:50Z", "actor": "r6-ci-failures", "lens": "CI failures", "summary": "Red CI requires rebase/rerun or human-approved waiver before merge readiness."},
+      {"id": "research-07", "independence_key": "r7-blocker-scan", "artifact_ref": "artifact-r07", "completed_at": "2026-06-29T17:58:00Z", "actor": "r7-blocker-scan", "lens": "blocker scan", "summary": "No explicit human blocker; status and red CI block merge path."},
+      {"id": "research-08", "independence_key": "r8-label-policy", "artifact_ref": "artifact-r08", "completed_at": "2026-06-29T17:58:10Z", "actor": "r8-label-policy", "lens": "label policy", "summary": "Label cardinality valid; status/accepted is not merge-ready."},
+      {"id": "research-09", "independence_key": "r9-security-runtime", "artifact_ref": "artifact-r09", "completed_at": "2026-06-29T17:58:20Z", "actor": "r9-security-runtime", "lens": "security/runtime", "summary": "Runtime-state security intent is positive; robust parsing and central policy would be safer."},
+      {"id": "research-10", "independence_key": "r10-cleanup-first", "artifact_ref": "artifact-r10", "completed_at": "2026-06-29T17:58:30Z", "actor": "r10-cleanup-first", "lens": "cleanup-first", "summary": "PR is acceptable minimal, with a convergent replacement/fixup path recommended."},
+      {"id": "research-11", "independence_key": "r11-merge-compatibility", "artifact_ref": "artifact-r11", "completed_at": "2026-06-29T17:58:40Z", "actor": "r11-merge-compatibility", "lens": "merge compatibility", "summary": "Branch is mergeable/rebaseable but stale and unstable."},
+      {"id": "research-12", "independence_key": "r12-cross-platform", "artifact_ref": "artifact-r12", "completed_at": "2026-06-29T17:58:50Z", "actor": "r12-cross-platform", "lens": "cross-platform", "summary": "Normal paths are cross-platform safe; newline-delimited parsing is not fully robust."},
+      {"id": "research-13", "independence_key": "r13-error-handling", "artifact_ref": "artifact-r13", "completed_at": "2026-06-29T17:59:00Z", "actor": "r13-error-handling", "lens": "error handling", "summary": "Error handling matches nearby code; silent exclusion failures remain a residual risk."},
+      {"id": "research-14", "independence_key": "r14-alternatives", "artifact_ref": "artifact-r14", "completed_at": "2026-06-29T17:59:10Z", "actor": "r14-alternatives", "lens": "alternatives", "summary": "Pathspec or central policy alternatives are more convergent than a bespoke parser."},
+      {"id": "research-15", "independence_key": "r15-focused-verification", "artifact_ref": "artifact-r15", "completed_at": "2026-06-29T17:59:20Z", "actor": "r15-focused-verification", "lens": "focused verification", "summary": "Focused daemon tests and git repro passed; full PR CI remains red."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "pre1-policy", "artifact_ref": "artifact-pre01", "reviewed_action_ref": "action-plan-4354-defer-fixup", "completed_at": "2026-06-29T18:03:10Z", "actor": "pre1-policy", "verdict": "approve", "summary": "Approve non-merge defer/fixup action as policy-allowed and minimal."},
+      {"id": "pre-02", "independence_key": "pre2-cleanup", "artifact_ref": "artifact-pre02", "reviewed_action_ref": "action-plan-4354-defer-fixup", "completed_at": "2026-06-29T18:03:20Z", "actor": "pre2-cleanup", "verdict": "approve", "summary": "Approve cleanup-first replacement/fixup plan."},
+      {"id": "pre-03", "independence_key": "pre3-verification", "artifact_ref": "artifact-pre03", "reviewed_action_ref": "action-plan-4354-defer-fixup", "completed_at": "2026-06-29T18:03:30Z", "actor": "pre3-verification", "verdict": "approve", "summary": "Approve verification plan requiring rebase, focused tests, and green CI or explicit waiver."},
+      {"id": "pre-04", "independence_key": "pre4-security", "artifact_ref": "artifact-pre04", "reviewed_action_ref": "action-plan-4354-defer-fixup", "completed_at": "2026-06-29T18:03:40Z", "actor": "pre4-security", "verdict": "approve", "summary": "Approve security-focused replacement/fixup requirements."},
+      {"id": "pre-05", "independence_key": "pre5-flow", "artifact_ref": "artifact-pre05", "reviewed_action_ref": "action-plan-4354-defer-fixup", "completed_at": "2026-06-29T18:03:50Z", "actor": "pre5-flow", "verdict": "approve", "summary": "Approve report-only evidence flow with specific next actions."}
+    ],
+    "post_implementation_reviews": []
+  },
+  "cleanup_first": {
+    "assessment": "acceptable_minimal",
+    "rationale": "PR #4354 is a small valid bug fix and not an unapproved feature. The recommended carry-forward path should converge root and nested runtime checkpoint exclusions through a central policy or Git pathspec strategy instead of growing a bespoke newline-delimited parser.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": "artifact-r10"},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": "artifact-r10"},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": "artifact-r10"},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": "artifact-r14"},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": "artifact-r10"}
+    ]
+  },
+  "enhancement_approval": {"required": false, "required_reason": null, "approved": false, "approver": null, "approver_role": null, "approval_ref": null, "approved_at": null},
+  "verification": {
+    "focused_checks": [
+      {"name": "daemon focused tests", "command_or_check": "CGO_ENABLED=0 GOCACHE=/tmp/opencode/gocache go test ./internal/daemon -run 'Test(NestedRuntimeArtifactDirs|CheckpointDog|ResolveCheckpointWorkDir|IsGitWorktree)' -count=1", "outcome": "pass", "artifact_ref": "artifact-r15", "reason": "Focused daemon tests passed on PR head in a temp checkout."},
+      {"name": "git nested reset repro", "command_or_check": "temp git repo: git add -A; git reset HEAD -- .beads/ leaves web/.beads/redirect staged; git reset HEAD -- web/.beads/ clears it", "outcome": "pass", "artifact_ref": "artifact-r01", "reason": "Lightweight repro validates the reported bug and intended reset behavior."}
+    ],
+    "ci_checks": [
+      {"name": "Test", "outcome": "fail", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28249199223/job/83696102825", "base_outcome": "fail", "head_outcome": "fail", "unrelated_to_change": true, "artifact_ref": "artifact-ci", "reason": "Fails on PR head with known flaky JSON-output tests also seen on base; no human waiver recorded."},
+      {"name": "Integration Tests", "outcome": "fail", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28249199223/job/83696102776", "base_outcome": "fail", "head_outcome": "fail", "unrelated_to_change": true, "artifact_ref": "artifact-ci", "reason": "Fails on PR head and matched base-run failures in research, but current main has since moved; no human waiver recorded."},
+      {"name": "Lint", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28249199223/job/83696102799", "base_outcome": "unknown", "head_outcome": "pass", "unrelated_to_change": false, "artifact_ref": "artifact-ci", "reason": "Lint passed on PR head."},
+      {"name": "Windows Smoke Test", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28249199261/job/83696102795", "base_outcome": "unknown", "head_outcome": "pass", "unrelated_to_change": false, "artifact_ref": "artifact-ci", "reason": "Windows smoke passed on PR head."},
+      {"name": "Reject go.mod replace directives", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28249199223/job/83696102774", "base_outcome": "unknown", "head_outcome": "pass", "unrelated_to_change": false, "artifact_ref": "artifact-ci", "reason": "Guard check passed on PR head."},
+      {"name": "Reject issues.jsonl", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28249199223/job/83696102767", "base_outcome": "unknown", "head_outcome": "pass", "unrelated_to_change": false, "artifact_ref": "artifact-ci", "reason": "Guard check passed on PR head."}
+    ]
+  },
+  "baseline_red_waiver": {"requested": false, "approved": false, "approved_by": null, "approver_role": null, "approved_at": null, "approval_ref": null, "failing_checks": [], "unrelated_rationale": "", "evidence_refs": []},
+  "replacement_flow": {
+    "required": false,
+    "mode": "none",
+    "state": "not_applicable",
+    "original_change_url": null,
+    "replacement_change_url": null,
+    "replacement_branch": null,
+    "replacement_commit_refs": [],
+    "original_author": null,
+    "evidence_reuse": {"reused_artifact_refs": [], "fresh_artifact_refs": [], "rationale": "not applicable: no replacement was created in this report-only review"},
+    "attribution": {"required": false, "required_reason": null, "preserved": false, "method": "not_required", "artifact_refs": []},
+    "superseded_closure": {"required": false, "state": "not_required", "closure_intent_ref": null, "replacement_merge_ref": null, "closure_ref": null}
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "ci_checks", "bead_notes", "pr_body"],
+    "unresolved_blockers_found": true,
+    "blocker_refs": ["artifact-label-snapshot", "artifact-ci"],
+    "resolution_refs": [],
+    "scanned_at": "2026-06-29T18:04:00Z",
+    "summary": "No explicit do-not-merge or changes-requested blocker was found, but status/accepted and red Test/Integration Tests remain unresolved merge-path blockers. No PR mutation was performed."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "defer_human_review",
+    "decision_valid": true,
+    "merge_path_allowed": false,
+    "blocking_gates": ["merge_status", "blocker_scan"],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4354",
+    "target_head_sha": "e77a26f5aaa651e988b849ff7170004689c56328",
+    "decided_by": "gastown/polecats/radrat",
+    "decided_at": "2026-06-29T18:10:00Z",
+    "reason": "PR #4354 fixes a valid bug but is not merge-ready: semantic status is accepted, Test and Integration Tests are red without a human-approved waiver, and the safest carry-forward is a cleanup-first maintainer replacement/fixup with stronger runtime exclusion convergence and end-to-end regression coverage.",
+    "required_actions": [
+      "Do not merge PR #4354 as-is and do not promote it to review-approved or merge-ready yet.",
+      "Create a maintainer replacement/fixup from clean upstream/main that preserves Ryan Clark attribution and references PR #4354.",
+      "Converge checkpoint runtime exclusion handling by using central runtime artifact policy or Git pathspec/NUL-safe handling for root and nested runtime dirs instead of a bespoke newline-delimited staged-path parser.",
+      "Add an end-to-end checkpointWorktree regression that proves a previously tracked nested web/.beads/redirect is excluded while a normal file is checkpointed.",
+      "Rebase/rerun full CI; only consider merge after status becomes review-approved or merge-ready and red checks pass or receive an explicit human baseline-red waiver."
+    ]
+  }
+}
