@@ -728,6 +728,10 @@ case "$cmd" in
     printf '%s %s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$cmd" "$*" "$(pwd)" "${BEADS_DIR:-}" "${BEADS_DOLT_SERVER_DATABASE:-}" "${BEADS_DB:-}" "${BD_DB:-}" "${BEADS_DOLT_DATA_DIR:-}" "${BD_DOLT_AUTO_COMMIT:-}" "${BD_READONLY:-}" >> "` + closeLogPath + `"
     exit 0
     ;;
+  export)
+    printf 'export %s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$*" "$(pwd)" "${BEADS_DIR:-}" "${BEADS_DOLT_SERVER_DATABASE:-}" "${BEADS_DB:-}" "${BD_DB:-}" "${BEADS_DOLT_DATA_DIR:-}" "${BD_DOLT_AUTO_COMMIT:-}" "${BD_READONLY:-}" >> "` + closeLogPath + `"
+    exit 0
+    ;;
 esac
 exit 0
 `
@@ -770,9 +774,13 @@ exit 0
 	if !strings.Contains(closeContent, "all beads failed") {
 		t.Errorf("close log should contain failure reason:\n%s", closeContent)
 	}
-	fields := strings.Split(strings.TrimSpace(closeContent), "|")
+	lines := strings.Split(strings.TrimSpace(closeContent), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("close log lines = %v, want close and export", lines)
+	}
+	fields := strings.Split(strings.TrimSpace(lines[0]), "|")
 	if len(fields) != 9 {
-		t.Fatalf("close log fields = %v, want 9 fields in %q", fields, closeContent)
+		t.Fatalf("close log fields = %v, want 9 fields in %q", fields, lines[0])
 	}
 	if fields[1] != townBeads {
 		t.Fatalf("close cwd = %q, want town beads dir %q", fields[1], townBeads)
@@ -791,6 +799,19 @@ exit 0
 	}
 	if fields[8] != "" {
 		t.Fatalf("BD_READONLY should be stripped, got %q", fields[8])
+	}
+	exportFields := strings.Split(strings.TrimSpace(lines[1]), "|")
+	if len(exportFields) != 9 {
+		t.Fatalf("export log fields = %v, want 9 fields in %q", exportFields, lines[1])
+	}
+	if want := "export -o " + filepath.Join(townBeads, "issues.jsonl"); exportFields[0] != want {
+		t.Fatalf("export args = %q, want %q", exportFields[0], want)
+	}
+	if exportFields[2] != townBeads {
+		t.Fatalf("export BEADS_DIR = %q, want %q", exportFields[2], townBeads)
+	}
+	if exportFields[7] != "off" || exportFields[8] != "true" {
+		t.Fatalf("export env should be read-only, got BD_DOLT_AUTO_COMMIT=%q BD_READONLY=%q", exportFields[7], exportFields[8])
 	}
 }
 
