@@ -308,12 +308,18 @@ case "$*" in
     fi
     echo '[{"id":"hq-cv-test","title":"Test Convoy","status":"open","issue_type":"convoy"}]'
     ;;
+  "export -o %s/.beads/issues.jsonl")
+    if [ "$PWD" != "%s" ]; then
+      echo "expected town root, got $PWD" >&2
+      exit 1
+    fi
+    ;;
   *)
     echo "unexpected bd args: $*" >&2
     exit 1
     ;;
 esac
-`, expectedWD)
+`, expectedWD, expectedWD, expectedWD)
 	writeRoutingBdStub(t, scriptBody)
 
 	_, err := captureConvoyStdoutErr(t, func() error {
