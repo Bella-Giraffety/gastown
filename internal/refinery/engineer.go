@@ -2385,6 +2385,9 @@ func (e *Engineer) checkAndCloseCompletedConvoys(townRoot, townBeads string) []c
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close convoy %s: %v\n", convoy.ID, err)
 			continue
 		}
+		if err := beads.ExportJSONL(townBeads, townBeads); err != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to persist convoy %s to JSONL: %v\n", convoy.ID, err)
+		}
 
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Auto-closed convoy %s: %s\n", convoy.ID, convoy.Title)
 		closed = append(closed, convoyInfo{
@@ -2452,6 +2455,9 @@ func (e *Engineer) claimConvoyCompletionNotification(townRoot, convoyID, fallbac
 	if err := updateCmd.Run(); err != nil {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not record convoy completion notification state for %s: %v\n", convoyID, err)
 		return fields, false
+	}
+	if err := beads.ExportJSONL(townBeads, townBeads); err != nil {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not persist convoy completion notification state for %s: %v\n", convoyID, err)
 	}
 
 	return fields, true

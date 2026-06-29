@@ -267,6 +267,20 @@ func (b *bdCmd) Run() error {
 	return b.wrapCommandError(ctx, b.buildContextCommand(ctx).Run(), deadline)
 }
 
+// RunAndExportJSONL runs a successful bd mutation, then persists the resolved
+// beads database to issues.jsonl for fallback rebuild paths.
+func (b *bdCmd) RunAndExportJSONL() error {
+	if err := b.Run(); err != nil {
+		return err
+	}
+	return b.ExportJSONL()
+}
+
+// ExportJSONL persists the command's resolved beads database to issues.jsonl.
+func (b *bdCmd) ExportJSONL() error {
+	return beads.ExportJSONL(b.dir, b.beadsDir)
+}
+
 // Output builds and runs the command, returning stdout and any error.
 // This is a convenience method equivalent to Build().Output().
 // Note: Output() captures stdout but Stderr must still be configured

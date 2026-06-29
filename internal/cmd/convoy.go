@@ -861,6 +861,11 @@ func runConvoyAdd(cmd *cobra.Command, args []string) error {
 			addedCount++
 		}
 	}
+	if reopened || addedCount > 0 {
+		if err := beads.ExportJSONL(townBeads, ""); err != nil {
+			return fmt.Errorf("persisting convoy changes to JSONL: %w", err)
+		}
+	}
 
 	// Output
 	if reopened {
@@ -958,7 +963,7 @@ func closeConvoyIfComplete(townBeads, convoyID, title string, tracked []trackedI
 
 	reason := "All tracked issues completed"
 	closeArgs := []string{"close", convoyID, "-r", reason}
-	if err := BdCmd(closeArgs...).Dir(townBeads).WithAutoCommit().Run(); err != nil {
+	if err := BdCmd(closeArgs...).Dir(townBeads).WithAutoCommit().RunAndExportJSONL(); err != nil {
 		return false, fmt.Errorf("closing convoy: %w", err)
 	}
 
@@ -1108,7 +1113,7 @@ func runConvoyClose(cmd *cobra.Command, args []string) error {
 
 	// Close the convoy
 	closeArgs := []string{"close", convoyID, "-r", reason}
-	if err := BdCmd(closeArgs...).Dir(townBeads).WithAutoCommit().Run(); err != nil {
+	if err := BdCmd(closeArgs...).Dir(townBeads).WithAutoCommit().RunAndExportJSONL(); err != nil {
 		return fmt.Errorf("closing convoy: %w", err)
 	}
 
@@ -1281,7 +1286,7 @@ func runConvoyLand(cmd *cobra.Command, args []string) error {
 	// Phase 2: Close the convoy
 	reason := "Landed by owner"
 	closeArgs := []string{"close", convoyID, "-r", reason}
-	if err := BdCmd(closeArgs...).Dir(townBeads).WithAutoCommit().Run(); err != nil {
+	if err := BdCmd(closeArgs...).Dir(townBeads).WithAutoCommit().RunAndExportJSONL(); err != nil {
 		return fmt.Errorf("closing convoy: %w", err)
 	}
 
@@ -1711,6 +1716,9 @@ func notifyConvoyCompletion(townBeads, convoyID, title string) {
 	if err := BdCmd("update", convoyID, "--description="+newDesc).Dir(townBeads).WithAutoCommit().Run(); err != nil {
 		style.PrintWarning("could not record convoy completion notification state for %s: %v", convoyID, err)
 		return
+	}
+	if err := beads.ExportJSONL(townBeads, ""); err != nil {
+		style.PrintWarning("could not persist convoy completion notification state for %s: %v", convoyID, err)
 	}
 
 	// Compute duration since convoy was created.
