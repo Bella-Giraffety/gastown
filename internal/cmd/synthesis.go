@@ -354,11 +354,7 @@ func runSynthesisClose(cmd *cobra.Command, args []string) error {
 	if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
 		closeArgs = append(closeArgs, "--session="+sessionID)
 	}
-	closeCmd := exec.Command("bd", closeArgs...)
-	closeCmd.Dir = townBeads
-	closeCmd.Stderr = os.Stderr
-
-	if err := closeCmd.Run(); err != nil {
+	if err := BdCmd(closeArgs...).Dir(townBeads).WithAutoCommit().RunAndExportJSONL(); err != nil {
 		return fmt.Errorf("closing convoy: %w", err)
 	}
 

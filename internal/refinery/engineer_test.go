@@ -962,6 +962,9 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GT_DOLT_DATA", "")
+	t.Setenv("GT_DOLT_HOST", "")
+	t.Setenv("GT_DOLT_PORT", "")
 	t.Setenv("TOWN_BEADS", townBeads)
 	t.Setenv("BEADS_DIR", "/wrong/.beads")
 	t.Setenv("BEADS_DOLT_SERVER_DATABASE", "wrong")

@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -99,5 +102,102 @@ func TestConvoyMeta(t *testing.T) {
 
 	if len(meta.LegIssues) != 3 {
 		t.Errorf("len(LegIssues) = %d, want 3", len(meta.LegIssues))
+	}
+}
+
+func TestRunSynthesisClose_ExportsJSONLAfterClose(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	binDir := t.TempDir()
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"type":"town","name":"test"}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	logPath := filepath.Join(binDir, "bd.log")
+	bdScript := `#!/bin/sh
+LOG="` + logPath + `"
+case "$1" in
+  show)
+    printf '%s\n' '[{"status":"open"}]'
+    exit 0
+    ;;
+  close)
+    printf 'close|%s|%s|%s|%s|%s|%s\n' "$*" "$(pwd)" "${BEADS_DIR:-}" "${BD_DOLT_AUTO_COMMIT:-}" "${BD_READONLY:-}" "${BD_NO_GIT_OPS:-}" >> "$LOG"
+    exit 0
+    ;;
+  export)
+    printf 'export|%s|%s|%s|%s|%s|%s\n' "$*" "$(pwd)" "${BEADS_DIR:-}" "${BD_DOLT_AUTO_COMMIT:-}" "${BD_READONLY:-}" "${BD_NO_GIT_OPS:-}" >> "$LOG"
+    exit 0
+    ;;
+esac
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GT_AGENT", "")
+	t.Setenv("GT_SESSION_ID_ENV", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("BD_DOLT_AUTO_COMMIT", "off")
+	t.Setenv("BD_READONLY", "true")
+	t.Setenv("BD_NO_GIT_OPS", "false")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(townRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	if err := runSynthesisClose(nil, []string{"hq-cv-synth"}); err != nil {
+		t.Fatalf("runSynthesisClose returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("log lines = %v, want close and export", lines)
+	}
+	closeFields := strings.Split(lines[0], "|")
+	if len(closeFields) != 7 {
+		t.Fatalf("close fields = %v, want 7", closeFields)
+	}
+	if !strings.Contains(closeFields[1], "close hq-cv-synth --reason=synthesis complete") {
+		t.Fatalf("close args = %q, want synthesis close", closeFields[1])
+	}
+	if closeFields[2] != townRoot || closeFields[3] != filepath.Join(townRoot, ".beads") {
+		t.Fatalf("close target = cwd %q BEADS_DIR %q, want town root and town .beads", closeFields[2], closeFields[3])
+	}
+	if closeFields[4] != "on" || closeFields[5] != "" || closeFields[6] != "true" {
+		t.Fatalf("close env = BD_DOLT_AUTO_COMMIT=%q BD_READONLY=%q BD_NO_GIT_OPS=%q, want mutation/suppressed", closeFields[4], closeFields[5], closeFields[6])
+	}
+
+	exportFields := strings.Split(lines[1], "|")
+	if len(exportFields) != 7 {
+		t.Fatalf("export fields = %v, want 7", exportFields)
+	}
+	if want := "export -o " + filepath.Join(townRoot, ".beads", "issues.jsonl"); exportFields[1] != want {
+		t.Fatalf("export args = %q, want %q", exportFields[1], want)
+	}
+	if exportFields[2] != townRoot || exportFields[3] != filepath.Join(townRoot, ".beads") {
+		t.Fatalf("export target = cwd %q BEADS_DIR %q, want town root and town .beads", exportFields[2], exportFields[3])
+	}
+	if exportFields[4] != "off" || exportFields[5] != "true" || exportFields[6] != "true" {
+		t.Fatalf("export env = BD_DOLT_AUTO_COMMIT=%q BD_READONLY=%q BD_NO_GIT_OPS=%q, want read-only/suppressed", exportFields[4], exportFields[5], exportFields[6])
 	}
 }
