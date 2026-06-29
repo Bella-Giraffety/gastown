@@ -20,23 +20,6 @@ validate_hash() {
   return 0
 }
 
-# --- Copy endpoint resolution from run.sh (must stay in sync) ---
-resolve_dolt_host() {
-  printf '%s\n' "${GT_DOLT_HOST:-${BEADS_DOLT_SERVER_HOST:-${DOLT_HOST:-127.0.0.1}}}"
-}
-
-resolve_dolt_port() {
-  local port="${GT_DOLT_PORT:-${BEADS_DOLT_SERVER_PORT:-${BEADS_DOLT_PORT:-${DOLT_PORT:-3307}}}}"
-  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
-    return 1
-  fi
-  local port_num=$((10#$port))
-  if (( port_num < 1 || port_num > 65535 )); then
-    return 1
-  fi
-  printf '%s\n' "$port"
-}
-
 # Verify our copy matches run.sh (guard against drift).
 RUN_SH_REGEX=$(sed -n '/^validate_hash/,/^}/p' "$SCRIPT_DIR/run.sh" | grep -oP '\^\[.*\]\+\$')
 TEST_REGEX=$(sed -n '/^validate_hash/,/^}/p' "$0" | grep -oP '\^\[.*\]\+\$')
@@ -45,6 +28,11 @@ if [[ "$RUN_SH_REGEX" != "$TEST_REGEX" ]]; then
   echo "      Update the test to match run.sh"
   exit 1
 fi
+
+HELPERS_FILE="$(mktemp)"
+trap 'rm -f "$HELPERS_FILE"' EXIT
+sed -n '/^resolve_dolt_host()/,/^}/p; /^resolve_dolt_port()/,/^}/p' "$SCRIPT_DIR/run.sh" >"$HELPERS_FILE"
+source "$HELPERS_FILE"
 
 assert_valid() {
   local hash="$1"
@@ -133,14 +121,14 @@ assert_eq "$(resolve_dolt_port)" "3309" "plugin port fallback"
 
 reset_endpoint_env
 GT_DOLT_PORT="not-a-port"
-if resolve_dolt_port >/dev/null 2>&1; then
+if (resolve_dolt_port >/dev/null 2>&1); then
   echo "FAIL: invalid port should be rejected"
   FAILURES=$((FAILURES + 1))
 fi
 
 reset_endpoint_env
 GT_DOLT_PORT="70000"
-if resolve_dolt_port >/dev/null 2>&1; then
+if (resolve_dolt_port >/dev/null 2>&1); then
   echo "FAIL: out-of-range port should be rejected"
   FAILURES=$((FAILURES + 1))
 fi

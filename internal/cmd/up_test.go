@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -39,6 +40,25 @@ func TestMaxConcurrentAgentStarts_Constant(t *testing.T) {
 	}
 	if maxConcurrentAgentStarts > 100 {
 		t.Errorf("maxConcurrentAgentStarts = %d, should be <= 100 to prevent resource exhaustion", maxConcurrentAgentStarts)
+	}
+}
+
+func TestRunUpPropagatesDoltEndpointAfterReadiness(t *testing.T) {
+	data, err := os.ReadFile("up.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	waitIdx := strings.Index(body, "waitForDoltReady(townRoot)")
+	if waitIdx < 0 {
+		t.Fatal("runUp no longer waits for Dolt readiness")
+	}
+	envIdx := strings.Index(body, "ensureDoltPortEnv(townRoot)")
+	if envIdx < 0 {
+		t.Fatal("runUp no longer propagates resolved Dolt endpoint")
+	}
+	if envIdx < waitIdx {
+		t.Fatal("runUp propagates Dolt endpoint before readiness wait")
 	}
 }
 
