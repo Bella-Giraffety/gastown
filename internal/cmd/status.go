@@ -1892,7 +1892,7 @@ func getMQSummary(r *rig.Rig) *MQSummary {
 		Status:   "all",
 		Priority: -1, // No priority filter
 	}
-	allMRs, err := b.List(opts)
+	allMRs, err := b.ListMergeRequests(opts)
 	if err != nil {
 		return nil
 	}
@@ -1904,7 +1904,7 @@ func getMQSummary(r *rig.Rig) *MQSummary {
 	for _, mr := range allMRs {
 		switch mr.Status {
 		case "open":
-			if len(mr.BlockedBy) > 0 || mr.BlockedByCount > 0 {
+			if beads.HasUnresolvedBlockers(mr) {
 				blocked++
 			} else {
 				pending++

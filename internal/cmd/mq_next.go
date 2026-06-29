@@ -82,7 +82,7 @@ func runMQNext(cmd *cobra.Command, args []string) error {
 		if err := validateMergeRequestSource(b, issue, ""); err != nil {
 			continue
 		}
-		if len(issue.BlockedBy) == 0 && issue.BlockedByCount == 0 {
+		if !beads.HasUnresolvedBlockers(issue) {
 			ready = append(ready, issue)
 		}
 	}

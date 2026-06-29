@@ -1723,16 +1723,10 @@ func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
 	}
 }
 
-// firstOpenBlocker returns the ID of the first open blocker for an issue,
-// or empty string if none are open.
+// firstOpenBlocker returns the ID of the first unresolved blocker for an issue,
+// or empty string if none are unresolved.
 func (e *Engineer) firstOpenBlocker(issue *beads.Issue) string {
-	for _, blockerID := range issue.BlockedBy {
-		isOpen, err := e.IsBeadOpen(blockerID)
-		if err == nil && isOpen {
-			return blockerID
-		}
-	}
-	return ""
+	return beads.FirstUnresolvedBlockerID(issue)
 }
 
 func (e *Engineer) assessMRSourceIssue(sourceIssue string) (workitem.Assessment, error) {
@@ -1788,7 +1782,7 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 		}
 
 		// Skip blocked MRs (replaces bd ready's blocker filtering)
-		if blockedBy := e.firstOpenBlocker(issue); blockedBy != "" {
+		if beads.HasUnresolvedBlockers(issue) {
 			continue
 		}
 
@@ -1857,7 +1851,7 @@ func (e *Engineer) ListBlockedMRs() ([]*MRInfo, error) {
 	var mrs []*MRInfo
 	for _, issue := range issues {
 		// Skip if not blocked
-		if len(issue.BlockedBy) == 0 {
+		if !beads.HasUnresolvedBlockers(issue) {
 			continue
 		}
 

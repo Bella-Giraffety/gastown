@@ -67,6 +67,26 @@ func TestIsConflictTaskForMR(t *testing.T) {
 	}
 }
 
+func TestFirstOpenBlockerUsesDependencyDetails(t *testing.T) {
+	engineer := &Engineer{}
+
+	issue := &beads.Issue{Dependencies: []beads.IssueDep{
+		{ID: "gt-closed", Status: "closed", DependencyType: "blocks"},
+		{ID: "external:gt:gt-blocker", Status: "open", DependencyType: "blocks"},
+	}}
+	if got := engineer.firstOpenBlocker(issue); got != "gt-blocker" {
+		t.Fatalf("firstOpenBlocker() = %q, want gt-blocker", got)
+	}
+
+	issue = &beads.Issue{
+		BlockedByCount: 1,
+		Dependencies:   []beads.IssueDep{{ID: "gt-closed", Status: "closed", DependencyType: "blocks"}},
+	}
+	if got := engineer.firstOpenBlocker(issue); got != "" {
+		t.Fatalf("firstOpenBlocker() = %q, want empty for resolved detailed dependency", got)
+	}
+}
+
 func TestEngineerClearAgentActiveMRUsesTownBeadsDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses Unix shell script mock for bd")
