@@ -481,65 +481,69 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 		rigs = []*rig.Rig{r}
 	}
 
-	// Collect polecats from all rigs
+	// Collect one tmux snapshot and reuse it for liveness and zombie detection.
 	t := tmux.NewTmux()
+	sessions := polecatSessionSet{}
+	if sessionSet, err := t.GetSessionSet(); err == nil {
+		sessions = newPolecatSessionSet(sessionSet.Names())
+	}
 	allPolecats := make([]PolecatListItem, 0)
 
 	for _, r := range rigs {
-		polecatGit := git.NewGit(r.Path)
-		mgr := polecat.NewManager(r, polecatGit, t)
-		polecatMgr := polecat.NewSessionManager(t, r)
 		bd := beads.New(r.Path)
 
-		polecats, err := mgr.List()
+		polecatNames, err := listPolecatDirectoryNames(r.Path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to list polecats in %s: %v\n", r.Name, err)
 			continue
 		}
+		agents, err := bd.ListAgentBeads()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to list agent beads in %s: %v\n", r.Name, err)
+			agents = nil
+		}
+		activeWork, err := listActivePolecatWorkByName(bd, r.Name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to list active polecat work in %s: %v\n", r.Name, err)
+			activeWork = nil
+		}
 
 		// Track known polecat names from filesystem for zombie detection
 		knownNames := make(map[string]bool)
-		for _, p := range polecats {
-			running, _ := polecatMgr.IsRunning(p.Name)
-			cleanupStatus := ""
-			activeMR := ""
-			agentBeadID := polecatBeadIDForRig(r, r.Name, p.Name)
-			if _, fields, err := bd.GetAgentBead(agentBeadID); err == nil && fields != nil {
-				cleanupStatus = fields.CleanupStatus
-				activeMR = fields.ActiveMR
+		for _, name := range polecatNames {
+			agentBeadID := polecatBeadIDForRig(r, r.Name, name)
+			var fields *beads.AgentFields
+			if issue := agents[agentBeadID]; issue != nil {
+				fields = beads.ParseAgentFields(issue.Description)
+				fields.AgentState = beads.ResolveAgentState(issue.Description, issue.AgentState)
 			}
-			state := effectivePolecatState(PolecatListItem{
-				State:          p.State,
-				Issue:          p.Issue,
-				SessionRunning: running,
-			})
-			disposition := mgr.WorkstateDispositionForPolecat(p.Name, state, p.Issue)
+			item := buildPolecatInventoryItem(r.Name, name, fields, activeWork[name], sessions)
 			allPolecats = append(allPolecats, PolecatListItem{
-				Rig:                  r.Name,
-				Name:                 p.Name,
-				State:                state,
-				Issue:                p.Issue,
-				CleanupStatus:        cleanupStatus,
-				ActiveMR:             activeMR,
-				Branch:               p.Branch,
-				Verdict:              disposition.Verdict,
-				Reason:               disposition.Reason,
-				Reusable:             disposition.Reusable,
-				SafeToNuke:           disposition.SafeToNuke,
-				NeedsRecovery:        disposition.NeedsRecovery,
-				NeedsMQSubmit:        disposition.NeedsMQSubmit,
-				MQStatus:             disposition.MQStatus,
-				CountsTowardCapacity: disposition.CountsTowardCapacity,
-				ReuseStatus:          disposition.ReuseStatus,
-				SessionRunning:       running,
+				Rig:                  item.Rig,
+				Name:                 item.Name,
+				State:                item.State,
+				Issue:                item.Issue,
+				CleanupStatus:        item.CleanupStatus,
+				ActiveMR:             item.ActiveMR,
+				Branch:               item.Branch,
+				Verdict:              item.Disposition.Verdict,
+				Reason:               item.Disposition.Reason,
+				Reusable:             item.Disposition.Reusable,
+				SafeToNuke:           item.Disposition.SafeToNuke,
+				NeedsRecovery:        item.Disposition.NeedsRecovery,
+				NeedsMQSubmit:        item.Disposition.NeedsMQSubmit,
+				MQStatus:             item.Disposition.MQStatus,
+				CountsTowardCapacity: item.Disposition.CountsTowardCapacity,
+				ReuseStatus:          item.Disposition.ReuseStatus,
+				SessionRunning:       item.SessionRunning,
 			})
-			knownNames[p.Name] = true
+			knownNames[name] = true
 		}
 
 		// Discover zombie tmux sessions: sessions without matching worktree directories.
 		// These occur when a worktree is deleted but the tmux session persists
 		// (incomplete nuke or session naming mismatch).
-		zombieSessions, _ := findRigPolecatSessions(r.Name)
+		zombieSessions := sessions.namesForRig(r.Name)
 		for _, sessionName := range zombieSessions {
 			_, polecatName, ok := parsePolecatSessionName(sessionName)
 			if !ok {
