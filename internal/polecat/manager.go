@@ -22,6 +22,7 @@ import (
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/landing"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/runtime"
 	"github.com/steveyegge/gastown/internal/session"
@@ -780,15 +781,11 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 		}
 		worktreeCreated = true
 	} else {
-		var startPoint string
-		if opts.BaseBranch != "" {
-			startPoint = opts.BaseBranch
-		} else {
-			defaultBranch := "main"
-			if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-				defaultBranch = rigCfg.DefaultBranch
+		startPoint := landing.NormalizeBaseRef(repoGit, m.rig.Path, opts.BaseBranch, "")
+		if remote := landing.RemoteFromRef(startPoint); remote != "" && remote != "origin" {
+			if err := repoGit.Fetch(remote); err != nil {
+				style.PrintWarning("could not fetch %s: %v", remote, err)
 			}
-			startPoint = fmt.Sprintf("origin/%s", defaultBranch)
 		}
 
 		if exists, err := repoGit.RefExists(startPoint); err != nil {
@@ -979,16 +976,12 @@ func (m *Manager) AddWithOptions(name string, opts AddOptions) (_ *Polecat, retE
 		}
 		worktreeCreated = true
 	} else {
-		// Determine the start point for the new worktree
-		var startPoint string
-		if opts.BaseBranch != "" {
-			startPoint = opts.BaseBranch
-		} else {
-			defaultBranch := "main"
-			if rigCfg, err := rig.LoadRigConfig(m.rig.Path); err == nil && rigCfg.DefaultBranch != "" {
-				defaultBranch = rigCfg.DefaultBranch
+		// Determine the start point for the new worktree.
+		startPoint := landing.NormalizeBaseRef(repoGit, m.rig.Path, opts.BaseBranch, "")
+		if remote := landing.RemoteFromRef(startPoint); remote != "" && remote != "origin" {
+			if err := repoGit.Fetch(remote); err != nil {
+				style.PrintWarning("could not fetch %s: %v", remote, err)
 			}
-			startPoint = fmt.Sprintf("origin/%s", defaultBranch)
 		}
 
 		// Validate that startPoint ref exists before attempting worktree creation

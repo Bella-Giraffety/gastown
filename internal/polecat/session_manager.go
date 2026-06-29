@@ -18,6 +18,7 @@ import (
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/landing"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/runtime"
 	"github.com/steveyegge/gastown/internal/session"
@@ -238,7 +239,7 @@ func (m *SessionManager) canonicalSessionStartPoint(g *git.Git) string {
 	if defaultBranch == "" {
 		return ""
 	}
-	return fmt.Sprintf("origin/%s", defaultBranch)
+	return landing.NormalizeBaseRef(g, m.rig.Path, defaultBranch, defaultBranch)
 }
 
 // shouldCreateFreshSessionBranch decides whether the session manager should
@@ -276,15 +277,19 @@ func (m *SessionManager) ensureCanonicalSessionBranch(g *git.Git, polecat string
 		debugSession("canonical session start point unresolved", fmt.Errorf("no default branch in rig config or remote"))
 		return currentBranch
 	}
-	canonicalBranch := strings.TrimPrefix(startPoint, "origin/")
+	canonicalBranch := landing.BranchName(startPoint)
 	if !shouldCreateFreshSessionBranch(currentBranch, opts.Issue, canonicalBranch) {
 		return currentBranch
 	}
 
-	// Refresh origin refs before branching so recovered sessions start from the
+	// Refresh base refs before branching so recovered sessions start from the
 	// canonical remote base instead of any preserved local polecat branch.
-	if err := g.Fetch("origin"); err != nil {
-		debugSession("fetch origin for canonical session branch", err)
+	fetchRemote := landing.RemoteFromRef(startPoint)
+	if fetchRemote == "" {
+		fetchRemote = "origin"
+	}
+	if err := g.Fetch(fetchRemote); err != nil {
+		debugSession("fetch "+fetchRemote+" for canonical session branch", err)
 	}
 
 	exists, err := g.RefExists(startPoint)

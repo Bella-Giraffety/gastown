@@ -819,6 +819,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	if newPolecatInfo != nil && newPolecatInfo.BaseBranch != "" && newPolecatInfo.BaseBranch != "main" {
 		slingVars = append(slingVars, fmt.Sprintf("base_branch=%s", newPolecatInfo.BaseBranch))
 	}
+	if newPolecatInfo != nil && newPolecatInfo.BaseRef != "" && newPolecatInfo.BaseRef != "origin/main" {
+		slingVars = append(slingVars, fmt.Sprintf("base_ref=%s", newPolecatInfo.BaseRef))
+	}
 	// Inject resume_branch var when the polecat was attached to an existing branch
 	// (gh#3602: gt sling --branch / --pr). Lets formulas tell the polecat it is
 	// resuming an existing PR instead of creating a fresh branch.

@@ -15,6 +15,7 @@ import (
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/landing"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/style"
@@ -32,7 +33,8 @@ type SpawnedPolecatInfo struct {
 	ClonePath   string // Path to polecat's git worktree
 	SessionName string // Tmux session name (e.g., "gt-gastown-p-Toast")
 	Pane        string // Tmux pane ID (empty until StartSession is called)
-	BaseBranch  string // Effective base branch (e.g., "main", "integration/epic-id")
+	BaseBranch  string // Effective target branch (e.g., "main", "integration/epic-id")
+	BaseRef     string // Git ref the branch was created from (e.g., "upstream/main")
 	Branch      string // Git branch name (for cleanup on rollback)
 
 	// Internal fields for deferred session start
@@ -148,6 +150,20 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		witness.RecordBeadRespawn(townRoot, opts.HookBead)
 	}
 
+	resolveBaseRef := func(base string) string {
+		repoGit, err := getRigGit(r.Path)
+		if err == nil {
+			return landing.NormalizeBaseRef(repoGit, r.Path, base, "")
+		}
+		if ref := landing.RemoteQualifiedRef(base); ref != "" {
+			return ref
+		}
+		if base != "" {
+			return "origin/" + base
+		}
+		return ""
+	}
+
 	// Persistent polecat model (gt-4ac): try to reuse an idle polecat first.
 	// Idle polecats have completed their work but kept their sandbox (worktree).
 	// Reusing avoids the overhead of creating a new worktree.
@@ -179,9 +195,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 					}
 				}
 			}
-			if baseBranch != "" && !strings.HasPrefix(baseBranch, "origin/") {
-				baseBranch = "origin/" + baseBranch
-			}
+			baseBranch = resolveBaseRef(baseBranch)
 		}
 
 		// Reuse the idle polecat with branch-only operations (no worktree add/remove).
@@ -219,7 +233,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 			fmt.Printf("%s Polecat %s reused (idle → working, session start deferred)\n", style.Bold.Render("✓"), polecatName)
 			_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
 
-			effectiveBranch := strings.TrimPrefix(baseBranch, "origin/")
+			effectiveBranch := landing.BranchName(baseBranch)
 			if effectiveBranch == "" {
 				effectiveBranch = r.DefaultBranch()
 			}
@@ -234,6 +248,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 				SessionName: sessionName,
 				Pane:        "",
 				BaseBranch:  effectiveBranch,
+				BaseRef:     baseBranch,
 				Branch:      polecatObj.Branch,
 				account:     opts.Account,
 				agent:       opts.Agent,
@@ -284,9 +299,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 				}
 			}
 		}
-		if baseBranch != "" && !strings.HasPrefix(baseBranch, "origin/") {
-			baseBranch = "origin/" + baseBranch
-		}
+		baseBranch = resolveBaseRef(baseBranch)
 	}
 
 	// Build add options with hook_bead set atomically at spawn time
@@ -330,7 +343,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 	_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
 
 	// Compute effective base branch (strip origin/ prefix since formula prepends it)
-	effectiveBranch := strings.TrimPrefix(baseBranch, "origin/")
+	effectiveBranch := landing.BranchName(baseBranch)
 	if effectiveBranch == "" {
 		effectiveBranch = r.DefaultBranch()
 	}
@@ -345,6 +358,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		SessionName: sessionName,
 		Pane:        "", // Empty until StartSession is called
 		BaseBranch:  effectiveBranch,
+		BaseRef:     baseBranch,
 		Branch:      polecatObj.Branch,
 		account:     opts.Account,
 		agent:       opts.Agent,

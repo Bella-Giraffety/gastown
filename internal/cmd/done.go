@@ -17,6 +17,7 @@ import (
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
 	githubrepo "github.com/steveyegge/gastown/internal/github"
+	"github.com/steveyegge/gastown/internal/landing"
 	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/rig"
@@ -81,7 +82,10 @@ const (
 func doneContaminationBaseRef(defaultBranch, explicitTarget string) string {
 	targetBranch := defaultBranch
 	if explicitTarget != "" {
-		targetBranch = strings.TrimPrefix(explicitTarget, "origin/")
+		if ref := landing.RemoteQualifiedRef(explicitTarget); ref != "" {
+			return ref
+		}
+		targetBranch = landing.BranchName(explicitTarget)
 	}
 
 	return "origin/" + targetBranch
@@ -572,6 +576,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	if rigCfg, err := rig.LoadRigConfig(filepath.Join(townRoot, rigName)); err == nil && rigCfg.DefaultBranch != "" {
 		defaultBranch = rigCfg.DefaultBranch
 	}
+	rigPath := filepath.Join(townRoot, rigName)
+	basePolicy := landing.Resolve(g, rigPath, doneTarget, defaultBranch)
 
 	// For COMPLETED, we need an issue ID and branch must not be the default branch
 	var mrID string
@@ -611,7 +617,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 		// Check if branch has commits ahead of origin/default
 		// If not, work may have been pushed directly to main - that's fine, just skip MR
-		originDefault := "origin/" + defaultBranch
+		originDefault := basePolicy.CleanBaseRef
 		aheadCount, err := g.CommitsAhead(originDefault, "HEAD")
 		if err != nil {
 			// Fallback to local branch comparison if origin not available
@@ -747,9 +753,13 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// the auto-rebase below) sees the current state of origin. Without this,
 		// the local view of origin/<base> may be stale and we'd skip a rebase that
 		// is actually needed.
-		contaminationBase := doneContaminationBaseRef(defaultBranch, doneTarget)
-		if fetchErr := g.Fetch("origin"); fetchErr != nil {
-			style.PrintWarning("could not fetch origin before contamination check: %v (proceeding with local refs)", fetchErr)
+		contaminationBase := basePolicy.CleanBaseRef
+		fetchRemote := landing.RemoteFromRef(contaminationBase)
+		if fetchRemote == "" {
+			fetchRemote = "origin"
+		}
+		if fetchErr := g.Fetch(fetchRemote); fetchErr != nil {
+			style.PrintWarning("could not fetch %s before contamination check: %v (proceeding with local refs)", fetchRemote, fetchErr)
 		}
 		contam, err := g.CheckBranchContamination(contaminationBase)
 		if err == nil && contam.Behind > 0 {
@@ -774,7 +784,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if rebased {
 				fmt.Printf("%s Branch rebased onto %s\n", style.Bold.Render("✓"), contaminationBase)
 				// Recompute commits ahead since rebase rewrote history.
-				aheadCount, _ = g.CommitsAhead("origin/"+defaultBranch, "HEAD")
+				aheadCount, _ = g.CommitsAhead(basePolicy.CleanBaseRef, "HEAD")
 			} else if skipReason != "" {
 				style.PrintWarning("branch is %d commits behind %s but %s; skipping auto-rebase", contam.Behind, contaminationBase, skipReason)
 			}
@@ -818,6 +828,9 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 		// Handle "direct" strategy: push to target branch, skip MR
 		if convoyInfo != nil && convoyInfo.MergeStrategy == "direct" {
+			if policyErr := basePolicy.CheckDefaultBranchDirectPush(defaultBranch); policyErr != nil {
+				style.PrintWarning("%v — submitting through merge queue instead", policyErr)
+			} else {
 			fmt.Printf("%s Direct merge strategy: pushing to %s\n", style.Bold.Render("→"), defaultBranch)
 			// Push submodule changes before direct push (gt-dzs)
 			pushSubmoduleChanges(g, defaultBranch)
@@ -866,6 +879,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			}
 
 			goto notifyWitness
+			}
 		}
 
 		// Default: "mr" strategy (or no convoy) — push branch, create MR bead
@@ -1047,7 +1061,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 						}
 					}
 					// Add diff stat for quick review context
-					if diffStat, diffErr := g.DiffStat(defaultBranch + "..." + branch); diffErr == nil && diffStat != "" {
+					prPolicy := landing.Resolve(g, rigPath, defaultBranch, defaultBranch)
+					if diffStat, diffErr := g.DiffStat(prPolicy.CleanBaseRef + "..." + branch); diffErr == nil && diffStat != "" {
 						prBodyBuilder.WriteString("## Changes\n\n```\n")
 						prBodyBuilder.WriteString(diffStat)
 						prBodyBuilder.WriteString("```\n\n")
@@ -1055,17 +1070,22 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					prBodyBuilder.WriteString("---\n")
 					prBodyBuilder.WriteString(fmt.Sprintf("*Polecat: %s | Issue: %s*\n", worker, issueID))
 					prBody := prBodyBuilder.String()
-					originPushURL, originPushErr := g.GetPushURL("origin")
-					prRepo, prRepoErr := noMergePRRepoFromOriginPushURL(originPushURL, originPushErr)
-					if prRepoErr != nil {
-						mrFailed = true
-						errMsg := fmt.Sprintf("could not determine GitHub repo for PR creation: %v", prRepoErr)
-						doneErrors = append(doneErrors, errMsg)
-						style.PrintWarning("%s\nBranch is pushed but source issue left open for review.", errMsg)
-						goto notifyWitness
+
+					prRepo := prPolicy.BaseRepo
+					if prRepo == "" || !prPolicy.ForkBacked {
+						originPushURL, originPushErr := g.GetPushURL("origin")
+						var prRepoErr error
+						prRepo, prRepoErr = noMergePRRepoFromOriginPushURL(originPushURL, originPushErr)
+						if prRepoErr != nil {
+							mrFailed = true
+							errMsg := fmt.Sprintf("could not determine GitHub repo for PR creation: %v", prRepoErr)
+							doneErrors = append(doneErrors, errMsg)
+							style.PrintWarning("%s\nBranch is pushed but source issue left open for review.", errMsg)
+							goto notifyWitness
+						}
 					}
 
-					ghCmd := exec.CommandContext(context.Background(), "gh", noMergePRCreateArgs(prRepo, defaultBranch, branch, prTitle, prBody)...)
+					ghCmd := exec.CommandContext(context.Background(), "gh", noMergePRCreateArgs(prRepo, defaultBranch, prPolicy.PRHead(branch), prTitle, prBody)...)
 					ghCmd.Dir = cwd
 					prOutput, prErr := ghCmd.CombinedOutput()
 					if prErr != nil {
@@ -1156,6 +1176,9 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			convoyInfo = getConvoyInfoForIssue(issueID)
 		}
 		if convoyInfo != nil && convoyInfo.MergeStrategy == "direct" {
+			if policyErr := basePolicy.CheckDefaultBranchDirectPush(defaultBranch); policyErr != nil {
+				style.PrintWarning("%v — leaving branch in merge queue", policyErr)
+			} else {
 			fmt.Printf("%s Late-detected direct merge strategy: pushing to %s\n", style.Bold.Render("→"), defaultBranch)
 			fmt.Printf("  Convoy: %s\n", convoyInfo.ID)
 
@@ -1202,6 +1225,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 				goto notifyWitness
 			}
+			}
 		}
 
 		// Determine target branch for the MR.
@@ -1213,7 +1237,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// This is the most reliable path: the formula passes {{base_branch}} directly,
 		// avoiding any dependency on bd.Show() or Dolt availability.
 		if doneTarget != "" {
-			target = doneTarget
+			target = landing.BranchName(doneTarget)
 			explicitTarget = true
 			fmt.Printf("  Target branch: %s (from --target flag)\n", target)
 		}
@@ -1224,7 +1248,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		if !explicitTarget && target == defaultBranch && sourceIssueForNoMerge != nil {
 			if af := beads.ParseAttachmentFields(sourceIssueForNoMerge); af != nil {
 				if bb := extractFormulaVar(af.FormulaVars, "base_branch"); bb != "" && bb != defaultBranch {
-					target = bb
+					target = landing.BranchName(bb)
 					fmt.Printf("  Target branch override: %s (from formula_vars)\n", target)
 				}
 			}
@@ -1250,6 +1274,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				}
 			}
 		}
+		targetPolicy := landing.Resolve(g, rigPath, target, defaultBranch)
 
 		// Get source issue for priority inheritance
 		var priority int
@@ -1347,12 +1372,12 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if donePreVerified {
 				description += "\npre_verified: true"
 				description += fmt.Sprintf("\npre_verified_at: %s", time.Now().UTC().Format(time.RFC3339))
-				// Capture current origin/target HEAD as the verified base.
+				// Capture current policy base HEAD as the verified base.
 				// The polecat rebased onto this SHA before running gates.
-				if verifiedBase, baseErr := g.Rev("origin/" + target); baseErr == nil {
+				if verifiedBase, baseErr := g.Rev(targetPolicy.CleanBaseRef); baseErr == nil {
 					description += fmt.Sprintf("\npre_verified_base: %s", verifiedBase)
 				} else {
-					style.PrintWarning("could not resolve origin/%s for pre-verified base: %v (pre-verification data incomplete)", target, baseErr)
+					style.PrintWarning("could not resolve %s for pre-verified base: %v (pre-verification data incomplete)", targetPolicy.CleanBaseRef, baseErr)
 				}
 			}
 

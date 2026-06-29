@@ -21,6 +21,7 @@ import (
 	"github.com/steveyegge/gastown/internal/crew"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/landing"
 	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/util"
@@ -174,6 +175,10 @@ type MergeQueueConfig struct {
 	// review before merging a PR. Only meaningful when MergeStrategy="pr".
 	// Nil defaults to false (no review required).
 	RequireReview *bool `json:"require_review,omitempty"`
+
+	// AllowDirectDefaultPush explicitly permits direct pushes to the default branch
+	// in direct mode. PR mode always disables direct default-branch pushes.
+	AllowDirectDefaultPush *bool `json:"allow_direct_default_push,omitempty"`
 
 	// Batch holds configuration for the batch-then-bisect merge queue.
 	// When nil or MaxBatchSize <= 1, batching is disabled and MRs process sequentially.
@@ -355,6 +360,7 @@ func (e *Engineer) LoadConfig() error {
 		MergeStrategy        *string                   `json:"merge_strategy"`
 		VCSProvider          *string                   `json:"vcs_provider"`
 		RequireReview        *bool                     `json:"require_review"`
+		AllowDirectDefaultPush *bool                   `json:"allow_direct_default_push"`
 	}
 
 	if err := json.Unmarshal(rawConfig.MergeQueue, &mqRaw); err != nil {
@@ -442,6 +448,9 @@ func (e *Engineer) LoadConfig() error {
 	if mqRaw.RequireReview != nil {
 		e.config.RequireReview = mqRaw.RequireReview
 	}
+	if mqRaw.AllowDirectDefaultPush != nil {
+		e.config.AllowDirectDefaultPush = mqRaw.AllowDirectDefaultPush
+	}
 
 	// Initialize the PR provider when merge_strategy=pr.
 	if e.config.MergeStrategy == "pr" {
@@ -482,6 +491,21 @@ type gateConfigRaw struct {
 // Config returns the current merge queue configuration.
 func (e *Engineer) Config() *MergeQueueConfig {
 	return e.config
+}
+
+func (e *Engineer) landingPolicy(target string) landing.Policy {
+	policy := landing.Resolve(e.git, e.rig.Path, target, e.rig.DefaultBranch())
+	if e.config.MergeStrategy == "pr" {
+		policy.PRMode = true
+		policy.DirectDefaultPushAllowed = false
+		policy.Reason = "merge_queue.merge_strategy=pr"
+	} else if e.config.AllowDirectDefaultPush != nil {
+		policy.DirectDefaultPushAllowed = *e.config.AllowDirectDefaultPush
+		if *e.config.AllowDirectDefaultPush {
+			policy.Reason = "merge_queue.allow_direct_default_push=true"
+		}
+	}
+	return policy
 }
 
 // ProcessResult contains the result of processing a merge request.
@@ -525,6 +549,12 @@ func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue stri
 			Success:        false,
 			BranchNotFound: true,
 			Error:          fmt.Sprintf("branch %s not found locally", branch),
+		}
+	}
+
+	if e.config.MergeStrategy != "pr" {
+		if policyErr := e.landingPolicy(target).CheckDefaultBranchDirectPush(target); policyErr != nil {
+			return ProcessResult{Success: false, Error: policyErr.Error()}
 		}
 	}
 

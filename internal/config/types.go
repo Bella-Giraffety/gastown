@@ -1351,6 +1351,11 @@ type MergeQueueConfig struct {
 	// Nil defaults to false (no review required).
 	RequireReview *bool `json:"require_review,omitempty"`
 
+	// AllowDirectDefaultPush explicitly permits direct pushes to the rig's default
+	// branch for fork-backed direct-mode rigs. Nil means use the landing policy
+	// default: owned repos allow direct pushes; fork-backed repos fail closed.
+	AllowDirectDefaultPush *bool `json:"allow_direct_default_push,omitempty"`
+
 	// OnConflict specifies conflict resolution strategy: "assign_back" or "auto_rebase".
 	OnConflict string `json:"on_conflict"`
 
@@ -1470,6 +1475,11 @@ func (c *MergeQueueConfig) IsRequireReviewEnabled() bool {
 		return false
 	}
 	return *c.RequireReview
+}
+
+// IsDirectDefaultPushExplicitlyAllowed returns the explicit direct-default push override.
+func (c *MergeQueueConfig) IsDirectDefaultPushExplicitlyAllowed() bool {
+	return c.AllowDirectDefaultPush != nil && *c.AllowDirectDefaultPush
 }
 
 // GetReviewDepth returns the configured review depth.

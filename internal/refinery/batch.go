@@ -206,6 +206,10 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 	if len(batch) == 0 {
 		return result
 	}
+	if e.config.MergeStrategy == "pr" && len(batch) > 1 {
+		result.Error = fmt.Errorf("batch direct push disabled when merge_strategy=pr; process PR MRs one at a time")
+		return result
+	}
 
 	// Single MR: use existing doMerge path (no batch overhead)
 	if len(batch) == 1 {
@@ -358,6 +362,11 @@ func (e *Engineer) verifyAndPush(ctx context.Context, stacked []*MRInfo, target 
 // fastForwardBatch pushes the current state to the target branch.
 // The working tree must already be on the target branch with all squash-merges applied.
 func (e *Engineer) fastForwardBatch(ctx context.Context, stacked []*MRInfo, target string, result *BatchResult) *BatchResult {
+	if policyErr := e.landingPolicy(target).CheckDefaultBranchDirectPush(target); policyErr != nil {
+		result.Error = policyErr
+		return result
+	}
+
 	// Get the tip SHA
 	tipSHA, err := e.git.Rev("HEAD")
 	if err != nil {

@@ -250,6 +250,10 @@ func validateMergeQueueConfig(c *MergeQueueConfig) error {
 			ErrInvalidOnConflict, c.OnConflict, OnConflictAssignBack, OnConflictAutoRebase)
 	}
 
+	if c.MergeStrategy != "" && c.MergeStrategy != "direct" && c.MergeStrategy != "pr" {
+		return fmt.Errorf("invalid merge_strategy: got %q, want \"direct\" or \"pr\"", c.MergeStrategy)
+	}
+
 	// Validate poll_interval if specified
 	if c.PollInterval != "" {
 		if _, err := time.ParseDuration(c.PollInterval); err != nil {
@@ -386,6 +390,9 @@ func MergeSettingsCommand(repo, local *MergeQueueConfig) *MergeQueueConfig {
 		}
 		if local.RequireReview != nil {
 			result.RequireReview = local.RequireReview
+		}
+		if local.AllowDirectDefaultPush != nil {
+			result.AllowDirectDefaultPush = local.AllowDirectDefaultPush
 		}
 	}
 	return result
