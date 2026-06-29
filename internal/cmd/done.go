@@ -163,28 +163,55 @@ var generatedCommentPrefixes = []string{
 }
 
 func doneSourceCloseSkipReason(bd *beads.Beads, issueID string, issue *beads.Issue) (string, bool) {
+	issue, skipReason, fatal := loadDoneSourceIssue(bd, issueID, issue)
+	if skipReason != "" {
+		return skipReason, fatal
+	}
+	if skipReason, fatal := reviewOnlyCloseSkipReasonForIssue(bd, issueID, issue); skipReason != "" {
+		return skipReason, fatal
+	}
+	if unchecked := beads.HasUncheckedCriteria(issue); unchecked > 0 {
+		return fmt.Sprintf("issue %s has %d unchecked acceptance criteria — skipping close", issueID, unchecked), false
+	}
+	return "", false
+}
+
+func doneReviewOnlyCloseSkipReason(bd *beads.Beads, issueID string, issue *beads.Issue) (string, bool) {
+	issue, skipReason, fatal := loadDoneSourceIssue(bd, issueID, issue)
+	if skipReason != "" {
+		return skipReason, fatal
+	}
+	return reviewOnlyCloseSkipReasonForIssue(bd, issueID, issue)
+}
+
+func loadDoneSourceIssue(bd *beads.Beads, issueID string, issue *beads.Issue) (*beads.Issue, string, bool) {
 	if issueID == "" {
-		return "", false
+		return nil, "", false
 	}
 	if issue == nil {
 		if bd == nil {
-			return fmt.Sprintf("could not inspect issue %s close eligibility", issueID), true
+			return nil, fmt.Sprintf("could not inspect issue %s close eligibility", issueID), true
 		}
 		var err error
 		issue, err = bd.Show(issueID)
 		if err != nil {
-			return fmt.Sprintf("could not inspect issue %s close eligibility: %v", issueID, err), true
+			return nil, fmt.Sprintf("could not inspect issue %s close eligibility: %v", issueID, err), true
 		}
 	}
+	return issue, "", false
+}
+
+func reviewOnlyCloseSkipReasonForIssue(bd *beads.Beads, issueID string, issue *beads.Issue) (string, bool) {
 	attachment := beads.ParseAttachmentFields(issue)
-	if attachment != nil && attachment.ReviewOnly {
-		hasEvidence, err := hasReviewReportEvidence(bd, issueID, issue)
-		if err != nil {
-			return fmt.Sprintf("could not verify review evidence for %s: %v", issueID, err), true
-		}
-		if !hasEvidence {
-			return fmt.Sprintf("review-only issue %s has no report/evidence — add a REPORT/FINDINGS/REVIEW/EVIDENCE entry before gt done", issueID), true
-		}
+	if attachment == nil || !attachment.ReviewOnly {
+		return "", false
+	}
+	hasEvidence, err := hasReviewReportEvidence(bd, issueID, issue)
+	if err != nil {
+		return fmt.Sprintf("could not verify review evidence for %s: %v", issueID, err), true
+	}
+	if !hasEvidence {
+		return fmt.Sprintf("review-only issue %s has no report/evidence — add a REPORT/FINDINGS/REVIEW/EVIDENCE entry before gt done", issueID), true
 	}
 	if unchecked := beads.HasUncheckedCriteria(issue); unchecked > 0 {
 		return fmt.Sprintf("issue %s has %d unchecked acceptance criteria — skipping close", issueID, unchecked), false
@@ -948,7 +975,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			// Close the base issue — no MR/refinery will close it
 			if issueID != "" {
 				directBd := beads.New(cwd)
-				if skipReason, _ := doneSourceCloseSkipReason(directBd, issueID, nil); skipReason != "" {
+				if skipReason, _ := doneReviewOnlyCloseSkipReason(directBd, issueID, nil); skipReason != "" {
 					style.PrintWarning("%s", skipReason)
 					notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
 				} else {
@@ -1216,7 +1243,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				// here after notifying the dispatcher. Otherwise hooked work remains open.
 				if issueID != "" {
 					canCloseIssue := true
-					if skipReason, _ := doneSourceCloseSkipReason(bd, issueID, sourceIssueForNoMerge); skipReason != "" {
+					if skipReason, _ := doneReviewOnlyCloseSkipReason(bd, issueID, sourceIssueForNoMerge); skipReason != "" {
 						style.PrintWarning("%s", skipReason)
 						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
 						canCloseIssue = false
@@ -1293,7 +1320,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 				// Close the issue directly — refinery won't process it.
 				if issueID != "" {
-					if skipReason, _ := doneSourceCloseSkipReason(bd, issueID, nil); skipReason != "" {
+					if skipReason, _ := doneReviewOnlyCloseSkipReason(bd, issueID, nil); skipReason != "" {
 						style.PrintWarning("%s", skipReason)
 						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
 					} else {
@@ -2110,7 +2137,7 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) {
 				goto doneStateUpdate
 			}
 
-			if skipReason, _ := doneSourceCloseSkipReason(bd, hookedBeadID, hookedBead); skipReason != "" {
+			if skipReason, _ := doneReviewOnlyCloseSkipReason(bd, hookedBeadID, hookedBead); skipReason != "" {
 				style.PrintWarning("%s", skipReason)
 				fmt.Fprintf(os.Stderr, "  The bead will remain open for witness/mayor review.\n")
 				notifyDoneCloseSkipped(townRoot, ctx.Rig, detectSender(), hookedBeadID, skipReason)

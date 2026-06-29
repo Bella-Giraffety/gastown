@@ -941,6 +941,18 @@ func TestNonReviewOnlyCloseDoesNotRequireEvidence(t *testing.T) {
 	}
 }
 
+func TestNonReviewOnlyReviewGateDoesNotChangeCriteriaHandling(t *testing.T) {
+	issue := &beads.Issue{
+		ID:                 "gt-code",
+		Description:        "no_merge: true",
+		AcceptanceCriteria: "- [ ] remains open in no-MR gate only",
+	}
+	gotReason, gotFatal := doneReviewOnlyCloseSkipReason(nil, issue.ID, issue)
+	if gotReason != "" || gotFatal {
+		t.Fatalf("doneReviewOnlyCloseSkipReason() = (%q, %v), want no skip", gotReason, gotFatal)
+	}
+}
+
 // TestClearDoneIntentLabel verifies that clearDoneIntentLabel removes
 // only done-intent labels while preserving other labels.
 func TestClearDoneIntentLabel(t *testing.T) {
