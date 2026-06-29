@@ -6,31 +6,34 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/polecat"
+	"github.com/steveyegge/gastown/internal/session"
 )
 
 func TestPolecatSessionSet(t *testing.T) {
+	installTestPrefixRegistry(t)
 	sessions := newPolecatSessionSet([]string{
-		"gastown-zed",
+		"gt-zed",
 		"hq-mayor",
-		"gastown-alpha",
-		"other-beta",
+		"gt-alpha",
+		"ot-beta",
 	})
 
-	if got, ok := sessions.lookup("gastown", "alpha"); !ok || got != "gastown-alpha" {
-		t.Fatalf("lookup(gastown, alpha) = (%q, %v), want gastown-alpha, true", got, ok)
+	if got, ok := sessions.lookup("gastown", "alpha"); !ok || got != "gt-alpha" {
+		t.Fatalf("lookup(gastown, alpha) = (%q, %v), want gt-alpha, true", got, ok)
 	}
 	if _, ok := sessions.lookup("gastown", "mayor"); ok {
 		t.Fatal("town-level mayor session should not be indexed as a polecat")
 	}
 
-	want := []string{"gastown-alpha", "gastown-zed"}
+	want := []string{"gt-alpha", "gt-zed"}
 	if got := sessions.namesForRig("gastown"); !slices.Equal(got, want) {
 		t.Fatalf("namesForRig(gastown) = %#v, want %#v", got, want)
 	}
 }
 
 func TestBuildPolecatInventoryItem(t *testing.T) {
-	sessions := newPolecatSessionSet([]string{"gastown-dust"})
+	installTestPrefixRegistry(t)
+	sessions := newPolecatSessionSet([]string{"gt-dust"})
 	tests := []struct {
 		name                string
 		fields              *beads.AgentFields
@@ -111,6 +114,16 @@ func TestBuildPolecatInventoryItem(t *testing.T) {
 			}
 		})
 	}
+}
+
+func installTestPrefixRegistry(t *testing.T) {
+	t.Helper()
+	old := session.DefaultRegistry()
+	registry := session.NewPrefixRegistry()
+	registry.Register("gt", "gastown")
+	registry.Register("ot", "other")
+	session.SetDefaultRegistry(registry)
+	t.Cleanup(func() { session.SetDefaultRegistry(old) })
 }
 
 func TestPolecatSummaryIssueRankPrefersActiveWork(t *testing.T) {
