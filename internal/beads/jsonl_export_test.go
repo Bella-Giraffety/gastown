@@ -108,3 +108,33 @@ exit 1
 		t.Fatalf("error %q did not include export output", err)
 	}
 }
+
+func TestExportJSONLTimesOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	binDir := t.TempDir()
+	bdScript := `#!/bin/sh
+sleep 2
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GT_BD_TIMEOUT_SEC", "1")
+
+	err := ExportJSONL(townRoot, "")
+	if err == nil {
+		t.Fatal("ExportJSONL() succeeded, want timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error %q did not report timeout", err)
+	}
+}

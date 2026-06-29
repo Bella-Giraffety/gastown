@@ -372,12 +372,8 @@ func getConvoyMeta(convoyID string) (*ConvoyMeta, error) {
 		return nil, err
 	}
 
-	showCmd := exec.Command("bd", "show", convoyID, "--json")
-	showCmd.Dir = townBeads
-	var stdout bytes.Buffer
-	showCmd.Stdout = &stdout
-
-	if err := showCmd.Run(); err != nil {
+	stdout, err := runBdJSON(townBeads, "show", convoyID, "--json")
+	if err != nil {
 		return nil, fmt.Errorf("convoy '%s' not found", convoyID)
 	}
 
@@ -389,7 +385,7 @@ func getConvoyMeta(convoyID string) (*ConvoyMeta, error) {
 		Type        string   `json:"issue_type"`
 		Labels      []string `json:"labels"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &convoys); err != nil {
+	if err := json.Unmarshal(stdout, &convoys); err != nil {
 		return nil, fmt.Errorf("parsing convoy data: %w", err)
 	}
 
@@ -596,13 +592,8 @@ func createSynthesisBead(convoyID string, meta *ConvoyMeta, f *formula.Formula,
 		return "", err
 	}
 
-	createCmd := exec.Command("bd", createArgs...)
-	createCmd.Dir = townBeads
-	var stdout bytes.Buffer
-	createCmd.Stdout = &stdout
-	createCmd.Stderr = os.Stderr
-
-	if err := createCmd.Run(); err != nil {
+	stdout, err := BdCmd(createArgs...).Dir(townBeads).WithAutoCommit().Output()
+	if err != nil {
 		return "", fmt.Errorf("creating synthesis bead: %w", err)
 	}
 
@@ -610,9 +601,9 @@ func createSynthesisBead(convoyID string, meta *ConvoyMeta, f *formula.Formula,
 	var result struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+	if err := json.Unmarshal(stdout, &result); err != nil {
 		// Try to extract ID from non-JSON output (bead IDs have format: prefix-id)
-		out := strings.TrimSpace(stdout.String())
+		out := strings.TrimSpace(string(stdout))
 		if looksLikeIssueID(out) {
 			return out, nil
 		}

@@ -226,3 +226,61 @@ exit 1
 		t.Fatalf("export env = BD_DOLT_AUTO_COMMIT=%q BD_READONLY=%q BD_NO_GIT_OPS=%q, want read-only/suppressed", exportFields[4], exportFields[5], exportFields[6])
 	}
 }
+
+func TestRunSynthesisClose_SkipsAlreadyClosedWithoutExport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - shell stubs")
+	}
+
+	binDir := t.TempDir()
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"type":"town","name":"test"}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	logPath := filepath.Join(binDir, "bd.log")
+	bdScript := `#!/bin/sh
+case "$1" in
+  show)
+    echo show >> "` + logPath + `"
+    printf '%s\n' '[{"status":"closed"}]'
+    exit 0
+    ;;
+  close|export)
+    echo "$1" >> "` + logPath + `"
+    exit 0
+    ;;
+esac
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(townRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	if err := runSynthesisClose(nil, []string{"hq-cv-synth"}); err != nil {
+		t.Fatalf("runSynthesisClose returned error: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if got := strings.TrimSpace(string(data)); got != "show" {
+		t.Fatalf("bd calls = %q, want only show", got)
+	}
+}

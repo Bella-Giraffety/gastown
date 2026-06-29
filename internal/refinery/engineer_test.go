@@ -893,6 +893,7 @@ func TestCheckAndCloseCompletedConvoys_UsesHardenedBDEnvs(t *testing.T) {
 
 	binDir := t.TempDir()
 	bdPath := filepath.Join(binDir, "bd")
+	exportState := filepath.Join(binDir, "export.state")
 	script := `#!/bin/sh
 assert_town_read_env() {
   if [ "$BEADS_DIR" != "$TOWN_BEADS" ]; then
@@ -950,6 +951,7 @@ case "$*" in
     ;;
   "export -o $TOWN_BEADS/issues.jsonl")
     assert_town_read_env
+    touch "$EXPORT_STATE"
     exit 0
     ;;
   *)
@@ -962,6 +964,7 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("EXPORT_STATE", exportState)
 	t.Setenv("GT_DOLT_DATA", "")
 	t.Setenv("GT_DOLT_HOST", "")
 	t.Setenv("GT_DOLT_PORT", "")
@@ -985,6 +988,9 @@ esac
 	}
 	if closed[0].ID != "hq-cv-l9" {
 		t.Fatalf("closed convoy ID = %q, want hq-cv-l9", closed[0].ID)
+	}
+	if _, err := os.Stat(exportState); err != nil {
+		t.Fatalf("convoy close did not export JSONL: %v", err)
 	}
 }
 

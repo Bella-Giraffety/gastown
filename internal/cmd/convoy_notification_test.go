@@ -343,16 +343,14 @@ exit 1
 		t.Fatalf("read order log: %v", err)
 	}
 	got := strings.TrimSpace(string(data))
-	wantLines := []string{
+	want := strings.Join([]string{
 		"update:update hq-cv-add --status=open",
 		"update:update hq-cv-add --description=Owner: mayor/",
 		"track:gt-one",
 		"export:export -o " + filepath.Join(townRoot, ".beads", "issues.jsonl"),
-	}
-	for _, want := range wantLines {
-		if !strings.Contains(got, want) {
-			t.Fatalf("order log missing %q:\n%s", want, got)
-		}
+	}, "\n")
+	if got != want {
+		t.Fatalf("operation order mismatch:\n got:\n%s\nwant:\n%s", got, want)
 	}
 	if gotExportCount := strings.Count(got, "export:export -o"); gotExportCount != 1 {
 		t.Fatalf("export count = %d, want 1; log:\n%s", gotExportCount, got)
