@@ -130,9 +130,23 @@ func TestPolecatSummaryIssueRankPrefersActiveWork(t *testing.T) {
 	blocked := &beads.Issue{ID: "gt-blocked", Status: string(beads.StatusBlocked)}
 	open := &beads.Issue{ID: "gt-open", Status: string(beads.StatusOpen)}
 	hooked := &beads.Issue{ID: "gt-hooked", Status: string(beads.IssueStatusHooked)}
+	pinned := &beads.Issue{ID: "gt-pinned", Status: string(beads.IssueStatusPinned)}
 
-	if !(polecatSummaryIssueRank(hooked) < polecatSummaryIssueRank(open) && polecatSummaryIssueRank(open) < polecatSummaryIssueRank(blocked)) {
-		t.Fatalf("summary ranks = hooked:%d open:%d blocked:%d, want active statuses before protected", polecatSummaryIssueRank(hooked), polecatSummaryIssueRank(open), polecatSummaryIssueRank(blocked))
+	if !(polecatSummaryIssueRank(hooked) < polecatSummaryIssueRank(open) && polecatSummaryIssueRank(open) < polecatSummaryIssueRank(blocked) && polecatSummaryIssueRank(blocked) < polecatSummaryIssueRank(pinned)) {
+		t.Fatalf("summary ranks = hooked:%d open:%d blocked:%d pinned:%d, want active statuses before protected", polecatSummaryIssueRank(hooked), polecatSummaryIssueRank(open), polecatSummaryIssueRank(blocked), polecatSummaryIssueRank(pinned))
+	}
+}
+
+func TestBuildPolecatInventoryItemActiveWorkLookupErrorFailsClosed(t *testing.T) {
+	item := buildPolecatInventoryItemFromEvidence("gastown", "dust", &beads.AgentFields{CleanupStatus: "clean"}, polecat.ActiveWorkEvidence{
+		Protected:     true,
+		BlocksCleanup: true,
+		Blocker:       "assigned_work status=lookup_error: bd failed",
+		HookSafe:      true,
+	}, nil)
+
+	if item.Disposition.Reusable || item.Disposition.SafeToNuke || !item.Disposition.NeedsRecovery || item.Disposition.CountsTowardCapacity {
+		t.Fatalf("disposition = %+v, want fail-closed recovery without capacity", item.Disposition)
 	}
 }
 

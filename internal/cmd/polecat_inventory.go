@@ -65,6 +65,10 @@ func polecatSessionKey(rigName, polecatName string) string {
 }
 
 func buildPolecatInventoryItem(rigName, polecatName string, fields *beads.AgentFields, activeWork *beads.Issue, sessions polecatSessionSet) polecatInventoryItem {
+	return buildPolecatInventoryItemFromEvidence(rigName, polecatName, fields, polecat.AssessAssignedIssueWork(activeWork), sessions)
+}
+
+func buildPolecatInventoryItemFromEvidence(rigName, polecatName string, fields *beads.AgentFields, activeWorkEvidence polecat.ActiveWorkEvidence, sessions polecatSessionSet) polecatInventoryItem {
 	sessionName, running := sessions.lookup(rigName, polecatName)
 	item := polecatInventoryItem{
 		Rig:            rigName,
@@ -86,7 +90,6 @@ func buildPolecatInventoryItem(rigName, polecatName string, fields *beads.AgentF
 		input.ActiveMR = item.ActiveMR
 	}
 
-	activeWorkEvidence := polecat.AssessAssignedIssueWork(activeWork)
 	if activeWorkEvidence.BlocksCleanup {
 		item.Issue = activeWorkEvidence.AssignedIssue
 		if activeWorkEvidence.RequiresRestart || activeWorkEvidence.CountsTowardCapacity {
@@ -125,6 +128,7 @@ var polecatSummaryWorkStatuses = []beads.IssueStatus{
 	beads.StatusOpen,
 	beads.StatusBlocked,
 	beads.StatusDeferred,
+	beads.IssueStatusPinned,
 }
 
 var polecatSummaryWorkStatusRank = func() map[string]int {

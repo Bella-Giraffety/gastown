@@ -502,9 +502,9 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "warning: failed to list agent beads in %s: %v\n", r.Name, err)
 			agents = nil
 		}
-		activeWork, err := listActivePolecatWorkByName(bd, r.Name)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to list active polecat work in %s: %v\n", r.Name, err)
+		activeWork, activeWorkErr := listActivePolecatWorkByName(bd, r.Name)
+		if activeWorkErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to list active polecat work in %s: %v\n", r.Name, activeWorkErr)
 			activeWork = nil
 		}
 
@@ -519,6 +519,14 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 				fields.AgentState = beads.ResolveAgentState(issue.Description, issue.AgentState)
 			}
 			item := buildPolecatInventoryItem(r.Name, name, fields, activeWork[name], sessions)
+			if activeWorkErr != nil {
+				item = buildPolecatInventoryItemFromEvidence(r.Name, name, fields, polecat.ActiveWorkEvidence{
+					Protected:     true,
+					BlocksCleanup: true,
+					Blocker:       "assigned_work status=lookup_error: " + activeWorkErr.Error(),
+					HookSafe:      true,
+				}, sessions)
+			}
 			allPolecats = append(allPolecats, PolecatListItem{
 				Rig:                  item.Rig,
 				Name:                 item.Name,
