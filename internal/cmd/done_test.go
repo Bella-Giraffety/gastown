@@ -828,6 +828,95 @@ func TestShouldVerifyNoMRClose(t *testing.T) {
 	}
 }
 
+func TestReviewOnlyCloseRequiresEvidence(t *testing.T) {
+	reviewOnlyIssue := func() *beads.Issue {
+		return &beads.Issue{
+			ID:          "gt-review",
+			Description: "review_only: true",
+		}
+	}
+
+	tests := []struct {
+		name      string
+		mutate    func(*beads.Issue)
+		wantSkip  string
+		wantFatal bool
+	}{
+		{
+			name:      "no evidence blocks close",
+			wantSkip:  "no report/evidence",
+			wantFatal: true,
+		},
+		{
+			name: "generated comment is not evidence",
+			mutate: func(issue *beads.Issue) {
+				issue.Comments = []beads.Comment{{Text: "verified_push_skipped: commit abc branch origin/main reason=mq-not-required source on no-MR close"}}
+			},
+			wantSkip:  "no report/evidence",
+			wantFatal: true,
+		},
+		{
+			name: "report comment allows close",
+			mutate: func(issue *beads.Issue) {
+				issue.Comments = []beads.Comment{{Text: "REPORT: reviewed PR and found no blockers"}}
+			},
+		},
+		{
+			name: "findings comment allows close",
+			mutate: func(issue *beads.Issue) {
+				issue.Comments = []beads.Comment{{Text: "FINDINGS: CI green, evidence attached"}}
+			},
+		},
+		{
+			name: "notes allow close",
+			mutate: func(issue *beads.Issue) {
+				issue.Notes = "Review report: no blockers"
+			},
+		},
+		{
+			name: "design allows close",
+			mutate: func(issue *beads.Issue) {
+				issue.Design = "Review evidence"
+			},
+		},
+		{
+			name: "unchecked acceptance criteria still blocks with evidence",
+			mutate: func(issue *beads.Issue) {
+				issue.Notes = "Review report present"
+				issue.AcceptanceCriteria = "- [ ] append report"
+			},
+			wantSkip: "unchecked acceptance criteria",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issue := reviewOnlyIssue()
+			if tt.mutate != nil {
+				tt.mutate(issue)
+			}
+			gotReason, gotFatal := doneSourceCloseSkipReason(nil, issue.ID, issue)
+			if tt.wantSkip == "" {
+				if gotReason != "" || gotFatal {
+					t.Fatalf("doneSourceCloseSkipReason() = (%q, %v), want no skip", gotReason, gotFatal)
+				}
+				return
+			}
+			if !strings.Contains(gotReason, tt.wantSkip) || gotFatal != tt.wantFatal {
+				t.Fatalf("doneSourceCloseSkipReason() = (%q, %v), want reason containing %q fatal=%v", gotReason, gotFatal, tt.wantSkip, tt.wantFatal)
+			}
+		})
+	}
+}
+
+func TestNonReviewOnlyCloseDoesNotRequireEvidence(t *testing.T) {
+	issue := &beads.Issue{ID: "gt-code", Description: "no_merge: true"}
+	gotReason, gotFatal := doneSourceCloseSkipReason(nil, issue.ID, issue)
+	if gotReason != "" || gotFatal {
+		t.Fatalf("doneSourceCloseSkipReason() = (%q, %v), want no skip", gotReason, gotFatal)
+	}
+}
+
 // TestClearDoneIntentLabel verifies that clearDoneIntentLabel removes
 // only done-intent labels while preserving other labels.
 func TestClearDoneIntentLabel(t *testing.T) {

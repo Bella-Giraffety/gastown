@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,36 @@ import (
 	"github.com/steveyegge/gastown/internal/nudge"
 	"github.com/steveyegge/gastown/internal/session"
 )
+
+func TestEnsureQueuedNudgeDrainReportsPollerFailure(t *testing.T) {
+	orig := startNudgePoller
+	t.Cleanup(func() { startNudgePoller = orig })
+
+	startNudgePoller = func(townRoot, session string) (int, error) {
+		return 0, errors.New("boom")
+	}
+	err := ensureQueuedNudgeDrain(t.TempDir(), "gt-opencode", false)
+	if err == nil || !strings.Contains(err.Error(), "could not start nudge poller") {
+		t.Fatalf("ensureQueuedNudgeDrain() error = %v, want clear poller failure", err)
+	}
+}
+
+func TestEnsureQueuedNudgeDrainSkipsACP(t *testing.T) {
+	orig := startNudgePoller
+	t.Cleanup(func() { startNudgePoller = orig })
+
+	called := false
+	startNudgePoller = func(townRoot, session string) (int, error) {
+		called = true
+		return 0, nil
+	}
+	if err := ensureQueuedNudgeDrain(t.TempDir(), session.MayorSessionName(), true); err != nil {
+		t.Fatalf("ensureQueuedNudgeDrain(ACP): %v", err)
+	}
+	if called {
+		t.Fatal("ensureQueuedNudgeDrain started tmux poller for ACP session")
+	}
+}
 
 func setupNudgeTestRegistry(t *testing.T) {
 	t.Helper()

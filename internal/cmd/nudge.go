@@ -25,6 +25,16 @@ import (
 
 var startNudgePoller = nudge.StartPoller
 
+func ensureQueuedNudgeDrain(townRoot, sessionName string, isACPSession bool) error {
+	if isACPSession {
+		return nil
+	}
+	if _, err := startNudgePoller(townRoot, sessionName); err != nil {
+		return fmt.Errorf("nudge queued for %s but could not start nudge poller: %w", sessionName, err)
+	}
+	return nil
+}
+
 func hasACPSessionByName(townRoot, sessionName string) bool {
 	if townRoot == "" {
 		return false
@@ -199,13 +209,7 @@ func deliverNudge(t *tmux.Tmux, sessionName, message, sender string) error {
 		if err := nudge.Enqueue(townRoot, sessionName, queued); err != nil {
 			return err
 		}
-		if isACPSession {
-			return nil
-		}
-		if _, err := startNudgePoller(townRoot, sessionName); err != nil {
-			return fmt.Errorf("nudge queued for %s but could not start nudge poller: %w", sessionName, err)
-		}
-		return nil
+		return ensureQueuedNudgeDrain(townRoot, sessionName, isACPSession)
 
 	case NudgeModeWaitIdle:
 		if townRoot == "" {
@@ -240,10 +244,7 @@ func deliverNudge(t *tmux.Tmux, sessionName, message, sender string) error {
 				// session was started manually (or the poller crashed), queued
 				// nudges sit undelivered forever. StartPoller is idempotent —
 				// it no-ops if a poller is already alive for this session.
-				if _, pollerErr := startNudgePoller(townRoot, sessionName); pollerErr != nil {
-					return fmt.Errorf("nudge queued for %s but could not start nudge poller: %w", sessionName, pollerErr)
-				}
-				return nil
+				return ensureQueuedNudgeDrain(townRoot, sessionName, false)
 			}
 		}
 		// Try to wait for idle
