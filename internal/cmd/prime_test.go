@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1045,6 +1046,54 @@ func TestCheckSlungWork_RefineryPatrolWispUsesPatrolWorkflowOutput(t *testing.T)
 	} {
 		if strings.Contains(output, forbidden) {
 			t.Fatalf("did not expect %q in refinery patrol output, got:\n%s", forbidden, output)
+		}
+	}
+}
+
+func TestCheckSlungWork_RefinerySafetyStoppedSkipsWorkflowOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock bd script uses POSIX shell")
+	}
+	townRoot := t.TempDir()
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), filepath.Join(townRoot, ".beads"), filepath.Join(townRoot, "testrig")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0o644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	writePatrolSafetyStopMockBins(t, binDir, logPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("COMMAND_LOG", logPath)
+
+	ctx := RoleContext{Role: RoleRefinery, Rig: "testrig", TownRoot: townRoot}
+	hookedBead := &beads.Issue{
+		ID:    "gt-wisp-refinery",
+		Title: constants.MolRefineryPatrol + " (wisp)",
+		Type:  "molecule",
+	}
+
+	var found bool
+	var gotErr error
+	output := captureStdout(t, func() {
+		found, gotErr = checkSlungWork(ctx, hookedBead)
+	})
+	if gotErr != nil {
+		t.Fatalf("checkSlungWork() error = %v", gotErr)
+	}
+	if !found {
+		t.Fatalf("checkSlungWork() = false, want true")
+	}
+	if !strings.Contains(output, "REFINERY SAFETY STOP ACTIVE") {
+		t.Fatalf("expected safety-stop directive, got:\n%s", output)
+	}
+	for _, forbidden := range []string{"ATTACHED FORMULA", "Continue the patrol workflow above", "Work through each patrol step"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("did not expect %q while safety-stopped, got:\n%s", forbidden, output)
 		}
 	}
 }

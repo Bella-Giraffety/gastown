@@ -781,10 +781,26 @@ case "$cmd" in
     echo "bd test"
     ;;
   show)
-    printf '%s\n' '[{"id":"gt-rig-testrig","title":"Rig","issue_type":"task","labels":["gt:rig"],"status":"open"}]'
+    case "$*" in
+      *gt-rig-testrig*)
+        printf '%s\n' '[{"id":"gt-rig-testrig","title":"Rig","issue_type":"task","labels":["gt:rig"],"status":"open"}]'
+        ;;
+      *)
+        echo "unexpected show: $*" >&2
+        exit 9
+        ;;
+    esac
     ;;
   query)
-    printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+    case "$*" in
+      *'id="gt-testrig-refinery"'*'label="gt:agent"'*)
+        printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+        ;;
+      *)
+        echo "unexpected query: $*" >&2
+        exit 9
+        ;;
+    esac
     ;;
   *)
     exit 0

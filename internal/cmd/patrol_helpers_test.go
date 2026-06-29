@@ -771,8 +771,10 @@ func TestAutoSpawnPatrol_RefinerySafetyStoppedSkipsWispCreate(t *testing.T) {
 		t.Fatalf("read command log: %v", err)
 	}
 	logOutput := string(data)
-	if strings.Contains(logOutput, "gt formula list") || strings.Contains(logOutput, "mol wisp create") || strings.Contains(logOutput, "update ") {
-		t.Fatalf("safety-stopped patrol creation mutated or listed patrol state; log:\n%s", logOutput)
+	for _, forbidden := range []string{"gt ", "bd list", "bd close", "bd mol", "bd update"} {
+		if strings.Contains(logOutput, forbidden) {
+			t.Fatalf("safety-stopped patrol creation mutated or listed patrol state with %q; log:\n%s", forbidden, logOutput)
+		}
 	}
 }
 
@@ -792,7 +794,15 @@ case "$cmd" in
     echo "bd test"
     ;;
   query)
-    printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+    case "$*" in
+      *'id="gt-testrig-refinery"'*'label="gt:agent"'*)
+        printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+        ;;
+      *)
+        echo "unexpected query: $*" >&2
+        exit 9
+        ;;
+    esac
     ;;
   *)
     exit 0

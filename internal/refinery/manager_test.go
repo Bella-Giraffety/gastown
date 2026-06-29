@@ -146,7 +146,15 @@ case "$cmd" in
     echo "bd test"
     ;;
   query)
-    printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+    case "$*" in
+      *'id="gt-testrig-refinery"'*'label="gt:agent"'*)
+        printf '%s\n' '[{"id":"gt-testrig-refinery","title":"Refinery","issue_type":"task","labels":["gt:agent","safety_stop:hq-vmrwr"],"status":"open","description":"role_type: refinery\nrig: testrig\nagent_state: idle\nhook_bead: null"}]'
+        ;;
+      *)
+        echo "unexpected query: $*" >&2
+        exit 9
+        ;;
+    esac
     ;;
   *)
     echo "unexpected bd command: $*" >&2
