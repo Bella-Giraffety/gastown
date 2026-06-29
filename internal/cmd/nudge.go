@@ -23,6 +23,8 @@ import (
 	"github.com/steveyegge/gastown/internal/workspace"
 )
 
+var startNudgePoller = nudge.StartPoller
+
 func hasACPSessionByName(townRoot, sessionName string) bool {
 	if townRoot == "" {
 		return false
@@ -174,7 +176,8 @@ func deliverNudge(t *tmux.Tmux, sessionName, message, sender string) error {
 	// Use the requested mode, but force queue mode for ACP sessions.
 	// ACP agents don't have tmux panes to send-keys to.
 	mode := nudgeModeFlag
-	if hasACPSessionByName(townRoot, sessionName) {
+	isACPSession := hasACPSessionByName(townRoot, sessionName)
+	if isACPSession {
 		mode = NudgeModeQueue
 	}
 
@@ -188,11 +191,21 @@ func deliverNudge(t *tmux.Tmux, sessionName, message, sender string) error {
 		if townRoot == "" {
 			return fmt.Errorf("--mode=queue requires a Gas Town workspace")
 		}
-		return nudge.Enqueue(townRoot, sessionName, nudge.QueuedNudge{
+		queued := nudge.QueuedNudge{
 			Sender:   sender,
 			Message:  message,
 			Priority: nudgePriorityFlag,
-		})
+		}
+		if err := nudge.Enqueue(townRoot, sessionName, queued); err != nil {
+			return err
+		}
+		if isACPSession {
+			return nil
+		}
+		if _, err := startNudgePoller(townRoot, sessionName); err != nil {
+			return fmt.Errorf("nudge queued for %s but could not start nudge poller: %w", sessionName, err)
+		}
+		return nil
 
 	case NudgeModeWaitIdle:
 		if townRoot == "" {
@@ -227,8 +240,8 @@ func deliverNudge(t *tmux.Tmux, sessionName, message, sender string) error {
 				// session was started manually (or the poller crashed), queued
 				// nudges sit undelivered forever. StartPoller is idempotent —
 				// it no-ops if a poller is already alive for this session.
-				if _, pollerErr := nudge.StartPoller(townRoot, sessionName); pollerErr != nil {
-					fmt.Fprintf(os.Stderr, "wait-idle: could not start nudge poller for %s: %v\n", sessionName, pollerErr)
+				if _, pollerErr := startNudgePoller(townRoot, sessionName); pollerErr != nil {
+					return fmt.Errorf("nudge queued for %s but could not start nudge poller: %w", sessionName, pollerErr)
 				}
 				return nil
 			}

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -142,6 +143,103 @@ func shouldVerifyNoMRClose(skipVerify, mqNotRequiredSource, isPolecat bool, clea
 	default:
 		return true, ""
 	}
+}
+
+var reviewEvidencePrefixes = []string{
+	"report:",
+	"findings:",
+	"review:",
+	"evidence:",
+	"verdict:",
+	"decision:",
+	"pr-sheriff-evidence",
+	"pr sheriff evidence",
+}
+
+var generatedCommentPrefixes = []string{
+	"verified_push_skipped:",
+	"verified_push_failed:",
+	"mr created:",
+}
+
+func doneSourceCloseSkipReason(bd *beads.Beads, issueID string, issue *beads.Issue) (string, bool) {
+	if issueID == "" {
+		return "", false
+	}
+	if issue == nil {
+		if bd == nil {
+			return fmt.Sprintf("could not inspect issue %s close eligibility", issueID), true
+		}
+		var err error
+		issue, err = bd.Show(issueID)
+		if err != nil {
+			return fmt.Sprintf("could not inspect issue %s close eligibility: %v", issueID, err), true
+		}
+	}
+	if unchecked := beads.HasUncheckedCriteria(issue); unchecked > 0 {
+		return fmt.Sprintf("issue %s has %d unchecked acceptance criteria — skipping close", issueID, unchecked), false
+	}
+	attachment := beads.ParseAttachmentFields(issue)
+	if attachment == nil || !attachment.ReviewOnly {
+		return "", false
+	}
+	hasEvidence, err := hasReviewReportEvidence(bd, issueID, issue)
+	if err != nil {
+		return fmt.Sprintf("could not verify review evidence for %s: %v", issueID, err), true
+	}
+	if !hasEvidence {
+		return fmt.Sprintf("review-only issue %s has no report/evidence — add notes/design or a REPORT/FINDINGS comment before gt done", issueID), true
+	}
+	return "", false
+}
+
+func hasReviewReportEvidence(bd *beads.Beads, issueID string, issue *beads.Issue) (bool, error) {
+	if issue != nil {
+		if strings.TrimSpace(issue.Notes) != "" || strings.TrimSpace(issue.Design) != "" {
+			return true, nil
+		}
+		for _, comment := range issue.Comments {
+			if isReviewEvidenceComment(comment.Text) {
+				return true, nil
+			}
+		}
+	}
+	if bd == nil || issueID == "" {
+		return false, nil
+	}
+	out, err := bd.Run("comments", issueID, "--json")
+	if err != nil {
+		return false, err
+	}
+	var comments []beads.Comment
+	if err := json.Unmarshal(out, &comments); err != nil {
+		return false, fmt.Errorf("parsing comments: %w", err)
+	}
+	for _, comment := range comments {
+		if isReviewEvidenceComment(comment.Text) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func isReviewEvidenceComment(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range generatedCommentPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return false
+		}
+	}
+	for _, prefix := range reviewEvidencePrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {
@@ -678,18 +776,15 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if issueID != "" {
 				bd := beads.New(cwd)
 
-				// Acceptance criteria gate: check for unchecked criteria before closing.
-				// If criteria exist and are unchecked, warn and skip close — the bead stays
-				// open for witness/mayor to handle.
 				skipClose := false
-				if issue, err := bd.Show(issueID); err == nil {
-					if unchecked := beads.HasUncheckedCriteria(issue); unchecked > 0 {
-						skipReason := fmt.Sprintf("issue %s has %d unchecked acceptance criteria — skipping close", issueID, unchecked)
-						style.PrintWarning("%s", skipReason)
-						fmt.Printf("  The bead will remain open for witness/mayor review.\n")
-						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
-						skipClose = true
+				if skipReason, fatal := doneSourceCloseSkipReason(bd, issueID, nil); skipReason != "" {
+					style.PrintWarning("%s", skipReason)
+					fmt.Printf("  The bead will remain open for witness/mayor review.\n")
+					notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
+					if fatal {
+						return fmt.Errorf("cannot complete review-only/no-MR work: %s", skipReason)
 					}
+					skipClose = true
 				}
 
 				if !skipClose {
@@ -844,26 +939,31 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			fmt.Printf("%s Branch pushed directly to %s\n", style.Bold.Render("✓"), defaultBranch)
 			doneCleanupStatus = cleanupStatusAfterSuccessfulPush(doneCleanupStatus)
 
-			// Close the base issue — no MR/refinery will close it
-			if issueID != "" {
-				directBd := beads.New(cwd)
-				closeReason := fmt.Sprintf("Direct merge to %s (convoy strategy)", defaultBranch)
-				var closeErr error
-				for attempt := 1; attempt <= 3; attempt++ {
-					closeErr = directBd.ForceCloseWithReason(closeReason, issueID)
-					if closeErr == nil {
-						fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
-						break
-					}
-					if attempt < 3 {
-						style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
-						time.Sleep(time.Duration(attempt*2) * time.Second)
+				// Close the base issue — no MR/refinery will close it
+				if issueID != "" {
+					directBd := beads.New(cwd)
+					if skipReason, _ := doneSourceCloseSkipReason(directBd, issueID, nil); skipReason != "" {
+						style.PrintWarning("%s", skipReason)
+						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
+					} else {
+						closeReason := fmt.Sprintf("Direct merge to %s (convoy strategy)", defaultBranch)
+						var closeErr error
+						for attempt := 1; attempt <= 3; attempt++ {
+							closeErr = directBd.ForceCloseWithReason(closeReason, issueID)
+							if closeErr == nil {
+								fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
+								break
+							}
+							if attempt < 3 {
+								style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
+								time.Sleep(time.Duration(attempt*2) * time.Second)
+							}
+						}
+						if closeErr != nil {
+							style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
+						}
 					}
 				}
-				if closeErr != nil {
-					style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
-				}
-			}
 
 			goto notifyWitness
 		}
@@ -1110,7 +1210,12 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				// here after notifying the dispatcher. Otherwise hooked work remains open.
 				if issueID != "" {
 					canCloseIssue := true
-					if attachmentFields.AttachedMolecule != "" {
+					if skipReason, _ := doneSourceCloseSkipReason(bd, issueID, sourceIssueForNoMerge); skipReason != "" {
+						style.PrintWarning("%s", skipReason)
+						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
+						canCloseIssue = false
+					}
+					if canCloseIssue && attachmentFields.AttachedMolecule != "" {
 						if n := closeDescendants(bd, attachmentFields.AttachedMolecule); n > 0 {
 							fmt.Fprintf(os.Stderr, "Closed %d molecule step(s) for %s\n", n, attachmentFields.AttachedMolecule)
 						}
@@ -1182,21 +1287,26 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 				// Close the issue directly — refinery won't process it.
 				if issueID != "" {
-					var closeErr error
-					for attempt := 1; attempt <= 3; attempt++ {
-						closeErr = bd.ForceCloseWithReason(
-							fmt.Sprintf("Direct merge to %s (convoy strategy, late detection)", defaultBranch), issueID)
-						if closeErr == nil {
-							fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
-							break
+					if skipReason, _ := doneSourceCloseSkipReason(bd, issueID, nil); skipReason != "" {
+						style.PrintWarning("%s", skipReason)
+						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
+					} else {
+						var closeErr error
+						for attempt := 1; attempt <= 3; attempt++ {
+							closeErr = bd.ForceCloseWithReason(
+								fmt.Sprintf("Direct merge to %s (convoy strategy, late detection)", defaultBranch), issueID)
+							if closeErr == nil {
+								fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
+								break
+							}
+							if attempt < 3 {
+								style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
+								time.Sleep(time.Duration(attempt*2) * time.Second)
+							}
 						}
-						if attempt < 3 {
-							style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
-							time.Sleep(time.Duration(attempt*2) * time.Second)
+						if closeErr != nil {
+							style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
 						}
-					}
-					if closeErr != nil {
-						style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
 					}
 				}
 
@@ -1991,6 +2101,13 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) {
 			// infrastructure. Skip close and fall through to idle state update.
 			if beads.HasLabel(hookedBead, "gt:rig") {
 				fmt.Fprintf(os.Stderr, "Note: hooked bead %s is a rig identity bead (gt:rig) — skipping close\n", hookedBeadID)
+				goto doneStateUpdate
+			}
+
+			if skipReason, _ := doneSourceCloseSkipReason(bd, hookedBeadID, hookedBead); skipReason != "" {
+				style.PrintWarning("%s", skipReason)
+				fmt.Fprintf(os.Stderr, "  The bead will remain open for witness/mayor review.\n")
+				notifyDoneCloseSkipped(townRoot, ctx.Rig, detectSender(), hookedBeadID, skipReason)
 				goto doneStateUpdate
 			}
 

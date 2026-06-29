@@ -95,6 +95,8 @@ func sdkIssueToIssue(si *beadsdk.Issue) *Issue {
 		ID:                 si.ID,
 		Title:              si.Title,
 		Description:        si.Description,
+		Design:             si.Design,
+		Notes:              si.Notes,
 		Status:             string(si.Status),
 		Priority:           si.Priority,
 		Type:               string(si.IssueType),
@@ -106,6 +108,18 @@ func sdkIssueToIssue(si *beadsdk.Issue) *Issue {
 		Ephemeral:          si.Ephemeral,
 		AcceptanceCriteria: si.AcceptanceCriteria,
 		Metadata:           si.Metadata,
+	}
+	for _, c := range si.Comments {
+		if c == nil {
+			continue
+		}
+		issue.Comments = append(issue.Comments, Comment{
+			ID:        c.ID,
+			IssueID:   c.IssueID,
+			Author:    c.Author,
+			Text:      c.Text,
+			CreatedAt: c.CreatedAt.Format(time.RFC3339),
+		})
 	}
 
 	if si.ClosedAt != nil {
@@ -252,6 +266,23 @@ func (b *Beads) storeShow(id string) (*Issue, error) {
 		labels, labelsErr := b.store.GetLabels(ctx, id)
 		if labelsErr == nil {
 			issue.Labels = labels
+		}
+	}
+	if issue.Comments == nil {
+		comments, commentsErr := b.store.GetIssueComments(ctx, id)
+		if commentsErr == nil {
+			for _, c := range comments {
+				if c == nil {
+					continue
+				}
+				issue.Comments = append(issue.Comments, Comment{
+					ID:        c.ID,
+					IssueID:   c.IssueID,
+					Author:    c.Author,
+					Text:      c.Text,
+					CreatedAt: c.CreatedAt.Format(time.RFC3339),
+				})
+			}
 		}
 	}
 

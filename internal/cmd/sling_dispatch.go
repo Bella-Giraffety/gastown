@@ -362,6 +362,27 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	}
 	result.AttachedMolecule = attachedMoleculeID
 
+	// 7. Store review-only raw metadata before assignment, then hook bead with retry.
+	actor := detectActor()
+	fieldUpdates := beadFieldUpdates{
+		Dispatcher:       actor,
+		Args:             params.Args,
+		Vars:             varsForAttachment,
+		AttachedMolecule: attachedMoleculeID,
+		AttachedFormula:  params.FormulaName,
+		NoMerge:          params.NoMerge,
+		ReviewOnly:       params.ReviewOnly,
+		Mode:             &params.Mode,
+		FormulaVars:      formulaVarsForAttachment,
+	}
+	if params.ReviewOnly && attachedMoleculeID == "" {
+		if err := storeFieldsInBead(beadToHook, fieldUpdates); err != nil {
+			cleanupSpawnedPolecat(spawnInfo, params.RigName, convoyID)
+			result.ErrMsg = "review-only metadata failed"
+			return result, fmt.Errorf("storing review-only metadata before hook: %w", err)
+		}
+	}
+
 	// 7. Hook bead with retry
 	// Acquire per-assignee lock to serialize concurrent hook writes (issue #3114).
 	assigneeUnlock, assigneeLockErr := tryAcquireSlingAssigneeLock(townRoot, targetAgent)
@@ -382,24 +403,12 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	fmt.Printf("  %s Work attached to %s\n", style.Bold.Render("✓"), spawnInfo.PolecatName)
 
 	// 8. Log sling event
-	actor := detectActor()
 	_ = events.LogFeed(events.TypeSling, actor, events.SlingPayload(beadToHook, targetAgent))
 
 	// 9. Update agent hook_bead state
 	updateAgentHookBead(targetAgent, beadToHook, hookWorkDir, beadsDir)
 
 	// 10. Store fields in bead (dispatcher, args, attached_molecule, no_merge, mode)
-	fieldUpdates := beadFieldUpdates{
-		Dispatcher:       actor,
-		Args:             params.Args,
-		Vars:             varsForAttachment,
-		AttachedMolecule: attachedMoleculeID,
-		AttachedFormula:  params.FormulaName,
-		NoMerge:          params.NoMerge,
-		ReviewOnly:       params.ReviewOnly,
-		Mode:             &params.Mode,
-		FormulaVars:      formulaVarsForAttachment,
-	}
 	// Use beadToHook for the update target (may differ from beadID when formula-on-bead)
 	if err := storeFieldsInBead(beadToHook, fieldUpdates); err != nil {
 		fmt.Printf("  %s Could not store fields in bead: %v\n", style.Dim.Render("Warning:"), err)

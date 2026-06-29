@@ -1046,6 +1046,32 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		// - Base bead left orphaned after gt done
 	}
 
+	actor := detectActor()
+	mode := ""
+	if slingRalph {
+		mode = "ralph"
+	}
+	fieldUpdates := buildSlingFieldUpdates(
+		actor,
+		slingArgs,
+		varsForAttachment,
+		attachedMoleculeID,
+		formulaName,
+		slingNoMerge,
+		slingReviewOnly,
+		mode,
+		formulaVarsForAttachment,
+		convoyID,
+		slingMerge,
+		slingOwned,
+	)
+	if slingHookRawBead && slingReviewOnly {
+		if err := storeFieldsInBead(beadID, fieldUpdates); err != nil {
+			rollbackSpawnedPolecat("Review-only metadata failed")
+			return fmt.Errorf("storing review-only metadata before hook: %w", err)
+		}
+	}
+
 	// Hook the bead with retry and verification.
 	// See: https://github.com/steveyegge/gastown/issues/148
 	//
@@ -1080,7 +1106,6 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	fmt.Printf("%s Work attached to hook (status=hooked)\n", style.Bold.Render("✓"))
 
 	// Log sling event to activity feed
-	actor := detectActor()
 	_ = events.LogFeed(events.TypeSling, actor, events.SlingPayload(beadID, targetAgent))
 
 	// Update agent bead's hook_bead field (ZFC: agents track their current work)
@@ -1094,24 +1119,6 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// Store all attachment fields in a single read-modify-write cycle.
 	// This eliminates the race condition where sequential independent updates
 	// (dispatcher, args, no_merge, attached_molecule) could overwrite each other.
-	mode := ""
-	if slingRalph {
-		mode = "ralph"
-	}
-	fieldUpdates := buildSlingFieldUpdates(
-		actor,
-		slingArgs,
-		varsForAttachment,
-		attachedMoleculeID,
-		formulaName,
-		slingNoMerge,
-		slingReviewOnly,
-		mode,
-		formulaVarsForAttachment,
-		convoyID,
-		slingMerge,
-		slingOwned,
-	)
 	if err := storeFieldsInBead(beadID, fieldUpdates); err != nil {
 		// Warn but don't fail - polecat will still complete work
 		fmt.Printf("%s Could not store fields in bead: %v\n", style.Dim.Render("Warning:"), err)

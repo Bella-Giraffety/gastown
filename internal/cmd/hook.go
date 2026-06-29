@@ -496,7 +496,7 @@ func runHookShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("not in a beads workspace: %w", err)
 	}
-	if len(args) > 0 && !isTownLevelRole(target) {
+	if !isTownLevelRole(target) {
 		townRoot, townErr := workspace.FindFromCwd()
 		if townErr == nil && townRoot != "" {
 			rigName := strings.Split(target, "/")[0]
