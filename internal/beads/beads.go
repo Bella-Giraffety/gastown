@@ -890,14 +890,10 @@ func filterBeadsEnv(environ []string) []string {
 	return filtered
 }
 
-// translateDoltPort ensures BEADS_DOLT_PORT and BEADS_DOLT_SERVER_HOST are set
-// when their GT_ counterparts are present. Gas Town uses GT_DOLT_PORT and
-// GT_DOLT_HOST; beads uses BEADS_DOLT_PORT and BEADS_DOLT_SERVER_HOST. This
-// translation prevents bd subprocesses from falling back to localhost:3307
-// when a test or daemon has set GT_DOLT_* to alternate values.
+// translateDoltPort mirrors authoritative GT_DOLT_* endpoint vars to Beads'
+// endpoint aliases for legacy callers that have not moved to Build*BDEnv.
 func translateDoltPort(env []string) []string {
 	var gtPort, gtHost string
-	hasBDP, hasBDH := false, false
 	for _, e := range env {
 		if strings.HasPrefix(e, "GT_DOLT_PORT=") {
 			gtPort = strings.TrimPrefix(e, "GT_DOLT_PORT=")
@@ -905,17 +901,13 @@ func translateDoltPort(env []string) []string {
 		if strings.HasPrefix(e, "GT_DOLT_HOST=") {
 			gtHost = strings.TrimPrefix(e, "GT_DOLT_HOST=")
 		}
-		if strings.HasPrefix(e, "BEADS_DOLT_PORT=") {
-			hasBDP = true
-		}
-		if strings.HasPrefix(e, "BEADS_DOLT_SERVER_HOST=") {
-			hasBDH = true
-		}
 	}
-	if gtPort != "" && !hasBDP {
-		env = append(env, "BEADS_DOLT_PORT="+gtPort)
+	if gtPort != "" {
+		env = stripEnvPrefixes(env, "BEADS_DOLT_SERVER_PORT=", "BEADS_DOLT_PORT=")
+		env = append(env, "BEADS_DOLT_SERVER_PORT="+gtPort, "BEADS_DOLT_PORT="+gtPort)
 	}
-	if gtHost != "" && !hasBDH {
+	if gtHost != "" {
+		env = stripEnvPrefixes(env, "BEADS_DOLT_SERVER_HOST=")
 		env = append(env, "BEADS_DOLT_SERVER_HOST="+gtHost)
 	}
 	return env

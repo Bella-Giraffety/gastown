@@ -1170,11 +1170,10 @@ func (m *Manager) InitBeads(rigPath, prefix, rigName string) error {
 		filteredEnv = append(filteredEnv, "BEADS_DOLT_SERVER_DATABASE="+rigName)
 	}
 
-	// Ensure BEADS_DOLT_PORT and BEADS_DOLT_SERVER_HOST are set when their GT_
+	// Ensure Beads endpoint aliases are set when their GT_
 	// counterparts are present, so that bd subprocesses connect to the correct
 	// Dolt server (especially in tests or when the server is remote).
 	var gtDoltPort, gtDoltHost string
-	hasBDP, hasBDH := false, false
 	for _, e := range filteredEnv {
 		if strings.HasPrefix(e, "GT_DOLT_PORT=") {
 			gtDoltPort = strings.TrimPrefix(e, "GT_DOLT_PORT=")
@@ -1182,17 +1181,14 @@ func (m *Manager) InitBeads(rigPath, prefix, rigName string) error {
 		if strings.HasPrefix(e, "GT_DOLT_HOST=") {
 			gtDoltHost = strings.TrimPrefix(e, "GT_DOLT_HOST=")
 		}
-		if strings.HasPrefix(e, "BEADS_DOLT_PORT=") {
-			hasBDP = true
-		}
-		if strings.HasPrefix(e, "BEADS_DOLT_SERVER_HOST=") {
-			hasBDH = true
-		}
 	}
-	if gtDoltPort != "" && !hasBDP {
-		filteredEnv = append(filteredEnv, "BEADS_DOLT_PORT="+gtDoltPort)
+	if gtDoltPort != "" {
+		filteredEnv = beads.StripEnvKey(filteredEnv, "BEADS_DOLT_SERVER_PORT")
+		filteredEnv = beads.StripEnvKey(filteredEnv, "BEADS_DOLT_PORT")
+		filteredEnv = append(filteredEnv, "BEADS_DOLT_SERVER_PORT="+gtDoltPort, "BEADS_DOLT_PORT="+gtDoltPort)
 	}
-	if gtDoltHost != "" && !hasBDH {
+	if gtDoltHost != "" {
+		filteredEnv = beads.StripEnvKey(filteredEnv, "BEADS_DOLT_SERVER_HOST")
 		filteredEnv = append(filteredEnv, "BEADS_DOLT_SERVER_HOST="+gtDoltHost)
 	}
 
