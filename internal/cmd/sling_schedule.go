@@ -240,21 +240,22 @@ func runBatchSchedule(beadIDs []string, rigName, townRoot string) error {
 	successCount := 0
 	for _, beadID := range beadIDs {
 		formula := resolveFormula(slingFormula, slingHookRawBead, townRoot, rigName)
-		err := scheduleBead(beadID, rigName, ScheduleOptions{
-			Formula:      formula,
-			Args:         slingArgs,
-			Vars:         slingVars,
+			err := scheduleBead(beadID, rigName, ScheduleOptions{
+				Formula:      formula,
+				Args:         slingArgs,
+				Vars:         slingVars,
 			NoConvoy:     slingNoConvoy,
 			Owned:        slingOwned,
 			Merge:        slingMerge,
 			BaseBranch:   slingBaseBranch,
 			ResumeBranch: slingResumeBranch,
-			DryRun:       false,
-			Force:        slingForce,
-			NoMerge:      slingNoMerge,
-			Account:      slingAccount,
-			Agent:        slingAgent,
-			HookRawBead:  slingHookRawBead,
+				DryRun:       false,
+				Force:        slingForce,
+				NoMerge:      slingNoMerge,
+				ReviewOnly:   slingReviewOnly,
+				Account:      slingAccount,
+				Agent:        slingAgent,
+				HookRawBead:  slingHookRawBead,
 			Ralph:        slingRalph,
 		})
 		if err != nil {
@@ -422,7 +423,7 @@ func detectSchedulerIDType(id string) (string, error) {
 // not convoy or epic mode.
 var schedulerTaskOnlyFlagNames = []string{
 	"account", "agent", "ralph", "args", "var",
-	"merge", "base-branch", "no-convoy", "owned", "no-merge",
+	"merge", "base-branch", "no-convoy", "owned", "no-merge", "review-only",
 }
 
 // validateNoTaskOnlySchedulerFlags checks that no task-only flags were set.

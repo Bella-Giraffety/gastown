@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 )
@@ -169,6 +170,8 @@ log_args=""
 for arg in "$@"; do
   case "$arg" in
     --description=*attached_molecule:*gt-wisp-xyz*attached_formula:*mol-polecat-work*) arg="--description=<attached-molecule-and-formula-fields>" ;;
+    --description=*no_merge:*true*review_only:*true*) arg="--description=<review-only-fields>" ;;
+    --description=*review_only:*true*no_merge:*true*) arg="--description=<review-only-fields>" ;;
     --description=*) arg="--description=<redacted>" ;;
   esac
   log_args="${log_args}${log_args:+ }${arg}"
@@ -273,17 +276,26 @@ exit /b 0
 	prevVars := slingVars
 	prevDryRun := slingDryRun
 	prevNoConvoy := slingNoConvoy
+	prevHookRawBead := slingHookRawBead
+	prevReviewOnly := slingReviewOnly
+	prevNoMerge := slingNoMerge
 	prevResolveTargetAgent := resolveTargetAgentFn
 	t.Cleanup(func() {
 		slingOnTarget = prevOn
 		slingVars = prevVars
 		slingDryRun = prevDryRun
 		slingNoConvoy = prevNoConvoy
+		slingHookRawBead = prevHookRawBead
+		slingReviewOnly = prevReviewOnly
+		slingNoMerge = prevNoMerge
 		resolveTargetAgentFn = prevResolveTargetAgent
 	})
 
 	slingDryRun = false
 	slingNoConvoy = true
+	slingHookRawBead = false
+	slingReviewOnly = false
+	slingNoMerge = false
 	slingVars = nil
 	slingOnTarget = ""
 	resolveTargetAgentFn = func(target string) (agentID string, pane string, hookRoot string, err error) {
@@ -323,6 +335,14 @@ exit /b 0
 	slingOnTarget = newBeadID
 	if err := runSling(nil, []string{"mol-review"}); err != nil {
 		t.Fatalf("runSling: %v", err)
+	}
+
+	slingOnTarget = ""
+	slingHookRawBead = true
+	slingReviewOnly = true
+	slingNoMerge = true
+	if err := runSling(nil, []string{newBeadID, "gastown/polecats/toast"}); err != nil {
+		t.Fatalf("runSling raw review-only: %v", err)
 	}
 
 	logBytes, err := os.ReadFile(logPath)

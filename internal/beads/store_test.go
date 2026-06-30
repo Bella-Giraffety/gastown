@@ -372,6 +372,35 @@ func TestStoreShow(t *testing.T) {
 	}
 }
 
+func TestStoreShowMapsReviewEvidenceFields(t *testing.T) {
+	store := newMockStorage()
+	b := newTestBeads(store)
+	now := time.Now()
+
+	store.CreateIssue(context.Background(), &beadsdk.Issue{
+		Title:  "review evidence",
+		Design: "REVIEW: design evidence",
+		Notes:  "FINDINGS: note evidence",
+		Comments: []*beadsdk.Comment{
+			{ID: "comment-1", IssueID: "test-1", Author: "tester", Text: "EVIDENCE: comment evidence", CreatedAt: now},
+		},
+	}, "actor")
+
+	issue, err := b.Show("test-1")
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if issue.Design != "REVIEW: design evidence" {
+		t.Fatalf("Design = %q", issue.Design)
+	}
+	if issue.Notes != "FINDINGS: note evidence" {
+		t.Fatalf("Notes = %q", issue.Notes)
+	}
+	if len(issue.Comments) != 1 || issue.Comments[0].Text != "EVIDENCE: comment evidence" {
+		t.Fatalf("Comments = %#v", issue.Comments)
+	}
+}
+
 func TestStoreShowNotFound(t *testing.T) {
 	store := newMockStorage()
 	b := newTestBeads(store)
