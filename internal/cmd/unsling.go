@@ -122,12 +122,11 @@ func runUnslingWith(cmd *cobra.Command, args []string, dryRun, force bool) error
 	// The work bead itself is the authoritative source — no need to read
 	// the agent bead's hook_bead slot.
 	hookedBeadID := ""
-	hookedBeads, listErr := b.List(beads.ListOptions{
-		Status:   beads.StatusHooked,
-		Assignee: agentID,
-		Priority: -1,
-	})
-	if listErr == nil && len(hookedBeads) > 0 {
+	hookedBeads, listErr := listAssignedWork(b, agentID, beads.StatusHooked)
+	if listErr != nil {
+		return fmt.Errorf("listing hooked work: %w", listErr)
+	}
+	if len(hookedBeads) > 0 {
 		hookedBeadID = hookedBeads[0].ID
 	}
 
@@ -138,21 +137,17 @@ func runUnslingWith(cmd *cobra.Command, args []string, dryRun, force bool) error
 	if hookedBeadID == "" && !isTownLevelRole(agentID) && townRoot != "" {
 		townB := beads.New(filepath.Join(townRoot, ".beads"))
 		// Search with the exact agent ID
-		if townHooked, err := townB.List(beads.ListOptions{
-			Status:   beads.StatusHooked,
-			Assignee: agentID,
-			Priority: -1,
-		}); err == nil && len(townHooked) > 0 {
+		if townHooked, err := listAssignedWork(townB, agentID, beads.StatusHooked); err != nil {
+			return fmt.Errorf("listing town hooked work: %w", err)
+		} else if len(townHooked) > 0 {
 			hookedBeadID = townHooked[0].ID
 		} else {
 			// Also search with normalized identity (mail beads use normalized form)
 			normalizedID := mailNormalizedAgentID(agentID)
 			if normalizedID != agentID {
-				if townHooked, err := townB.List(beads.ListOptions{
-					Status:   beads.StatusHooked,
-					Assignee: normalizedID,
-					Priority: -1,
-				}); err == nil && len(townHooked) > 0 {
+				if townHooked, err := listAssignedWork(townB, normalizedID, beads.StatusHooked); err != nil {
+					return fmt.Errorf("listing normalized town hooked work: %w", err)
+				} else if len(townHooked) > 0 {
 					hookedBeadID = townHooked[0].ID
 				}
 			}
@@ -163,7 +158,10 @@ func runUnslingWith(cmd *cobra.Command, args []string, dryRun, force bool) error
 		// hook_bead is empty, but there may be stale beads with status "hooked"
 		// still assigned to this agent (e.g., hook_bead was cleared but bead status
 		// wasn't updated). Clean them up so gt hook and gt unsling stay consistent.
-		cleaned := cleanStaleHookedBeads(cmd, b, agentID, targetBeadID, townRoot, beadsPath, dryRun)
+		cleaned, err := cleanStaleHookedBeads(cmd, b, agentID, targetBeadID, townRoot, beadsPath, dryRun)
+		if err != nil {
+			return err
+		}
 		if !cleaned {
 			if targetAgent != "" {
 				fmt.Printf("%s No work hooked for %s\n", style.Dim.Render("ℹ"), agentID)
@@ -264,15 +262,11 @@ func runUnslingWith(cmd *cobra.Command, args []string, dryRun, force bool) error
 // bead's status wasn't updated back to "open". Without this, gt hook shows the
 // stale hook (via fallback query) but gt unsling says "Nothing on your hook".
 // Returns true if any stale beads were cleaned up.
-func cleanStaleHookedBeads(cmd *cobra.Command, b *beads.Beads, agentID, targetBeadID, townRoot, beadsPath string, dryRun bool) bool {
+func cleanStaleHookedBeads(cmd *cobra.Command, b *beads.Beads, agentID, targetBeadID, townRoot, beadsPath string, dryRun bool) (bool, error) {
 	// Collect stale beads from local rig beads
-	staleBeads, err := b.List(beads.ListOptions{
-		Status:   beads.StatusHooked,
-		Assignee: agentID,
-		Priority: -1,
-	})
+	staleBeads, err := listAssignedWork(b, agentID, beads.StatusHooked)
 	if err != nil {
-		staleBeads = nil
+		return false, fmt.Errorf("listing stale hooked work: %w", err)
 	}
 
 	// Also search town-level beads for rig-level agents (gt-dtq7).
@@ -283,21 +277,17 @@ func cleanStaleHookedBeads(cmd *cobra.Command, b *beads.Beads, agentID, targetBe
 		if townBeadsPath != beadsPath {
 			townB := beads.New(townBeadsPath)
 			// Search with exact agent ID
-			if townStale, err := townB.List(beads.ListOptions{
-				Status:   beads.StatusHooked,
-				Assignee: agentID,
-				Priority: -1,
-			}); err == nil {
+			if townStale, err := listAssignedWork(townB, agentID, beads.StatusHooked); err != nil {
+				return false, fmt.Errorf("listing stale town hooked work: %w", err)
+			} else {
 				staleBeads = append(staleBeads, townStale...)
 			}
 			// Also search with normalized identity (mail beads use normalized form)
 			normalizedID := mailNormalizedAgentID(agentID)
 			if normalizedID != agentID {
-				if townStale, err := townB.List(beads.ListOptions{
-					Status:   beads.StatusHooked,
-					Assignee: normalizedID,
-					Priority: -1,
-				}); err == nil {
+				if townStale, err := listAssignedWork(townB, normalizedID, beads.StatusHooked); err != nil {
+					return false, fmt.Errorf("listing stale normalized town hooked work: %w", err)
+				} else {
 					staleBeads = append(staleBeads, townStale...)
 				}
 			}
@@ -305,7 +295,7 @@ func cleanStaleHookedBeads(cmd *cobra.Command, b *beads.Beads, agentID, targetBe
 	}
 
 	if len(staleBeads) == 0 {
-		return false
+		return false, nil
 	}
 
 	// If a specific bead was requested, filter to only that one
@@ -317,7 +307,7 @@ func cleanStaleHookedBeads(cmd *cobra.Command, b *beads.Beads, agentID, targetBe
 			}
 		}
 		if len(filtered) == 0 {
-			return false
+			return false, nil
 		}
 		staleBeads = filtered
 	}
@@ -326,7 +316,7 @@ func cleanStaleHookedBeads(cmd *cobra.Command, b *beads.Beads, agentID, targetBe
 		for _, sb := range staleBeads {
 			fmt.Printf("Would clean up stale hooked bead %s (%s)\n", sb.ID, sb.Title)
 		}
-		return true
+		return true, nil
 	}
 
 	// Clean up each stale hooked bead
@@ -351,7 +341,7 @@ func cleanStaleHookedBeads(cmd *cobra.Command, b *beads.Beads, agentID, targetBe
 		}
 		fmt.Printf("%s Cleaned up stale bead %s (was hooked, now open)\n", style.Bold.Render("✓"), sb.ID)
 	}
-	return true
+	return true, nil
 }
 
 // mailNormalizedAgentID normalizes crew/polecats path to the canonical form

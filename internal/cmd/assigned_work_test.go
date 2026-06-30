@@ -122,6 +122,47 @@ esac
 	}
 }
 
+func TestFindActivePatrolFindsInProgressEphemeralRootOnlyWisp(t *testing.T) {
+	installTestBD(t, `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+  version)
+    echo "bd test"
+    ;;
+  list)
+    echo '[]'
+    ;;
+	  query)
+	    args="$*"
+	    case "$args" in
+	      *"ephemeral=true"*"status=\"hooked\""*) echo '[]' ;;
+	      *"ephemeral=true"*"status=\"in_progress\""*) echo '[{"id":"hq-wisp-refinery-active","title":"mol-refinery-patrol","status":"in_progress","assignee":"testrig/refinery","ephemeral":true}]' ;;
+      *) echo '[]' ;;
+    esac
+    ;;
+  *)
+    echo '[]'
+    ;;
+esac
+`)
+
+	patrolID, _, found, err := findActivePatrol(PatrolConfig{
+		RoleName:      "refinery",
+		PatrolMolName: constants.MolRefineryPatrol,
+		BeadsDir:      t.TempDir(),
+		Assignee:      "testrig/refinery",
+	})
+	if err != nil {
+		t.Fatalf("findActivePatrol returned error: %v", err)
+	}
+	if !found || patrolID != "hq-wisp-refinery-active" {
+		t.Fatalf("findActivePatrol found=%v id=%q, want in-progress wisp", found, patrolID)
+	}
+}
+
 func TestRunHookShowSeesEphemeralHookedWork(t *testing.T) {
 	installTestBD(t, `#!/bin/sh
 cmd=""
@@ -186,6 +227,74 @@ esac
 	}
 	if got.BeadID != "hq-wisp-refinery" || got.Status != beads.StatusHooked {
 		t.Fatalf("hook show bead=%q status=%q, want hooked wisp", got.BeadID, got.Status)
+	}
+}
+
+func TestRunHookShowSeesEphemeralInProgressWork(t *testing.T) {
+	installTestBD(t, `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+  version)
+    echo "bd test"
+    ;;
+  list)
+    echo '[]'
+    ;;
+	  query)
+	    args="$*"
+	    case "$args" in
+	      *"ephemeral=true"*"status=\"hooked\""*) echo '[]' ;;
+	      *"ephemeral=true"*"status=\"in_progress\""*"assignee=\"testrig/refinery\""*) echo '[{"id":"hq-wisp-refinery-active","title":"mol-refinery-patrol","status":"in_progress","assignee":"testrig/refinery","ephemeral":true}]' ;;
+      *) echo '[]' ;;
+    esac
+    ;;
+  *)
+    echo '[]'
+    ;;
+esac
+`)
+
+	townRoot := t.TempDir()
+	for _, dir := range []string{filepath.Join(townRoot, ".beads"), filepath.Join(townRoot, "mayor"), filepath.Join(townRoot, "testrig")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0o644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(townRoot); err != nil {
+		t.Fatalf("chdir town root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	prevJSON := moleculeJSON
+	moleculeJSON = true
+	t.Cleanup(func() { moleculeJSON = prevJSON })
+
+	out := captureStdout(t, func() {
+		if err := runHookShow(nil, []string{"testrig/refinery"}); err != nil {
+			t.Fatalf("runHookShow returned error: %v", err)
+		}
+	})
+	var got struct {
+		Agent  string `json:"agent"`
+		BeadID string `json:"bead_id"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("parse hook show output %q: %v", out, err)
+	}
+	if got.BeadID != "hq-wisp-refinery-active" || got.Status != "in_progress" {
+		t.Fatalf("hook show bead=%q status=%q, want in-progress wisp", got.BeadID, got.Status)
 	}
 }
 

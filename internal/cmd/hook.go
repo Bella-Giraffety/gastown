@@ -294,12 +294,8 @@ func runHook(_ *cobra.Command, args []string) error {
 
 	b := beads.New(workDir)
 
-	// Check for existing hooked bead for this agent
-	existingPinned, err := b.List(beads.ListOptions{
-		Status:   beads.StatusHooked,
-		Assignee: agentID,
-		Priority: -1,
-	})
+	// Check for existing hooked work for this agent across durable issues and wisps.
+	existingPinned, err := listAssignedWork(b, agentID, beads.StatusHooked)
 	if err != nil {
 		return fmt.Errorf("checking existing hooked beads: %w", err)
 	}
@@ -314,8 +310,13 @@ func runHook(_ *cobra.Command, args []string) error {
 			return nil
 		}
 
-		// Check if existing bead is complete
-		isComplete, hasAttachment := checkPinnedBeadComplete(b, existing)
+		// Ephemeral/root-only wisps are active work unless closed. Treating a
+		// hooked wisp with no attached molecule as complete would recreate the
+		// patrol orphan leak this lookup is meant to prevent.
+		isComplete, hasAttachment := false, true
+		if !existing.Ephemeral && !strings.Contains(existing.ID, "-wisp-") {
+			isComplete, hasAttachment = checkPinnedBeadComplete(b, existing)
+		}
 
 		if isComplete {
 			// Auto-replace completed bead

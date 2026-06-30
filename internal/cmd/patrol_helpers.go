@@ -41,8 +41,8 @@ const maxStalePurgePerRun = 5
 // so callers can distinguish "no patrol" from "discovery failed"
 // and avoid auto-spawning duplicates.
 //
-// Patrol molecules are intentionally hooked to the agent (hooked status).
-// This function looks up hooked patrols and distinguishes active ones
+// Patrol molecules are intentionally assigned to the agent. This function
+// looks up all active patrol statuses and distinguishes active ones
 // (with open/in_progress children) from stale ones (all children closed,
 // e.g. after a squash that didn't close the root). Stale patrols are
 // cleaned up incrementally (up to maxStalePurgePerRun per call); any
@@ -53,10 +53,10 @@ func findActivePatrol(cfg PatrolConfig) (patrolID, patrolLine string, found bool
 		b = beads.New(cfg.BeadsDir)
 	}
 
-	// Find hooked patrol work for this agent across durable issues and wisps.
-	hookedBeads, listErr := listAssignedWork(b, cfg.Assignee, beads.StatusHooked)
+	// Find active patrol work for this agent across durable issues and wisps.
+	hookedBeads, listErr := listAssignedWorkAllStatuses(b, cfg.Assignee)
 	if listErr != nil {
-		return "", "", false, fmt.Errorf("listing hooked beads: %w", listErr)
+		return "", "", false, fmt.Errorf("listing active patrol work: %w", listErr)
 	}
 
 	// Identify active patrol and collect stale ones for cleanup.
@@ -162,10 +162,10 @@ func burnPreviousPatrolWisps(cfg PatrolConfig) {
 		b = beads.New(cfg.BeadsDir)
 	}
 
-	// Find all hooked patrol work for this agent across durable issues and wisps.
-	hookedBeads, err := listAssignedWork(b, cfg.Assignee, beads.StatusHooked)
+	// Find all active patrol work for this agent across durable issues and wisps.
+	hookedBeads, err := listAssignedWorkAllStatuses(b, cfg.Assignee)
 	if err != nil {
-		style.PrintWarning("burn: could not list hooked beads: %v", err)
+		style.PrintWarning("burn: could not list active patrol work: %v", err)
 		return
 	}
 

@@ -31,6 +31,25 @@ func listAssignedWork(b *beads.Beads, assignee string, statuses ...string) ([]*b
 	return nil, nil
 }
 
+func listAssignedWorkAllStatuses(b *beads.Beads, assignee string, statuses ...string) ([]*beads.Issue, error) {
+	if b == nil {
+		return nil, fmt.Errorf("nil beads handle")
+	}
+	if len(statuses) == 0 {
+		statuses = defaultActiveWorkStatuses
+	}
+
+	var work []*beads.Issue
+	for _, status := range statuses {
+		assigned, err := listAssignedWorkForStatus(b, assignee, status)
+		if err != nil {
+			return nil, fmt.Errorf("listing %s assigned work: %w", status, err)
+		}
+		work = append(work, assigned...)
+	}
+	return dedupeAssignedWork(work), nil
+}
+
 func listAssignedWorkForStatus(b *beads.Beads, assignee, status string) ([]*beads.Issue, error) {
 	opts := beads.ListOptions{
 		Status:   status,
