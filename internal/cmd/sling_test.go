@@ -369,6 +369,7 @@ exit /b 0
 	gotFormulaShow := false
 	gotHook := false
 	gotMetadata := false
+	gotReviewOnlyMetadata := false
 	assertTargetRig := func(kind, dir, beadsDir, database, beadsDB, bdDB, dataDir, args string) {
 		t.Helper()
 		if dir != wantDir {
@@ -385,7 +386,9 @@ exit /b 0
 		}
 	}
 
-	for _, line := range logLines {
+	firstReviewOnlyMetadataIndex := -1
+	lastHookIndex := -1
+	for i, line := range logLines {
 		parts := strings.SplitN(line, "|", 7)
 		if len(parts) != 7 {
 			t.Fatalf("malformed bd log line: %q", line)
@@ -439,10 +442,17 @@ exit /b 0
 			assertTargetRig("mol bond", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--status=hooked"):
 			gotHook = true
+			lastHookIndex = i
 			assertTargetRig("hook update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--description=<attached-molecule-and-formula-fields>"):
 			gotMetadata = true
 			assertTargetRig("metadata update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
+		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--description=<review-only-fields>"):
+			gotReviewOnlyMetadata = true
+			if firstReviewOnlyMetadataIndex == -1 {
+				firstReviewOnlyMetadataIndex = i
+			}
+			assertTargetRig("review-only metadata update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case strings.Contains(args, "update "+newBeadID) && strings.Contains(args, "--description="):
 			assertTargetRig("description update", dir, beadsDir, database, beadsDB, bdDB, dataDir, args)
 		case args == "--version" || strings.HasPrefix(args, "version") || strings.Contains(args, " version") || strings.Contains(args, "show gt-rig-") || strings.Contains(args, "show mol-"):
@@ -453,9 +463,12 @@ exit /b 0
 		}
 	}
 
-	if !gotCreate || !gotTargetDBCheck || !gotFormulaShow || !gotPolecatCook || !gotPolecatWisp || !gotReviewCook || !gotReviewWisp || gotBondCount < 2 || !gotHook || !gotMetadata {
-		t.Fatalf("missing expected bd commands: create=%v targetDBCheck=%v formulaShow=%v polecat(cook=%v wisp=%v) review(cook=%v wisp=%v) bondCount=%d hook=%v metadata=%v (log: %q)",
-			gotCreate, gotTargetDBCheck, gotFormulaShow, gotPolecatCook, gotPolecatWisp, gotReviewCook, gotReviewWisp, gotBondCount, gotHook, gotMetadata, string(logBytes))
+	if !gotCreate || !gotTargetDBCheck || !gotFormulaShow || !gotPolecatCook || !gotPolecatWisp || !gotReviewCook || !gotReviewWisp || gotBondCount < 2 || !gotHook || !gotMetadata || !gotReviewOnlyMetadata {
+		t.Fatalf("missing expected bd commands: create=%v targetDBCheck=%v formulaShow=%v polecat(cook=%v wisp=%v) review(cook=%v wisp=%v) bondCount=%d hook=%v metadata=%v reviewOnlyMetadata=%v (log: %q)",
+			gotCreate, gotTargetDBCheck, gotFormulaShow, gotPolecatCook, gotPolecatWisp, gotReviewCook, gotReviewWisp, gotBondCount, gotHook, gotMetadata, gotReviewOnlyMetadata, string(logBytes))
+	}
+	if firstReviewOnlyMetadataIndex == -1 || lastHookIndex == -1 || firstReviewOnlyMetadataIndex > lastHookIndex {
+		t.Fatalf("review-only metadata must be stored before raw hook assignment: metadataIndex=%d hookIndex=%d log: %q", firstReviewOnlyMetadataIndex, lastHookIndex, string(logBytes))
 	}
 }
 
@@ -1138,6 +1151,24 @@ func TestBatchSlingRejectsMissingTargetRigDatabaseBeforeSpawn(t *testing.T) {
 	}
 	if spawnCalled {
 		t.Fatal("spawnPolecatForSling was called before target-rig database validation rejected the bead")
+	}
+}
+
+func TestSchedulerRejectsReviewOnlyForEpicConvoy(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("review-only", false, "")
+	if err := cmd.Flags().Set("review-only", "true"); err != nil {
+		t.Fatalf("set review-only flag: %v", err)
+	}
+
+	for _, mode := range []string{"epic", "convoy"} {
+		err := validateNoTaskOnlySchedulerFlags(cmd, mode)
+		if err == nil {
+			t.Fatalf("validateNoTaskOnlySchedulerFlags(%s) accepted --review-only", mode)
+		}
+		if !strings.Contains(err.Error(), "--review-only") {
+			t.Fatalf("validateNoTaskOnlySchedulerFlags(%s) error = %v, want --review-only", mode, err)
+		}
 	}
 }
 
