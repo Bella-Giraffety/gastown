@@ -122,6 +122,81 @@ func TestForceCloseIssueWithRetryReturnsFinalError(t *testing.T) {
 	}
 }
 
+func TestReviewOnlyCloseRequiresEvidence(t *testing.T) {
+	issue := &beads.Issue{
+		ID:          "gt-review",
+		Description: "review_only: true\n",
+	}
+
+	reason, fatal := doneReviewOnlyCloseSkipReason(nil, issue.ID, issue)
+	if reason == "" {
+		t.Fatal("expected review-only close skip reason")
+	}
+	if !fatal {
+		t.Fatal("review-only close without evidence should fail closed")
+	}
+	if !strings.Contains(reason, "no report/evidence") {
+		t.Fatalf("reason = %q, want missing evidence", reason)
+	}
+}
+
+func TestReviewOnlyCloseAllowsEvidence(t *testing.T) {
+	issue := &beads.Issue{
+		ID:          "gt-review",
+		Description: "review_only: true\n",
+		Notes:       "FINDINGS: reviewed and no code changes needed",
+	}
+
+	reason, fatal := doneReviewOnlyCloseSkipReason(nil, issue.ID, issue)
+	if reason != "" || fatal {
+		t.Fatalf("doneReviewOnlyCloseSkipReason = %q, %v; want allowed", reason, fatal)
+	}
+}
+
+func TestReviewOnlyGeneratedCommentsDoNotCountAsEvidence(t *testing.T) {
+	issue := &beads.Issue{
+		ID:          "gt-review",
+		Description: "review_only: true\n",
+		Comments: []beads.Comment{
+			{Text: "verified_push_skipped: --skip-verify on no-MR close"},
+			{Text: "MR created: gt-wisp-abc"},
+		},
+	}
+
+	reason, fatal := doneReviewOnlyCloseSkipReason(nil, issue.ID, issue)
+	if reason == "" || !fatal {
+		t.Fatalf("generated comments should not satisfy review evidence: reason=%q fatal=%v", reason, fatal)
+	}
+}
+
+func TestNonReviewOnlyCloseDoesNotRequireEvidence(t *testing.T) {
+	issue := &beads.Issue{
+		ID:          "gt-review",
+		Description: "no_merge: true\n",
+	}
+
+	reason, fatal := doneReviewOnlyCloseSkipReason(nil, issue.ID, issue)
+	if reason != "" || fatal {
+		t.Fatalf("non-review-only close gate = %q, %v; want no restriction", reason, fatal)
+	}
+}
+
+func TestNonReviewOnlyReviewGateDoesNotChangeCriteriaHandling(t *testing.T) {
+	issue := &beads.Issue{
+		ID:                 "gt-review",
+		Description:        "no_merge: true\n",
+		AcceptanceCriteria: "- [ ] still open\n",
+	}
+
+	reason, fatal := doneSourceCloseSkipReason(nil, issue.ID, issue)
+	if reason == "" || fatal {
+		t.Fatalf("criteria gate = %q, %v; want non-fatal skip", reason, fatal)
+	}
+	if !strings.Contains(reason, "unchecked acceptance criteria") {
+		t.Fatalf("reason = %q, want criteria reason", reason)
+	}
+}
+
 // TestDoneBeadsInitWithoutRedirect verifies that beads initialization works
 // normally when no redirect file exists.
 func TestDoneBeadsInitWithoutRedirect(t *testing.T) {

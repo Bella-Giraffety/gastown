@@ -177,6 +177,8 @@ type Issue struct {
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
+	Design      string   `json:"design,omitempty"`
+	Notes       string   `json:"notes,omitempty"`
 	Status      string   `json:"status"`
 	Priority    int      `json:"priority"`
 	Type        string   `json:"issue_type"`
@@ -214,6 +216,16 @@ type Issue struct {
 	// delegation state (delegated_from key) and merge-slot state (holder/waiters).
 	// Populated by both bd show --json and the in-process store path.
 	Metadata json.RawMessage `json:"metadata,omitempty"`
+	Comments []Comment       `json:"comments,omitempty"`
+}
+
+// Comment represents a beads issue comment needed by review evidence checks.
+type Comment struct {
+	ID        string `json:"id"`
+	IssueID   string `json:"issue_id"`
+	Author    string `json:"author"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"created_at"`
 }
 
 // HasLabel checks if an issue has a specific label.
