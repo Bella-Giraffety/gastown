@@ -138,6 +138,33 @@ func TestPickBestAgentBeadCollapsesSameIDIssueWispDuplicate(t *testing.T) {
 	}
 }
 
+func TestPickBestAgentBeadForTownRolePrefersTownIssue(t *testing.T) {
+	candidates := []agentBeadCandidate{
+		{
+			ID:       "hq-deacon",
+			Source:   agentSourceRigWisps,
+			BeadsDir: "/rig/.beads",
+			Status:   "open",
+			Issue:    &beads.Issue{ID: "hq-deacon", Status: "open"},
+		},
+		{
+			ID:       "hq-deacon",
+			Source:   agentSourceTownIssues,
+			BeadsDir: "/town/.beads",
+			Status:   "open",
+			Issue:    &beads.Issue{ID: "hq-deacon", Status: "open"},
+		},
+	}
+
+	got, err := pickBestAgentBeadForRole(candidates, "deacon")
+	if err != nil {
+		t.Fatalf("pickBestAgentBeadForRole returned error: %v", err)
+	}
+	if got == nil || got.ID != "hq-deacon" || got.Source != agentSourceTownIssues {
+		t.Fatalf("pickBestAgentBeadForRole picked %#v, want town durable hq-deacon issue", got)
+	}
+}
+
 func TestLoadAgentBeadsUsesSourceSpecificQueriesForDuplicateID(t *testing.T) {
 	installTestBD(t, `#!/bin/sh
 cmd=""

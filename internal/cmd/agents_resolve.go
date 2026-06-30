@@ -95,7 +95,7 @@ func runAgentsResolve(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	match, err := pickBestAgentBead(matches)
+	match, err := pickBestAgentBeadForRole(matches, role)
 	if err != nil {
 		return err
 	}
@@ -234,6 +234,17 @@ func agentBeadMatches(issue *beads.Issue, role, rig string) bool {
 }
 
 func pickBestAgentBead(candidates []agentBeadCandidate) (*agentBeadCandidate, error) {
+	return pickBestAgentBeadWithRank(candidates, agentBeadSourceRank)
+}
+
+func pickBestAgentBeadForRole(candidates []agentBeadCandidate, role string) (*agentBeadCandidate, error) {
+	if isTownAgentResolveRole(role) {
+		return pickBestAgentBeadWithRank(candidates, townAgentBeadSourceRank)
+	}
+	return pickBestAgentBeadWithRank(candidates, agentBeadSourceRank)
+}
+
+func pickBestAgentBeadWithRank(candidates []agentBeadCandidate, rank func(agentBeadSource) int) (*agentBeadCandidate, error) {
 	open := candidates[:0]
 	for _, candidate := range candidates {
 		if strings.EqualFold(candidate.Status, "closed") {
@@ -247,18 +258,18 @@ func pickBestAgentBead(candidates []agentBeadCandidate) (*agentBeadCandidate, er
 	open = dedupeAgentBeadCandidates(open)
 
 	sort.Slice(open, func(i, j int) bool {
-		leftRank := agentBeadSourceRank(open[i].Source)
-		rightRank := agentBeadSourceRank(open[j].Source)
+		leftRank := rank(open[i].Source)
+		rightRank := rank(open[j].Source)
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}
 		return open[i].ID < open[j].ID
 	})
 
-	bestRank := agentBeadSourceRank(open[0].Source)
+	bestRank := rank(open[0].Source)
 	var sameRank []string
 	for _, candidate := range open {
-		if agentBeadSourceRank(candidate.Source) != bestRank {
+		if rank(candidate.Source) != bestRank {
 			break
 		}
 		sameRank = append(sameRank, candidate.ID)
@@ -268,6 +279,15 @@ func pickBestAgentBead(candidates []agentBeadCandidate) (*agentBeadCandidate, er
 	}
 
 	return &open[0], nil
+}
+
+func isTownAgentResolveRole(role string) bool {
+	switch role {
+	case "mayor", "deacon":
+		return true
+	default:
+		return false
+	}
 }
 
 func dedupeAgentBeadCandidates(candidates []agentBeadCandidate) []agentBeadCandidate {
@@ -322,6 +342,21 @@ func agentBeadSourceRank(source agentBeadSource) int {
 	case agentSourceTownWisps:
 		return 2
 	case agentSourceTownIssues:
+		return 3
+	default:
+		return 99
+	}
+}
+
+func townAgentBeadSourceRank(source agentBeadSource) int {
+	switch source {
+	case agentSourceTownIssues:
+		return 0
+	case agentSourceTownWisps:
+		return 1
+	case agentSourceRigIssues:
+		return 2
+	case agentSourceRigWisps:
 		return 3
 	default:
 		return 99
