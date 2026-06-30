@@ -64,6 +64,7 @@ func TestBdReadOnlyPinnedEnvUsesSelectedBeadsDir(t *testing.T) {
 	assertSingleEnvValue(t, env, "BD_READONLY", "true")
 	assertSingleEnvValue(t, env, "BD_EXPORT_AUTO", "false")
 	assertEnvAbsent(t, env, "BEADS_DOLT_DATA_DIR")
+	assertEnvAbsent(t, env, "GT_DOLT_DATA")
 }
 
 func TestBdReadOnlyRoutingEnvDoesNotPinDatabase(t *testing.T) {
@@ -89,6 +90,7 @@ func TestBdReadOnlyRoutingEnvDoesNotPinDatabase(t *testing.T) {
 	assertSingleEnvValue(t, env, "BD_DOLT_AUTO_COMMIT", "off")
 	assertSingleEnvValue(t, env, "BD_READONLY", "true")
 	assertEnvAbsent(t, env, "BEADS_DOLT_DATA_DIR")
+	assertEnvAbsent(t, env, "GT_DOLT_DATA")
 }
 
 func assertSingleEnvValue(t *testing.T, env []string, key, want string) {

@@ -293,6 +293,9 @@ func TestBuildBDEnvGTDoltEndpointOverridesStaleMetadata(t *testing.T) {
 			if _, ok := got["BEADS_DOLT_DATA_DIR"]; ok {
 				t.Fatalf("BEADS_DOLT_DATA_DIR should be stripped in %v", tc.env)
 			}
+			if _, ok := got["GT_DOLT_DATA"]; ok {
+				t.Fatalf("GT_DOLT_DATA should be stripped in %v", tc.env)
+			}
 			if tc.name != "pinned" {
 				if _, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
 					t.Fatalf("routing env must not pin database: %v", tc.env)

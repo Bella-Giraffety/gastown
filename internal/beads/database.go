@@ -16,6 +16,7 @@ var bdTargetEnvKeys = []string{
 	"BEADS_DB",
 	"BD_DB",
 	"BEADS_SHARED_SERVER_DIR",
+	"GT_DOLT_DATA",
 }
 
 // DatabaseNameFromMetadata reads the dolt_database field from .beads/metadata.json.
