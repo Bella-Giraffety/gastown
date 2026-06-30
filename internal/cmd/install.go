@@ -659,10 +659,18 @@ func writeJSON(path string, data interface{}) error {
 // buildBdInitArgs returns the arguments for `bd init` including the correct
 // --server-port derived from the town's Dolt configuration.
 func buildBdInitArgs(townPath string) []string {
-	cfg := doltserver.DefaultConfig(townPath)
+	cfg := bdInitDoltConfig(townPath)
 	// gt install --force preserves town state; bd reinit flags would destroy town beads.
 	return []string{"init", "--prefix", "hq", "--server",
 		"--server-port", strconv.Itoa(cfg.Port)}
+}
+
+func bdInitDoltConfig(townPath string) *doltserver.Config {
+	cfg := doltserver.DefaultConfig(townPath)
+	if port := config.ResolveConfiguredDoltPort(townPath); port > 0 {
+		cfg.Port = port
+	}
+	return cfg
 }
 
 // initTownBeads initializes town-level beads database using bd init.
@@ -672,7 +680,7 @@ func initTownBeads(townPath string) error {
 	// Dolt server is required — wait for it to accept queries before proceeding.
 	// The server may have just been started by gt install and TCP reachability
 	// alone is not sufficient; we need MySQL protocol readiness.
-	cfg := doltserver.DefaultConfig(townPath)
+	cfg := bdInitDoltConfig(townPath)
 	// wa-d6f: socket-first DSN (TCP fallback) — same rationale.
 	dsn := buildDoltDSNFromConfig(cfg, "", dsnOpts{})
 	var lastErr error
@@ -697,9 +705,8 @@ func initTownBeads(townPath string) error {
 	// Dolt is the only backend since bd v0.51.0; no --backend flag needed.
 	// Filter inherited BEADS_DIR so bd init targets this town, not a parent .beads.
 	// Always pass --server-port so bd connects to the correct Dolt server.
-	// DefaultConfig resolves the port from config.yaml > GT_DOLT_PORT env > default (3307).
-	// Forward GT_DOLT_PORT so bd connects to the correct server when a
-	// non-default port is configured (e.g., ephemeral test servers in CI).
+	// bd init targets durable town config, so config.yaml beats ambient
+	// GT_DOLT_PORT that may be stale in long-lived agent sessions.
 	bdInitArgs := buildBdInitArgs(townPath)
 	cmd := exec.Command("bd", bdInitArgs...)
 	cmd.Dir = townPath

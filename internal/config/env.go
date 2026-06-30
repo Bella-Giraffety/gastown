@@ -442,10 +442,8 @@ func sanitizeOTELAttrValue(s string, maxLen int) string {
 //  4. mayor/daemon.json env.GT_DOLT_PORT
 //  5. 0 (caller should skip injection — DefaultPort 3307 remains the default)
 func ResolveDoltPort(townRoot string) int {
-	if p := os.Getenv("GT_DOLT_PORT"); p != "" {
-		if port, err := strconv.Atoi(p); err == nil && port > 0 {
-			return port
-		}
+	if port := resolveDoltPortFromEnv(); port > 0 {
+		return port
 	}
 	if townRoot == "" {
 		return 0
@@ -455,34 +453,51 @@ func ResolveDoltPort(townRoot string) int {
 		return port
 	}
 
-	if os.Getenv("GT_DOLT_IGNORE_CONFIG") != "1" {
-		configPath := filepath.Join(townRoot, ".dolt-data", "config.yaml")
-		if data, err := os.ReadFile(configPath); err == nil {
-			if port := parsePortFromConfigYAML(data); port > 0 {
-				return port
-			}
-		}
+	if port := resolveDoltPortFromConfigYAML(townRoot); port > 0 {
+		return port
 	}
 
-	daemonJSONPath := filepath.Join(townRoot, "mayor", "daemon.json")
-	if data, err := os.ReadFile(daemonJSONPath); err == nil {
-		var daemonEnv struct {
-			Env map[string]string `json:"env"`
-		}
-		if err := json.Unmarshal(data, &daemonEnv); err == nil {
-			if v, ok := daemonEnv.Env["GT_DOLT_PORT"]; ok {
-				if port, err := strconv.Atoi(v); err == nil && port > 0 {
-					return port
-				}
-			}
-		}
+	if port := resolveDoltPortFromDaemonJSON(townRoot); port > 0 {
+		return port
 	}
 
 	return 0
 }
 
+// ResolveConfiguredDoltPort determines the durable configured Dolt port for
+// initializing a target town. Unlike ResolveDoltPort, it does not consult
+// transient daemon state and it lets the target town's managed config beat
+// ambient GT_DOLT_PORT, which may be stale in long-lived agent sessions.
+//
+// Resolution order:
+//  1. .dolt-data/config.yaml listener.port unless GT_DOLT_IGNORE_CONFIG=1
+//  2. GT_DOLT_PORT environment variable
+//  3. mayor/daemon.json env.GT_DOLT_PORT
+//  4. 0 (caller should use its default)
+func ResolveConfiguredDoltPort(townRoot string) int {
+	if port := resolveDoltPortFromConfigYAML(townRoot); port > 0 {
+		return port
+	}
+	if port := resolveDoltPortFromEnv(); port > 0 {
+		return port
+	}
+	if port := resolveDoltPortFromDaemonJSON(townRoot); port > 0 {
+		return port
+	}
+	return 0
+}
+
 func resolveDoltPort(townRoot string) int {
 	return ResolveDoltPort(townRoot)
+}
+
+func resolveDoltPortFromEnv() int {
+	if p := os.Getenv("GT_DOLT_PORT"); p != "" {
+		if port, err := strconv.Atoi(p); err == nil && port > 0 {
+			return port
+		}
+	}
+	return 0
 }
 
 func resolveDoltPortFromState(townRoot string) int {
@@ -502,6 +517,41 @@ func resolveDoltPortFromState(townRoot string) int {
 		return 0
 	}
 	return state.Port
+}
+
+func resolveDoltPortFromConfigYAML(townRoot string) int {
+	if townRoot == "" || os.Getenv("GT_DOLT_IGNORE_CONFIG") == "1" {
+		return 0
+	}
+	configPath := filepath.Join(townRoot, ".dolt-data", "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return 0
+	}
+	return parsePortFromConfigYAML(data)
+}
+
+func resolveDoltPortFromDaemonJSON(townRoot string) int {
+	if townRoot == "" {
+		return 0
+	}
+	daemonJSONPath := filepath.Join(townRoot, "mayor", "daemon.json")
+	data, err := os.ReadFile(daemonJSONPath)
+	if err != nil {
+		return 0
+	}
+	var daemonEnv struct {
+		Env map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal(data, &daemonEnv); err != nil {
+		return 0
+	}
+	if v, ok := daemonEnv.Env["GT_DOLT_PORT"]; ok {
+		if port, err := strconv.Atoi(v); err == nil && port > 0 {
+			return port
+		}
+	}
+	return 0
 }
 
 // parsePortFromConfigYAML extracts the listener port from a Dolt config.yaml

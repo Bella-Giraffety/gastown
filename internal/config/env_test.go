@@ -1268,6 +1268,69 @@ func TestResolveDoltPort_NoConfig(t *testing.T) {
 	}
 }
 
+func TestResolveConfiguredDoltPort_ConfigYAMLBeatsEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("GT_DOLT_IGNORE_CONFIG", "")
+	t.Setenv("GT_DOLT_PORT", "9999")
+	doltDataDir := filepath.Join(tmpDir, ".dolt-data")
+	if err := os.MkdirAll(doltDataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(doltDataDir, "config.yaml"), []byte("listener:\n  port: 3307\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ResolveConfiguredDoltPort(tmpDir)
+	if got != 3307 {
+		t.Errorf("ResolveConfiguredDoltPort() = %d, want 3307", got)
+	}
+}
+
+func TestResolveConfiguredDoltPort_FallsBackToEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("GT_DOLT_PORT", "3310")
+
+	got := ResolveConfiguredDoltPort(tmpDir)
+	if got != 3310 {
+		t.Errorf("ResolveConfiguredDoltPort() = %d, want 3310", got)
+	}
+}
+
+func TestResolveConfiguredDoltPort_IgnoreConfigUsesEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("GT_DOLT_IGNORE_CONFIG", "1")
+	t.Setenv("GT_DOLT_PORT", "3310")
+	doltDataDir := filepath.Join(tmpDir, ".dolt-data")
+	if err := os.MkdirAll(doltDataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(doltDataDir, "config.yaml"), []byte("listener:\n  port: 3307\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ResolveConfiguredDoltPort(tmpDir)
+	if got != 3310 {
+		t.Errorf("ResolveConfiguredDoltPort() = %d, want 3310", got)
+	}
+}
+
+func TestResolveConfiguredDoltPort_DaemonJSONFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("GT_DOLT_PORT", "")
+	mayorDir := filepath.Join(tmpDir, "mayor")
+	if err := os.MkdirAll(mayorDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mayorDir, "daemon.json"), []byte(`{"env":{"GT_DOLT_PORT":"5507"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ResolveConfiguredDoltPort(tmpDir)
+	if got != 5507 {
+		t.Errorf("ResolveConfiguredDoltPort() = %d, want 5507", got)
+	}
+}
+
 func TestAgentEnv_InjectsDoltPort(t *testing.T) {
 	t.Setenv("GT_DOLT_PORT", "")
 	t.Setenv("BEADS_DOLT_SERVER_PORT", "")
