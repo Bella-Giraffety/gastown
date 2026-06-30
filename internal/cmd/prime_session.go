@@ -304,9 +304,8 @@ func detectSessionState(ctx RoleContext) SessionState {
 		}
 	}
 
-	// Check for hooked work (autonomous state).
-	// Primary: read hook_bead from the agent bead's DB column (same strategy as gt hook).
-	// Fallback: query hooked/in_progress beads by assignee.
+	// Check for hooked work (autonomous state). The work row's status+assignee is
+	// authoritative; hook_bead is retained only as a legacy compatibility hint.
 	agentID := getAgentIdentity(ctx)
 	if agentID != "" {
 		// Use rig beads directory, not polecat worktree. Polecats don't have their
@@ -319,7 +318,7 @@ func detectSessionState(ctx RoleContext) SessionState {
 			}
 		}
 		b := beads.New(beadsDir)
-		// Primary: agent bead's hook_bead field (authoritative, set by bd slot set during sling)
+		// Legacy compatibility: agent bead's hook_bead field, if still populated.
 		agentBeadID := buildAgentBeadID(agentID, ctx.Role, ctx.TownRoot)
 		if agentBeadID != "" {
 			agentBeadDir := beads.ResolveHookDir(ctx.TownRoot, agentBeadID, ctx.WorkDir)
@@ -338,48 +337,20 @@ func detectSessionState(ctx RoleContext) SessionState {
 			}
 		}
 
-		// Fallback: query by assignee
-		hookedBeads, err := b.List(beads.ListOptions{
-			Status:   beads.StatusHooked,
-			Assignee: agentID,
-			Priority: -1,
-		})
+		// Fallback: query authoritative work assignment across issues and wisps.
+		hookedBeads, err := listAssignedWork(b, agentID, beads.StatusHooked, "in_progress")
 		if err == nil && len(hookedBeads) > 0 {
 			state.State = "autonomous"
 			state.HookedBead = hookedBeads[0].ID
-			return state
-		}
-		// Also check in_progress beads
-		inProgressBeads, err := b.List(beads.ListOptions{
-			Status:   "in_progress",
-			Assignee: agentID,
-			Priority: -1,
-		})
-		if err == nil && len(inProgressBeads) > 0 {
-			state.State = "autonomous"
-			state.HookedBead = inProgressBeads[0].ID
 			return state
 		}
 		// Town-level fallback: rig-level agents may have hooked HQ beads
 		// stored in townRoot/.beads. Matches prime.go and molecule_status.go. (gt-dtq7)
 		if !isTownLevelRole(agentID) && ctx.TownRoot != "" {
 			townB := beads.New(filepath.Join(ctx.TownRoot, ".beads"))
-			if townHooked, err := townB.List(beads.ListOptions{
-				Status:   beads.StatusHooked,
-				Assignee: agentID,
-				Priority: -1,
-			}); err == nil && len(townHooked) > 0 {
+			if townWork, err := listAssignedWork(townB, agentID, beads.StatusHooked, "in_progress"); err == nil && len(townWork) > 0 {
 				state.State = "autonomous"
-				state.HookedBead = townHooked[0].ID
-				return state
-			}
-			if townIP, err := townB.List(beads.ListOptions{
-				Status:   "in_progress",
-				Assignee: agentID,
-				Priority: -1,
-			}); err == nil && len(townIP) > 0 {
-				state.State = "autonomous"
-				state.HookedBead = townIP[0].ID
+				state.HookedBead = townWork[0].ID
 				return state
 			}
 		}

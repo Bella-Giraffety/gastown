@@ -25,8 +25,9 @@ var agentsResolveCmd = &cobra.Command{
 	Long: `Resolve the active agent bead for a role.
 
 The resolver searches the current rig database and the town database across
-both durable issues and ephemeral wisps. It prefers the current rig's wisp
-record, then rig issue, town wisp, and town issue. Closed beads are ignored.`,
+both durable issues and ephemeral wisps. Same-ID issue/wisp records are one
+logical identity with durable issue metadata preferred; distinct matches still
+rank by current rig wisp, rig issue, town wisp, and town issue. Closed beads are ignored.`,
 	RunE: runAgentsResolve,
 }
 
@@ -173,23 +174,25 @@ func loadAgentBeadsFromDir(beadsDir string, issueSource, wispSource agentBeadSou
 		})
 	}
 
-	if wisps, err := db.List(beads.ListOptions{Ephemeral: true, Label: "gt:agent", Status: "all"}); err == nil {
-		for _, wisp := range wisps {
-			candidates = append(candidates, agentBeadCandidate{
-				ID:       wisp.ID,
-				Source:   wispSource,
-				BeadsDir: beadsDir,
-				Status:   wisp.Status,
-				Issue:    wisp,
-			})
-		}
+	wisps, err := listAgentWisps(db)
+	if err != nil {
+		return nil, fmt.Errorf("listing agent wisps in %s: %w", beadsDir, err)
+	}
+	for _, wisp := range wisps {
+		candidates = append(candidates, agentBeadCandidate{
+			ID:       wisp.ID,
+			Source:   wispSource,
+			BeadsDir: beadsDir,
+			Status:   wisp.Status,
+			Issue:    wisp,
+		})
 	}
 
-	return candidates, nil
+	return dedupeAgentBeadCandidates(candidates), nil
 }
 
 func listAgentIssues(db *beads.Beads) ([]*beads.Issue, error) {
-	out, err := db.Run("list", "--label=gt:agent", "--include-infra", "--status=all", "--json", "--flat", "--no-pager", "--limit=0")
+	out, err := db.Run("query", "--json", `ephemeral=false AND label="gt:agent"`, "--all", "--limit=0")
 	if err != nil {
 		return nil, err
 	}
@@ -199,9 +202,13 @@ func listAgentIssues(db *beads.Beads) ([]*beads.Issue, error) {
 
 	var issues []*beads.Issue
 	if err := json.Unmarshal(out, &issues); err != nil {
-		return nil, fmt.Errorf("parsing bd list output: %w", err)
+		return nil, fmt.Errorf("parsing bd query output: %w", err)
 	}
 	return issues, nil
+}
+
+func listAgentWisps(db *beads.Beads) ([]*beads.Issue, error) {
+	return db.List(beads.ListOptions{Ephemeral: true, Label: "gt:agent", Status: "all", Priority: -1})
 }
 
 func agentBeadMatches(issue *beads.Issue, role, rig string) bool {
@@ -237,6 +244,7 @@ func pickBestAgentBead(candidates []agentBeadCandidate) (*agentBeadCandidate, er
 	if len(open) == 0 {
 		return nil, nil
 	}
+	open = dedupeAgentBeadCandidates(open)
 
 	sort.Slice(open, func(i, j int) bool {
 		leftRank := agentBeadSourceRank(open[i].Source)
@@ -260,6 +268,49 @@ func pickBestAgentBead(candidates []agentBeadCandidate) (*agentBeadCandidate, er
 	}
 
 	return &open[0], nil
+}
+
+func dedupeAgentBeadCandidates(candidates []agentBeadCandidate) []agentBeadCandidate {
+	if len(candidates) < 2 {
+		return candidates
+	}
+	seen := make(map[string]int, len(candidates))
+	deduped := make([]agentBeadCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.ID == "" {
+			continue
+		}
+		key := filepath.Clean(candidate.BeadsDir) + "\x00" + candidate.ID
+		if idx, ok := seen[key]; ok {
+			if preferAgentBeadDuplicate(candidate, deduped[idx]) {
+				deduped[idx] = candidate
+			}
+			continue
+		}
+		seen[key] = len(deduped)
+		deduped = append(deduped, candidate)
+	}
+	return deduped
+}
+
+func preferAgentBeadDuplicate(candidate, current agentBeadCandidate) bool {
+	candidateRank := agentDuplicateSourceRank(candidate.Source)
+	currentRank := agentDuplicateSourceRank(current.Source)
+	if candidateRank != currentRank {
+		return candidateRank < currentRank
+	}
+	return agentBeadSourceRank(candidate.Source) < agentBeadSourceRank(current.Source)
+}
+
+func agentDuplicateSourceRank(source agentBeadSource) int {
+	switch source {
+	case agentSourceRigIssues, agentSourceTownIssues:
+		return 0
+	case agentSourceRigWisps, agentSourceTownWisps:
+		return 1
+	default:
+		return 9
+	}
 }
 
 func agentBeadSourceRank(source agentBeadSource) int {

@@ -2144,21 +2144,9 @@ func findAssignedBeadsForAgent(workDir, agentID string) []string {
 }
 
 func queryAssignedBeads(bd *beads.Beads, agentID string) []*beads.Issue {
-	hooked, err := bd.List(beads.ListOptions{
-		Status:   beads.StatusHooked,
-		Assignee: agentID,
-		Priority: -1,
-	})
-	if err == nil && len(hooked) > 0 {
-		return hooked
-	}
-	inProgress, err := bd.List(beads.ListOptions{
-		Status:   "in_progress",
-		Assignee: agentID,
-		Priority: -1,
-	})
+	assigned, err := listAssignedWork(bd, agentID, beads.StatusHooked, "in_progress")
 	if err == nil {
-		return inProgress
+		return assigned
 	}
 	return nil
 }
