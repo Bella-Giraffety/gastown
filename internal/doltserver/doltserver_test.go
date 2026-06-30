@@ -3905,6 +3905,7 @@ func TestDefaultConfig_EnvVarPartialOverride(t *testing.T) {
 
 	// Only override host, rest should keep defaults
 	t.Setenv("GT_DOLT_HOST", "remote.host")
+	t.Setenv("GT_DOLT_PORT", "")
 
 	config := DefaultConfig(townRoot)
 
@@ -3935,6 +3936,7 @@ func TestDefaultConfig_InvalidPortIgnored(t *testing.T) {
 
 func TestDefaultConfig_ConfigYAMLBeatsDaemonJSON(t *testing.T) {
 	townRoot := t.TempDir()
+	t.Setenv("GT_DOLT_PORT", "")
 	dataDir := filepath.Join(townRoot, ".dolt-data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		t.Fatal(err)
@@ -3993,6 +3995,7 @@ func TestDefaultConfig_IgnoreConfigUsesEnvPort(t *testing.T) {
 
 func TestDefaultConfig_ManagedDefaultsAndEnvOverrides(t *testing.T) {
 	townRoot := t.TempDir()
+	t.Setenv("GT_DOLT_PORT", "")
 
 	config := DefaultConfig(townRoot)
 	if config.EventScheduler != "OFF" {
