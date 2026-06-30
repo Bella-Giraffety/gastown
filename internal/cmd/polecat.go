@@ -399,6 +399,7 @@ type PolecatListItem struct {
 	MQStatus             string        `json:"mq_status,omitempty"`
 	CountsTowardCapacity bool          `json:"counts_toward_capacity"`
 	ReuseStatus          string        `json:"reuse_status,omitempty"`
+	Blockers             []string      `json:"blockers,omitempty"`
 	SessionRunning       bool          `json:"session_running"`
 	Zombie               bool          `json:"zombie,omitempty"`
 	SessionName          string        `json:"session_name,omitempty"`
@@ -482,45 +483,55 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 
 	// Collect polecats from all rigs
 	t := tmux.NewTmux()
+	sessionNames, err := t.ListSessions()
+	if err != nil {
+		return fmt.Errorf("listing tmux sessions: %w", err)
+	}
+	sessions := newPolecatSessionSet(sessionNames)
 	allPolecats := make([]PolecatListItem, 0)
 
 	for _, r := range rigs {
-		polecatGit := git.NewGit(r.Path)
-		mgr := polecat.NewManager(r, polecatGit, t)
-		polecatMgr := polecat.NewSessionManager(t, r)
 		bd := beads.New(r.Path)
 
-		polecats, err := mgr.List()
+		polecatNames, err := listPolecatDirectoryNames(r.Path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to list polecats in %s: %v\n", r.Name, err)
 			continue
 		}
+		agents, agentErr := bd.ListAgentBeads()
+		if agentErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to list agent beads in %s: %v\n", r.Name, agentErr)
+			agents = nil
+		}
+		activeWork, activeWorkErr := listActivePolecatWorkByName(bd, r.Name)
+		if activeWorkErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to list active polecat work in %s: %v\n", r.Name, activeWorkErr)
+			activeWork = nil
+		}
 
 		// Track known polecat names from filesystem for zombie detection
 		knownNames := make(map[string]bool)
-		for _, p := range polecats {
-			running, _ := polecatMgr.IsRunning(p.Name)
-			cleanupStatus := ""
-			activeMR := ""
-			agentBeadID := polecatBeadIDForRig(r, r.Name, p.Name)
-			if _, fields, err := bd.GetAgentBead(agentBeadID); err == nil && fields != nil {
-				cleanupStatus = fields.CleanupStatus
-				activeMR = fields.ActiveMR
+		for _, name := range polecatNames {
+			agentBeadID := polecatBeadIDForRig(r, r.Name, name)
+			fields := parsePolecatAgentFields(agents[agentBeadID])
+			item := buildPolecatInventoryItem(r.Name, name, fields, activeWork[name], sessions)
+			if activeWorkErr != nil {
+				item = buildPolecatInventoryItemFromEvidence(r.Name, name, fields, polecatActiveWorkLookupError(activeWorkErr), sessions)
 			}
 			state := effectivePolecatState(PolecatListItem{
-				State:          p.State,
-				Issue:          p.Issue,
-				SessionRunning: running,
+				State:          item.State,
+				Issue:          item.Issue,
+				SessionRunning: item.SessionRunning,
 			})
-			disposition := mgr.WorkstateDispositionForPolecat(p.Name, state, p.Issue)
+			disposition := item.Disposition
 			allPolecats = append(allPolecats, PolecatListItem{
 				Rig:                  r.Name,
-				Name:                 p.Name,
+				Name:                 name,
 				State:                state,
-				Issue:                p.Issue,
-				CleanupStatus:        cleanupStatus,
-				ActiveMR:             activeMR,
-				Branch:               p.Branch,
+				Issue:                item.Issue,
+				CleanupStatus:        item.CleanupStatus,
+				ActiveMR:             item.ActiveMR,
+				Branch:               item.Branch,
 				Verdict:              disposition.Verdict,
 				Reason:               disposition.Reason,
 				Reusable:             disposition.Reusable,
@@ -530,15 +541,17 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 				MQStatus:             disposition.MQStatus,
 				CountsTowardCapacity: disposition.CountsTowardCapacity,
 				ReuseStatus:          disposition.ReuseStatus,
-				SessionRunning:       running,
+				Blockers:             disposition.Blockers,
+				SessionRunning:       item.SessionRunning,
+				SessionName:          item.SessionName,
 			})
-			knownNames[p.Name] = true
+			knownNames[name] = true
 		}
 
 		// Discover zombie tmux sessions: sessions without matching worktree directories.
 		// These occur when a worktree is deleted but the tmux session persists
 		// (incomplete nuke or session naming mismatch).
-		zombieSessions, _ := findRigPolecatSessions(r.Name)
+		zombieSessions := sessions.namesForRig(r.Name)
 		for _, sessionName := range zombieSessions {
 			_, polecatName, ok := parsePolecatSessionName(sessionName)
 			if !ok {
