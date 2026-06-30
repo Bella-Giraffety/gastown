@@ -35,6 +35,143 @@ func writeBDStub(t *testing.T, binDir string, unixScript string, windowsScript s
 	return path
 }
 
+func setupMutableBDRawSlingTest(t *testing.T, initialDescription string) (townRoot, rigPath, descPath string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("mutable POSIX bd stub")
+	}
+
+	townRoot = t.TempDir()
+	rigPath = filepath.Join(townRoot, "gastown", "mayor", "rig")
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"version":1}`), 0644); err != nil {
+		t.Fatalf("write town marker: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(rigPath, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir rig beads: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir town beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(`{"prefix":"gt-","path":"gastown/mayor/rig"}`+"\n"), 0644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+	rigs := &config.RigsConfig{Version: 1, Rigs: map[string]config.RigEntry{
+		"gastown": {GitURL: "git@github.com:test/gastown.git", AddedAt: time.Now().Truncate(time.Second), BeadsConfig: &config.BeadsConfig{Repo: "local", Prefix: "gt"}},
+	}}
+	if err := config.SaveRigsConfig(filepath.Join(townRoot, "mayor", "rigs.json"), rigs); err != nil {
+		t.Fatalf("SaveRigsConfig: %v", err)
+	}
+
+	descPath = filepath.Join(townRoot, "description.txt")
+	statusPath := filepath.Join(townRoot, "status.txt")
+	assigneePath := filepath.Join(townRoot, "assignee.txt")
+	if err := os.WriteFile(descPath, []byte(initialDescription), 0644); err != nil {
+		t.Fatalf("write description: %v", err)
+	}
+	if err := os.WriteFile(statusPath, []byte("open"), 0644); err != nil {
+		t.Fatalf("write status: %v", err)
+	}
+	if err := os.WriteFile(assigneePath, []byte(""), 0644); err != nil {
+		t.Fatalf("write assignee: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	bdScript := `#!/bin/sh
+set -eu
+if [ "${1:-}" = "--allow-stale" ] && [ "${2:-}" = "version" ]; then
+  echo "bd test"
+  exit 0
+fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --allow-stale) shift ;;
+    *) break ;;
+  esac
+done
+cmd="${1:-}"
+if [ "$#" -gt 0 ]; then shift; fi
+case "$cmd" in
+  show)
+    desc=""
+    if [ -f "$BD_DESC_FILE" ]; then
+      desc=$(awk 'BEGIN{first=1} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); if(!first){printf "\\n"} printf "%s",$0; first=0}' "$BD_DESC_FILE")
+    fi
+    status="open"
+    if [ -f "$BD_STATUS_FILE" ]; then status=$(cat "$BD_STATUS_FILE"); fi
+    assignee=""
+    if [ -f "$BD_ASSIGNEE_FILE" ]; then assignee=$(cat "$BD_ASSIGNEE_FILE"); fi
+    printf '[{"id":"gt-rawrollback","title":"Test issue","status":"%s","assignee":"%s","description":"%s","dependencies":[]}]\n' "$status" "$assignee" "$desc"
+    ;;
+  update)
+    for arg in "$@"; do
+      case "$arg" in
+        --description=*) printf "%s" "${arg#--description=}" > "$BD_DESC_FILE" ;;
+        --status=*) printf "%s" "${arg#--status=}" > "$BD_STATUS_FILE" ;;
+        --assignee=*) printf "%s" "${arg#--assignee=}" > "$BD_ASSIGNEE_FILE" ;;
+      esac
+    done
+    ;;
+  version)
+    echo "bd test"
+    ;;
+esac
+exit 0
+`
+	writeBDStub(t, binDir, bdScript, "")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BD_DESC_FILE", descPath)
+	t.Setenv("BD_STATUS_FILE", statusPath)
+	t.Setenv("BD_ASSIGNEE_FILE", assigneePath)
+	t.Setenv(EnvGTRole, "mayor")
+	t.Setenv("GT_TEST_NO_NUDGE", "1")
+	t.Setenv("GT_TEST_ATTACHED_MOLECULE_LOG", "")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	return townRoot, rigPath, descPath
+}
+
+func readMutableBDDescription(t *testing.T, descPath string) string {
+	t.Helper()
+	b, err := os.ReadFile(descPath)
+	if err != nil {
+		t.Fatalf("read description: %v", err)
+	}
+	return string(b)
+}
+
+func assertNoRawReviewMetadata(t *testing.T, desc string) {
+	t.Helper()
+	if strings.Contains(desc, "no_merge: true") || strings.Contains(desc, "review_only: true") {
+		t.Fatalf("stale raw review metadata remains in description:\n%s", desc)
+	}
+	fields := beads.ParseAttachmentFields(&beads.Issue{Description: desc})
+	if fields != nil && (fields.NoMerge || fields.ReviewOnly) {
+		t.Fatalf("parsed stale raw review metadata from description: %+v", fields)
+	}
+}
+
+func assertHasRawReviewMetadata(t *testing.T, desc string) {
+	t.Helper()
+	fields := beads.ParseAttachmentFields(&beads.Issue{Description: desc})
+	if fields == nil || !fields.NoMerge || !fields.ReviewOnly {
+		t.Fatalf("raw review metadata missing from description:\n%s", desc)
+	}
+}
+
 func containsVarArg(line, key, value string) bool {
 	plain := "--var " + key + "=" + value
 	if strings.Contains(line, plain) {
@@ -1413,6 +1550,148 @@ exit /b 0
 	if !burnCalled {
 		t.Fatalf("expected rollbackSlingArtifacts to burn attached molecules")
 	}
+}
+
+func TestRollbackSlingArtifactsClearsRawReviewOnlyMetadata(t *testing.T) {
+	initial := strings.Join([]string{
+		"no_merge: true",
+		"review_only: true",
+		"dispatched_by: mayor/",
+		"",
+		"Keep this body.",
+	}, "\n")
+	townRoot, _, descPath := setupMutableBDRawSlingTest(t, initial)
+
+	rollbackSlingArtifacts(&SpawnedPolecatInfo{
+		RigName:     "gastown",
+		PolecatName: "toast",
+		ClonePath:   filepath.Join(townRoot, "gastown", "polecats", "toast"),
+	}, "gt-rawrollback", filepath.Join(townRoot, "gastown", "polecats", "toast"), "")
+
+	desc := readMutableBDDescription(t, descPath)
+	assertNoRawReviewMetadata(t, desc)
+	if !strings.Contains(desc, "dispatched_by: mayor/") {
+		t.Fatalf("rollback did not preserve unrelated dispatch metadata:\n%s", desc)
+	}
+	if !strings.Contains(desc, "Keep this body.") {
+		t.Fatalf("rollback did not preserve description body:\n%s", desc)
+	}
+}
+
+func TestRollbackSlingArtifactsKeepsMetadataWhenMoleculeBurnFails(t *testing.T) {
+	initial := strings.Join([]string{
+		"attached_molecule: gt-wisp-stale",
+		"no_merge: true",
+		"review_only: true",
+		"",
+		"Keep this body.",
+	}, "\n")
+	townRoot, _, descPath := setupMutableBDRawSlingTest(t, initial)
+
+	prevCollect := collectExistingMoleculesForRollback
+	prevBurn := burnExistingMoleculesForRollback
+	t.Cleanup(func() {
+		collectExistingMoleculesForRollback = prevCollect
+		burnExistingMoleculesForRollback = prevBurn
+	})
+	collectExistingMoleculesForRollback = func(info *beadInfo) []string {
+		return []string{"gt-wisp-stale"}
+	}
+	burnExistingMoleculesForRollback = func(molecules []string, beadID, townRoot string) error {
+		return errors.New("forced burn failure")
+	}
+
+	rollbackSlingArtifacts(&SpawnedPolecatInfo{
+		RigName:     "gastown",
+		PolecatName: "toast",
+		ClonePath:   filepath.Join(townRoot, "gastown", "polecats", "toast"),
+	}, "gt-rawrollback", filepath.Join(townRoot, "gastown", "polecats", "toast"), "")
+
+	desc := readMutableBDDescription(t, descPath)
+	if !strings.Contains(desc, "attached_molecule: gt-wisp-stale") {
+		t.Fatalf("rollback hid attached molecule after burn failure:\n%s", desc)
+	}
+	assertHasRawReviewMetadata(t, desc)
+}
+
+func TestExecuteSlingRawReviewOnlyHookFailureClearsPreHookMetadata(t *testing.T) {
+	townRoot, rigPath, descPath := setupMutableBDRawSlingTest(t, "Keep this body.")
+
+	prevSpawn := spawnPolecatForSling
+	prevHook := hookBeadWithRetryWithTownRootFn
+	t.Cleanup(func() {
+		spawnPolecatForSling = prevSpawn
+		hookBeadWithRetryWithTownRootFn = prevHook
+	})
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		return &SpawnedPolecatInfo{
+			RigName:     rigName,
+			PolecatName: "toast",
+			ClonePath:   filepath.Join(townRoot, "gastown", "polecats", "toast"),
+		}, nil
+	}
+	hookBeadWithRetryWithTownRootFn = func(beadID, targetAgent, hookDir, townRoot string) error {
+		assertHasRawReviewMetadata(t, readMutableBDDescription(t, descPath))
+		return errors.New("forced hook failure")
+	}
+
+	_, err := executeSling(SlingParams{
+		BeadID:      "gt-rawrollback",
+		RigName:     "gastown",
+		TownRoot:    townRoot,
+		BeadsDir:    filepath.Join(rigPath, ".beads"),
+		HookRawBead: true,
+		NoMerge:     true,
+		ReviewOnly:  true,
+		NoConvoy:    true,
+		NoBoot:      true,
+	})
+	if err == nil {
+		t.Fatal("expected hook failure from executeSling")
+	}
+	assertNoRawReviewMetadata(t, readMutableBDDescription(t, descPath))
+}
+
+func TestExecuteSlingRawReviewOnlySuccessKeepsMetadata(t *testing.T) {
+	townRoot, rigPath, descPath := setupMutableBDRawSlingTest(t, "Keep this body.")
+
+	prevSpawn := spawnPolecatForSling
+	prevHook := hookBeadWithRetryWithTownRootFn
+	t.Cleanup(func() {
+		spawnPolecatForSling = prevSpawn
+		hookBeadWithRetryWithTownRootFn = prevHook
+	})
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		return &SpawnedPolecatInfo{
+			RigName:     rigName,
+			PolecatName: "toast",
+			ClonePath:   filepath.Join(townRoot, "gastown", "polecats", "toast"),
+			Pane:        "%1",
+		}, nil
+	}
+	hookBeadWithRetryWithTownRootFn = func(beadID, targetAgent, hookDir, townRoot string) error {
+		assertHasRawReviewMetadata(t, readMutableBDDescription(t, descPath))
+		return nil
+	}
+
+	result, err := executeSling(SlingParams{
+		BeadID:      "gt-rawrollback",
+		RigName:     "gastown",
+		TownRoot:    townRoot,
+		BeadsDir:    filepath.Join(rigPath, ".beads"),
+		HookRawBead: true,
+		NoMerge:     true,
+		ReviewOnly:  true,
+		NoConvoy:    true,
+		NoBoot:      true,
+	})
+	if err != nil {
+		t.Fatalf("executeSling succeeded with error: %v", err)
+	}
+	if result == nil || !result.Success {
+		t.Fatalf("executeSling result not successful: %+v", result)
+	}
+	assertHasRawReviewMetadata(t, readMutableBDDescription(t, descPath))
 }
 
 func TestSlingFormulaRollsBackSpawnedPolecatOnWispFailure(t *testing.T) {

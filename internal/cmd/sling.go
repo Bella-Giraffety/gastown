@@ -1203,6 +1203,32 @@ var getBeadInfoForRollback = getBeadInfo
 var collectExistingMoleculesForRollback = collectExistingMolecules
 var burnExistingMoleculesForRollback = burnExistingMolecules
 
+func clearRollbackRawWorkflowFields(beadID, townRoot, hookWorkDir string, info *beadInfo) (bool, error) {
+	if info == nil {
+		return false, nil
+	}
+	issue := &beads.Issue{Description: info.Description}
+	fields := beads.ParseAttachmentFields(issue)
+	if fields == nil || (!fields.NoMerge && !fields.ReviewOnly) {
+		return false, nil
+	}
+	fields.NoMerge = false
+	fields.ReviewOnly = false
+	newDesc := beads.SetAttachmentFields(issue, fields)
+	if newDesc == info.Description {
+		return false, nil
+	}
+	updateDir := beads.ResolveHookDir(townRoot, beadID, hookWorkDir)
+	if err := BdCmd("update", beadID, "--description="+newDesc).
+		Dir(updateDir).
+		StripBeadsDir().
+		WithAutoCommit().
+		Run(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func restorePinnedBead(townRoot, beadID, assignee string) {
 	if townRoot == "" || beadID == "" {
 		return
@@ -1318,6 +1344,10 @@ func rollbackSlingArtifacts(spawnInfo *SpawnedPolecatInfo, beadID, hookWorkDir, 
 						fmt.Printf("  %s Burned %d stale molecule(s): %s\n",
 							style.Dim.Render("○"), len(existingMolecules), strings.Join(existingMolecules, ", "))
 					}
+				} else if cleared, clearErr := clearRollbackRawWorkflowFields(beadID, townRoot, hookWorkDir, info); clearErr != nil {
+					fmt.Printf("  %s Could not clear raw workflow metadata from %s: %v\n", style.Dim.Render("Warning:"), beadID, clearErr)
+				} else if cleared {
+					fmt.Printf("  %s Cleared raw workflow metadata from %s\n", style.Dim.Render("○"), beadID)
 				}
 			}
 

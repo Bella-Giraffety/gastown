@@ -368,8 +368,11 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	}
 	hookDir := beads.ResolveHookDir(townRoot, beadToHook, hookWorkDir)
 	if err := hookBeadWithRetryWithTownRootFn(beadToHook, targetAgent, hookDir, townRoot); err != nil {
-		// Clean up orphaned polecat to avoid leaving spawned-but-unhookable polecats
-		cleanupSpawnedPolecat(spawnInfo, params.RigName, convoyID)
+		// Clean up all partial sling state, including raw metadata stored before hook.
+		rollbackSlingArtifactsFn(spawnInfo, beadToHook, hookWorkDir, convoyID)
+		if params.Force && info.Status == "pinned" {
+			restorePinnedBead(townRoot, params.BeadID, info.Assignee)
+		}
 		result.ErrMsg = "hook failed"
 		return result, fmt.Errorf("failed to hook bead: %w", err)
 	}
