@@ -344,16 +344,17 @@ func envKeyHasPrefix(keyName, prefix string) bool {
 func addGTDerivedDoltTargetEnv(env []string) []string {
 	gtHost := envValue(env, "GT_DOLT_HOST")
 	gtPort := envValue(env, "GT_DOLT_PORT")
-	if gtHost != "" && envValue(env, "BEADS_DOLT_SERVER_HOST") == "" {
+	if gtHost != "" {
+		env = StripEnvKey(env, "BEADS_DOLT_SERVER_HOST")
 		env = append(env, "BEADS_DOLT_SERVER_HOST="+gtHost)
 	}
 	if gtPort != "" {
-		if envValue(env, "BEADS_DOLT_SERVER_PORT") == "" {
-			env = append(env, "BEADS_DOLT_SERVER_PORT="+gtPort)
-		}
-		if envValue(env, "BEADS_DOLT_PORT") == "" {
-			env = append(env, "BEADS_DOLT_PORT="+gtPort)
-		}
+		env = StripEnvKey(env, "BEADS_DOLT_SERVER_PORT")
+		env = StripEnvKey(env, "BEADS_DOLT_PORT")
+		env = append(env, "BEADS_DOLT_SERVER_PORT="+gtPort, "BEADS_DOLT_PORT="+gtPort)
+	}
+	if gtData := envValue(env, "GT_DOLT_DATA"); gtData != "" && envValue(env, "BEADS_DOLT_DATA_DIR") == "" {
+		env = append(env, "BEADS_DOLT_DATA_DIR="+gtData)
 	}
 	return env
 }

@@ -821,8 +821,9 @@ func (b *Beads) buildRunEnv() []string {
 	if b.isolated {
 		env := filterBeadsEnv(os.Environ())
 		if b.serverPort > 0 {
-			env = stripEnvPrefixes(env, "GT_DOLT_PORT=", "BEADS_DOLT_PORT=", "BEADS_DOLT_AUTO_START=")
+			env = stripEnvPrefixes(env, "GT_DOLT_PORT=", "BEADS_DOLT_SERVER_PORT=", "BEADS_DOLT_PORT=", "BEADS_DOLT_AUTO_START=")
 			env = append(env, fmt.Sprintf("GT_DOLT_PORT=%d", b.serverPort))
+			env = append(env, fmt.Sprintf("BEADS_DOLT_SERVER_PORT=%d", b.serverPort))
 			env = append(env, fmt.Sprintf("BEADS_DOLT_PORT=%d", b.serverPort))
 			env = append(env, "BEADS_DOLT_AUTO_START=0")
 		}
@@ -833,7 +834,7 @@ func (b *Beads) buildRunEnv() []string {
 	// first-match-sensitive BEADS_DIR entries.
 	env := BuildPinnedBDEnv(os.Environ(), b.getResolvedBeadsDir())
 	env = StripEnvKey(env, "BEADS_DIR")
-	return StripEnvKey(env, "BEADS_DOLT_SERVER_PORT")
+	return env
 }
 
 // buildRoutingEnv builds the environment for runWithRouting() calls.
@@ -843,31 +844,34 @@ func (b *Beads) buildRoutingEnv() []string {
 	if b.isolated {
 		env := filterBeadsEnv(os.Environ())
 		if b.serverPort > 0 {
-			env = stripEnvPrefixes(env, "GT_DOLT_PORT=", "BEADS_DOLT_PORT=", "BEADS_DOLT_AUTO_START=")
+			env = stripEnvPrefixes(env, "GT_DOLT_PORT=", "BEADS_DOLT_SERVER_PORT=", "BEADS_DOLT_PORT=", "BEADS_DOLT_AUTO_START=")
 			env = append(env, fmt.Sprintf("GT_DOLT_PORT=%d", b.serverPort))
+			env = append(env, fmt.Sprintf("BEADS_DOLT_SERVER_PORT=%d", b.serverPort))
 			env = append(env, fmt.Sprintf("BEADS_DOLT_PORT=%d", b.serverPort))
 			env = append(env, "BEADS_DOLT_AUTO_START=0")
 		}
 		return SuppressBDSideEffects(env)
 	}
-	env := BuildRoutingBDEnv(os.Environ(), b.getResolvedBeadsDir())
-	return StripEnvKey(env, "BEADS_DOLT_SERVER_PORT")
+	return BuildRoutingBDEnv(os.Environ(), b.getResolvedBeadsDir())
 }
 
 // filterBeadsEnv removes beads-related environment variables from the given
 // environment slice. This ensures test isolation by preventing inherited
 // BD_ACTOR, BEADS_DB, GT_ROOT, HOME etc. from routing commands to production databases.
 //
-// Preserves GT_DOLT_PORT, BEADS_DOLT_PORT, and BEADS_DOLT_SERVER_HOST so that
-// isolated-mode tests can reach a test Dolt server on a non-default port/host.
+// Preserves GT_DOLT_* and Beads Dolt endpoint aliases so isolated-mode tests
+// can reach a test Dolt server on a non-default port/host.
 func filterBeadsEnv(environ []string) []string {
 	filtered := make([]string, 0, len(environ))
 	for _, env := range environ {
 		// Preserve Dolt connection env vars needed to reach test/remote Dolt servers.
 		// These must be checked before the broad BEADS_ prefix strip below.
-		if strings.HasPrefix(env, "BEADS_DOLT_PORT=") ||
+		if strings.HasPrefix(env, "GT_DOLT_HOST=") ||
+			strings.HasPrefix(env, "GT_DOLT_PORT=") ||
+			strings.HasPrefix(env, "BEADS_DOLT_PORT=") ||
+			strings.HasPrefix(env, "BEADS_DOLT_SERVER_PORT=") ||
 			strings.HasPrefix(env, "BEADS_DOLT_SERVER_HOST=") ||
-			strings.HasPrefix(env, "GT_DOLT_PORT=") {
+			strings.HasPrefix(env, "BEADS_DOLT_AUTO_START=") {
 			filtered = append(filtered, env)
 			continue
 		}
@@ -886,14 +890,10 @@ func filterBeadsEnv(environ []string) []string {
 	return filtered
 }
 
-// translateDoltPort ensures BEADS_DOLT_PORT and BEADS_DOLT_SERVER_HOST are set
-// when their GT_ counterparts are present. Gas Town uses GT_DOLT_PORT and
-// GT_DOLT_HOST; beads uses BEADS_DOLT_PORT and BEADS_DOLT_SERVER_HOST. This
-// translation prevents bd subprocesses from falling back to localhost:3307
-// when a test or daemon has set GT_DOLT_* to alternate values.
+// translateDoltPort mirrors authoritative GT_DOLT_* endpoint vars to Beads'
+// endpoint aliases for legacy callers that have not moved to Build*BDEnv.
 func translateDoltPort(env []string) []string {
 	var gtPort, gtHost string
-	hasBDP, hasBDH := false, false
 	for _, e := range env {
 		if strings.HasPrefix(e, "GT_DOLT_PORT=") {
 			gtPort = strings.TrimPrefix(e, "GT_DOLT_PORT=")
@@ -901,17 +901,13 @@ func translateDoltPort(env []string) []string {
 		if strings.HasPrefix(e, "GT_DOLT_HOST=") {
 			gtHost = strings.TrimPrefix(e, "GT_DOLT_HOST=")
 		}
-		if strings.HasPrefix(e, "BEADS_DOLT_PORT=") {
-			hasBDP = true
-		}
-		if strings.HasPrefix(e, "BEADS_DOLT_SERVER_HOST=") {
-			hasBDH = true
-		}
 	}
-	if gtPort != "" && !hasBDP {
-		env = append(env, "BEADS_DOLT_PORT="+gtPort)
+	if gtPort != "" {
+		env = stripEnvPrefixes(env, "BEADS_DOLT_SERVER_PORT=", "BEADS_DOLT_PORT=")
+		env = append(env, "BEADS_DOLT_SERVER_PORT="+gtPort, "BEADS_DOLT_PORT="+gtPort)
 	}
-	if gtHost != "" && !hasBDH {
+	if gtHost != "" {
+		env = stripEnvPrefixes(env, "BEADS_DOLT_SERVER_HOST=")
 		env = append(env, "BEADS_DOLT_SERVER_HOST="+gtHost)
 	}
 	return env

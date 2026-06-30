@@ -161,25 +161,25 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 	return server.ListenAndServe()
 }
 
-// ensureDoltPortEnv sets GT_DOLT_PORT, BEADS_DOLT_PORT, and BEADS_DOLT_SERVER_HOST
+// ensureDoltPortEnv sets GT_DOLT_PORT, BEADS_DOLT_SERVER_PORT,
+// BEADS_DOLT_PORT, and BEADS_DOLT_SERVER_HOST
 // to the actual Dolt server connection info. This prevents bd subprocesses from
 // inheriting stale or incorrect values from the environment.
-// Reads the running state from daemon/dolt-state.json; falls back to
-// doltserver.DefaultConfig; otherwise uses the Dolt defaults.
+// Uses the same resolver as AgentEnv and doltserver.DefaultConfig.
 func ensureDoltPortEnv(townRoot string) {
-	var port int
-	if state, err := doltserver.LoadState(townRoot); err == nil && state.Port > 0 {
-		port = state.Port
-	} else {
+	port := config.ResolveDoltPort(townRoot)
+	if port <= 0 {
 		port = doltserver.DefaultPort
 	}
 	portStr := strconv.Itoa(port)
 	os.Setenv("GT_DOLT_PORT", portStr)
+	os.Setenv("BEADS_DOLT_SERVER_PORT", portStr)
 	os.Setenv("BEADS_DOLT_PORT", portStr)
 
-	// Propagate host so bd doesn't fall back to 127.0.0.1.
-	doltCfg := doltserver.DefaultConfig(townRoot)
-	if doltCfg.Host != "" {
+	if host := os.Getenv("GT_DOLT_HOST"); host != "" {
+		os.Setenv("BEADS_DOLT_SERVER_HOST", host)
+	} else if doltCfg := doltserver.DefaultConfig(townRoot); doltCfg.Host != "" {
+		os.Setenv("GT_DOLT_HOST", doltCfg.Host)
 		os.Setenv("BEADS_DOLT_SERVER_HOST", doltCfg.Host)
 	}
 }

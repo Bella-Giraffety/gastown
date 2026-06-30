@@ -8,9 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
-	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -330,8 +330,10 @@ func runUp(cmd *cobra.Command, args []string) error {
 		doltCfg := doltserver.DefaultConfig(townRoot)
 		portStr := fmt.Sprintf("%d", doltCfg.Port)
 		os.Setenv("GT_DOLT_PORT", portStr)
+		os.Setenv("BEADS_DOLT_SERVER_PORT", portStr)
 		os.Setenv("BEADS_DOLT_PORT", portStr)
 		if doltCfg.Host != "" {
+			os.Setenv("GT_DOLT_HOST", doltCfg.Host)
 			os.Setenv("BEADS_DOLT_SERVER_HOST", doltCfg.Host)
 		}
 	}
@@ -1065,4 +1067,3 @@ func recoverOrphanedBeads(townRoot string, rigs []string, prefetchedRigs map[str
 
 	return services
 }
-

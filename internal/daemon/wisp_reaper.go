@@ -2,11 +2,14 @@ package daemon
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	agentconfig "github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/reaper"
 	"github.com/steveyegge/gastown/internal/util"
 )
@@ -93,7 +96,6 @@ func (d *Daemon) reapWisps() {
 		"stale_issue_age": defaultStaleIssueAge.String(),
 		"mail_delete_age": defaultMailDeleteAge.String(),
 		"alert_threshold": fmt.Sprintf("%d", wispAlertThreshold),
-		"dolt_port":       fmt.Sprintf("%d", d.doltServerPort()),
 	}
 
 	if config.DryRun {
@@ -146,8 +148,9 @@ func (d *Daemon) dispatchReaperDog(vars map[string]string) error {
 // Dog dispatch is unavailable. Delegates to the reaper package for SQL execution.
 func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge time.Duration, mol *dogMol) {
 	databases := config.Databases
+	host := d.doltServerHost()
 	if len(databases) == 0 {
-		databases = reaper.DiscoverDatabases("127.0.0.1", d.doltServerPort())
+		databases = reaper.DiscoverDatabases(host, d.doltServerPort())
 	}
 	if len(databases) == 0 {
 		d.logger.Printf("wisp_reaper: no databases to reap")
@@ -167,7 +170,7 @@ func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge tim
 		if err := reaper.ValidateDBName(dbName); err != nil {
 			continue
 		}
-		db, err := reaper.OpenDB("127.0.0.1", port, dbName, 10*time.Second, 10*time.Second)
+		db, err := reaper.OpenDB(host, port, dbName, 10*time.Second, 10*time.Second)
 		if err != nil {
 			d.logger.Printf("wisp_reaper: %s: connect error: %v", dbName, err)
 			reapErrors++
@@ -208,7 +211,7 @@ func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge tim
 		if err := reaper.ValidateDBName(dbName); err != nil {
 			continue
 		}
-		db, err := reaper.OpenDB("127.0.0.1", port, dbName, 30*time.Second, 30*time.Second)
+		db, err := reaper.OpenDB(host, port, dbName, 30*time.Second, 30*time.Second)
 		if err != nil {
 			purgeErrors++
 			continue
@@ -243,7 +246,7 @@ func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge tim
 		if err := reaper.ValidateDBName(dbName); err != nil {
 			continue
 		}
-		db, err := reaper.OpenDB("127.0.0.1", port, dbName, 10*time.Second, 10*time.Second)
+		db, err := reaper.OpenDB(host, port, dbName, 10*time.Second, 10*time.Second)
 		if err != nil {
 			continue
 		}
@@ -270,7 +273,7 @@ func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge tim
 		if err := reaper.ValidateDBName(dbName); err != nil {
 			continue
 		}
-		db, err := reaper.OpenDB("127.0.0.1", port, dbName, 10*time.Second, 10*time.Second)
+		db, err := reaper.OpenDB(host, port, dbName, 10*time.Second, 10*time.Second)
 		if err != nil {
 			continue
 		}
@@ -296,7 +299,7 @@ func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge tim
 		if err := reaper.ValidateDBName(dbName); err != nil {
 			continue
 		}
-		db, err := reaper.OpenDB("127.0.0.1", port, dbName, 10*time.Second, 10*time.Second)
+		db, err := reaper.OpenDB(host, port, dbName, 10*time.Second, 10*time.Second)
 		if err != nil {
 			autoCloseErrors++
 			continue
@@ -342,5 +345,24 @@ func (d *Daemon) doltServerPort() int {
 	if d.doltServer != nil {
 		return d.doltServer.config.Port
 	}
-	return 3307
+	if port := agentconfig.ResolveDoltPort(d.config.TownRoot); port > 0 {
+		return port
+	}
+	return doltserver.DefaultPort
+}
+
+func (d *Daemon) doltServerHost() string {
+	if d.doltServer != nil && d.doltServer.config.Host != "" {
+		return d.doltServer.config.Host
+	}
+	if host := os.Getenv("GT_DOLT_HOST"); host != "" {
+		return host
+	}
+	if host := os.Getenv("BEADS_DOLT_SERVER_HOST"); host != "" {
+		return host
+	}
+	if cfg := doltserver.DefaultConfig(d.config.TownRoot); cfg.Host != "" {
+		return cfg.Host
+	}
+	return "127.0.0.1"
 }
