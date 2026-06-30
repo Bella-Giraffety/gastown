@@ -1021,7 +1021,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		return fmt.Errorf("serializing hook write for %s: %w", targetAgent, assigneeLockErr)
 	}
 	defer assigneeUnlock()
-	if slingHookRawBead && (slingNoMerge || slingReviewOnly) {
+	if attachedMoleculeID == "" && (slingNoMerge || slingReviewOnly) {
 		if err := storeFieldsInBeadFromTownRoot(townRoot, beadID, fieldUpdates); err != nil {
 			rollbackSpawnedPolecat("Raw sling metadata failed")
 			return fmt.Errorf("storing raw sling metadata before hook: %w", err)

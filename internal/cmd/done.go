@@ -725,13 +725,15 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		reviewOnlySource := false
 		if issueID != "" {
 			noMergeBd := beads.New(cwd)
-			if noMergeIssue, showErr := noMergeBd.Show(issueID); showErr == nil {
-				if af := beads.ParseAttachmentFields(noMergeIssue); af != nil {
-					if af.NoMerge || af.ReviewOnly {
-						isNoMergeTask = true
-					}
-					reviewOnlySource = af.ReviewOnly
+			noMergeIssue, showErr := noMergeBd.Show(issueID)
+			if showErr != nil {
+				return fmt.Errorf("cannot inspect source issue %s before completion: %w", issueID, showErr)
+			}
+			if af := beads.ParseAttachmentFields(noMergeIssue); af != nil {
+				if af.NoMerge || af.ReviewOnly {
+					isNoMergeTask = true
 				}
+				reviewOnlySource = af.ReviewOnly
 			}
 		}
 
