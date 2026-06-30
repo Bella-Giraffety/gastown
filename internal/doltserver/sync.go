@@ -626,7 +626,7 @@ func PurgeClosedEphemerals(townRoot, dbName string, dryRun bool) (int, error) {
 
 	cmd := exec.CommandContext(ctx, "bd", args...)
 	cmd.Dir = filepath.Dir(beadsDir) // run from parent of .beads
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
+	cmd.Env = beads.BuildMutationPinnedBDEnv(os.Environ(), beadsDir)
 	setProcessGroup(cmd)
 
 	var stdout, stderr bytes.Buffer

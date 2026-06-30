@@ -589,6 +589,10 @@ func init() {
 		if v, err := strconv.Atoi(p); err == nil {
 			defaultPort = v
 		}
+	} else if p := os.Getenv("BEADS_DOLT_PORT"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			defaultPort = v
+		}
 	}
 
 	for _, cmd := range []*cobra.Command{reaperScanCmd, reaperReapCmd, reaperPurgeCmd, reaperAutoCloseCmd, reaperRunCmd, reaperDatabasesCmd} {
