@@ -353,9 +353,6 @@ func addGTDerivedDoltTargetEnv(env []string) []string {
 		env = StripEnvKey(env, "BEADS_DOLT_PORT")
 		env = append(env, "BEADS_DOLT_SERVER_PORT="+gtPort, "BEADS_DOLT_PORT="+gtPort)
 	}
-	if gtData := envValue(env, "GT_DOLT_DATA"); gtData != "" && envValue(env, "BEADS_DOLT_DATA_DIR") == "" {
-		env = append(env, "BEADS_DOLT_DATA_DIR="+gtData)
-	}
 	return env
 }
 

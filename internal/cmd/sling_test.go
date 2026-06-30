@@ -303,6 +303,7 @@ exit /b 0
 	t.Setenv("BEADS_DB", filepath.Join(townRoot, "wrong.db"))
 	t.Setenv("BD_DB", filepath.Join(townRoot, "wrong.bd"))
 	t.Setenv("BEADS_DOLT_DATA_DIR", filepath.Join(townRoot, "wrong-data"))
+	t.Setenv("GT_DOLT_DATA", filepath.Join(townRoot, "wrong-gt-data"))
 
 	createOut, err := BdCmd("create", "--json", "--title=New sling smoke", "--type=task").
 		Dir(rigDir).

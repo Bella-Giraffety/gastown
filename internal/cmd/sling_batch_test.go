@@ -742,6 +742,7 @@ exit 0
 	t.Setenv("BEADS_DB", filepath.Join(townRoot, "wrong.db"))
 	t.Setenv("BD_DB", filepath.Join(townRoot, "wrong.bd"))
 	t.Setenv("BEADS_DOLT_DATA_DIR", filepath.Join(townRoot, "wrong-data"))
+	t.Setenv("GT_DOLT_DATA", filepath.Join(townRoot, "wrong-gt-data"))
 	t.Setenv("BD_READONLY", "true")
 	t.Setenv("BD_DOLT_AUTO_COMMIT", "off")
 

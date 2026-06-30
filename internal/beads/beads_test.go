@@ -268,9 +268,11 @@ func TestBuildBDEnvGTDoltEndpointOverridesStaleMetadata(t *testing.T) {
 		"PATH=/usr/bin",
 		"GT_DOLT_HOST=127.0.0.2",
 		"GT_DOLT_PORT=5507",
+		"GT_DOLT_DATA=/wrong/data",
 		"BEADS_DOLT_SERVER_HOST=stale-host",
 		"BEADS_DOLT_SERVER_PORT=9999",
 		"BEADS_DOLT_PORT=9999",
+		"BEADS_DOLT_DATA_DIR=/stale/data",
 	}
 	for _, tc := range []struct {
 		name string
@@ -287,6 +289,9 @@ func TestBuildBDEnvGTDoltEndpointOverridesStaleMetadata(t *testing.T) {
 			}
 			if got["BEADS_DOLT_SERVER_PORT"] != "5507" || got["BEADS_DOLT_PORT"] != "5507" {
 				t.Fatalf("Beads port aliases = server:%q legacy:%q, want 5507 in %v", got["BEADS_DOLT_SERVER_PORT"], got["BEADS_DOLT_PORT"], tc.env)
+			}
+			if _, ok := got["BEADS_DOLT_DATA_DIR"]; ok {
+				t.Fatalf("BEADS_DOLT_DATA_DIR should be stripped in %v", tc.env)
 			}
 			if tc.name != "pinned" {
 				if _, ok := got["BEADS_DOLT_SERVER_DATABASE"]; ok {
