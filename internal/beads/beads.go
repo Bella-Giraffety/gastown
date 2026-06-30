@@ -859,8 +859,8 @@ func (b *Beads) buildRoutingEnv() []string {
 // environment slice. This ensures test isolation by preventing inherited
 // BD_ACTOR, BEADS_DB, GT_ROOT, HOME etc. from routing commands to production databases.
 //
-	// Preserves GT_DOLT_* and Beads Dolt endpoint aliases so isolated-mode
-	// isolated-mode tests can reach a test Dolt server on a non-default port/host.
+// Preserves GT_DOLT_* and Beads Dolt endpoint aliases so isolated-mode
+// isolated-mode tests can reach a test Dolt server on a non-default port/host.
 func filterBeadsEnv(environ []string) []string {
 	filtered := make([]string, 0, len(environ))
 	for _, env := range environ {
