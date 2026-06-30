@@ -99,6 +99,10 @@ func buildPolecatInventoryItemFromEvidence(rigName, polecatName string, fields *
 		input.ActiveMR = item.ActiveMR
 	}
 
+	if !activeWorkEvidence.BlocksCleanup && fields != nil {
+		activeWorkEvidence = assessPolecatAgentStateWork(beads.AgentState(strings.TrimSpace(fields.AgentState)))
+	}
+
 	if activeWorkEvidence.BlocksCleanup {
 		item.Issue = activeWorkEvidence.AssignedIssue
 		if activeWorkEvidence.RequiresRestart || activeWorkEvidence.CountsTowardCapacity {
@@ -211,6 +215,27 @@ func polecatSummaryIssueRequiresRestart(status beads.IssueStatus) bool {
 	default:
 		return false
 	}
+}
+
+func assessPolecatAgentStateWork(state beads.AgentState) polecatActiveWorkEvidence {
+	if state == "" || state == beads.AgentStateIdle || state == beads.AgentStateDone || state == beads.AgentStateNuked {
+		return polecatActiveWorkEvidence{}
+	}
+	if state.IsActive() {
+		return polecatActiveWorkEvidence{
+			BlocksCleanup:        true,
+			RequiresRestart:      true,
+			CountsTowardCapacity: true,
+			Blocker:              fmt.Sprintf("agent_state=%s", state),
+		}
+	}
+	if state.ProtectsFromCleanup() || state == beads.AgentStateEscalated {
+		return polecatActiveWorkEvidence{
+			BlocksCleanup: true,
+			Blocker:       fmt.Sprintf("agent_state=%s", state),
+		}
+	}
+	return polecatActiveWorkEvidence{}
 }
 
 func polecatActiveWorkLookupError(err error) polecatActiveWorkEvidence {

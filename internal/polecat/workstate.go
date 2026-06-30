@@ -64,12 +64,16 @@ func DecideWorkstate(in WorkstateInput) WorkstateDisposition {
 			verdict = WorkstateVerdictWorking
 			needsRecovery = false
 		}
-		return WorkstateDisposition{
+		d := WorkstateDisposition{
 			Verdict:              verdict,
 			Reason:               "not-idle",
 			NeedsRecovery:        needsRecovery,
 			CountsTowardCapacity: true,
 		}
+		if in.ActiveWorkBlocker != "" {
+			d.Blockers = append(d.Blockers, in.ActiveWorkBlocker)
+		}
+		return d
 	}
 
 	d := WorkstateDisposition{Verdict: WorkstateVerdictSafeToNuke}

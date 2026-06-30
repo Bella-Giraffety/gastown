@@ -92,6 +92,14 @@ func TestBuildPolecatInventoryItem(t *testing.T) {
 			wantRecovery: true,
 		},
 		{
+			name:         "paused agent state protects without capacity",
+			polecatName:  "paused",
+			fields:       &beads.AgentFields{AgentState: string(beads.AgentStatePaused), CleanupStatus: string(polecat.CleanupClean)},
+			wantState:    polecat.StateIdle,
+			wantVerdict:  polecat.WorkstateVerdictNeedsRecovery,
+			wantRecovery: true,
+		},
+		{
 			name:        "active mr is pending non capacity",
 			polecatName: "pendingmr",
 			fields:      &beads.AgentFields{AgentState: string(beads.AgentStateIdle), CleanupStatus: string(polecat.CleanupClean), ActiveMR: "gt-mr"},
