@@ -226,10 +226,7 @@ func runUnslingWith(cmd *cobra.Command, args []string, dryRun, force bool) error
 			Status:   &openStatus,
 			Assignee: &emptyAssignee,
 		}); err != nil {
-			// Non-fatal: warn but don't fail the unsling. The hook slot is already
-			// cleared, so the agent is unblocked. The bead status is a bookkeeping
-			// issue that can be fixed manually.
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: couldn't update bead %s status: %v\n", hookedBeadID, err)
+			return fmt.Errorf("updating hooked bead %s status: %w", hookedBeadID, err)
 		}
 	}
 
@@ -336,8 +333,7 @@ func cleanStaleHookedBeads(cmd *cobra.Command, b *beads.Beads, agentID, targetBe
 			Status:   &openStatus,
 			Assignee: &emptyAssignee,
 		}); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: couldn't clean up stale bead %s: %v\n", sb.ID, err)
-			continue
+			return false, fmt.Errorf("cleaning up stale bead %s: %w", sb.ID, err)
 		}
 		fmt.Printf("%s Cleaned up stale bead %s (was hooked, now open)\n", style.Bold.Render("✓"), sb.ID)
 	}

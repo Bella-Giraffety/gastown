@@ -298,6 +298,72 @@ esac
 	}
 }
 
+func TestRunMoleculeStatusSeesEphemeralHookedWork(t *testing.T) {
+	installTestBD(t, `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+  version)
+    echo "bd test"
+    ;;
+  list)
+    echo '[]'
+    ;;
+  query)
+    args="$*"
+    case "$args" in
+      *"ephemeral=true"*"status=\"hooked\""*"assignee=\"testrig/refinery\""*) echo '[{"id":"hq-wisp-refinery","title":"mol-refinery-patrol","status":"hooked","assignee":"testrig/refinery","ephemeral":true}]' ;;
+      *) echo '[]' ;;
+    esac
+    ;;
+  *)
+    echo '[]'
+    ;;
+esac
+`)
+
+	townRoot := t.TempDir()
+	for _, dir := range []string{filepath.Join(townRoot, ".beads"), filepath.Join(townRoot, "mayor"), filepath.Join(townRoot, "testrig")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0o644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(townRoot); err != nil {
+		t.Fatalf("chdir town root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	prevJSON := moleculeJSON
+	moleculeJSON = true
+	t.Cleanup(func() { moleculeJSON = prevJSON })
+
+	out := captureStdout(t, func() {
+		if err := runMoleculeStatus(nil, []string{"testrig/refinery"}); err != nil {
+			t.Fatalf("runMoleculeStatus returned error: %v", err)
+		}
+	})
+	var got MoleculeStatusInfo
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("parse hook status output %q: %v", out, err)
+	}
+	if !got.HasWork || got.PinnedBead == nil {
+		t.Fatalf("hook status has_work=%v pinned=%#v, want hooked wisp", got.HasWork, got.PinnedBead)
+	}
+	if got.PinnedBead.ID != "hq-wisp-refinery" || got.PinnedBead.Status != beads.StatusHooked {
+		t.Fatalf("hook status bead=%q status=%q, want hooked wisp", got.PinnedBead.ID, got.PinnedBead.Status)
+	}
+}
+
 func installTestBD(t *testing.T, script string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
