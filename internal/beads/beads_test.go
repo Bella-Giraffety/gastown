@@ -4096,6 +4096,7 @@ func TestFilterBeadsEnv_PreservesDoltPortVars(t *testing.T) {
 		"BEADS_DB=/tmp/beads.db",
 		"BEADS_DOLT_PORT=13306",
 		"GT_DOLT_PORT=13307",
+		"GT_DOLT_DATA=/tmp/dolt-data",
 		"GT_ROOT=/tmp/gt",
 		"HOME=/home/test",
 		"PATH=/usr/bin",
@@ -4130,6 +4131,7 @@ func TestNewIsolatedWithPort(t *testing.T) {
 
 func TestIsolatedWithPortOverridesInheritedDoltEnv(t *testing.T) {
 	t.Setenv("GT_DOLT_PORT", "3307")
+	t.Setenv("GT_DOLT_DATA", filepath.Join(t.TempDir(), "wrong-data"))
 	t.Setenv("BEADS_DOLT_SERVER_PORT", "3307")
 	t.Setenv("BEADS_DOLT_PORT", "3307")
 	t.Setenv("BEADS_DOLT_AUTO_START", "1")
@@ -4157,6 +4159,9 @@ func TestIsolatedWithPortOverridesInheritedDoltEnv(t *testing.T) {
 		if !containsEnv(env.got, "GT_DOLT_PORT=19999") || !containsEnv(env.got, "BEADS_DOLT_SERVER_PORT=19999") || !containsEnv(env.got, "BEADS_DOLT_PORT=19999") || !containsEnv(env.got, "BEADS_DOLT_AUTO_START=0") {
 			t.Fatalf("%s env missing isolated Dolt overrides: %v", env.name, env.got)
 		}
+		if containsEnvPrefix(env.got, "GT_DOLT_DATA=") {
+			t.Fatalf("%s env should strip GT_DOLT_DATA: %v", env.name, env.got)
+		}
 	}
 }
 
@@ -4173,6 +4178,15 @@ func countEnvPrefix(environ []string, prefix string) int {
 func containsEnv(environ []string, want string) bool {
 	for _, env := range environ {
 		if env == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEnvPrefix(environ []string, prefix string) bool {
+	for _, env := range environ {
+		if strings.HasPrefix(env, prefix) {
 			return true
 		}
 	}

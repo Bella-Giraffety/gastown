@@ -859,8 +859,8 @@ func (b *Beads) buildRoutingEnv() []string {
 // environment slice. This ensures test isolation by preventing inherited
 // BD_ACTOR, BEADS_DB, GT_ROOT, HOME etc. from routing commands to production databases.
 //
-// Preserves GT_DOLT_* and Beads Dolt endpoint aliases so isolated-mode tests
-// can reach a test Dolt server on a non-default port/host.
+// Preserves GT_DOLT host/port and Beads Dolt endpoint aliases so isolated-mode
+// tests can reach a test Dolt server on a non-default port/host.
 func filterBeadsEnv(environ []string) []string {
 	filtered := make([]string, 0, len(environ))
 	for _, env := range environ {
@@ -881,6 +881,7 @@ func filterBeadsEnv(environ []string) []string {
 		// HOME - causes bd to find ~/.beads-planning routing
 		if strings.HasPrefix(env, "BD_ACTOR=") ||
 			strings.HasPrefix(env, "BEADS_") ||
+			strings.HasPrefix(env, "GT_DOLT_DATA=") ||
 			strings.HasPrefix(env, "GT_ROOT=") ||
 			strings.HasPrefix(env, "HOME=") {
 			continue
