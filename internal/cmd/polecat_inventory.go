@@ -136,7 +136,6 @@ var polecatSummaryWorkStatuses = []beads.IssueStatus{
 	beads.StatusOpen,
 	beads.StatusBlocked,
 	beads.StatusDeferred,
-	beads.IssueStatusPinned,
 }
 
 var polecatSummaryWorkStatusRank = func() map[string]int {

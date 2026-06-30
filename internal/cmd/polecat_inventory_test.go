@@ -137,7 +137,6 @@ func TestPolecatSummaryIssueRankPrefersActiveWork(t *testing.T) {
 		{ID: "open", Status: string(beads.StatusOpen)},
 		{ID: "blocked", Status: string(beads.StatusBlocked)},
 		{ID: "deferred", Status: string(beads.StatusDeferred)},
-		{ID: "pinned", Status: string(beads.IssueStatusPinned)},
 	}
 	for i := 1; i < len(ordered); i++ {
 		if polecatSummaryIssueRank(ordered[i-1]) >= polecatSummaryIssueRank(ordered[i]) {

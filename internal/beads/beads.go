@@ -1039,8 +1039,11 @@ func (b *Beads) List(opts ListOptions) ([]*Issue, error) {
 
 	// bd list --json may return plain text (e.g., "No issues found.") instead
 	// of an empty JSON array when there are no results. Handle gracefully.
-	if len(out) == 0 || !isJSONBytes(out) {
+	if len(out) == 0 {
 		return nil, nil
+	}
+	if !isJSONBytes(out) {
+		return nil, fmt.Errorf("bd query returned non-JSON output")
 	}
 
 	var issues []*Issue

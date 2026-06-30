@@ -413,7 +413,7 @@ func effectivePolecatState(item PolecatListItem) polecat.State {
 	state := item.State
 	// A running session only implies working when there is active work attached.
 	// Without an issue, rewriting idle/done to working recreates "Issue: (none)".
-	if item.SessionRunning && item.Issue != "" && (state == polecat.StateDone || state == polecat.StateIdle) {
+	if item.SessionRunning && item.Issue != "" && item.CountsTowardCapacity && (state == polecat.StateDone || state == polecat.StateIdle) {
 		return polecat.StateWorking
 	}
 	// When session is dead but beads still says "working", mark as stalled
@@ -518,12 +518,13 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 			if activeWorkErr != nil {
 				item = buildPolecatInventoryItemFromEvidence(r.Name, name, fields, polecatActiveWorkLookupError(activeWorkErr), sessions)
 			}
-			state := effectivePolecatState(PolecatListItem{
-				State:          item.State,
-				Issue:          item.Issue,
-				SessionRunning: item.SessionRunning,
-			})
 			disposition := item.Disposition
+			state := effectivePolecatState(PolecatListItem{
+				State:                item.State,
+				Issue:                item.Issue,
+				SessionRunning:       item.SessionRunning,
+				CountsTowardCapacity: disposition.CountsTowardCapacity,
+			})
 			allPolecats = append(allPolecats, PolecatListItem{
 				Rig:                  r.Name,
 				Name:                 name,
