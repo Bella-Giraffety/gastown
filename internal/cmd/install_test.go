@@ -13,7 +13,6 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/deps"
-	"github.com/steveyegge/gastown/internal/doltserver"
 )
 
 func TestBuildBdInitArgs_AlwaysIncludesServerPortWithoutReinit(t *testing.T) {
@@ -53,6 +52,7 @@ func TestBuildBdInitArgs_RespectsGTDoltPortEnv(t *testing.T) {
 
 func TestBuildBdInitArgs_ConfigYAMLTakesPrecedence(t *testing.T) {
 	townDir := t.TempDir()
+	t.Setenv("GT_DOLT_IGNORE_CONFIG", "")
 	doltDataDir := filepath.Join(townDir, ".dolt-data")
 	if err := os.MkdirAll(doltDataDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -70,15 +70,22 @@ func TestBuildBdInitArgs_ConfigYAMLTakesPrecedence(t *testing.T) {
 		t.Fatalf("expected port 5500 from config.yaml (precedence over env), got %q", args[5])
 	}
 }
-
-func TestBuildBdInitArgs_PortMatchesDefaultConfig(t *testing.T) {
+func TestBuildBdInitArgs_IgnoresTransientRunningState(t *testing.T) {
 	townDir := t.TempDir()
+	t.Setenv("GT_DOLT_PORT", "")
+	t.Setenv("GT_DOLT_IGNORE_CONFIG", "")
+	daemonDir := filepath.Join(townDir, "daemon")
+	if err := os.MkdirAll(daemonDir, 0755); err != nil {
+		t.Fatalf("mkdir daemon: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(daemonDir, "dolt-state.json"), []byte(`{"running":true,"port":4417}`), 0644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
 
 	args := buildBdInitArgs(townDir)
-	cfg := doltserver.DefaultConfig(townDir)
 
-	if args[5] != strconv.Itoa(cfg.Port) {
-		t.Fatalf("port should match DefaultConfig: args=%q, config=%d", args[5], cfg.Port)
+	if args[5] != "3307" {
+		t.Fatalf("expected default configured port 3307, got %q", args[5])
 	}
 }
 

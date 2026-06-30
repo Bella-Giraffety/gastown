@@ -4145,22 +4145,22 @@ func TestIsolatedWithPortOverridesInheritedDoltEnv(t *testing.T) {
 		{name: "routing", got: b.buildRoutingEnv()},
 	} {
 		if got := countEnvPrefix(env.got, "GT_DOLT_PORT="); got != 1 {
-			t.Fatalf("%s env GT_DOLT_PORT count = %d, want 1: %v", env.name, got, env.got)
+			t.Fatalf("%s env GT_DOLT_PORT count = %d, want 1", env.name, got)
 		}
 		if got := countEnvPrefix(env.got, "BEADS_DOLT_PORT="); got != 1 {
-			t.Fatalf("%s env BEADS_DOLT_PORT count = %d, want 1: %v", env.name, got, env.got)
+			t.Fatalf("%s env BEADS_DOLT_PORT count = %d, want 1", env.name, got)
 		}
 		if got := countEnvPrefix(env.got, "BEADS_DOLT_SERVER_PORT="); got != 1 {
-			t.Fatalf("%s env BEADS_DOLT_SERVER_PORT count = %d, want 1: %v", env.name, got, env.got)
+			t.Fatalf("%s env BEADS_DOLT_SERVER_PORT count = %d, want 1", env.name, got)
 		}
 		if got := countEnvPrefix(env.got, "BEADS_DOLT_AUTO_START="); got != 1 {
-			t.Fatalf("%s env BEADS_DOLT_AUTO_START count = %d, want 1: %v", env.name, got, env.got)
+			t.Fatalf("%s env BEADS_DOLT_AUTO_START count = %d, want 1", env.name, got)
 		}
 		if !containsEnv(env.got, "GT_DOLT_PORT=19999") || !containsEnv(env.got, "BEADS_DOLT_SERVER_PORT=19999") || !containsEnv(env.got, "BEADS_DOLT_PORT=19999") || !containsEnv(env.got, "BEADS_DOLT_AUTO_START=0") {
-			t.Fatalf("%s env missing isolated Dolt overrides: %v", env.name, env.got)
+			t.Fatalf("%s env missing isolated Dolt overrides", env.name)
 		}
 		if containsEnvPrefix(env.got, "GT_DOLT_DATA=") {
-			t.Fatalf("%s env should strip GT_DOLT_DATA: %v", env.name, env.got)
+			t.Fatalf("%s env should strip GT_DOLT_DATA", env.name)
 		}
 	}
 }

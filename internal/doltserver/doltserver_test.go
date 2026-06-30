@@ -3936,6 +3936,7 @@ func TestDefaultConfig_InvalidPortIgnored(t *testing.T) {
 
 func TestDefaultConfig_ConfigYAMLBeatsDaemonJSON(t *testing.T) {
 	townRoot := t.TempDir()
+	t.Setenv("GT_DOLT_IGNORE_CONFIG", "")
 	t.Setenv("GT_DOLT_PORT", "")
 	dataDir := filepath.Join(townRoot, ".dolt-data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {

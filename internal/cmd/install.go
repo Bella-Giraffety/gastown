@@ -667,6 +667,9 @@ func buildBdInitArgs(townPath string) []string {
 
 func bdInitDoltConfig(townPath string) *doltserver.Config {
 	cfg := doltserver.DefaultConfig(townPath)
+	// bd init targets durable town configuration. Keep the non-port defaults
+	// from DefaultConfig, but do not inherit transient daemon-state ports.
+	cfg.Port = doltserver.DefaultPort
 	if port := config.ResolveConfiguredDoltPort(townPath); port > 0 {
 		cfg.Port = port
 	}

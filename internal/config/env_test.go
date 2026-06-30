@@ -1148,6 +1148,7 @@ func TestParsePortFromConfigYAML(t *testing.T) {
 }
 
 func TestResolveDoltPort_FromConfigYAML(t *testing.T) {
+	t.Setenv("GT_DOLT_IGNORE_CONFIG", "")
 	t.Setenv("GT_DOLT_PORT", "")
 	tmpDir := t.TempDir()
 	doltDataDir := filepath.Join(tmpDir, ".dolt-data")
@@ -1218,6 +1219,7 @@ func TestResolveDoltPort_FromRunningStateFile(t *testing.T) {
 }
 
 func TestResolveDoltPort_IgnoresStoppedStateFile(t *testing.T) {
+	t.Setenv("GT_DOLT_IGNORE_CONFIG", "")
 	t.Setenv("GT_DOLT_PORT", "")
 	tmpDir := t.TempDir()
 	daemonDir := filepath.Join(tmpDir, "daemon")
@@ -1332,6 +1334,7 @@ func TestResolveConfiguredDoltPort_DaemonJSONFallback(t *testing.T) {
 }
 
 func TestAgentEnv_InjectsDoltPort(t *testing.T) {
+	t.Setenv("GT_DOLT_IGNORE_CONFIG", "")
 	t.Setenv("GT_DOLT_PORT", "")
 	t.Setenv("BEADS_DOLT_SERVER_PORT", "")
 	t.Setenv("BEADS_DOLT_PORT", "")
