@@ -1761,6 +1761,12 @@ func (b *Beads) Update(id string, opts UpdateOptions) error {
 	return err
 }
 
+// deleteBead permanently deletes a bead using bd's supported delete contract.
+func (b *Beads) deleteBead(id string) error {
+	_, err := b.run("delete", id, "--force")
+	return err
+}
+
 // Close closes one or more issues.
 // If a runtime session ID is set in the environment, it is passed to bd close
 // for work attribution tracking (see decision 009-session-events-architecture.md).
