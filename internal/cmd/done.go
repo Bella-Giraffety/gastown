@@ -938,7 +938,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		}
 
 		if reviewOnlySource {
-			return fmt.Errorf("cannot complete review-only issue %s with commits ahead of %s; persist review evidence in notes/design/comments and complete without code changes", issueID, baseRef)
+			return fmt.Errorf("cannot complete review-only issue %s with commits ahead of %s; add a fresh review evidence comment and complete without code changes", issueID, baseRef)
 		}
 
 		// Branch contamination preflight: check if branch is significantly behind
