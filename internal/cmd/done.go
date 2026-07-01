@@ -262,7 +262,7 @@ func hasFreshReviewEvidenceComment(comments []beads.Comment, assignmentAt time.T
 	}
 	for _, comment := range comments {
 		createdAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(comment.CreatedAt))
-		if err != nil || createdAt.Before(assignmentAt) {
+		if err != nil || !createdAt.After(assignmentAt) {
 			continue
 		}
 		if strings.TrimSpace(comment.Author) != assignee {

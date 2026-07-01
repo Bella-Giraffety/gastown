@@ -193,20 +193,31 @@ func TestReviewOnlyGeneratedCommentsDoNotCountAsEvidence(t *testing.T) {
 }
 
 func TestReviewOnlyCloseRejectsStaleComment(t *testing.T) {
-	issue := &beads.Issue{
-		ID:          "gt-review",
-		Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
-		Assignee:    "gastown/polecats/toast",
-		Comments: []beads.Comment{{
-			Author:    "gastown/polecats/toast",
-			CreatedAt: "2026-07-01T11:59:59Z",
-			Text:      "PR-SHERIFF-EVIDENCE: pass\nhead_sha: abc123",
-		}},
+	tests := []struct {
+		name      string
+		createdAt string
+	}{
+		{name: "before attached_at", createdAt: "2026-07-01T11:59:59Z"},
+		{name: "equal to attached_at", createdAt: "2026-07-01T12:00:00Z"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issue := &beads.Issue{
+				ID:          "gt-review",
+				Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
+				Assignee:    "gastown/polecats/toast",
+				Comments: []beads.Comment{{
+					Author:    "gastown/polecats/toast",
+					CreatedAt: tt.createdAt,
+					Text:      "PR-SHERIFF-EVIDENCE: pass\nhead_sha: abc123",
+				}},
+			}
 
-	reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
-	if reason == "" || !fatal {
-		t.Fatalf("stale comment should not satisfy review evidence: reason=%q fatal=%v", reason, fatal)
+			reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
+			if reason == "" || !fatal {
+				t.Fatalf("stale comment should not satisfy review evidence: reason=%q fatal=%v", reason, fatal)
+			}
+		})
 	}
 }
 
