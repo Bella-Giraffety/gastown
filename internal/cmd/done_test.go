@@ -128,26 +128,48 @@ func TestReviewOnlyCloseRequiresEvidence(t *testing.T) {
 		Description: "review_only: true\n",
 	}
 
-	reason, fatal := doneReviewOnlyCloseSkipReason(nil, issue.ID, issue)
+	reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
 	if reason == "" {
 		t.Fatal("expected review-only close skip reason")
 	}
 	if !fatal {
 		t.Fatal("review-only close without evidence should fail closed")
 	}
-	if !strings.Contains(reason, "no report/evidence") {
+	if !strings.Contains(reason, "no fresh assignment timestamp") {
 		t.Fatalf("reason = %q, want missing evidence", reason)
 	}
 }
 
-func TestReviewOnlyCloseAllowsEvidence(t *testing.T) {
+func TestReviewOnlyCloseRejectsNotesAndDesignEvidence(t *testing.T) {
 	issue := &beads.Issue{
 		ID:          "gt-review",
-		Description: "review_only: true\n",
+		Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
+		Assignee:    "gastown/polecats/toast",
 		Notes:       "FINDINGS: reviewed and no code changes needed",
+		Design:      "PR-SHERIFF-EVIDENCE: pass\nhead_sha: abc123",
 	}
 
-	reason, fatal := doneReviewOnlyCloseSkipReason(nil, issue.ID, issue)
+	reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
+	if reason == "" || !fatal {
+		t.Fatalf("notes/design should not satisfy review evidence: reason=%q fatal=%v", reason, fatal)
+	}
+}
+
+func TestReviewOnlyCloseAllowsFreshEvidenceComment(t *testing.T) {
+	issue := &beads.Issue{
+		ID:          "gt-review",
+		Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
+		Assignee:    "gastown/polecats/toast",
+		Comments: []beads.Comment{
+			{
+				Author:    "gastown/polecats/toast",
+				CreatedAt: "2026-07-01T12:05:00Z",
+				Text:      "PR-SHERIFF-EVIDENCE: pass\nhead_sha: abc123",
+			},
+		},
+	}
+
+	reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
 	if reason != "" || fatal {
 		t.Fatalf("doneReviewOnlyCloseSkipReason = %q, %v; want allowed", reason, fatal)
 	}
@@ -156,16 +178,99 @@ func TestReviewOnlyCloseAllowsEvidence(t *testing.T) {
 func TestReviewOnlyGeneratedCommentsDoNotCountAsEvidence(t *testing.T) {
 	issue := &beads.Issue{
 		ID:          "gt-review",
-		Description: "review_only: true\n",
+		Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
+		Assignee:    "gastown/polecats/toast",
 		Comments: []beads.Comment{
-			{Text: "verified_push_skipped: --skip-verify on no-MR close"},
-			{Text: "MR created: gt-wisp-abc"},
+			{Author: "gastown/polecats/toast", CreatedAt: "2026-07-01T12:05:00Z", Text: "verified_push_skipped: --skip-verify on no-MR close\nPR-SHERIFF-EVIDENCE: pass\nhead_sha: abc123"},
+			{Author: "gastown/polecats/toast", CreatedAt: "2026-07-01T12:06:00Z", Text: "MR created: gt-wisp-abc\nPR-SHERIFF-EVIDENCE: pass\nhead_sha: abc123"},
 		},
 	}
 
-	reason, fatal := doneReviewOnlyCloseSkipReason(nil, issue.ID, issue)
+	reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
 	if reason == "" || !fatal {
 		t.Fatalf("generated comments should not satisfy review evidence: reason=%q fatal=%v", reason, fatal)
+	}
+}
+
+func TestReviewOnlyCloseRejectsStaleComment(t *testing.T) {
+	issue := &beads.Issue{
+		ID:          "gt-review",
+		Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
+		Assignee:    "gastown/polecats/toast",
+		Comments: []beads.Comment{{
+			Author:    "gastown/polecats/toast",
+			CreatedAt: "2026-07-01T11:59:59Z",
+			Text:      "PR-SHERIFF-EVIDENCE: pass\nhead_sha: abc123",
+		}},
+	}
+
+	reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
+	if reason == "" || !fatal {
+		t.Fatalf("stale comment should not satisfy review evidence: reason=%q fatal=%v", reason, fatal)
+	}
+}
+
+func TestReviewOnlyCloseRejectsWrongAuthorOrHead(t *testing.T) {
+	tests := []struct {
+		name    string
+		author  string
+		head    string
+		current string
+	}{
+		{name: "wrong author", author: "gastown/polecats/other", head: "abc123", current: "abc123"},
+		{name: "wrong head", author: "gastown/polecats/toast", head: "def456", current: "abc123"},
+		{name: "missing head", author: "gastown/polecats/toast", head: "", current: "abc123"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text := "PR-SHERIFF-EVIDENCE: pass"
+			if tt.head != "" {
+				text += "\nhead_sha: " + tt.head
+			}
+			issue := &beads.Issue{
+				ID:          "gt-review",
+				Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
+				Assignee:    "gastown/polecats/toast",
+				Comments: []beads.Comment{{
+					Author:    tt.author,
+					CreatedAt: "2026-07-01T12:05:00Z",
+					Text:      text,
+				}},
+			}
+			reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, tt.current)
+			if reason == "" || !fatal {
+				t.Fatalf("invalid evidence should fail closed: reason=%q fatal=%v", reason, fatal)
+			}
+		})
+	}
+}
+
+func TestReviewOnlyCloseRejectsMissingAssigneeOrInvalidCommentTime(t *testing.T) {
+	tests := []struct {
+		name      string
+		assignee  string
+		createdAt string
+	}{
+		{name: "missing assignee", assignee: "", createdAt: "2026-07-01T12:05:00Z"},
+		{name: "invalid comment time", assignee: "gastown/polecats/toast", createdAt: "not-a-time"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issue := &beads.Issue{
+				ID:          "gt-review",
+				Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
+				Assignee:    tt.assignee,
+				Comments: []beads.Comment{{
+					Author:    "gastown/polecats/toast",
+					CreatedAt: tt.createdAt,
+					Text:      "PR-SHERIFF-EVIDENCE: pass\nhead_sha: abc123",
+				}},
+			}
+			reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
+			if reason == "" || !fatal {
+				t.Fatalf("invalid metadata should fail closed: reason=%q fatal=%v", reason, fatal)
+			}
+		})
 	}
 }
 

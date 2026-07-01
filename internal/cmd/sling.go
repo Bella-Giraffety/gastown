@@ -1199,23 +1199,23 @@ var getBeadInfoForRollback = getBeadInfo
 var collectExistingMoleculesForRollback = collectExistingMolecules
 var burnExistingMoleculesForRollback = burnExistingMolecules
 
-func rawWorkflowFieldValues(info *beadInfo) (noMerge, reviewOnly bool) {
+func rawWorkflowFieldValues(info *beadInfo) (noMerge, reviewOnly bool, attachedAt string) {
 	if info == nil {
-		return false, false
+		return false, false, ""
 	}
 	issue := &beads.Issue{Description: info.Description}
 	fields := beads.ParseAttachmentFields(issue)
 	if fields == nil {
-		return false, false
+		return false, false, ""
 	}
-	return fields.NoMerge, fields.ReviewOnly
+	return fields.NoMerge, fields.ReviewOnly, fields.AttachedAt
 }
 
 func restoreRollbackRawWorkflowFields(beadID, townRoot, hookWorkDir string, info, originalInfo *beadInfo) (bool, error) {
 	if info == nil {
 		return false, nil
 	}
-	originalNoMerge, originalReviewOnly := rawWorkflowFieldValues(originalInfo)
+	originalNoMerge, originalReviewOnly, originalAttachedAt := rawWorkflowFieldValues(originalInfo)
 	issue := &beads.Issue{Description: info.Description}
 	fields := beads.ParseAttachmentFields(issue)
 	if fields == nil {
@@ -1224,11 +1224,12 @@ func restoreRollbackRawWorkflowFields(beadID, townRoot, hookWorkDir string, info
 		}
 		fields = &beads.AttachmentFields{}
 	}
-	if fields.NoMerge == originalNoMerge && fields.ReviewOnly == originalReviewOnly {
+	if fields.NoMerge == originalNoMerge && fields.ReviewOnly == originalReviewOnly && fields.AttachedAt == originalAttachedAt {
 		return false, nil
 	}
 	fields.NoMerge = originalNoMerge
 	fields.ReviewOnly = originalReviewOnly
+	fields.AttachedAt = originalAttachedAt
 	newDesc := beads.SetAttachmentFields(issue, fields)
 	if newDesc == info.Description {
 		return false, nil

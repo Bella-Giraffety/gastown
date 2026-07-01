@@ -460,6 +460,7 @@ type beadFieldUpdates struct {
 	Vars             []string // Formula variables (key=value pairs)
 	AttachedMolecule string   // Wisp root ID
 	AttachedFormula  string   // Formula name (e.g., "mol-polecat-work") for inline step display
+	AttachedAt       string   // Assignment timestamp; refreshed when workflow metadata is written
 	NoMerge          bool     // Skip merge queue on completion
 	ReviewOnly       bool     // Review-only mode: assignee must not merge/commit/push
 	Mode             *string  // Execution mode: nil means unchanged, "" clears, "ralph" enables Ralph mode
@@ -483,7 +484,7 @@ func buildSlingFieldUpdates(
 	mergeStrategy string,
 	convoyOwned bool,
 ) beadFieldUpdates {
-	return beadFieldUpdates{
+	updates := beadFieldUpdates{
 		Dispatcher:       dispatcher,
 		Args:             args,
 		Vars:             vars,
@@ -497,6 +498,10 @@ func buildSlingFieldUpdates(
 		ConvoyOwned:      convoyOwned,
 		FormulaVars:      formulaVars,
 	}
+	if attachedMolecule != "" || attachedFormula != "" || noMerge || reviewOnly {
+		updates.AttachedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	return updates
 }
 
 // storeFieldsInBead performs a single read-modify-write to update all attachment fields
@@ -553,7 +558,9 @@ func storeFieldsInBeadFromTownRoot(townRoot, beadID string, updates beadFieldUpd
 	if updates.AttachedFormula != "" {
 		fields.AttachedFormula = updates.AttachedFormula
 	}
-	if (updates.AttachedMolecule != "" || updates.AttachedFormula != "") && fields.AttachedAt == "" {
+	if updates.AttachedAt != "" {
+		fields.AttachedAt = updates.AttachedAt
+	} else if updates.AttachedMolecule != "" || updates.AttachedFormula != "" || updates.NoMerge || updates.ReviewOnly {
 		fields.AttachedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	if updates.NoMerge {

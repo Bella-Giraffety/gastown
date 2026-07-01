@@ -121,11 +121,16 @@ var generatedCommentPrefixes = []string{
 }
 
 func doneSourceCloseSkipReason(bd *beads.Beads, issueID string, issue *beads.Issue) (string, bool) {
+	currentHead, _ := currentReviewEvidenceHead()
+	return doneSourceCloseSkipReasonForHead(bd, issueID, issue, currentHead)
+}
+
+func doneSourceCloseSkipReasonForHead(bd *beads.Beads, issueID string, issue *beads.Issue, currentHead string) (string, bool) {
 	issue, skipReason, fatal := loadDoneSourceIssue(bd, issueID, issue)
 	if skipReason != "" {
 		return skipReason, fatal
 	}
-	if skipReason, fatal := doneReviewOnlyCloseSkipReason(bd, issueID, issue); skipReason != "" {
+	if skipReason, fatal := doneReviewOnlyCloseSkipReasonForHead(bd, issueID, issue, currentHead); skipReason != "" {
 		return skipReason, fatal
 	}
 	if unchecked := beads.HasUncheckedCriteria(issue); unchecked > 0 {
@@ -143,12 +148,39 @@ func doneReviewOnlyCloseSkipReason(bd *beads.Beads, issueID string, issue *beads
 	if attachment == nil || !attachment.ReviewOnly {
 		return "", false
 	}
-	hasEvidence, err := hasReviewReportEvidence(bd, issueID, issue)
+	currentHead, err := currentReviewEvidenceHead()
+	if err != nil {
+		return fmt.Sprintf("could not verify review evidence for %s: %v", issueID, err), true
+	}
+	return doneReviewOnlyCloseSkipReasonForHead(bd, issueID, issue, currentHead)
+}
+
+func doneReviewOnlyCloseSkipReasonForHead(bd *beads.Beads, issueID string, issue *beads.Issue, currentHead string) (string, bool) {
+	issue, skipReason, fatal := loadDoneSourceIssue(bd, issueID, issue)
+	if skipReason != "" {
+		return skipReason, fatal
+	}
+	attachment := beads.ParseAttachmentFields(issue)
+	if attachment == nil || !attachment.ReviewOnly {
+		return "", false
+	}
+	assignmentAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(attachment.AttachedAt))
+	if err != nil {
+		return fmt.Sprintf("review-only issue %s has no fresh assignment timestamp — re-sling it or add evidence after a fresh assignment", issueID), true
+	}
+	if strings.TrimSpace(issue.Assignee) == "" {
+		return fmt.Sprintf("review-only issue %s has no assignee for evidence author validation", issueID), true
+	}
+	currentHead = strings.TrimSpace(currentHead)
+	if currentHead == "" {
+		return fmt.Sprintf("review-only issue %s has no current HEAD for evidence validation", issueID), true
+	}
+	hasEvidence, err := hasFreshReviewReportEvidence(bd, issueID, issue, assignmentAt, issue.Assignee, currentHead)
 	if err != nil {
 		return fmt.Sprintf("could not verify review evidence for %s: %v", issueID, err), true
 	}
 	if !hasEvidence {
-		return fmt.Sprintf("review-only issue %s has no report/evidence — add a REPORT/FINDINGS/REVIEW/EVIDENCE entry before gt done", issueID), true
+		return fmt.Sprintf("review-only issue %s has no fresh review evidence comment for assignee %s and head %s", issueID, strings.TrimSpace(issue.Assignee), currentHead), true
 	}
 	return "", false
 }
@@ -170,15 +202,19 @@ func loadDoneSourceIssue(bd *beads.Beads, issueID string, issue *beads.Issue) (*
 	return loaded, "", false
 }
 
-func hasReviewReportEvidence(bd *beads.Beads, issueID string, issue *beads.Issue) (bool, error) {
+func currentReviewEvidenceHead() (string, error) {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("resolving current HEAD: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func hasFreshReviewReportEvidence(bd *beads.Beads, issueID string, issue *beads.Issue, assignmentAt time.Time, assignee, currentHead string) (bool, error) {
 	if issue != nil {
-		if isReviewEvidenceText(issue.Notes) || isReviewEvidenceText(issue.Design) {
+		if hasFreshReviewEvidenceComment(issue.Comments, assignmentAt, assignee, currentHead) {
 			return true, nil
-		}
-		for _, comment := range issue.Comments {
-			if isReviewEvidenceText(comment.Text) {
-				return true, nil
-			}
 		}
 	}
 	if bd == nil || issueID == "" {
@@ -190,7 +226,15 @@ func hasReviewReportEvidence(bd *beads.Beads, issueID string, issue *beads.Issue
 			return false, err
 		}
 		for _, comment := range comments {
-			if comment != nil && isReviewEvidenceText(comment.Text) {
+			if comment == nil {
+				continue
+			}
+			candidate := beads.Comment{
+				Author:    comment.Author,
+				Text:      comment.Text,
+				CreatedAt: comment.CreatedAt.Format(time.RFC3339Nano),
+			}
+			if hasFreshReviewEvidenceComment([]beads.Comment{candidate}, assignmentAt, assignee, currentHead) {
 				return true, nil
 			}
 		}
@@ -204,12 +248,66 @@ func hasReviewReportEvidence(bd *beads.Beads, issueID string, issue *beads.Issue
 	if err := json.Unmarshal(out, &comments); err != nil {
 		return false, fmt.Errorf("parsing comments: %w", err)
 	}
-	for _, comment := range comments {
-		if isReviewEvidenceText(comment.Text) {
-			return true, nil
-		}
+	if hasFreshReviewEvidenceComment(comments, assignmentAt, assignee, currentHead) {
+		return true, nil
 	}
 	return false, nil
+}
+
+func hasFreshReviewEvidenceComment(comments []beads.Comment, assignmentAt time.Time, assignee, currentHead string) bool {
+	assignee = strings.TrimSpace(assignee)
+	currentHead = strings.TrimSpace(currentHead)
+	if assignee == "" || currentHead == "" {
+		return false
+	}
+	for _, comment := range comments {
+		createdAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(comment.CreatedAt))
+		if err != nil || createdAt.Before(assignmentAt) {
+			continue
+		}
+		if strings.TrimSpace(comment.Author) != assignee {
+			continue
+		}
+		if isGeneratedReviewComment(comment.Text) || !isReviewEvidenceText(comment.Text) {
+			continue
+		}
+		if reviewEvidenceHeadSHA(comment.Text) != currentHead {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isGeneratedReviewComment(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if lower == "" {
+			continue
+		}
+		for _, prefix := range generatedCommentPrefixes {
+			if strings.HasPrefix(lower, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func reviewEvidenceHeadSHA(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		for _, key := range []string{"head_sha", "target_head_sha", "head"} {
+			for _, sep := range []string{":", "="} {
+				prefix := key + sep
+				if strings.HasPrefix(lower, prefix) {
+					return strings.TrimSpace(trimmed[len(prefix):])
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func isReviewEvidenceText(text string) bool {
@@ -957,9 +1055,12 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			// Close the base issue — no MR/refinery will close it
 			if issueID != "" {
 				directBd := beads.New(cwd)
-				if skipReason, _ := doneReviewOnlyCloseSkipReason(directBd, issueID, nil); skipReason != "" {
+				if skipReason, fatal := doneReviewOnlyCloseSkipReason(directBd, issueID, nil); skipReason != "" {
 					style.PrintWarning("%s", skipReason)
 					notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
+					if fatal {
+						return fmt.Errorf("cannot complete review-only work: %s", skipReason)
+					}
 				} else {
 					closeReason := fmt.Sprintf("Direct merge to %s (convoy strategy)", defaultBranch)
 					var closeErr error
@@ -1199,9 +1300,12 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				// here after notifying the dispatcher. Otherwise hooked work remains open.
 				if issueID != "" {
 					canCloseIssue := true
-					if skipReason, _ := doneReviewOnlyCloseSkipReason(bd, issueID, sourceIssueForNoMerge); skipReason != "" {
+					if skipReason, fatal := doneReviewOnlyCloseSkipReason(bd, issueID, sourceIssueForNoMerge); skipReason != "" {
 						style.PrintWarning("%s", skipReason)
 						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
+						if fatal {
+							return fmt.Errorf("cannot complete review-only/no-merge work: %s", skipReason)
+						}
 						canCloseIssue = false
 					}
 					if canCloseIssue && attachmentFields.AttachedMolecule != "" {
@@ -1276,9 +1380,12 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 				// Close the issue directly — refinery won't process it.
 				if issueID != "" {
-					if skipReason, _ := doneReviewOnlyCloseSkipReason(bd, issueID, nil); skipReason != "" {
+					if skipReason, fatal := doneReviewOnlyCloseSkipReason(bd, issueID, nil); skipReason != "" {
 						style.PrintWarning("%s", skipReason)
 						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
+						if fatal {
+							return fmt.Errorf("cannot complete review-only work: %s", skipReason)
+						}
 					} else {
 						var closeErr error
 						for attempt := 1; attempt <= 3; attempt++ {
@@ -1615,7 +1722,9 @@ notifyWitness:
 	}
 
 	// Update agent bead state (ZFC: self-report completion)
-	updateAgentStateOnDone(cwd, townRoot, exitType, issueID)
+	if err := updateAgentStateOnDone(cwd, townRoot, exitType, issueID); err != nil {
+		return err
+	}
 
 	// Nudge witness only after hook/cleanup state is updated. Otherwise witness can
 	// evaluate slot availability against stale hook_bead or cleanup_status and emit
@@ -1989,7 +2098,7 @@ func clearDoneCheckpoints(bd *beads.Beads, agentBeadID string) {
 // BUG FIX (hq-3xaxy): This function must be resilient to working directory deletion.
 // If the polecat's worktree is deleted before gt done finishes, we use env vars as fallback.
 // All errors are warnings, not failures - gt done must complete even if bead ops fail.
-func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) {
+func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) error {
 	// Get role context - try multiple sources for resilience
 	roleInfo, err := GetRoleWithContext(cwd, townRoot)
 	if err != nil {
@@ -2002,7 +2111,7 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) {
 		if envRole == "" || envRig == "" {
 			// Can't determine role, skip agent state update
 			style.PrintWarning("could not determine role for agent state update (env: GT_ROLE=%q, GT_RIG=%q)", envRole, envRig)
-			return
+			return nil
 		}
 
 		// Parse role string to get Role type
@@ -2029,7 +2138,7 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) {
 	agentBeadID := getAgentBeadID(ctx)
 	if agentBeadID == "" {
 		style.PrintWarning("no agent bead ID found for %s/%s, skipping agent state update", ctx.Rig, ctx.Polecat)
-		return
+		return nil
 	}
 
 	// Use rig path for bd commands.
@@ -2084,10 +2193,13 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) {
 				goto doneStateUpdate
 			}
 
-			if skipReason, _ := doneReviewOnlyCloseSkipReason(bd, hookedBeadID, hookedBead); skipReason != "" {
+			if skipReason, fatal := doneReviewOnlyCloseSkipReason(bd, hookedBeadID, hookedBead); skipReason != "" {
 				style.PrintWarning("%s", skipReason)
 				fmt.Fprintf(os.Stderr, "  The bead will remain open for witness/mayor review.\n")
 				notifyDoneCloseSkipped(townRoot, ctx.Rig, detectSender(), hookedBeadID, skipReason)
+				if fatal {
+					return fmt.Errorf("cannot complete review-only work: %s", skipReason)
+				}
 				goto doneStateUpdate
 			}
 
@@ -2182,6 +2294,7 @@ doneStateUpdate:
 	// lingering labels to detect the zombie and resume from checkpoints.
 	clearDoneIntentLabel(agentBd, agentBeadID)
 	clearDoneCheckpoints(agentBd, agentBeadID)
+	return nil
 }
 
 // ensureAgentBeadExists recreates a missing agent bead so done-intent labels,

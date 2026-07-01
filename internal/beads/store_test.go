@@ -399,6 +399,9 @@ func TestStoreShowMapsReviewEvidenceFields(t *testing.T) {
 	if len(issue.Comments) != 1 || issue.Comments[0].Text != "EVIDENCE: comment evidence" {
 		t.Fatalf("Comments = %#v", issue.Comments)
 	}
+	if issue.Comments[0].CreatedAt != now.Format(time.RFC3339Nano) {
+		t.Fatalf("Comment CreatedAt = %q, want %q", issue.Comments[0].CreatedAt, now.Format(time.RFC3339Nano))
+	}
 }
 
 func TestStoreShowNotFound(t *testing.T) {

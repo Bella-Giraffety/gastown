@@ -155,7 +155,7 @@ func sdkCommentToComment(c *beadsdk.Comment) (Comment, bool) {
 		IssueID:   c.IssueID,
 		Author:    c.Author,
 		Text:      c.Text,
-		CreatedAt: c.CreatedAt.Format(time.RFC3339),
+		CreatedAt: c.CreatedAt.Format(time.RFC3339Nano),
 	}, true
 }
 

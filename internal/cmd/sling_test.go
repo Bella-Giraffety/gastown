@@ -170,6 +170,12 @@ func assertHasRawReviewMetadata(t *testing.T, desc string) {
 	if fields == nil || !fields.NoMerge || !fields.ReviewOnly {
 		t.Fatalf("raw review metadata missing from description:\n%s", desc)
 	}
+	if fields.AttachedAt == "" {
+		t.Fatalf("raw review metadata missing attached_at:\n%s", desc)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, fields.AttachedAt); err != nil {
+		t.Fatalf("attached_at %q is not RFC3339Nano: %v", fields.AttachedAt, err)
+	}
 }
 
 func containsVarArg(line, key, value string) bool {
@@ -1554,6 +1560,7 @@ exit /b 0
 
 func TestRollbackSlingArtifactsClearsRawReviewOnlyMetadata(t *testing.T) {
 	initial := strings.Join([]string{
+		"attached_at: 2026-06-30T12:00:00Z",
 		"no_merge: true",
 		"review_only: true",
 		"dispatched_by: mayor/",
@@ -1581,6 +1588,7 @@ func TestRollbackSlingArtifactsClearsRawReviewOnlyMetadata(t *testing.T) {
 func TestRollbackSlingArtifactsKeepsMetadataWhenMoleculeBurnFails(t *testing.T) {
 	initial := strings.Join([]string{
 		"attached_molecule: gt-wisp-stale",
+		"attached_at: 2026-06-30T12:00:00Z",
 		"no_merge: true",
 		"review_only: true",
 		"",
@@ -1617,6 +1625,7 @@ func TestRollbackSlingArtifactsKeepsMetadataWhenMoleculeBurnFails(t *testing.T) 
 func TestRollbackSlingArtifactsClearsRawReviewOnlyMetadataAfterMoleculeBurnSucceeds(t *testing.T) {
 	initial := strings.Join([]string{
 		"attached_molecule: gt-wisp-stale",
+		"attached_at: 2026-06-30T12:00:00Z",
 		"no_merge: true",
 		"review_only: true",
 		"",
@@ -1638,6 +1647,7 @@ func TestRollbackSlingArtifactsClearsRawReviewOnlyMetadataAfterMoleculeBurnSucce
 			t.Fatalf("unexpected molecules: %#v", molecules)
 		}
 		updated := strings.Join([]string{
+			"attached_at: 2026-06-30T12:00:00Z",
 			"no_merge: true",
 			"review_only: true",
 			"",
@@ -3546,6 +3556,38 @@ func TestStoreFieldsInBeadFormulaSetsAttachedAt(t *testing.T) {
 	fields := beads.ParseAttachmentFields(&beads.Issue{Description: string(body)})
 	if fields == nil || fields.AttachedFormula != "mol-dog-reaper" || fields.AttachedAt == "" {
 		t.Fatalf("formula attachment fields = %#v, want formula and attached_at", fields)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, fields.AttachedAt); err != nil {
+		t.Fatalf("attached_at %q is not RFC3339Nano: %v", fields.AttachedAt, err)
+	}
+}
+
+func TestStoreFieldsInBeadRawReviewRefreshesAttachedAt(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "raw-review.log")
+	t.Setenv("GT_TEST_ATTACHED_MOLECULE_LOG", logPath)
+
+	stale := "2026-06-30T12:00:00Z"
+	if err := os.WriteFile(logPath, []byte("attached_at: "+stale+"\nno_merge: true\nreview_only: true\n"), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	if err := storeFieldsInBead("gt-test123", beadFieldUpdates{
+		NoMerge:    true,
+		ReviewOnly: true,
+	}); err != nil {
+		t.Fatalf("storeFieldsInBead: %v", err)
+	}
+
+	body, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	fields := beads.ParseAttachmentFields(&beads.Issue{Description: string(body)})
+	if fields == nil || !fields.NoMerge || !fields.ReviewOnly {
+		t.Fatalf("raw review fields = %#v", fields)
+	}
+	if fields.AttachedAt == "" || fields.AttachedAt == stale {
+		t.Fatalf("attached_at = %q, want refreshed from %q", fields.AttachedAt, stale)
 	}
 	if _, err := time.Parse(time.RFC3339Nano, fields.AttachedAt); err != nil {
 		t.Fatalf("attached_at %q is not RFC3339Nano: %v", fields.AttachedAt, err)
