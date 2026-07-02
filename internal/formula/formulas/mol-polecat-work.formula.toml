@@ -162,7 +162,7 @@ from a different bead is never reusable.
 **3. Otherwise, create a fresh branch NAMED FOR THE HOOKED BEAD:**
 ```bash
 git fetch origin
-git checkout -b "polecat/<name>/{{issue}}@$(openssl rand -hex 3)" origin/{{base_branch}}
+git checkout -b "polecat/<name>/{{issue}}+$(openssl rand -hex 3)" origin/{{base_branch}}
 ```
 
 The format is `polecat/<your-name>/<bead-id>@<short-unique-suffix>`. The

@@ -555,7 +555,7 @@ type AddOptions struct {
 // - {timestamp}: unique timestamp
 //
 // If no template is configured or template is empty, uses default format:
-// - polecat/{name}/{issue}@{timestamp} when issue is available
+// - polecat/{name}/{issue}+{timestamp} when issue is available
 // - polecat/{name}-{timestamp} otherwise
 func (m *Manager) buildBranchName(name, issue string) string {
 	template := m.rig.GetStringConfig("polecat_branch_template")
@@ -563,10 +563,7 @@ func (m *Manager) buildBranchName(name, issue string) string {
 	// No template configured - use default behavior for backward compatibility
 	if template == "" {
 		timestamp := strconv.FormatInt(time.Now().UnixMilli(), 36)
-		if issue != "" {
-			return fmt.Sprintf("polecat/%s/%s@%s", name, issue, timestamp)
-		}
-		return fmt.Sprintf("polecat/%s-%s", name, timestamp)
+		return FormatGeneratedBranchName(name, issue, timestamp)
 	}
 
 	// Build template variables
