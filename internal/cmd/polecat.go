@@ -1964,9 +1964,16 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, targetRefs
 	if strings.TrimSpace(remoteTip) == strings.TrimSpace(commit) {
 		return nil
 	}
-	if fromWorktree && len(uniqueStrings(targetRefs)) > 0 {
-		if targetStatus, targetErr := pushGit.BranchTargetStatus(branch, "origin", targetRefs); targetErr == nil && targetStatus.Preserved {
+	if remoteTip != "" {
+		if contains, containsErr := pushGit.IsAncestor(commit, remoteTip); containsErr == nil && contains {
 			return nil
+		}
+	}
+	if fromWorktree && len(uniqueStrings(targetRefs)) > 0 {
+		if currentBranch, branchErr := pushGit.CurrentBranch(); branchErr == nil && currentBranch == branch {
+			if targetStatus, targetErr := pushGit.BranchTargetStatus(branch, "origin", targetRefs); targetErr == nil && targetStatus.Preserved {
+				return nil
+			}
 		}
 	}
 	if !fromWorktree && remoteTip == "" && !force {

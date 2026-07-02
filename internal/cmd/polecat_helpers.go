@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/style"
@@ -217,7 +218,7 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 			branchMR, branchMRErr := bd.FindMRForBranchAny(branch)
 			if branchMRErr != nil {
 				result.Reasons = append(result.Reasons, fmt.Sprintf("mq_status=unknown: %v", branchMRErr))
-			} else if branchMR == nil {
+			} else if !branchMRMatchesCurrentTip(polecatInfo.ClonePath, branch, branchMR) {
 				result.Reasons = append(result.Reasons, "mq_status=not_submitted")
 			}
 		}
@@ -225,6 +226,18 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 
 	result.Blocked = len(result.Reasons) > 0
 	return result
+}
+
+func branchMRMatchesCurrentTip(worktreePath, branch string, mr *beads.Issue) bool {
+	fields := beads.ParseMRFields(mr)
+	if fields == nil || strings.TrimSpace(fields.CommitSHA) == "" {
+		return false
+	}
+	tip, err := git.NewGit(worktreePath).Rev(branch)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(fields.CommitSHA) == strings.TrimSpace(tip)
 }
 
 func checkPolecatActiveWorkSafety(target polecatTarget) *SafetyCheckResult {
@@ -311,7 +324,9 @@ func displayDryRunSafetyCheck(target polecatTarget, result *SafetyCheckResult, f
 
 	// Check 1: cleanup status or fallback git state
 	if err != nil || fields == nil {
-		if infoErr == nil && polecatInfo != nil {
+		if force {
+			fmt.Printf("    - Cleanup/git/MR checks: %s\n", style.Dim.Render("bypassed by --force"))
+		} else if infoErr == nil && polecatInfo != nil {
 			gitState, gitErr := getGitState(polecatInfo.ClonePath)
 			if gitErr != nil {
 				fmt.Printf("    - Git state: %s\n", style.Warning.Render("cannot check"))
