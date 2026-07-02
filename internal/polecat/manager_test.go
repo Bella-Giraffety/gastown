@@ -1523,7 +1523,7 @@ func TestReuseIdlePolecat_UsesCanonicalOriginDefaultBranch(t *testing.T) {
 
 // TestAddWithOptions_ResumeBranch verifies gh#3602: when ResumeBranch is set,
 // AddWithOptions checks out the named existing branch instead of creating a
-// fresh polecat/<name>/<bead>@<ts> branch. This lets `gt sling --branch/--pr`
+// fresh polecat/<name>/<bead>+<ts> branch. This lets `gt sling --branch/--pr`
 // resume work on an existing PR branch without creating duplicates.
 func TestAddWithOptions_ResumeBranch(t *testing.T) {
 	mgr, mayorRig := setupCanonicalBranchManagerTest(t)

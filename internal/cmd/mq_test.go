@@ -63,6 +63,12 @@ func TestParseBranchName(t *testing.T) {
 			wantWorker: "furiosa",
 		},
 		{
+			name:       "malformed polecat branch does not fall back to issue regex",
+			branch:     "polecat/alpha/gt-pin-bd-metadata+",
+			wantIssue:  "",
+			wantWorker: "",
+		},
+		{
 			name:       "modern polecat branch (timestamp format)",
 			branch:     "polecat/furiosa-mkc36bb9",
 			wantIssue:  "", // Should NOT extract fake issue from worker-timestamp

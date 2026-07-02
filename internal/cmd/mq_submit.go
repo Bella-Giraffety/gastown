@@ -43,6 +43,9 @@ func parseBranchName(branch string) branchInfo {
 		info.Issue = meta.Issue
 		return info
 	}
+	if strings.HasPrefix(branch, "polecat/") {
+		return info
+	}
 
 	// Try to find an issue ID pattern in the branch name
 	// Common patterns: prefix-xxx, prefix-xxx.n (subtask)
