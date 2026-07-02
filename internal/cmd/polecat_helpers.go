@@ -150,14 +150,13 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 			result.GitState = gitState
 			gitStateLoaded = true
 		}
+		targetAwareGitSafe := func() bool {
+			loadGitState()
+			return gitErr == nil && gitState != nil && gitState.Clean
+		}
 		activeMRAssessment := polecat.ActiveMRAssessment{}
 		if fields.ActiveMR != "" {
-			loadGitState()
-			gitSafe := false
-			if polecatInfo != nil {
-				gitSafe = activeMRGitSafeForWorktree(polecatInfo.ClonePath)
-			}
-			activeMRAssessment = polecat.AssessActiveMR(bd, polecat.ActiveMRInput{ActiveMR: fields.ActiveMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: gitSafe})
+			activeMRAssessment = polecat.AssessActiveMR(bd, polecat.ActiveMRInput{ActiveMR: fields.ActiveMR, SourceIssueHint: sourceHint, RequireGitSafe: true, GitSafe: targetAwareGitSafe()})
 		}
 		beadTerminal := isAssignedBeadTerminal(bd, sourceHint)
 		if activeMRAssessment.SourceTerminal {
@@ -173,13 +172,9 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 			if result.CleanupStatus == polecat.CleanupUnpushed {
 				loadGitState()
 			}
-			gitSafe := false
-			if polecatInfo != nil {
-				gitSafe = activeMRGitSafeForWorktree(polecatInfo.ClonePath)
-			}
 			hookSafe, hookTerminal := activeWork.HookSafe, activeWork.HookTerminal
 			activeMRSafe := !activeMRAssessment.Pending
-			if polecat.CanIgnoreStaleCleanupStatus(result.CleanupStatus, beadTerminal || hookTerminal, hookSafe, activeMRSafe, gitSafe) {
+			if polecat.CanIgnoreStaleCleanupStatus(result.CleanupStatus, beadTerminal || hookTerminal, hookSafe, activeMRSafe, targetAwareGitSafe()) {
 				// OK: stale self-report after terminal source and direct clean git.
 			} else {
 				result.Reasons = append(result.Reasons, cleanupStatusBlocker(result.CleanupStatus))

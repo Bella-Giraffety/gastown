@@ -1724,12 +1724,8 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 
 	for _, p := range targets {
 		if polecatNukeDryRun {
-			result := checkPolecatSafety(p)
+			result := checkNukeSafety(p, polecatNukeForce)
 			blocked := result.Blocked
-			if polecatNukeForce {
-				result = checkPolecatActiveWorkSafety(p)
-				blocked = result.Blocked
-			}
 			if blocked {
 				fmt.Printf("Would refuse to nuke %s/%s until safety blockers are cleared:\n", p.rigName, p.polecatName)
 				dryRunBlocked++
@@ -1943,18 +1939,6 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, force bool
 		return fmt.Errorf("refusing to nuke: cannot verify branch %s preservation before deletion", branch)
 	}
 
-	preserved, unpushedCount, checkErr := pushGit.BranchPushedToRemote(branch, "origin")
-	if checkErr != nil {
-		if force {
-			style.PrintWarning("could not verify branch %s before forced nuke: %v", branch, checkErr)
-			return nil
-		}
-		return fmt.Errorf("refusing to nuke: cannot verify branch %s preservation before deletion: %w", branch, checkErr)
-	}
-	if preserved || unpushedCount == 0 {
-		return nil
-	}
-
 	commit, revErr := pushGit.Rev(branch)
 	if revErr != nil {
 		if force {
@@ -1963,14 +1947,27 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, force bool
 		}
 		return fmt.Errorf("refusing to nuke: cannot read branch %s before deletion: %w", branch, revErr)
 	}
+
+	remoteTip, checkErr := pushGit.PushRemoteBranchTip("origin", branch)
+	if checkErr != nil {
+		if force {
+			style.PrintWarning("could not verify branch %s before forced nuke: %v", branch, checkErr)
+			return nil
+		}
+		return fmt.Errorf("refusing to nuke: cannot verify branch %s preservation before deletion: %w", branch, checkErr)
+	}
+	if strings.TrimSpace(remoteTip) == strings.TrimSpace(commit) {
+		return nil
+	}
+
 	refspec := branch + ":" + branch
 	if err := pushGit.Push("origin", refspec, false); err != nil {
 		if force {
-			style.PrintWarning("could not push branch %s before forced nuke (%d unpushed commit(s)): %v", branch, unpushedCount, err)
-			style.PrintWarning("WORK AT RISK: branch %s has %d unpushed commit(s)", branch, unpushedCount)
+			style.PrintWarning("could not push branch %s before forced nuke: %v", branch, err)
+			style.PrintWarning("WORK AT RISK: branch %s was not preserved on the push remote", branch)
 			return nil
 		}
-		return fmt.Errorf("refusing to nuke: push failed while preserving branch %s (%d unpushed commit(s)): %w", branch, unpushedCount, err)
+		return fmt.Errorf("refusing to nuke: push failed while preserving branch %s: %w", branch, err)
 	}
 	if err := pushGit.VerifyPushedCommit("origin", branch, commit); err != nil {
 		if force {
