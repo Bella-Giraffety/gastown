@@ -1928,7 +1928,7 @@ func checkNukeSafety(target polecatTarget, force bool) *SafetyCheckResult {
 
 func nukeLocalBranchName(branch string) string {
 	branch = strings.TrimSpace(branch)
-	if branch == "" || branch == "HEAD" || isRecoveryBaseBranch(branch) {
+	if branch == "" || branch == "HEAD" || !strings.HasPrefix(branch, "polecat/") {
 		return ""
 	}
 	return branch
@@ -1986,7 +1986,11 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, targetRefs
 		if contains, containsErr := pushGit.IsAncestor(commit, remoteTip); containsErr == nil && contains {
 			return nil
 		}
-		_ = pushGit.FetchBranch("origin", branch)
+		fetchFrom := "origin"
+		if pushURL, urlErr := pushGit.GetPushURL("origin"); urlErr == nil && strings.TrimSpace(pushURL) != "" {
+			fetchFrom = pushURL
+		}
+		_ = pushGit.FetchBranch(fetchFrom, branch)
 		if contains, containsErr := pushGit.IsAncestor(commit, remoteTip); containsErr == nil && contains {
 			return nil
 		}

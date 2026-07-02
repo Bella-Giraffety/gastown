@@ -2259,19 +2259,19 @@ func (m *Manager) workstateInputForPolecat(name string, state State, issue strin
 		}
 	}
 	input.MQCheckRequired = input.Branch != ""
-	input.HasSubmittableWork = hasSubmittableWorkForWorkstate(clonePath)
+	input.HasSubmittableWork = hasSubmittableWorkForWorkstate(clonePath, targetRefs)
 	input.AssignedBeadTerminal = m.assignedBeadTerminal(issue)
 	workTerminal := input.AssignedBeadTerminal || sourceTerminal || hookTerminal
 	if CanIgnoreStaleCleanupStatus(input.CleanupStatus, workTerminal, hookSafe, activeMRSafe, gitSafe) {
 		input.IgnoreCleanupStatus = true
 	}
-	input.MQNotRequired = m.mqNotRequiredSource(issue)
+	input.MQNotRequired = m.mqNotRequiredSource(sourceHint)
 	if input.MQCheckRequired && input.HasSubmittableWork && !input.AssignedBeadTerminal && !input.MQNotRequired {
 		mr, err := m.beads.FindMRForBranchAny(input.Branch)
 		if err != nil {
 			input.MQLookupFailed = true
 		} else {
-			input.MRSubmitted = mr != nil
+			input.MRSubmitted = branchMRMatchesTip(clonePath, input.Branch, mr)
 		}
 	}
 	return input
@@ -2300,7 +2300,24 @@ func (m *Manager) mqNotRequiredSource(issueID string) bool {
 	return attachment.NoMerge || attachment.ReviewOnly || strings.EqualFold(strings.TrimSpace(attachment.MergeStrategy), "local")
 }
 
-func hasSubmittableWorkForWorkstate(worktreePath string) bool {
+func branchMRMatchesTip(worktreePath, branch string, mr *beads.Issue) bool {
+	fields := beads.ParseMRFields(mr)
+	if fields == nil || strings.TrimSpace(fields.CommitSHA) == "" {
+		return false
+	}
+	tip, err := git.NewGit(worktreePath).Rev(branch)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(fields.CommitSHA) == strings.TrimSpace(tip)
+}
+
+func hasSubmittableWorkForWorkstate(worktreePath string, targetRefs []string) bool {
+	g := git.NewGit(worktreePath)
+	branch, _ := g.CurrentBranch()
+	if status, err := g.BranchTargetStatus(branch, "origin", targetRefs); err == nil {
+		return status.UnpreservedPatchCount > 0
+	}
 	ref, err := workstateComparisonRef(worktreePath)
 	if err != nil {
 		return false
