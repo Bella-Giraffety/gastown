@@ -233,6 +233,10 @@ func branchMRMatchesCurrentTip(worktreePath, branch string, mr *beads.Issue) boo
 	if fields == nil || strings.TrimSpace(fields.CommitSHA) == "" {
 		return false
 	}
+	status := beads.IssueStatus(mr.Status)
+	if status != beads.StatusOpen && !(status == beads.StatusClosed && strings.EqualFold(strings.TrimSpace(fields.CloseReason), "merged")) {
+		return false
+	}
 	tip, err := git.NewGit(worktreePath).Rev(branch)
 	if err != nil {
 		return false

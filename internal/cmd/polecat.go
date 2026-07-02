@@ -1995,6 +1995,9 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, targetRefs
 			return nil
 		}
 	}
+	if branchCommitPreservedOnTargets(pushGit, commit, targetRefs) {
+		return nil
+	}
 	if fromWorktree && len(uniqueStrings(targetRefs)) > 0 {
 		if currentBranch, branchErr := pushGit.CurrentBranch(); branchErr == nil && currentBranch == branch {
 			if targetStatus, targetErr := pushGit.BranchTargetStatus(branch, "origin", targetRefs); targetErr == nil && targetStatus.Preserved {
@@ -2024,6 +2027,28 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, targetRefs
 	}
 	fmt.Printf("  %s pushed branch %s before nuke\n", style.Success.Render("✓"), branch)
 	return nil
+}
+
+func branchCommitPreservedOnTargets(g *git.Git, commit string, targetRefs []string) bool {
+	for _, target := range uniqueStrings(targetRefs) {
+		for _, candidate := range targetRefCandidates(target) {
+			if contains, err := g.IsAncestor(commit, candidate); err == nil && contains {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func targetRefCandidates(target string) []string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil
+	}
+	if strings.HasPrefix(target, "refs/") || strings.HasPrefix(target, "origin/") || strings.HasPrefix(target, "upstream/") {
+		return []string{target}
+	}
+	return []string{target, "origin/" + target, "upstream/" + target}
 }
 
 func resetPolecatAgentBeadForReuse(r *rig.Rig, rigName, polecatName string) {

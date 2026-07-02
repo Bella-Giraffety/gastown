@@ -76,9 +76,13 @@ func TestBranchMRMatchesCurrentTipRequiresCurrentCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Rev old tip: %v", err)
 	}
-	mr := &beads.Issue{Description: beads.FormatMRFields(&beads.MRFields{Branch: "polecat/nuke", CommitSHA: oldTip})}
+	mr := &beads.Issue{Status: string(beads.StatusOpen), Description: beads.FormatMRFields(&beads.MRFields{Branch: "polecat/nuke", CommitSHA: oldTip})}
 	if !branchMRMatchesCurrentTip(repo, "polecat/nuke", mr) {
 		t.Fatal("MR commit matching current branch tip should count as submitted")
+	}
+	rejected := &beads.Issue{Status: string(beads.StatusClosed), Description: beads.FormatMRFields(&beads.MRFields{Branch: "polecat/nuke", CommitSHA: oldTip, CloseReason: "rejected"})}
+	if branchMRMatchesCurrentTip(repo, "polecat/nuke", rejected) {
+		t.Fatal("closed rejected MR must not count as current branch submission")
 	}
 
 	writeRecoveryFile(t, filepath.Join(repo, "second.txt"), "second\n")
