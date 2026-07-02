@@ -1826,12 +1826,31 @@ type nukePolecatOptions struct {
 
 func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manager, r *rig.Rig, opts nukePolecatOptions) error {
 	target := polecatTarget{rigName: rigName, polecatName: polecatName, mgr: mgr, r: r}
-	if safety := checkNukeSafety(target, opts.Force); safety.Blocked {
+	if safety := checkPolecatActiveWorkSafety(target); safety.Blocked {
 		return fmt.Errorf("refusing to nuke %s/%s: %s", rigName, polecatName, strings.Join(safety.Reasons, "; "))
 	}
 
-	// Get polecat info before mutation. Preservation must run before session kill,
-	// molecule cleanup, or worktree deletion so failed pushes fail closed.
+	t := tmux.NewTmux()
+
+	// Step 1: Kill tmux session unconditionally to prevent ghost sessions
+	// when IsRunning fails to detect the session. Then re-run live safety and
+	// preservation checks before any metadata or filesystem deletion.
+	sessMgr := polecat.NewSessionManager(t, r)
+	if err := sessMgr.Stop(polecatName, true); err != nil {
+		if !errors.Is(err, polecat.ErrSessionNotFound) {
+			fmt.Printf("  %s session kill failed: %v\n", style.Warning.Render("⚠"), err)
+		}
+	} else {
+		fmt.Printf("  %s killed session\n", style.Success.Render("✓"))
+	}
+	if !opts.Force {
+		if safety := checkPolecatSafety(target); safety.Blocked {
+			return fmt.Errorf("refusing to nuke %s/%s: %s", rigName, polecatName, strings.Join(safety.Reasons, "; "))
+		}
+	}
+
+	// Get polecat info before metadata or filesystem mutation. Preservation must
+	// run before molecule cleanup or worktree deletion so failed pushes fail closed.
 	polecatInfo, getErr := mgr.Get(polecatName)
 	var branchToDelete string
 	if getErr == nil && polecatInfo != nil {
@@ -1842,19 +1861,6 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 		if err := preservePolecatBranchBeforeNuke(pushGit, branchToDelete, targetRefs, fromWorktree, opts.Force); err != nil {
 			return err
 		}
-	}
-
-	t := tmux.NewTmux()
-
-	// Step 1: Kill tmux session unconditionally to prevent ghost sessions
-	// when IsRunning fails to detect the session.
-	sessMgr := polecat.NewSessionManager(t, r)
-	if err := sessMgr.Stop(polecatName, true); err != nil {
-		if !errors.Is(err, polecat.ErrSessionNotFound) {
-			fmt.Printf("  %s session kill failed: %v\n", style.Warning.Render("⚠"), err)
-		}
-	} else {
-		fmt.Printf("  %s killed session\n", style.Success.Render("✓"))
 	}
 
 	// Step 2.5: Burn any molecule attached to the polecat's hooked work bead.
@@ -1998,13 +2004,6 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, targetRefs
 	}
 	if branchCommitPreservedOnTargets(pushGit, commit, targetRefs) {
 		return nil
-	}
-	if fromWorktree && len(uniqueStrings(targetRefs)) > 0 {
-		if currentBranch, branchErr := pushGit.CurrentBranch(); branchErr == nil && currentBranch == branch {
-			if targetStatus, targetErr := pushGit.BranchTargetStatus(branch, "origin", targetRefs); targetErr == nil && targetStatus.Preserved {
-				return nil
-			}
-		}
 	}
 	if !fromWorktree && remoteTip == "" && !force {
 		return fmt.Errorf("refusing to nuke: branch %s is not preserved on the push remote and worktree is unavailable", branch)

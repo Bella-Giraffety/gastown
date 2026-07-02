@@ -2612,11 +2612,13 @@ func (g *Git) branchPreservationStatus(localBranch, remote string, targets []str
 		}
 	}
 
-	if upstream, err := g.run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil && strings.TrimSpace(upstream) != "" {
-		upstream = strings.TrimSpace(upstream)
-		if includeExactBranch || !isPolecatSelfUpstream(localBranch, remote, upstream) {
-			hasEvidence = true
-			candidates = append(candidates, upstream)
+	if !hasEvidence {
+		if upstream, err := g.run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil && strings.TrimSpace(upstream) != "" {
+			upstream = strings.TrimSpace(upstream)
+			if includeExactBranch || !isPolecatSelfUpstream(localBranch, remote, upstream) {
+				hasEvidence = true
+				candidates = append(candidates, upstream)
+			}
 		}
 	}
 
