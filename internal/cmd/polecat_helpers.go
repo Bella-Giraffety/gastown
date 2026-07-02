@@ -105,6 +105,10 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 
 	// Get polecat info for branch name
 	polecatInfo, infoErr := target.mgr.Get(target.polecatName)
+	branch := ""
+	if infoErr == nil && polecatInfo != nil {
+		branch = nukeLocalBranchName(polecatInfo.Branch)
+	}
 
 	// Check 1: Unpushed commits via cleanup_status or git state
 	bd := beads.New(target.r.Path)
@@ -119,18 +123,10 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 		applyActiveWorkToSafetyResult(result, activeWork)
 		// No agent bead - fall back to git check
 		if infoErr == nil && polecatInfo != nil {
-			gitState, gitErr := getGitState(polecatInfo.ClonePath)
+			gitState, gitErr := getGitStateWithTargets(polecatInfo.ClonePath, recoveryTargetRefs(bd, "", "", branch))
 			result.GitState = gitState
-			if gitErr != nil {
-				result.Reasons = append(result.Reasons, "cannot check git state")
-			} else if !gitState.Clean {
-				if gitState.UnpushedCommits > 0 {
-					result.Reasons = append(result.Reasons, fmt.Sprintf("has %d unpushed commit(s)", gitState.UnpushedCommits))
-				} else if len(gitState.UncommittedFiles) > 0 {
-					result.Reasons = append(result.Reasons, fmt.Sprintf("has %d uncommitted file(s)", len(gitState.UncommittedFiles)))
-				} else if gitState.StashCount > 0 {
-					result.Reasons = append(result.Reasons, fmt.Sprintf("has %d stash(es)", gitState.StashCount))
-				}
+			if blocker := recoveryGitStateBlocker(polecatInfo.ClonePath, gitState, gitErr); blocker != "" {
+				result.Reasons = append(result.Reasons, blocker)
 			}
 		}
 	} else {
@@ -144,12 +140,13 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 		activeWork.Merge(agentRecordEvidence)
 		applyActiveWorkToSafetyResult(result, activeWork)
 		var gitState *GitState
+		var gitErr error
 		gitStateLoaded := false
 		loadGitState := func() {
 			if gitStateLoaded || infoErr != nil || polecatInfo == nil {
 				return
 			}
-			gitState, _ = getGitState(polecatInfo.ClonePath)
+			gitState, gitErr = getGitStateWithTargets(polecatInfo.ClonePath, recoveryTargetRefs(bd, sourceHint, fields.ActiveMR, branch))
 			result.GitState = gitState
 			gitStateLoaded = true
 		}
@@ -194,11 +191,25 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 				result.Reasons = append(result.Reasons, blocker)
 			}
 		}
+		if fields.PushFailed {
+			result.Reasons = append(result.Reasons, "push_failed=true")
+		}
+		if fields.MRFailed {
+			result.Reasons = append(result.Reasons, "mr_failed=true")
+		}
+		loadGitState()
+		worktreePath := ""
+		if polecatInfo != nil {
+			worktreePath = polecatInfo.ClonePath
+		}
+		if blocker := recoveryGitStateBlocker(worktreePath, gitState, gitErr); blocker != "" {
+			result.Reasons = append(result.Reasons, blocker)
+		}
 	}
 
 	// Check 2: Open MR beads for this branch
-	if infoErr == nil && polecatInfo != nil && polecatInfo.Branch != "" {
-		mr, mrErr := bd.FindMRForBranch(polecatInfo.Branch)
+	if infoErr == nil && polecatInfo != nil && branch != "" {
+		mr, mrErr := bd.FindMRForBranch(branch)
 		if mrErr != nil {
 			result.Reasons = append(result.Reasons, fmt.Sprintf("open_mr_lookup_error: %v", mrErr))
 		} else if mr != nil {
@@ -282,9 +293,11 @@ func formatSafetyCheckBlockers(blocked []*SafetyCheckResult) string {
 }
 
 // displayDryRunSafetyCheck shows safety check status for dry-run mode. It returns true when a normal nuke would refuse.
-func displayDryRunSafetyCheck(target polecatTarget) bool {
+func displayDryRunSafetyCheck(target polecatTarget, result *SafetyCheckResult) bool {
 	fmt.Printf("\n  Safety checks:\n")
-	result := checkPolecatSafety(target)
+	if result == nil {
+		result = checkPolecatSafety(target)
+	}
 	polecatInfo, infoErr := target.mgr.Get(target.polecatName)
 	bd := beads.New(target.r.Path)
 	assignee := fmt.Sprintf("%s/polecats/%s", target.rigName, target.polecatName)
@@ -349,11 +362,24 @@ func displayDryRunSafetyCheck(target polecatTarget) bool {
 				fmt.Printf("    - Active MR: %s (%s)\n", style.Success.Render("terminal"), fields.ActiveMR)
 			}
 		}
+		if fields.PushFailed {
+			fmt.Printf("    - Push failed: %s\n", style.Error.Render("yes"))
+		}
+		if fields.MRFailed {
+			fmt.Printf("    - MR failed: %s\n", style.Error.Render("yes"))
+		}
+		if result.GitState != nil {
+			if result.GitState.Clean {
+				fmt.Printf("    - Git state: %s\n", style.Success.Render("clean"))
+			} else {
+				fmt.Printf("    - Git state: %s\n", style.Error.Render("dirty"))
+			}
+		}
 	}
 
 	// Check 2: Open MR
-	if infoErr == nil && polecatInfo != nil && polecatInfo.Branch != "" {
-		mr, mrErr := bd.FindMRForBranch(polecatInfo.Branch)
+	if infoErr == nil && polecatInfo != nil && nukeLocalBranchName(polecatInfo.Branch) != "" {
+		mr, mrErr := bd.FindMRForBranch(nukeLocalBranchName(polecatInfo.Branch))
 		if mrErr == nil && mr != nil {
 			fmt.Printf("    - Open MR: %s (%s)\n", style.Error.Render("yes"), mr.ID)
 		} else {

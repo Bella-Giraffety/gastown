@@ -511,6 +511,30 @@ func TestRecoveryActionsForBlockers(t *testing.T) {
 	}
 }
 
+func TestAppendRecoveryTargetRefPrefersUpstreamForUnqualifiedBranches(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{name: "main", value: "main", want: []string{"upstream/main", "main"}},
+		{name: "nested branch", value: "integration/test", want: []string{"upstream/integration/test", "integration/test"}},
+		{name: "origin qualified", value: "origin/main", want: []string{"origin/main"}},
+		{name: "upstream qualified", value: "upstream/main", want: []string{"upstream/main"}},
+		{name: "full ref", value: "refs/heads/main", want: []string{"refs/heads/main"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			appendRecoveryTargetRef(&got, tt.value)
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("targets = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStaleCleanWithRealUnpushedStillBlocks(t *testing.T) {
 	status := RecoveryStatus{CleanupStatus: polecat.CleanupClean}
 	if blocker := recoveryGitStateBlocker("/tmp/polecat", &GitState{UnpushedCommits: 1}, nil); blocker != "" {

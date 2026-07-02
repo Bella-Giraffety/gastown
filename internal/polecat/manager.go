@@ -1242,7 +1242,7 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 	// any commits on the branch. The push is non-blocking: failures are warnings,
 	// not errors, so nuke still proceeds. See: disk-space-resilience.
 	polecatGit := git.NewGit(clonePath)
-	if branch, brErr := polecatGit.CurrentBranch(); brErr == nil && branch != "" {
+	if branch, brErr := polecatGit.CurrentBranch(); brErr == nil && branch != "" && branch != "HEAD" {
 		pushed, unpushedCount, checkErr := polecatGit.BranchPushedToRemote(branch, "origin")
 		if checkErr == nil && !pushed && unpushedCount > 0 {
 			if pushErr := polecatGit.Push("origin", branch, false); pushErr != nil {

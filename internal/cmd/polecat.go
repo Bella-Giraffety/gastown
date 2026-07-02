@@ -975,6 +975,9 @@ func getGitStateWithTargets(worktreePath string, targets []string) (*GitState, e
 	}
 
 	branch, _ := worktreeGit.CurrentBranch()
+	if branch == "HEAD" {
+		branch = ""
+	}
 	if preservation, preserveErr := worktreeGit.BranchPreservationStatus(branch, "origin", targets); preserveErr == nil {
 		state.ComparisonBase = preservation.ComparisonBase
 		state.UnpreservedPatchCount = preservation.UnpreservedPatchCount
@@ -982,6 +985,8 @@ func getGitStateWithTargets(worktreePath string, targets []string) (*GitState, e
 			state.UnpushedCommits = preservation.UnpreservedPatchCount
 			state.Clean = false
 		}
+	} else if len(uniqueStrings(targets)) > 0 {
+		return nil, fmt.Errorf("git preservation status: %w", preserveErr)
 	}
 
 	// Check for stashes using Git.StashCount() which filters by current branch.
@@ -1446,7 +1451,7 @@ func recoveryTargetRefs(bd *beads.Beads, issueID, activeMR, branch string) []str
 	var refs []string
 	appendMRTarget := func(issue *beads.Issue) {
 		if fields := beads.ParseMRFields(issue); fields != nil && fields.Target != "" {
-			refs = append(refs, fields.Target)
+			appendRecoveryTargetRef(&refs, fields.Target)
 		}
 	}
 	if bd != nil {
@@ -1481,10 +1486,21 @@ func appendAttachmentTargets(refs *[]string, bd *beads.Beads, issue *beads.Issue
 	if attachment.ConvoyID != "" && bd != nil {
 		if convoy, err := bd.Show(attachment.ConvoyID); err == nil {
 			if fields := beads.ParseConvoyFields(convoy); fields != nil && fields.BaseBranch != "" {
-				*refs = append(*refs, fields.BaseBranch)
+				appendRecoveryTargetRef(refs, fields.BaseBranch)
 			}
 		}
 	}
+}
+
+func appendRecoveryTargetRef(refs *[]string, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	if !strings.HasPrefix(value, "refs/") && !strings.HasPrefix(value, "origin/") && !strings.HasPrefix(value, "upstream/") {
+		*refs = append(*refs, "upstream/"+value)
+	}
+	*refs = append(*refs, value)
 }
 
 func appendBaseBranchVars(refs *[]string, vars string) {
@@ -1494,7 +1510,7 @@ func appendBaseBranchVars(refs *[]string, vars string) {
 			continue
 		}
 		if value = strings.TrimSpace(value); value != "" {
-			*refs = append(*refs, value)
+			appendRecoveryTargetRef(refs, value)
 		}
 	}
 }
@@ -1708,7 +1724,12 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 
 	for _, p := range targets {
 		if polecatNukeDryRun {
-			blocked := checkPolecatActiveWorkSafety(p).Blocked || (!polecatNukeForce && checkPolecatSafety(p).Blocked)
+			result := checkPolecatSafety(p)
+			blocked := result.Blocked
+			if polecatNukeForce {
+				result = checkPolecatActiveWorkSafety(p)
+				blocked = result.Blocked
+			}
 			if blocked {
 				fmt.Printf("Would refuse to nuke %s/%s until safety blockers are cleared:\n", p.rigName, p.polecatName)
 				dryRunBlocked++
@@ -1720,7 +1741,7 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  - Delete branch (if exists)\n")
 			fmt.Printf("  - Reset agent bead: %s\n", polecatBeadIDForRig(p.r, p.rigName, p.polecatName))
 
-			displayDryRunSafetyCheck(p)
+			displayDryRunSafetyCheck(p, result)
 			fmt.Println()
 			continue
 		}
@@ -1731,7 +1752,7 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Nuking %s/%s...\n", p.rigName, p.polecatName)
 		}
 
-		if err := nukePolecatFullWithOptions(p.polecatName, p.rigName, p.mgr, p.r, nukePolecatOptions{PurgeClosedEphemerals: !batchPurge}); err != nil {
+		if err := nukePolecatFullWithOptions(p.polecatName, p.rigName, p.mgr, p.r, nukePolecatOptions{PurgeClosedEphemerals: !batchPurge, Force: polecatNukeForce}); err != nil {
 			nukeErrors = append(nukeErrors, fmt.Sprintf("%s/%s: %v", p.rigName, p.polecatName, err))
 			continue
 		}
@@ -1800,11 +1821,24 @@ func nukePolecatFull(polecatName, rigName string, mgr *polecat.Manager, r *rig.R
 
 type nukePolecatOptions struct {
 	PurgeClosedEphemerals bool
+	Force                 bool
 }
 
 func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manager, r *rig.Rig, opts nukePolecatOptions) error {
-	if safety := checkPolecatActiveWorkSafety(polecatTarget{rigName: rigName, polecatName: polecatName, mgr: mgr, r: r}); safety.Blocked {
+	target := polecatTarget{rigName: rigName, polecatName: polecatName, mgr: mgr, r: r}
+	if safety := checkNukeSafety(target, opts.Force); safety.Blocked {
 		return fmt.Errorf("refusing to nuke %s/%s: %s", rigName, polecatName, strings.Join(safety.Reasons, "; "))
+	}
+
+	// Get polecat info before mutation. Preservation must run before session kill,
+	// molecule cleanup, or worktree deletion so failed pushes fail closed.
+	polecatInfo, getErr := mgr.Get(polecatName)
+	var branchToDelete string
+	if getErr == nil && polecatInfo != nil {
+		branchToDelete = nukeLocalBranchName(polecatInfo.Branch)
+		if err := preservePolecatBranchBeforeNuke(pushGitForNuke(polecatInfo, r), branchToDelete, opts.Force); err != nil {
+			return err
+		}
 	}
 
 	t := tmux.NewTmux()
@@ -1820,48 +1854,12 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 		fmt.Printf("  %s killed session\n", style.Success.Render("✓"))
 	}
 
-	// Step 2: Get polecat info before deletion (for branch name + hooked work bead)
-	polecatInfo, getErr := mgr.Get(polecatName)
-	var branchToDelete string
-	if getErr == nil && polecatInfo != nil {
-		branchToDelete = polecatInfo.Branch
-	}
-
 	// Step 2.5: Burn any molecule attached to the polecat's hooked work bead.
 	// Without this, nuked polecats leave orphan molecule refs that block re-sling.
 	// The stale attached_molecule in the work bead's description causes sling to
 	// fail with "bead already has N attached molecule(s)" on re-dispatch (gt-npzy).
 	if getErr == nil && polecatInfo != nil && polecatInfo.Issue != "" {
 		nukeCleanupMolecules(polecatInfo.Issue, r)
-	}
-
-	// Step 2.75: Best-effort push before nuke (gt-4vr guardrail).
-	// Try to preserve any unpushed commits on the branch. If push fails,
-	// proceed — --force already means "I accept data loss".
-	if branchToDelete != "" {
-		var pushGit *git.Git
-		// Try worktree first (may still exist), then bare repo fallback.
-		// Use ClonePath from the polecat record — the worktree lives at
-		// <rig>/polecats/<name>/<rigName>/, not <rig>/polecats/<name>/.
-		if polecatInfo != nil && polecatInfo.ClonePath != "" {
-			if _, statErr := os.Stat(polecatInfo.ClonePath); statErr == nil {
-				pushGit = git.NewGit(polecatInfo.ClonePath)
-			}
-		}
-		if pushGit == nil {
-			bareRepoPath := filepath.Join(r.Path, ".repo.git")
-			if info, statErr := os.Stat(bareRepoPath); statErr == nil && info.IsDir() {
-				pushGit = git.NewGitWithDir(bareRepoPath, "")
-			}
-		}
-		if pushGit != nil {
-			refspec := branchToDelete + ":" + branchToDelete
-			if err := pushGit.Push("origin", refspec, false); err != nil {
-				fmt.Printf("  %s best-effort push failed (proceeding): %v\n", style.Dim.Render("○"), err)
-			} else {
-				fmt.Printf("  %s pushed branch %s before nuke\n", style.Success.Render("✓"), branchToDelete)
-			}
-		}
 	}
 
 	// Step 3: Delete worktree (nuclear=true to bypass safety checks for stale polecats)
@@ -1899,6 +1897,89 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 		purgeClosedEphemeralBeads(beads.New(r.Path))
 	}
 
+	return nil
+}
+
+func checkNukeSafety(target polecatTarget, force bool) *SafetyCheckResult {
+	if force {
+		return checkPolecatActiveWorkSafety(target)
+	}
+	return checkPolecatSafety(target)
+}
+
+func nukeLocalBranchName(branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || branch == "HEAD" || isRecoveryBaseBranch(branch) {
+		return ""
+	}
+	return branch
+}
+
+func pushGitForNuke(p *polecat.Polecat, r *rig.Rig) *git.Git {
+	// Try worktree first (may still exist), then bare repo fallback. Use ClonePath
+	// from the polecat record: the worktree is <rig>/polecats/<name>/<rigName>/.
+	if p != nil && p.ClonePath != "" {
+		if _, statErr := os.Stat(p.ClonePath); statErr == nil {
+			return git.NewGit(p.ClonePath)
+		}
+	}
+	bareRepoPath := filepath.Join(r.Path, ".repo.git")
+	if info, statErr := os.Stat(bareRepoPath); statErr == nil && info.IsDir() {
+		return git.NewGitWithDir(bareRepoPath, "")
+	}
+	return nil
+}
+
+func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, force bool) error {
+	branch = nukeLocalBranchName(branch)
+	if branch == "" {
+		return nil
+	}
+	if pushGit == nil {
+		if force {
+			style.PrintWarning("could not verify branch %s before forced nuke: git repository unavailable", branch)
+			return nil
+		}
+		return fmt.Errorf("refusing to nuke: cannot verify branch %s preservation before deletion", branch)
+	}
+
+	preserved, unpushedCount, checkErr := pushGit.BranchPushedToRemote(branch, "origin")
+	if checkErr != nil {
+		if force {
+			style.PrintWarning("could not verify branch %s before forced nuke: %v", branch, checkErr)
+			return nil
+		}
+		return fmt.Errorf("refusing to nuke: cannot verify branch %s preservation before deletion: %w", branch, checkErr)
+	}
+	if preserved || unpushedCount == 0 {
+		return nil
+	}
+
+	commit, revErr := pushGit.Rev(branch)
+	if revErr != nil {
+		if force {
+			style.PrintWarning("could not read branch %s before forced nuke: %v", branch, revErr)
+			return nil
+		}
+		return fmt.Errorf("refusing to nuke: cannot read branch %s before deletion: %w", branch, revErr)
+	}
+	refspec := branch + ":" + branch
+	if err := pushGit.Push("origin", refspec, false); err != nil {
+		if force {
+			style.PrintWarning("could not push branch %s before forced nuke (%d unpushed commit(s)): %v", branch, unpushedCount, err)
+			style.PrintWarning("WORK AT RISK: branch %s has %d unpushed commit(s)", branch, unpushedCount)
+			return nil
+		}
+		return fmt.Errorf("refusing to nuke: push failed while preserving branch %s (%d unpushed commit(s)): %w", branch, unpushedCount, err)
+	}
+	if err := pushGit.VerifyPushedCommit("origin", branch, commit); err != nil {
+		if force {
+			style.PrintWarning("could not verify pushed branch %s before forced nuke: %v", branch, err)
+			return nil
+		}
+		return fmt.Errorf("refusing to nuke: push verification failed for branch %s: %w", branch, err)
+	}
+	fmt.Printf("  %s pushed branch %s before nuke\n", style.Success.Render("✓"), branch)
 	return nil
 }
 

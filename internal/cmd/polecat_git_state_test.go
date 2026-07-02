@@ -153,6 +153,56 @@ func TestGetGitStateIgnoresOpenCodeRuntimeArtifacts(t *testing.T) {
 	}
 }
 
+func TestGetGitStateDetachedHeadUsesExplicitUpstreamTarget(t *testing.T) {
+	dir := t.TempDir()
+	origin := filepath.Join(dir, "origin.git")
+	upstream := filepath.Join(dir, "upstream.git")
+	repo := filepath.Join(dir, "repo")
+
+	runGitCmd(t, "", "init", "--bare", origin)
+	runGitCmd(t, "", "init", "--bare", upstream)
+	runGitCmd(t, "", "init", repo)
+	runGitCmd(t, repo, "config", "user.email", "test@example.com")
+	runGitCmd(t, repo, "config", "user.name", "Test User")
+	writeTestFile(t, filepath.Join(repo, "README.md"), "base\n")
+	runGitCmd(t, repo, "add", "README.md")
+	runGitCmd(t, repo, "commit", "-m", "base")
+	runGitCmd(t, repo, "branch", "-M", "main")
+	runGitCmd(t, repo, "remote", "add", "origin", origin)
+	runGitCmd(t, repo, "remote", "add", "upstream", upstream)
+	runGitCmd(t, repo, "push", "-u", "origin", "main")
+	runGitCmd(t, repo, "push", "upstream", "main")
+
+	writeTestFile(t, filepath.Join(repo, "upstream.txt"), "upstream\n")
+	runGitCmd(t, repo, "add", "upstream.txt")
+	runGitCmd(t, repo, "commit", "-m", "upstream")
+	runGitCmd(t, repo, "push", "upstream", "main")
+
+	runGitCmd(t, repo, "reset", "--hard", "origin/main")
+	writeTestFile(t, filepath.Join(repo, "fork.txt"), "fork\n")
+	runGitCmd(t, repo, "add", "fork.txt")
+	runGitCmd(t, repo, "commit", "-m", "fork")
+	runGitCmd(t, repo, "push", "origin", "main")
+	runGitCmd(t, repo, "fetch", "upstream", "main")
+	runGitCmd(t, repo, "checkout", "--detach", "upstream/main")
+
+	if err := os.MkdirAll(filepath.Join(repo, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	writeTestFile(t, filepath.Join(repo, ".beads", "config.yaml"), "host: localhost\n")
+
+	state, err := getGitStateWithTargets(repo, []string{"upstream/main", "main"})
+	if err != nil {
+		t.Fatalf("getGitStateWithTargets: %v", err)
+	}
+	if !state.Clean {
+		t.Fatalf("detached upstream/main with runtime-only dirt should be clean: %+v", state)
+	}
+	if state.UnpushedCommits != 0 {
+		t.Fatalf("UnpushedCommits = %d, want 0", state.UnpushedCommits)
+	}
+}
+
 func setupGitStateRemoteRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
