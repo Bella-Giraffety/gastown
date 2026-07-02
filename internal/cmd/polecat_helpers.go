@@ -116,6 +116,10 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 	agentIssue, fields, err := bd.GetAgentBead(agentBeadID)
 	assignee := fmt.Sprintf("%s/polecats/%s", target.rigName, target.polecatName)
 	agentRecordEvidence := polecat.AssessAgentRecord(agentBeadID, agentIssue, fields, err)
+	sourceHint := ""
+	if infoErr == nil && polecatInfo != nil {
+		sourceHint = polecatInfo.Issue
+	}
 
 	if err != nil || fields == nil {
 		activeWork := polecat.AssessActiveWork(bd, assignee, "", "")
@@ -130,11 +134,7 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 			}
 		}
 	} else {
-		currentIssue := ""
-		if infoErr == nil && polecatInfo != nil {
-			currentIssue = polecatInfo.Issue
-		}
-		sourceHint := agentSourceIssueHint(currentIssue, fields)
+		sourceHint = agentSourceIssueHint(sourceHint, fields)
 		hookBead := agentHookBead(agentIssue, fields)
 		activeWork := polecat.AssessActiveWork(bd, assignee, beads.AgentState(fields.AgentState), hookBead)
 		activeWork.Merge(agentRecordEvidence)
@@ -210,6 +210,16 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 		} else if mr != nil {
 			result.OpenMR = mr.ID
 			result.Reasons = append(result.Reasons, fmt.Sprintf("has open MR (%s)", mr.ID))
+		}
+		targetRefs := recoveryTargetRefs(bd, sourceHint, result.ActiveMR, branch)
+		gitState, gitErr := getGitStateWithTargets(polecatInfo.ClonePath, targetRefs)
+		if hasSubmittableWorkForRecovery(polecatInfo.ClonePath, targetRefs, gitState, gitErr) && !isMQNotRequiredSource(bd, sourceHint) && !isAssignedBeadTerminal(bd, sourceHint) {
+			branchMR, branchMRErr := bd.FindMRForBranchAny(branch)
+			if branchMRErr != nil {
+				result.Reasons = append(result.Reasons, fmt.Sprintf("mq_status=unknown: %v", branchMRErr))
+			} else if branchMR == nil {
+				result.Reasons = append(result.Reasons, "mq_status=not_submitted")
+			}
 		}
 	}
 
@@ -288,10 +298,10 @@ func formatSafetyCheckBlockers(blocked []*SafetyCheckResult) string {
 }
 
 // displayDryRunSafetyCheck shows safety check status for dry-run mode. It returns true when a normal nuke would refuse.
-func displayDryRunSafetyCheck(target polecatTarget, result *SafetyCheckResult) bool {
+func displayDryRunSafetyCheck(target polecatTarget, result *SafetyCheckResult, force bool) bool {
 	fmt.Printf("\n  Safety checks:\n")
 	if result == nil {
-		result = checkPolecatSafety(target)
+		result = checkNukeSafety(target, force)
 	}
 	polecatInfo, infoErr := target.mgr.Get(target.polecatName)
 	bd := beads.New(target.r.Path)
@@ -316,7 +326,9 @@ func displayDryRunSafetyCheck(target polecatTarget, result *SafetyCheckResult) b
 		fmt.Printf("    - Hook: %s\n", style.Dim.Render("unknown (no agent bead)"))
 	} else {
 		cleanupStatus := polecat.CleanupStatus(fields.CleanupStatus)
-		if cleanupStatus.IsSafe() {
+		if force {
+			fmt.Printf("    - Cleanup/git/MR checks: %s\n", style.Dim.Render("bypassed by --force"))
+		} else if cleanupStatus.IsSafe() {
 			fmt.Printf("    - Cleanup status: %s\n", style.Success.Render(string(cleanupStatus)))
 		} else if cleanupStatus.RequiresRecovery() {
 			fmt.Printf("    - Cleanup status: %s\n", style.Error.Render(string(cleanupStatus)))
@@ -345,7 +357,7 @@ func displayDryRunSafetyCheck(target polecatTarget, result *SafetyCheckResult) b
 			fmt.Printf("    - Active work: %s (%s)\n", style.Error.Render("blocked"), activeWork.Blocker)
 		}
 
-		if fields.ActiveMR != "" {
+		if fields.ActiveMR != "" && !force {
 			sourceHint := agentSourceIssueHint("", fields)
 			gitSafe := false
 			if infoErr == nil && polecatInfo != nil {
@@ -363,7 +375,7 @@ func displayDryRunSafetyCheck(target polecatTarget, result *SafetyCheckResult) b
 		if fields.MRFailed {
 			fmt.Printf("    - MR failed: %s\n", style.Error.Render("yes"))
 		}
-		if result.GitState != nil {
+		if result.GitState != nil && !force {
 			if result.GitState.Clean {
 				fmt.Printf("    - Git state: %s\n", style.Success.Render("clean"))
 			} else {
@@ -373,7 +385,7 @@ func displayDryRunSafetyCheck(target polecatTarget, result *SafetyCheckResult) b
 	}
 
 	// Check 2: Open MR
-	if infoErr == nil && polecatInfo != nil && nukeLocalBranchName(polecatInfo.Branch) != "" {
+	if !force && infoErr == nil && polecatInfo != nil && nukeLocalBranchName(polecatInfo.Branch) != "" {
 		mr, mrErr := bd.FindMRForBranch(nukeLocalBranchName(polecatInfo.Branch))
 		if mrErr == nil && mr != nil {
 			fmt.Printf("    - Open MR: %s (%s)\n", style.Error.Render("yes"), mr.ID)

@@ -13,7 +13,7 @@ func TestPreservePolecatBranchBeforeNukeFailsClosedOnPushFailure(t *testing.T) {
 	repo := setupNukePreserveRepo(t)
 	installRejectingPrePushHook(t, repo)
 
-	err := preservePolecatBranchBeforeNuke(git.NewGit(repo), "polecat/nuke", false)
+	err := preservePolecatBranchBeforeNuke(git.NewGit(repo), "polecat/nuke", nil, true, false)
 	if err == nil {
 		t.Fatal("preservePolecatBranchBeforeNuke returned nil, want push failure")
 	}
@@ -27,7 +27,7 @@ func TestPreservePolecatBranchBeforeNukeForceBypassesPushFailure(t *testing.T) {
 	repo := setupNukePreserveRepo(t)
 	installRejectingPrePushHook(t, repo)
 
-	if err := preservePolecatBranchBeforeNuke(git.NewGit(repo), "polecat/nuke", true); err != nil {
+	if err := preservePolecatBranchBeforeNuke(git.NewGit(repo), "polecat/nuke", nil, true, true); err != nil {
 		t.Fatalf("force preserve returned error: %v", err)
 	}
 	assertRemoteBranchMissing(t, repo, "polecat/nuke")
@@ -37,10 +37,36 @@ func TestPreservePolecatBranchBeforeNukeSkipsDetachedHead(t *testing.T) {
 	repo := setupNukePreserveRepo(t)
 	runGit(t, repo, "checkout", "--detach", "HEAD")
 
-	if err := preservePolecatBranchBeforeNuke(git.NewGit(repo), "HEAD", false); err != nil {
+	if err := preservePolecatBranchBeforeNuke(git.NewGit(repo), "HEAD", nil, true, false); err != nil {
 		t.Fatalf("detached HEAD preserve returned error: %v", err)
 	}
 	assertRemoteBranchMissing(t, repo, "HEAD")
+}
+
+func TestPreservePolecatBranchBeforeNukeDoesNotRecreateLandedBranch(t *testing.T) {
+	repo := setupNukePreserveRepo(t)
+	runGit(t, repo, "switch", "main")
+	runGit(t, repo, "merge", "--ff-only", "polecat/nuke")
+	runGit(t, repo, "push", "origin", "main")
+	runGit(t, repo, "switch", "polecat/nuke")
+
+	if err := preservePolecatBranchBeforeNuke(git.NewGit(repo), "polecat/nuke", []string{"origin/main"}, true, false); err != nil {
+		t.Fatalf("preserve landed branch returned error: %v", err)
+	}
+	assertRemoteBranchMissing(t, repo, "polecat/nuke")
+}
+
+func TestPreservePolecatBranchBeforeNukeBareFallbackFailsClosedWhenRemoteMissing(t *testing.T) {
+	repo := setupNukePreserveRepo(t)
+
+	err := preservePolecatBranchBeforeNuke(git.NewGit(repo), "polecat/nuke", nil, false, false)
+	if err == nil {
+		t.Fatal("bare fallback preserve returned nil, want fail-closed error")
+	}
+	if !strings.Contains(err.Error(), "worktree is unavailable") {
+		t.Fatalf("error = %v, want worktree unavailable", err)
+	}
+	assertRemoteBranchMissing(t, repo, "polecat/nuke")
 }
 
 func setupNukePreserveRepo(t *testing.T) string {

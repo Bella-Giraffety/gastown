@@ -1069,6 +1069,10 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 		gitState, gitErr = getGitStateWithTargets(p.ClonePath, targetRefs)
 		gitStateLoaded = true
 	}
+	targetAwareGitSafe := func() bool {
+		loadGitState()
+		return gitErr == nil && gitState != nil && gitState.Clean
+	}
 
 	if err != nil || fields == nil {
 		input.ApplyActiveWork(activeWork)
@@ -1114,12 +1118,11 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 		input.MRFailed = fields.MRFailed
 		activeMRAssessment := polecat.ActiveMRAssessment{}
 		if fields.ActiveMR != "" {
-			gitSafe := activeMRGitSafeForWorktree(p.ClonePath)
 			activeMRAssessment = polecat.AssessActiveMR(bd, polecat.ActiveMRInput{
 				ActiveMR:        fields.ActiveMR,
 				SourceIssueHint: sourceHint,
 				RequireGitSafe:  true,
-				GitSafe:         gitSafe,
+				GitSafe:         targetAwareGitSafe(),
 			})
 			if status.Issue == "" && activeMRAssessment.SourceIssue != "" {
 				status.Issue = activeMRAssessment.SourceIssue
@@ -1137,8 +1140,7 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 			if input.CleanupStatus == polecat.CleanupUnpushed {
 				loadGitState()
 			}
-			gitSafe := activeMRGitSafeForWorktree(p.ClonePath)
-			if polecat.CanIgnoreStaleCleanupStatus(input.CleanupStatus, workTerminal, activeWork.HookSafe, !activeMRAssessment.Pending, gitSafe) {
+			if polecat.CanIgnoreStaleCleanupStatus(input.CleanupStatus, workTerminal, activeWork.HookSafe, !activeMRAssessment.Pending, targetAwareGitSafe()) {
 				input.IgnoreCleanupStatus = true
 				status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("ignored_stale_cleanup_status=%s direct_git_state=safe work_ref=terminal", input.CleanupStatus))
 			}
@@ -1737,7 +1739,7 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  - Delete branch (if exists)\n")
 			fmt.Printf("  - Reset agent bead: %s\n", polecatBeadIDForRig(p.r, p.rigName, p.polecatName))
 
-			displayDryRunSafetyCheck(p, result)
+			displayDryRunSafetyCheck(p, result, polecatNukeForce)
 			fmt.Println()
 			continue
 		}
@@ -1832,7 +1834,10 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 	var branchToDelete string
 	if getErr == nil && polecatInfo != nil {
 		branchToDelete = nukeLocalBranchName(polecatInfo.Branch)
-		if err := preservePolecatBranchBeforeNuke(pushGitForNuke(polecatInfo, r), branchToDelete, opts.Force); err != nil {
+		pushGit, fromWorktree := pushGitForNuke(polecatInfo, r)
+		bd := beads.New(r.Path)
+		targetRefs := recoveryTargetRefs(bd, polecatInfo.Issue, "", branchToDelete)
+		if err := preservePolecatBranchBeforeNuke(pushGit, branchToDelete, targetRefs, fromWorktree, opts.Force); err != nil {
 			return err
 		}
 	}
@@ -1911,22 +1916,22 @@ func nukeLocalBranchName(branch string) string {
 	return branch
 }
 
-func pushGitForNuke(p *polecat.Polecat, r *rig.Rig) *git.Git {
+func pushGitForNuke(p *polecat.Polecat, r *rig.Rig) (*git.Git, bool) {
 	// Try worktree first (may still exist), then bare repo fallback. Use ClonePath
 	// from the polecat record: the worktree is <rig>/polecats/<name>/<rigName>/.
 	if p != nil && p.ClonePath != "" {
 		if _, statErr := os.Stat(p.ClonePath); statErr == nil {
-			return git.NewGit(p.ClonePath)
+			return git.NewGit(p.ClonePath), true
 		}
 	}
 	bareRepoPath := filepath.Join(r.Path, ".repo.git")
 	if info, statErr := os.Stat(bareRepoPath); statErr == nil && info.IsDir() {
-		return git.NewGitWithDir(bareRepoPath, "")
+		return git.NewGitWithDir(bareRepoPath, ""), false
 	}
-	return nil
+	return nil, false
 }
 
-func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, force bool) error {
+func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, targetRefs []string, fromWorktree, force bool) error {
 	branch = nukeLocalBranchName(branch)
 	if branch == "" {
 		return nil
@@ -1958,6 +1963,14 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, force bool
 	}
 	if strings.TrimSpace(remoteTip) == strings.TrimSpace(commit) {
 		return nil
+	}
+	if fromWorktree && len(uniqueStrings(targetRefs)) > 0 {
+		if targetStatus, targetErr := pushGit.BranchTargetStatus(branch, "origin", targetRefs); targetErr == nil && targetStatus.Preserved {
+			return nil
+		}
+	}
+	if !fromWorktree && remoteTip == "" && !force {
+		return fmt.Errorf("refusing to nuke: branch %s is not preserved on the push remote and worktree is unavailable", branch)
 	}
 
 	refspec := branch + ":" + branch
