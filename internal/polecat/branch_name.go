@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	polecatBranchPrefix            = "polecat/"
+	polecatBranchPrefix           = "polecat/"
 	generatedIssueBranchSeparator = "+"
 	legacyIssueBranchSeparator    = "@"
 )
