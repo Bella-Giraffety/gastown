@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/git"
 )
 
@@ -67,6 +68,25 @@ func TestPreservePolecatBranchBeforeNukeBareFallbackFailsClosedWhenRemoteMissing
 		t.Fatalf("error = %v, want worktree unavailable", err)
 	}
 	assertRemoteBranchMissing(t, repo, "polecat/nuke")
+}
+
+func TestBranchMRMatchesCurrentTipRequiresCurrentCommit(t *testing.T) {
+	repo := setupNukePreserveRepo(t)
+	oldTip, err := git.NewGit(repo).Rev("polecat/nuke")
+	if err != nil {
+		t.Fatalf("Rev old tip: %v", err)
+	}
+	mr := &beads.Issue{Description: beads.FormatMRFields(&beads.MRFields{Branch: "polecat/nuke", CommitSHA: oldTip})}
+	if !branchMRMatchesCurrentTip(repo, "polecat/nuke", mr) {
+		t.Fatal("MR commit matching current branch tip should count as submitted")
+	}
+
+	writeRecoveryFile(t, filepath.Join(repo, "second.txt"), "second\n")
+	runGit(t, repo, "add", "second.txt")
+	runGit(t, repo, "commit", "-m", "second")
+	if branchMRMatchesCurrentTip(repo, "polecat/nuke", mr) {
+		t.Fatal("stale MR commit must not count as current branch submission")
+	}
 }
 
 func setupNukePreserveRepo(t *testing.T) string {

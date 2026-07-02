@@ -1110,6 +1110,7 @@ func runPolecatCheckRecovery(cmd *cobra.Command, args []string) error {
 		if status.Issue == "" && sourceHint != "" {
 			status.Issue = sourceHint
 		}
+		targetRefs = recoveryTargetRefs(bd, status.Issue, status.ActiveMR, status.Branch)
 		if !beadTerminal && sourceHint != "" {
 			beadTerminal = isAssignedBeadTerminal(bd, sourceHint)
 			workTerminal = beadTerminal || activeWork.HookTerminal
@@ -1273,7 +1274,7 @@ func applyMQFactsToWorkstateInput(input *polecat.WorkstateInput, status *Recover
 		input.MQLookupFailed = true
 		return
 	}
-	input.MRSubmitted = mr != nil
+	input.MRSubmitted = branchMRMatchesCurrentTip(worktreePath, status.Branch, mr)
 }
 
 func applyWorkstateDispositionToRecoveryStatus(status *RecoveryStatus, disposition polecat.WorkstateDisposition) {
@@ -1834,9 +1835,9 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 	var branchToDelete string
 	if getErr == nil && polecatInfo != nil {
 		branchToDelete = nukeLocalBranchName(polecatInfo.Branch)
-		pushGit, fromWorktree := pushGitForNuke(polecatInfo, r)
 		bd := beads.New(r.Path)
-		targetRefs := recoveryTargetRefs(bd, polecatInfo.Issue, "", branchToDelete)
+		pushGit, fromWorktree := pushGitForNuke(polecatInfo, r)
+		targetRefs := nukePreservationTargetRefs(bd, r, rigName, polecatName, polecatInfo, branchToDelete)
 		if err := preservePolecatBranchBeforeNuke(pushGit, branchToDelete, targetRefs, fromWorktree, opts.Force); err != nil {
 			return err
 		}
@@ -1899,6 +1900,23 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 	}
 
 	return nil
+}
+
+func nukePreservationTargetRefs(bd *beads.Beads, r *rig.Rig, rigName, polecatName string, info *polecat.Polecat, branch string) []string {
+	issueID := ""
+	activeMR := ""
+	if info != nil {
+		issueID = info.Issue
+	}
+	if bd != nil && r != nil {
+		agentBeadID := polecatBeadIDForRig(r, rigName, polecatName)
+		_, fields, err := bd.GetAgentBead(agentBeadID)
+		if err == nil && fields != nil {
+			activeMR = fields.ActiveMR
+			issueID = agentSourceIssueHint(issueID, fields)
+		}
+	}
+	return recoveryTargetRefs(bd, issueID, activeMR, branch)
 }
 
 func checkNukeSafety(target polecatTarget, force bool) *SafetyCheckResult {
@@ -1965,6 +1983,10 @@ func preservePolecatBranchBeforeNuke(pushGit *git.Git, branch string, targetRefs
 		return nil
 	}
 	if remoteTip != "" {
+		if contains, containsErr := pushGit.IsAncestor(commit, remoteTip); containsErr == nil && contains {
+			return nil
+		}
+		_ = pushGit.FetchBranch("origin", branch)
 		if contains, containsErr := pushGit.IsAncestor(commit, remoteTip); containsErr == nil && contains {
 			return nil
 		}

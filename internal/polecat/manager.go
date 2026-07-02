@@ -2357,12 +2357,15 @@ func (m *Manager) reuseTargetRefs(fields *beads.AgentFields) []string {
 	if fields.ActiveMR != "" {
 		if issue, err := m.beads.Show(fields.ActiveMR); err == nil {
 			if mrFields := beads.ParseMRFields(issue); mrFields != nil && mrFields.Target != "" {
-				refs = append(refs, mrFields.Target)
+				appendTargetRef(&refs, mrFields.Target)
 			}
 		}
 	}
-	if fields.HookBead != "" {
-		if issue, err := m.beads.Show(fields.HookBead); err == nil {
+	for _, issueID := range []string{fields.HookBead, fields.LastSourceIssue} {
+		if issueID == "" {
+			continue
+		}
+		if issue, err := m.beads.Show(issueID); err == nil {
 			refs = append(refs, attachmentTargetRefs(m.beads, issue)...)
 		}
 	}
@@ -2382,11 +2385,22 @@ func attachmentTargetRefs(bd *beads.Beads, issue *beads.Issue) []string {
 	if attachment.ConvoyID != "" && bd != nil {
 		if convoy, err := bd.Show(attachment.ConvoyID); err == nil {
 			if fields := beads.ParseConvoyFields(convoy); fields != nil && fields.BaseBranch != "" {
-				refs = append(refs, fields.BaseBranch)
+				appendTargetRef(&refs, fields.BaseBranch)
 			}
 		}
 	}
 	return refs
+}
+
+func appendTargetRef(refs *[]string, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	if !strings.HasPrefix(value, "refs/") && !strings.HasPrefix(value, "origin/") && !strings.HasPrefix(value, "upstream/") {
+		*refs = append(*refs, "upstream/"+value)
+	}
+	*refs = append(*refs, value)
 }
 
 func appendBaseBranchRefs(refs *[]string, vars string) {
@@ -2396,7 +2410,7 @@ func appendBaseBranchRefs(refs *[]string, vars string) {
 			continue
 		}
 		if value = strings.TrimSpace(value); value != "" {
-			*refs = append(*refs, value)
+			appendTargetRef(refs, value)
 		}
 	}
 }
