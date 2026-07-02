@@ -517,8 +517,8 @@ func TestAppendRecoveryTargetRefPrefersUpstreamForUnqualifiedBranches(t *testing
 		value string
 		want  []string
 	}{
-		{name: "main", value: "main", want: []string{"upstream/main", "main"}},
-		{name: "nested branch", value: "integration/test", want: []string{"upstream/integration/test", "integration/test"}},
+		{name: "main", value: "main", want: []string{"upstream/main"}},
+		{name: "nested branch", value: "integration/test", want: []string{"upstream/integration/test"}},
 		{name: "origin qualified", value: "origin/main", want: []string{"origin/main"}},
 		{name: "upstream qualified", value: "upstream/main", want: []string{"upstream/main"}},
 		{name: "full ref", value: "refs/heads/main", want: []string{"refs/heads/main"}},

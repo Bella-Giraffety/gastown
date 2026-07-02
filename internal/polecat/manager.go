@@ -2420,6 +2420,7 @@ func appendTargetRef(refs *[]string, value string) {
 	}
 	if !strings.HasPrefix(value, "refs/") && !strings.HasPrefix(value, "origin/") && !strings.HasPrefix(value, "upstream/") {
 		*refs = append(*refs, "upstream/"+value)
+		return
 	}
 	*refs = append(*refs, value)
 }

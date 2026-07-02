@@ -1502,6 +1502,7 @@ func appendRecoveryTargetRef(refs *[]string, value string) {
 	}
 	if !strings.HasPrefix(value, "refs/") && !strings.HasPrefix(value, "origin/") && !strings.HasPrefix(value, "upstream/") {
 		*refs = append(*refs, "upstream/"+value)
+		return
 	}
 	*refs = append(*refs, value)
 }
@@ -2048,7 +2049,7 @@ func targetRefCandidates(target string) []string {
 	if strings.HasPrefix(target, "refs/") || strings.HasPrefix(target, "origin/") || strings.HasPrefix(target, "upstream/") {
 		return []string{target}
 	}
-	return []string{target, "origin/" + target, "upstream/" + target}
+	return []string{"upstream/" + target}
 }
 
 func resetPolecatAgentBeadForReuse(r *rig.Rig, rigName, polecatName string) {
