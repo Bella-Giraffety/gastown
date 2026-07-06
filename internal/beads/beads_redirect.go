@@ -115,8 +115,15 @@ func resolveBeadsDirWithDepth(beadsDir string, maxDepth int) string {
 // the worktree index before removal so managed worktrees stay clean.
 // This is safe to call even if the directory doesn't exist.
 func cleanBeadsRuntimeFiles(worktreePath, beadsDir string) error {
-	if _, err := os.Stat(beadsDir); os.IsNotExist(err) {
+	info, err := os.Lstat(beadsDir)
+	if os.IsNotExist(err) {
 		return nil // Nothing to clean
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil
 	}
 
 	// Runtime files/patterns and redirect-local identity files that are unsafe to
@@ -147,10 +154,10 @@ func cleanBeadsRuntimeFiles(worktreePath, beadsDir string) error {
 			continue
 		}
 		for _, match := range matches {
-			if filepath.Base(match) == "metadata.json" || filepath.Base(match) == "config.yaml" {
-				if err := hideTrackedWorktreePath(worktreePath, match); err != nil && firstErr == nil {
-					firstErr = err
-					continue
+			switch filepath.Base(match) {
+			case "metadata.json", "config.yaml", "redirect":
+				if err := hideTrackedWorktreePath(worktreePath, match); err != nil {
+					return err
 				}
 			}
 			if err := os.RemoveAll(match); err != nil && firstErr == nil {
@@ -163,19 +170,42 @@ func cleanBeadsRuntimeFiles(worktreePath, beadsDir string) error {
 }
 
 func hideTrackedWorktreePath(worktreePath, path string) error {
+	worktreePath, err := filepath.Abs(worktreePath)
+	if err != nil {
+		return fmt.Errorf("resolving worktree path: %w", err)
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolving worktree file path: %w", err)
+	}
 	rel, err := filepath.Rel(worktreePath, path)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return nil
 	}
-	rel = filepath.ToSlash(rel)
-	if err := exec.Command("git", "-C", worktreePath, "ls-files", "--error-unmatch", "--", rel).Run(); err != nil {
+	if _, err := os.Lstat(filepath.Join(worktreePath, ".git")); os.IsNotExist(err) {
 		return nil
 	}
-	output, err := exec.Command("git", "-C", worktreePath, "update-index", "--skip-worktree", "--", rel).CombinedOutput()
+	rel = filepath.ToSlash(rel)
+	output, err := exec.Command("git", "-C", worktreePath, "ls-files", "--error-unmatch", "--", rel).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("marking %s skip-worktree: %s: %w", rel, strings.TrimSpace(string(output)), err)
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return nil
+		}
+		return gitCommandError(fmt.Sprintf("checking whether %s is tracked", rel), output, err)
+	}
+	output, err = exec.Command("git", "-C", worktreePath, "update-index", "--skip-worktree", "--", rel).CombinedOutput()
+	if err != nil {
+		return gitCommandError(fmt.Sprintf("marking %s skip-worktree", rel), output, err)
 	}
 	return nil
+}
+
+func gitCommandError(action string, output []byte, err error) error {
+	message := strings.TrimSpace(string(output))
+	if message == "" {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	return fmt.Errorf("%s: %s: %w", action, message, err)
 }
 
 // ComputeRedirectTarget computes the expected redirect target for a worktree.
