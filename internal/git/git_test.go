@@ -2802,6 +2802,9 @@ func TestForkBackedDefaultPushGuard_SplitPushURL(t *testing.T) {
 	if got := g.CleanDefaultBranchBaseRef("origin", mainBranch); got != "origin/"+mainBranch {
 		t.Fatalf("CleanDefaultBranchBaseRef split = %q, want origin/%s", got, mainBranch)
 	}
+	if got := g.CleanBaseRef("origin", mainBranch, "origin/"+mainBranch); got != "origin/"+mainBranch {
+		t.Fatalf("CleanBaseRef split origin default = %q, want origin/%s", got, mainBranch)
+	}
 
 	refspecs := []string{
 		mainBranch,
@@ -2841,8 +2844,146 @@ func TestForkBackedDefaultPushGuard_OriginForkWithUpstream(t *testing.T) {
 	if got := g.CleanDefaultBranchBaseRef("origin", mainBranch); got != "upstream/"+mainBranch {
 		t.Fatalf("CleanDefaultBranchBaseRef fork = %q, want upstream/%s", got, mainBranch)
 	}
+	if got := g.CleanBaseRef("origin", mainBranch, "origin/"+mainBranch); got != "upstream/"+mainBranch {
+		t.Fatalf("CleanBaseRef fork origin default = %q, want upstream/%s", got, mainBranch)
+	}
+	if got := g.CleanBaseRef("origin", mainBranch, "refs/heads/"+mainBranch); got != "upstream/"+mainBranch {
+		t.Fatalf("CleanBaseRef fork refs/heads default = %q, want upstream/%s", got, mainBranch)
+	}
+	if got := g.CleanBaseRef("origin", mainBranch, "refs/remotes/origin/"+mainBranch); got != "upstream/"+mainBranch {
+		t.Fatalf("CleanBaseRef fork refs/remotes origin default = %q, want upstream/%s", got, mainBranch)
+	}
 	if err := g.Push("origin", "feature:"+mainBranch, false); err == nil {
 		t.Fatal("Push should block feature-to-default refspec in fork/upstream topology")
+	}
+}
+
+func TestBranchPreservationStatusFailsOnMissingExplicitTarget(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	if err := g.CreateBranch("polecat/missing-target"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout("polecat/missing-target"); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "work.txt"), []byte("work\n"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := g.Add("work.txt"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := g.Commit("work"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	_, err := g.BranchPreservationStatus("polecat/missing-target", "origin", []string{"does-not-exist"})
+	if err == nil {
+		t.Fatal("BranchPreservationStatus returned nil, want explicit target resolution failure")
+	}
+	if !strings.Contains(err.Error(), "no target refs resolved") {
+		t.Fatalf("error = %v, want no target refs resolved", err)
+	}
+
+	status, err := g.BranchPreservationStatus("polecat/missing-target", "origin", []string{mainBranch})
+	if err != nil {
+		t.Fatalf("BranchPreservationStatus existing target: %v", err)
+	}
+	if status.UnpreservedPatchCount != 1 {
+		t.Fatalf("UnpreservedPatchCount = %d, want 1", status.UnpreservedPatchCount)
+	}
+}
+
+func TestBranchPreservationStatusCountsAheadOfStaleExactBranch(t *testing.T) {
+	localDir, _, _ := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "polecat/stale-exact"
+	if err := g.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "v1.txt"), []byte("v1\n"), 0644); err != nil {
+		t.Fatalf("write v1: %v", err)
+	}
+	if err := g.Add("v1.txt"); err != nil {
+		t.Fatalf("Add v1: %v", err)
+	}
+	if err := g.Commit("v1"); err != nil {
+		t.Fatalf("Commit v1: %v", err)
+	}
+	if err := g.Push("origin", branch, false); err != nil {
+		t.Fatalf("Push v1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "v2.txt"), []byte("v2\n"), 0644); err != nil {
+		t.Fatalf("write v2: %v", err)
+	}
+	if err := g.Add("v2.txt"); err != nil {
+		t.Fatalf("Add v2: %v", err)
+	}
+	if err := g.Commit("v2"); err != nil {
+		t.Fatalf("Commit v2: %v", err)
+	}
+
+	status, err := g.BranchPreservationStatus(branch, "origin", nil)
+	if err != nil {
+		t.Fatalf("BranchPreservationStatus: %v", err)
+	}
+	if status.Preserved {
+		t.Fatal("stale exact remote branch should not preserve new local commit")
+	}
+	if status.UnpreservedPatchCount != 1 {
+		t.Fatalf("UnpreservedPatchCount = %d, want 1", status.UnpreservedPatchCount)
+	}
+}
+
+func TestBranchPreservationStatusUsesUpstreamForOriginDefaultTargetInFork(t *testing.T) {
+	localDir, upstream, fork, mainBranch := initTestRepoWithSplitRemote(t)
+	g := NewGit(localDir)
+	if err := g.ClearPushURL("origin"); err != nil {
+		t.Fatalf("ClearPushURL: %v", err)
+	}
+	if _, err := g.SetRemoteURL("origin", fork); err != nil {
+		t.Fatalf("SetRemoteURL origin fork: %v", err)
+	}
+	if err := g.AddUpstreamRemote(upstream); err != nil {
+		t.Fatalf("AddUpstreamRemote: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "upstream.txt"), []byte("upstream\n"), 0644); err != nil {
+		t.Fatalf("write upstream: %v", err)
+	}
+	if err := g.Add("upstream.txt"); err != nil {
+		t.Fatalf("Add upstream: %v", err)
+	}
+	if err := g.Commit("upstream change"); err != nil {
+		t.Fatalf("Commit upstream: %v", err)
+	}
+	if err := g.Push("upstream", mainBranch, false); err != nil {
+		t.Fatalf("Push upstream: %v", err)
+	}
+	cmd := exec.Command("git", "fetch", "upstream", mainBranch)
+	cmd.Dir = localDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("fetch upstream: %v", err)
+	}
+	branch := "polecat/fork-base"
+	if err := g.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+
+	status, err := g.BranchPreservationStatus(branch, "origin", []string{"origin/" + mainBranch})
+	if err != nil {
+		t.Fatalf("BranchPreservationStatus: %v", err)
+	}
+	if !status.Preserved || status.UnpreservedPatchCount != 0 {
+		t.Fatalf("fork default target should use upstream base, got %+v", status)
+	}
+	if status.ComparisonBase != "upstream/"+mainBranch {
+		t.Fatalf("ComparisonBase = %q, want upstream/%s", status.ComparisonBase, mainBranch)
 	}
 }
 

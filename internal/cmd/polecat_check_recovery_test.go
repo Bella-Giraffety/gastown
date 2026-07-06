@@ -436,7 +436,8 @@ func TestHookBeadSafeForCleanup(t *testing.T) {
 		wantBlocker  string
 	}{
 		{name: "empty hook", wantSafe: true},
-		{name: "terminal hook", hookBead: "gt-work", bd: fakeIssueShower{issue: &beads.Issue{Status: "closed"}}, wantSafe: true, wantTerminal: true},
+		{name: "closed hook is terminal", hookBead: "gt-work", bd: fakeIssueShower{issue: &beads.Issue{Status: "closed"}}, wantSafe: true, wantTerminal: true},
+		{name: "tombstone hook is terminal", hookBead: "gt-work", bd: fakeIssueShower{issue: &beads.Issue{Status: "tombstone"}}, wantSafe: true, wantTerminal: true},
 		{name: "open hook blocks", hookBead: "gt-work", bd: fakeIssueShower{issue: &beads.Issue{Status: "open"}}, wantBlocker: "hook_bead=gt-work status=open"},
 		{name: "lookup error blocks", hookBead: "gt-work", bd: fakeIssueShower{err: errors.New("bd exploded")}, wantBlocker: "lookup_error"},
 	}
@@ -508,8 +509,13 @@ func TestRecoveryGitStateBlocker(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "clean has no blocker",
+			name:  "clean with comparison has no blocker",
+			state: &GitState{Clean: true, ComparisonBase: "origin/main"},
+		},
+		{
+			name:  "clean without comparison fails closed",
 			state: &GitState{Clean: true},
+			want:  "git_state=unknown path=/tmp/polecat: comparison_ref=unresolved",
 		},
 		{
 			name:  "uncommitted work is classified",

@@ -1232,20 +1232,20 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 		}
 	}
 
-	// Best-effort: Push the polecat's branch to remote before removing the worktree.
-	// This preserves committed work that hasn't been pushed yet — without this,
-	// nuking a stalled polecat (e.g., after disk space recovery) permanently loses
-	// any commits on the branch. The push is non-blocking: failures are warnings,
-	// not errors, so nuke still proceeds. See: disk-space-resilience.
-	polecatGit := git.NewGit(clonePath)
-	if branch, brErr := polecatGit.CurrentBranch(); brErr == nil && branch != "" {
-		pushed, unpushedCount, checkErr := polecatGit.BranchPushedToRemote(branch, "origin")
-		if checkErr == nil && !pushed && unpushedCount > 0 {
-			if pushErr := polecatGit.Push("origin", branch, false); pushErr != nil {
-				style.PrintWarning("could not push branch %s before removal (%d unpushed commit(s)): %v",
-					branch, unpushedCount, pushErr)
-				style.PrintWarning("WORK AT RISK: branch %s has %d unpushed commit(s) in worktree %s",
-					branch, unpushedCount, clonePath)
+	// Best-effort preservation is only allowed on non-nuclear removes. Nuclear
+	// callers such as `gt polecat nuke` must make their own fail-closed decision
+	// before bead mutation or worktree deletion.
+	if !nuclear {
+		polecatGit := git.NewGit(clonePath)
+		if branch, brErr := polecatGit.CurrentBranch(); brErr == nil && strings.HasPrefix(branch, "polecat/") {
+			pushed, unpushedCount, checkErr := polecatGit.BranchPushedToRemote(branch, "origin")
+			if checkErr == nil && !pushed && unpushedCount > 0 {
+				if pushErr := polecatGit.Push("origin", branch, false); pushErr != nil {
+					style.PrintWarning("could not push branch %s before removal (%d unpushed commit(s)): %v",
+						branch, unpushedCount, pushErr)
+					style.PrintWarning("WORK AT RISK: branch %s has %d unpushed commit(s) in worktree %s",
+						branch, unpushedCount, clonePath)
+				}
 			}
 		}
 	}

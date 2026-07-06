@@ -988,6 +988,7 @@ func getGitStateWithTargets(worktreePath string, targets []string) (*GitState, e
 	}
 
 	branch, _ := worktreeGit.CurrentBranch()
+	explicitTargets := len(uniqueStrings(targets)) > 0
 	if preservation, preserveErr := worktreeGit.BranchPreservationStatus(branch, "origin", targets); preserveErr == nil {
 		state.ComparisonBase = preservation.ComparisonBase
 		state.UnpreservedPatchCount = preservation.UnpreservedPatchCount
@@ -995,6 +996,8 @@ func getGitStateWithTargets(worktreePath string, targets []string) (*GitState, e
 			state.UnpushedCommits = preservation.UnpreservedPatchCount
 			state.Clean = false
 		}
+	} else if explicitTargets {
+		return nil, fmt.Errorf("branch preservation status: %w", preserveErr)
 	}
 
 	// Check for stashes using Git.StashCount() which filters by current branch.
@@ -1436,7 +1439,13 @@ func recoveryGitStateBlocker(worktreePath string, gitState *GitState, gitErr err
 	if gitErr != nil {
 		return fmt.Sprintf("git_state=unknown path=%s: %v", worktreePath, gitErr)
 	}
-	if gitState == nil || gitState.Clean {
+	if gitState == nil {
+		return ""
+	}
+	if gitState.Clean {
+		if gitState.ComparisonBase == "" {
+			return fmt.Sprintf("git_state=unknown path=%s: comparison_ref=unresolved", worktreePath)
+		}
 		return ""
 	}
 	if gitState.UnpushedCommits > 0 {
@@ -1728,11 +1737,15 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	safetyResults := make([]*SafetyCheckResult, len(targets))
+	for i, p := range targets {
+		safetyResults[i] = checkPolecatSafety(p)
+	}
+
 	// Safety checks: refuse to nuke polecats with active work unless --force is set
 	if !polecatNukeForce && !polecatNukeDryRun {
 		var blocked []*SafetyCheckResult
-		for _, p := range targets {
-			result := checkPolecatSafety(p)
+		for _, result := range safetyResults {
 			if result.Blocked {
 				blocked = append(blocked, result)
 			}
@@ -1751,9 +1764,10 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 	purgeRigs := make(map[string]*rig.Rig)
 	dryRunBlocked := 0
 
-	for _, p := range targets {
+	for i, p := range targets {
+		safetyResult := safetyResults[i]
 		if polecatNukeDryRun {
-			blocked := !polecatNukeForce && checkPolecatSafety(p).Blocked
+			blocked := !polecatNukeForce && safetyResult.Blocked
 			if blocked {
 				fmt.Printf("Would refuse to nuke %s/%s without --force:\n", p.rigName, p.polecatName)
 				dryRunBlocked++
@@ -1765,9 +1779,7 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  - Delete branch (if exists)\n")
 			fmt.Printf("  - Reset agent bead: %s\n", polecatBeadIDForRig(p.r, p.rigName, p.polecatName))
 
-			if displayDryRunSafetyCheck(p) && !blocked {
-				dryRunBlocked++
-			}
+			displayDryRunSafetyCheck(safetyResult, polecatNukeForce)
 			fmt.Println()
 			continue
 		}
@@ -1778,7 +1790,7 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Nuking %s/%s...\n", p.rigName, p.polecatName)
 		}
 
-		if err := nukePolecatFullWithOptions(p.polecatName, p.rigName, p.mgr, p.r, nukePolecatOptions{PurgeClosedEphemerals: !batchPurge}); err != nil {
+		if err := nukePolecatTarget(p, safetyResult, !batchPurge, polecatNukeForce); err != nil {
 			nukeErrors = append(nukeErrors, fmt.Sprintf("%s/%s: %v", p.rigName, p.polecatName, err))
 			continue
 		}
@@ -1845,11 +1857,43 @@ func nukePolecatFull(polecatName, rigName string, mgr *polecat.Manager, r *rig.R
 	return nukePolecatFullWithOptions(polecatName, rigName, mgr, r, nukePolecatOptions{PurgeClosedEphemerals: true})
 }
 
+func nukePolecatTarget(target polecatTarget, safetyResult *SafetyCheckResult, purgeClosedEphemerals, force bool) error {
+	return nukePolecatFullWithOptions(target.polecatName, target.rigName, target.mgr, target.r, nukePolecatOptions{
+		PurgeClosedEphemerals: purgeClosedEphemerals,
+		Force:                 force,
+		SafetyResult:          safetyResult,
+	})
+}
+
 type nukePolecatOptions struct {
 	PurgeClosedEphemerals bool
+	Force                 bool
+	SafetyResult          *SafetyCheckResult
 }
 
 func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manager, r *rig.Rig, opts nukePolecatOptions) error {
+	target := polecatTarget{rigName: rigName, polecatName: polecatName, mgr: mgr, r: r}
+	if !opts.Force {
+		result := opts.SafetyResult
+		if result == nil {
+			result = checkPolecatSafety(target)
+		}
+		if result.Blocked {
+			return fmt.Errorf("blocked by nuke safety checks: %s", strings.Join(result.Reasons, "; "))
+		}
+	}
+
+	// Capture and preserve the live branch before any session/bead/worktree mutation.
+	polecatInfo, getErr := mgr.Get(polecatName)
+	var branchToDelete string
+	if getErr == nil && polecatInfo != nil {
+		var preserveErr error
+		branchToDelete, preserveErr = preservePolecatBranchBeforeNuke(polecatInfo, r, opts.Force)
+		if preserveErr != nil {
+			return preserveErr
+		}
+	}
+
 	t := tmux.NewTmux()
 
 	// Step 1: Kill tmux session unconditionally to prevent ghost sessions
@@ -1863,48 +1907,12 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 		fmt.Printf("  %s killed session\n", style.Success.Render("✓"))
 	}
 
-	// Step 2: Get polecat info before deletion (for branch name + hooked work bead)
-	polecatInfo, getErr := mgr.Get(polecatName)
-	var branchToDelete string
-	if getErr == nil && polecatInfo != nil {
-		branchToDelete = polecatInfo.Branch
-	}
-
 	// Step 2.5: Burn any molecule attached to the polecat's hooked work bead.
 	// Without this, nuked polecats leave orphan molecule refs that block re-sling.
 	// The stale attached_molecule in the work bead's description causes sling to
 	// fail with "bead already has N attached molecule(s)" on re-dispatch (gt-npzy).
 	if getErr == nil && polecatInfo != nil && polecatInfo.Issue != "" {
 		nukeCleanupMolecules(polecatInfo.Issue, r)
-	}
-
-	// Step 2.75: Best-effort push before nuke (gt-4vr guardrail).
-	// Try to preserve any unpushed commits on the branch. If push fails,
-	// proceed — --force already means "I accept data loss".
-	if branchToDelete != "" {
-		var pushGit *git.Git
-		// Try worktree first (may still exist), then bare repo fallback.
-		// Use ClonePath from the polecat record — the worktree lives at
-		// <rig>/polecats/<name>/<rigName>/, not <rig>/polecats/<name>/.
-		if polecatInfo != nil && polecatInfo.ClonePath != "" {
-			if _, statErr := os.Stat(polecatInfo.ClonePath); statErr == nil {
-				pushGit = git.NewGit(polecatInfo.ClonePath)
-			}
-		}
-		if pushGit == nil {
-			bareRepoPath := filepath.Join(r.Path, ".repo.git")
-			if info, statErr := os.Stat(bareRepoPath); statErr == nil && info.IsDir() {
-				pushGit = git.NewGitWithDir(bareRepoPath, "")
-			}
-		}
-		if pushGit != nil {
-			refspec := branchToDelete + ":" + branchToDelete
-			if err := pushGit.Push("origin", refspec, false); err != nil {
-				fmt.Printf("  %s best-effort push failed (proceeding): %v\n", style.Dim.Render("○"), err)
-			} else {
-				fmt.Printf("  %s pushed branch %s before nuke\n", style.Success.Render("✓"), branchToDelete)
-			}
-		}
 	}
 
 	// Step 3: Delete worktree (nuclear=true to bypass safety checks for stale polecats)
@@ -1943,6 +1951,94 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 	}
 
 	return nil
+}
+
+func preservePolecatBranchBeforeNuke(polecatInfo *polecat.Polecat, r *rig.Rig, force bool) (string, error) {
+	branch, pushGit := livePolecatBranchForNuke(polecatInfo)
+	branch, ok := nukeLocalBranchName(branch)
+	if !ok {
+		if strings.TrimSpace(branch) == "HEAD" {
+			fmt.Printf("  %s preserve branch skipped (detached HEAD; no HEAD:HEAD push)\n", style.Dim.Render("○"))
+		}
+		return "", nil
+	}
+	if pushGit == nil && r != nil {
+		bareRepoPath := filepath.Join(r.Path, ".repo.git")
+		if info, statErr := os.Stat(bareRepoPath); statErr == nil && info.IsDir() {
+			pushGit = git.NewGitWithDir(bareRepoPath, "")
+		}
+	}
+	if pushGit == nil {
+		if force {
+			fmt.Printf("  %s preserve branch skipped: git repo unavailable (--force)\n", style.Warning.Render("⚠"))
+			return branch, nil
+		}
+		return "", fmt.Errorf("refusing to nuke: cannot verify branch %s is preserved", branch)
+	}
+
+	localCommit, err := nukeBranchCommit(pushGit, branch)
+	if err != nil {
+		if force {
+			fmt.Printf("  %s preserve branch skipped: cannot read %s commit (--force): %v\n", style.Warning.Render("⚠"), branch, err)
+			return branch, nil
+		}
+		return "", fmt.Errorf("refusing to nuke: cannot read %s commit: %w", branch, err)
+	}
+	if remoteCommit, err := pushGit.PushRemoteBranchTip("origin", branch); err == nil && strings.TrimSpace(remoteCommit) == strings.TrimSpace(localCommit) {
+		fmt.Printf("  %s branch %s already preserved on origin\n", style.Success.Render("✓"), branch)
+		return branch, nil
+	}
+
+	refspec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)
+	if err := pushGit.Push("origin", refspec, false); err != nil {
+		if force {
+			fmt.Printf("  %s preserve branch push failed (--force, proceeding): %v\n", style.Warning.Render("⚠"), err)
+			return branch, nil
+		}
+		return "", fmt.Errorf("refusing to nuke: push failed for %s: %w", branch, err)
+	}
+	if err := pushGit.VerifyPushedCommit("origin", branch, localCommit); err != nil {
+		if force {
+			fmt.Printf("  %s preserve branch verify failed (--force, proceeding): %v\n", style.Warning.Render("⚠"), err)
+			return branch, nil
+		}
+		return "", fmt.Errorf("refusing to nuke: could not verify pushed branch %s: %w", branch, err)
+	}
+	fmt.Printf("  %s pushed branch %s before nuke\n", style.Success.Render("✓"), branch)
+	return branch, nil
+}
+
+func livePolecatBranchForNuke(polecatInfo *polecat.Polecat) (string, *git.Git) {
+	if polecatInfo == nil || polecatInfo.ClonePath == "" {
+		return "", nil
+	}
+	if _, statErr := os.Stat(polecatInfo.ClonePath); statErr != nil {
+		return "", nil
+	}
+	worktreeGit := git.NewGit(polecatInfo.ClonePath)
+	branch, err := worktreeGit.CurrentBranch()
+	if err != nil {
+		return "", worktreeGit
+	}
+	return branch, worktreeGit
+}
+
+func nukeLocalBranchName(branch string) (string, bool) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || branch == "HEAD" || branch == "main" || branch == "master" || strings.HasPrefix(branch, "integration/") {
+		return branch, false
+	}
+	if !strings.HasPrefix(branch, "polecat/") || strings.Contains(branch, ":") || strings.Contains(branch, "..") || strings.HasPrefix(branch, "-") {
+		return branch, false
+	}
+	return branch, true
+}
+
+func nukeBranchCommit(g *git.Git, branch string) (string, error) {
+	if head, err := g.CurrentBranch(); err == nil && head == branch {
+		return g.Rev("HEAD")
+	}
+	return g.Rev("refs/heads/" + branch)
 }
 
 func resetPolecatAgentBeadForReuse(r *rig.Rig, rigName, polecatName string) {

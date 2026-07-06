@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -118,6 +119,19 @@ func TestGetGitStateTreatsPushedSourceBranchAsClean(t *testing.T) {
 	}
 	if state.UnpushedCommits != 0 {
 		t.Fatalf("UnpushedCommits = %d, want 0", state.UnpushedCommits)
+	}
+}
+
+func TestGetGitStateWithTargetsFailsClosedOnMissingTarget(t *testing.T) {
+	repo := setupGitStateRemoteRepo(t)
+	runGitCmd(t, repo, "switch", "-c", "polecat/missing-target")
+
+	_, err := getGitStateWithTargets(repo, []string{"does-not-exist"})
+	if err == nil {
+		t.Fatal("getGitStateWithTargets returned nil, want target resolution error")
+	}
+	if !strings.Contains(err.Error(), "branch preservation status") || !strings.Contains(err.Error(), "no target refs resolved") {
+		t.Fatalf("error = %v, want branch preservation target resolution failure", err)
 	}
 }
 

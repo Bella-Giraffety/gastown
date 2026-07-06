@@ -1007,15 +1007,22 @@ func (g *Git) CleanDefaultBranchBaseRef(remote, defaultBranch string) string {
 	return remote + "/" + defaultBranch
 }
 
-// CleanBaseRef returns a fully qualified base ref for a target branch. Explicit
-// origin/ or upstream/ refs are preserved; default-branch targets use the clean
-// fork-aware base.
+// CleanBaseRef returns a fully qualified base ref for a target branch. Default
+// branch targets use the clean fork-aware base; other explicit remote refs are
+// preserved.
 func (g *Git) CleanBaseRef(remote, defaultBranch, target string) string {
-	target = strings.TrimSpace(target)
-	if target == "" || target == defaultBranch {
-		return g.CleanDefaultBranchBaseRef(remote, defaultBranch)
+	if defaultBranch == "" {
+		defaultBranch = "main"
 	}
-	if strings.HasPrefix(target, "origin/") || strings.HasPrefix(target, "upstream/") {
+	target = strings.TrimSpace(target)
+	cleanDefault := g.CleanDefaultBranchBaseRef(remote, defaultBranch)
+	if target == "" || target == defaultBranch || target == "refs/heads/"+defaultBranch || target == "refs/remotes/"+remote+"/"+defaultBranch {
+		return cleanDefault
+	}
+	if target == remote+"/"+defaultBranch && cleanDefault != remote+"/"+defaultBranch {
+		return cleanDefault
+	}
+	if strings.HasPrefix(target, "refs/") || strings.HasPrefix(target, "origin/") || strings.HasPrefix(target, "upstream/") {
 		return target
 	}
 	return remote + "/" + target
@@ -2698,25 +2705,29 @@ func (g *Git) branchPreservationStatus(localBranch, remote string, targets []str
 	}
 	var result BranchPreservationStatus
 	var candidates []string
-	hasEvidence := len(nonEmptyUnique(targets)) > 0
+	targetRefs := nonEmptyUnique(targets)
+	hasEvidence := len(targetRefs) > 0
+	defaultBranch := g.RemoteDefaultBranch()
+	for _, target := range targetRefs {
+		if ref, ok := g.resolveComparisonRef(g.CleanBaseRef(remote, defaultBranch, target), remote); ok {
+			candidates = append(candidates, ref)
+		}
+	}
+	if len(targetRefs) > 0 && len(candidates) == 0 {
+		return result, fmt.Errorf("no target refs resolved: %s", strings.Join(targetRefs, ", "))
+	}
 
 	if includeExactBranch && localBranch != "" && localBranch != "HEAD" {
 		if remoteSHA, err := g.PushRemoteBranchTip(remote, localBranch); err == nil && remoteSHA != "" {
 			hasEvidence = true
-			result.ComparisonBase = remote + "/" + localBranch
 			if contains, containsErr := g.refContainsHead(remoteSHA); containsErr == nil && contains {
 				result.Preserved = true
 				result.UnpreservedPatchCount = 0
+				result.ComparisonBase = remote + "/" + localBranch
 				result.Evidence = "exact_remote_branch"
 				return result, nil
 			}
-			candidates = append(candidates, remoteSHA)
-		}
-	}
-
-	for _, target := range nonEmptyUnique(targets) {
-		if ref, ok := g.resolveComparisonRef(target, remote); ok {
-			candidates = append(candidates, ref)
+			candidates = append([]string{remoteSHA}, candidates...)
 		}
 	}
 
@@ -2729,7 +2740,7 @@ func (g *Git) branchPreservationStatus(localBranch, remote string, targets []str
 	}
 
 	if !hasEvidence {
-		for _, ref := range []string{remote + "/" + g.RemoteDefaultBranch(), remote + "/main", remote + "/master"} {
+		for _, ref := range []string{g.CleanDefaultBranchBaseRef(remote, defaultBranch), remote + "/" + defaultBranch, remote + "/main", remote + "/master"} {
 			if resolved, ok := g.resolveComparisonRef(ref, remote); ok {
 				candidates = append(candidates, resolved)
 			}
