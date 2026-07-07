@@ -312,23 +312,19 @@ func (d *IssueDep) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-var dependencyRelationTypes = map[string]bool{
-	"blocks":             true,
-	"conditional-blocks": true,
-	"waits-for":          true,
-	"merge-blocks":       true,
-	"tracks":             true,
-	"parent-child":       true,
-	"related":            true,
-	"discovered-from":    true,
-	"thread":             true,
-}
-
 var blockingDependencyTypes = map[string]bool{
 	"blocks":             true,
 	"conditional-blocks": true,
 	"waits-for":          true,
 	"merge-blocks":       true,
+}
+
+var nonblockingDependencyTypes = map[string]bool{
+	"tracks":          true,
+	"parent-child":    true,
+	"related":         true,
+	"discovered-from": true,
+	"thread":          true,
 }
 
 // HasUnresolvedBlockers reports whether an issue has any unresolved blocking
@@ -402,7 +398,7 @@ func isBlockingDependencyType(depType string) bool {
 
 func knownDependencyRelation(depType string) string {
 	depType = strings.ToLower(strings.TrimSpace(depType))
-	if dependencyRelationTypes[depType] {
+	if blockingDependencyTypes[depType] || nonblockingDependencyTypes[depType] {
 		return depType
 	}
 	return ""
