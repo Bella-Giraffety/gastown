@@ -106,6 +106,9 @@ func runPatrolReportWithConfig(cfg PatrolConfig) error {
 
 	// Close the current patrol root with the summary
 	b := beads.New(cfg.BeadsDir)
+	if cfg.Beads != nil {
+		b = cfg.Beads
+	}
 
 	// Build step audit checklist
 	stepAudit := buildStepAudit(cfg.PatrolMolName, patrolReportSteps)

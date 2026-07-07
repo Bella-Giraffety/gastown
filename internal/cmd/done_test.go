@@ -479,7 +479,10 @@ func TestFindHookedBeadForAgent(t *testing.T) {
 
 			tt.setupBeads(t, bd)
 
-			got := findHookedBeadForAgent(bd, tt.agentID)
+			got, err := findHookedBeadForAgent(bd, tt.agentID)
+			if err != nil {
+				t.Fatalf("findHookedBeadForAgent(%q): %v", tt.agentID, err)
+			}
 			if got != tt.wantIssueID {
 				t.Errorf("findHookedBeadForAgent(%q) = %q, want %q", tt.agentID, got, tt.wantIssueID)
 			}

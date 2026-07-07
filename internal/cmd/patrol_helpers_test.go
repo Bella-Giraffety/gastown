@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -774,6 +775,60 @@ func TestRunPatrolReportNoActivePatrolStartsReplacement(t *testing.T) {
 	}
 	if called != 1 {
 		t.Fatalf("autoSpawnPatrolForReport calls = %d, want 1", called)
+	}
+}
+
+func TestRunPatrolReportClosesActiveEphemeralPatrol(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	molName := "mol-test-patrol"
+	assignee := "dotfiles/refinery"
+	activeID := createHookedEphemeralPatrol(t, b, molName, assignee)
+
+	oldSummary := patrolReportSummary
+	oldSteps := patrolReportSteps
+	patrolReportSummary = "all clear"
+	patrolReportSteps = ""
+	t.Cleanup(func() {
+		patrolReportSummary = oldSummary
+		patrolReportSteps = oldSteps
+	})
+
+	oldSpawner := autoSpawnPatrolForReport
+	called := 0
+	autoSpawnPatrolForReport = func(cfg PatrolConfig) (string, error) {
+		called++
+		if cfg.RoleName != "refinery" || cfg.PatrolMolName != molName || cfg.Assignee != assignee {
+			t.Fatalf("unexpected patrol config: %+v", cfg)
+		}
+		return "pt-wisp-next", nil
+	}
+	t.Cleanup(func() { autoSpawnPatrolForReport = oldSpawner })
+
+	err := runPatrolReportWithConfig(PatrolConfig{
+		RoleName:      "refinery",
+		PatrolMolName: molName,
+		BeadsDir:      tmpDir,
+		Assignee:      assignee,
+		Beads:         b,
+	})
+	if err != nil {
+		t.Fatalf("runPatrolReportWithConfig: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("autoSpawnPatrolForReport calls = %d, want 1", called)
+	}
+
+	active, err := b.Show(activeID)
+	if err != nil {
+		t.Fatalf("show active patrol: %v", err)
+	}
+	if active.Status != "closed" {
+		t.Fatalf("active patrol status = %q, want closed", active.Status)
+	}
+	if !strings.Contains(active.Description, "Patrol report: all clear") {
+		t.Fatalf("active patrol description missing report summary: %q", active.Description)
 	}
 }
 

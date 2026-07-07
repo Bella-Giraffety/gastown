@@ -504,18 +504,25 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	}
 
 	var assignedIssueIDs []string
-	loadAssignedIssueIDs := func() []string {
-		if assignedIssueIDs == nil && sender != "" {
-			assignedIssueIDs = findAssignedBeadsForAgent(cwd, sender)
+	var assignedIssueErr error
+	assignedIssueLoaded := false
+	loadAssignedIssueIDs := func() ([]string, error) {
+		if !assignedIssueLoaded && sender != "" {
+			assignedIssueIDs, assignedIssueErr = findAssignedBeadsForAgent(cwd, sender)
+			assignedIssueLoaded = true
 		}
-		return assignedIssueIDs
+		return assignedIssueIDs, assignedIssueErr
 	}
 
 	// If issue ID not set by flag or branch name, query for hooked beads
 	// assigned to this agent. This replaces reading agent_bead.hook_bead
 	// (hq-l6mm5: direct bead tracking instead of agent bead slot).
 	if issueID == "" && sender != "" {
-		if hookIssue, ambiguous := selectAssignedIssue("", loadAssignedIssueIDs()); hookIssue != "" {
+		assigned, err := loadAssignedIssueIDs()
+		if err != nil {
+			return fmt.Errorf("finding assigned work for %s: %w", sender, err)
+		}
+		if hookIssue, ambiguous := selectAssignedIssue("", assigned); hookIssue != "" {
 			issueID = hookIssue
 		} else if ambiguous {
 			return fmt.Errorf("multiple active assignments found for %s; cannot infer issue from hook. Use --issue to disambiguate", sender)
@@ -530,7 +537,11 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	// wins, and subtask branches of the hooked bead (e.g. gt-abc.1 under
 	// hooked gt-abc) are left alone.
 	if doneIssue == "" && info.Issue != "" && sender != "" {
-		if hookIssue, ambiguous := selectAssignedIssue(info.Issue, loadAssignedIssueIDs()); isStaleBranchIssue(info.Issue, hookIssue) {
+		assigned, err := loadAssignedIssueIDs()
+		if err != nil {
+			return fmt.Errorf("finding assigned work for %s: %w", sender, err)
+		}
+		if hookIssue, ambiguous := selectAssignedIssue(info.Issue, assigned); isStaleBranchIssue(info.Issue, hookIssue) {
 			style.PrintWarning("branch %q embeds issue %s but your hooked bead is %s — submitting for %s (stale branch reuse?)", branch, info.Issue, hookIssue, hookIssue)
 			fmt.Printf("  Fresh branches must be named polecat/<name>/<bead-id>@<suffix> for the bead you are working.\n")
 			fmt.Printf("  Use --issue to override if the branch-derived id is actually correct.\n\n")
@@ -1965,7 +1976,10 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) {
 	if hookedBeadID == "" {
 		// Fallback: query for hooked beads assigned to this agent
 		agentID := roleInfo.ActorString()
-		if found := findHookedBeadForAgent(bd, agentID); found != "" {
+		found, err := findHookedBeadForAgent(bd, agentID)
+		if err != nil {
+			style.PrintWarning("could not find hooked bead for %s: %v", agentID, err)
+		} else if found != "" {
 			hookedBeadID = found
 		}
 	}
@@ -2167,19 +2181,23 @@ func selectAssignedIssue(branchIssue string, assigned []string) (string, bool) {
 // findAssignedBeadsForAgent queries the same assignment locations as gt hook:
 // the current rig, the target rig for rig agents, then town beads. The assigned
 // work bead is authoritative; agent-bead hook slots are intentionally ignored.
-func findAssignedBeadsForAgent(workDir, agentID string) []string {
+func findAssignedBeadsForAgent(workDir, agentID string) ([]string, error) {
 	if agentID == "" {
-		return nil
+		return nil, nil
 	}
 
-	assigned := assignedIssueIDs(queryAssignedBeads(beads.New(workDir), agentID))
+	beadList, err := queryAssignedBeads(beads.New(workDir), agentID)
+	if err != nil {
+		return nil, err
+	}
+	assigned := assignedIssueIDs(beadList)
 	if len(assigned) > 0 {
-		return assigned
+		return assigned, nil
 	}
 
 	townRoot, err := findTownRoot()
 	if err != nil || townRoot == "" {
-		return nil
+		return nil, nil
 	}
 
 	parts := strings.Split(agentID, "/")
@@ -2190,32 +2208,40 @@ func findAssignedBeadsForAgent(workDir, agentID string) []string {
 	if rigName != "" && rigName != "mayor" && rigName != "deacon" {
 		rigWorkDir := filepath.Join(townRoot, rigName, "mayor", "rig")
 		if rigWorkDir != workDir {
-			assigned = assignedIssueIDs(queryAssignedBeads(beads.New(rigWorkDir), agentID))
+			beadList, err := queryAssignedBeads(beads.New(rigWorkDir), agentID)
+			if err != nil {
+				return nil, err
+			}
+			assigned = assignedIssueIDs(beadList)
 			if len(assigned) > 0 {
-				return assigned
+				return assigned, nil
 			}
 		}
 	}
 
 	townBeadsDir := filepath.Join(townRoot, ".beads")
 	if _, err := os.Stat(townBeadsDir); err == nil {
-		assigned = assignedIssueIDs(queryAssignedBeads(beads.New(townBeadsDir), agentID))
+		beadList, err := queryAssignedBeads(beads.New(townBeadsDir), agentID)
+		if err != nil {
+			return nil, err
+		}
+		assigned = assignedIssueIDs(beadList)
 		if len(assigned) > 0 {
-			return assigned
+			return assigned, nil
 		}
 	}
 	if isTownLevelRole(agentID) {
-		return assignedIssueIDs(scanAllRigsForHookedBeads(townRoot, agentID))
+		return assignedIssueIDs(scanAllRigsForHookedBeads(townRoot, agentID)), nil
 	}
-	return nil
+	return nil, nil
 }
 
-func queryAssignedBeads(bd *beads.Beads, agentID string) []*beads.Issue {
+func queryAssignedBeads(bd *beads.Beads, agentID string) ([]*beads.Issue, error) {
 	assigned, err := queryAssignedWork(bd, agentID)
-	if err == nil {
-		return assigned
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	return assigned, nil
 }
 
 func assignedIssueIDs(assigned []*beads.Issue) []string {
@@ -2238,9 +2264,16 @@ func assignedIssueIDs(assigned []*beads.Issue) []string {
 // branch guard and the hook fallback silently no-op'd (same class of bug as
 // gt-pftz in the close path). Hooked wins over in_progress when both exist.
 // Returns empty string if no assignment bead is found.
-func findHookedBeadForAgent(bd *beads.Beads, agentID string) string {
-	issueID, _ := selectAssignedIssue("", assignedIssueIDs(queryAssignedBeads(bd, agentID)))
-	return issueID
+func findHookedBeadForAgent(bd *beads.Beads, agentID string) (string, error) {
+	if agentID == "" {
+		return "", nil
+	}
+	assigned, err := queryAssignedBeads(bd, agentID)
+	if err != nil {
+		return "", err
+	}
+	issueID, _ := selectAssignedIssue("", assignedIssueIDs(assigned))
+	return issueID, nil
 }
 
 // parseCleanupStatus converts a string flag value to a CleanupStatus.

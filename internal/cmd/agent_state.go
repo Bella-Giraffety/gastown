@@ -1,12 +1,10 @@
 package cmd
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -207,29 +205,11 @@ func modifyAgentState(agentBead, beadsDir string, hasIncr bool) error {
 		finalLabels = append(finalLabels, key+":"+value)
 	}
 
-	// Build update command with --set-labels to replace all
-	args := []string{"update", agentBead}
-	for _, label := range finalLabels {
-		args = append(args, "--set-labels="+label)
-	}
-
-	// If no labels, clear all
+	setLabels := finalLabels
 	if len(finalLabels) == 0 {
-		args = append(args, "--set-labels=")
+		setLabels = []string{""}
 	}
-
-	// Execute bd update
-	cmd := exec.Command("bd", args...)
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg != "" {
-			return fmt.Errorf("%s", errMsg)
-		}
+	if err := agentStateBeads(beadsDir).Update(agentBead, beads.UpdateOptions{SetLabels: setLabels}); err != nil {
 		return fmt.Errorf("updating agent state: %w", err)
 	}
 
@@ -267,30 +247,18 @@ const bdCallTimeout = 30 * time.Second
 
 // getAllAgentLabels retrieves all labels (including non-state) from an agent bead.
 func getAllAgentLabels(agentBead, beadsDir string) ([]string, error) {
-	args := []string{"show", agentBead, "--json"}
-
-	ctx, cancel := context.WithTimeout(context.Background(), bdCallTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bd", args...) //nolint:gosec // G204: bd is a trusted internal tool
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		errMsg := strings.TrimSpace(stderr.String())
-		if strings.Contains(errMsg, "not found") {
+	issue, err := agentStateBeads(beadsDir).Show(agentBead)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
 			return nil, fmt.Errorf("agent bead not found: %s", agentBead)
-		}
-		if errMsg != "" {
-			return nil, fmt.Errorf("%s", errMsg)
 		}
 		return nil, fmt.Errorf("querying agent bead: %w", err)
 	}
+	return issue.Labels, nil
+}
 
-	return parseAgentBeadLabels(stdout.Bytes(), stderr.Bytes(), agentBead)
+func agentStateBeads(beadsDir string) *beads.Beads {
+	return beads.NewWithBeadsDir(filepath.Dir(beadsDir), beadsDir).ForAgentBead()
 }
 
 // parseAgentBeadLabels parses the JSON output from bd show --json and extracts labels.
