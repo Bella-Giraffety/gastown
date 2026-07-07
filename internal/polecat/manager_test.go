@@ -1970,6 +1970,26 @@ func TestStalePendingMarkerIsCleanedUp(t *testing.T) {
 	}
 }
 
+func TestCleanupOrphanPolecatStatePreservesUnverifiedBrokenPolecat(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	r := &rig.Rig{Name: "myrig", Path: tmpDir}
+	m := NewManager(r, nil, nil)
+
+	polecatDir := filepath.Join(tmpDir, "polecats", "furiosa")
+	clonePath := filepath.Join(polecatDir, r.Name)
+	if err := os.MkdirAll(clonePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	m.cleanupOrphanPolecatState()
+
+	if _, err := os.Stat(polecatDir); err != nil {
+		t.Fatalf("broken named polecat dir was removed without safety proof: %v", err)
+	}
+}
+
 // TestAddWithOptions_RollbackReleasesName verifies that when AddWithOptions fails,
 // the allocated name is released back to the pool and the polecat directory is cleaned up.
 // Regression test for gt-2vs22: cleanupOnError previously only removed the directory,
