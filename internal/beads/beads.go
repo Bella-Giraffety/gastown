@@ -296,6 +296,34 @@ type IssueDep struct {
 	CloseReason    string `json:"close_reason,omitempty"`
 }
 
+func (d *IssueDep) UnmarshalJSON(data []byte) error {
+	type issueDep IssueDep
+	var aux struct {
+		issueDep
+		RelationType string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*d = IssueDep(aux.issueDep)
+	if strings.TrimSpace(d.DependencyType) == "" {
+		d.DependencyType = knownDependencyRelation(aux.RelationType)
+	}
+	return nil
+}
+
+var dependencyRelationTypes = map[string]bool{
+	"blocks":             true,
+	"conditional-blocks": true,
+	"waits-for":          true,
+	"merge-blocks":       true,
+	"tracks":             true,
+	"parent-child":       true,
+	"related":            true,
+	"discovered-from":    true,
+	"thread":             true,
+}
+
 var blockingDependencyTypes = map[string]bool{
 	"blocks":             true,
 	"conditional-blocks": true,
@@ -370,6 +398,14 @@ func normalizedIssueIDs(ids []string) []string {
 
 func isBlockingDependencyType(depType string) bool {
 	return blockingDependencyTypes[strings.ToLower(strings.TrimSpace(depType))]
+}
+
+func knownDependencyRelation(depType string) string {
+	depType = strings.ToLower(strings.TrimSpace(depType))
+	if dependencyRelationTypes[depType] {
+		return depType
+	}
+	return ""
 }
 
 func isResolvedDependency(dep IssueDep) bool {

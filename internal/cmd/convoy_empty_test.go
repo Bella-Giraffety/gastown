@@ -367,3 +367,88 @@ esac
 		t.Errorf("stuck convoy ReadyCount = %d, want 0", s.ReadyCount)
 	}
 }
+
+func TestFindStrandedConvoys_BlocksDependencyTypeField(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping convoy test on Windows")
+	}
+
+	binDir := t.TempDir()
+	townRoot := t.TempDir()
+	beadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(`{"prefix":"gt-","path":"gastown/mayor/rig"}`+"\n"), 0644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	bdPath := filepath.Join(binDir, "bd")
+	script := `#!/bin/sh
+i=0
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) eval "pos$i=\"$arg\""; i=$((i+1)) ;;
+  esac
+done
+
+case "$pos0" in
+  list)
+    echo '[{"id":"hq-blocks-type","title":"Blocks type convoy"}]'
+    exit 0
+    ;;
+  sql)
+    echo '[{"depends_on_id":"gt-ready1"},{"depends_on_id":"gt-blocked1"}]'
+    exit 0
+    ;;
+  dep)
+    echo '[{"id":"gt-ready1","title":"Ready issue","status":"open","issue_type":"task","assignee":"","dependency_type":"tracks"},{"id":"gt-blocked1","title":"Blocked issue","status":"open","issue_type":"task","assignee":"","dependency_type":"tracks"}]'
+    exit 0
+    ;;
+  show)
+    case "$*" in
+      *gt-ready1*gt-blocked1*|*gt-blocked1*gt-ready1*)
+        echo '[{"id":"gt-ready1","title":"Ready issue","status":"open","issue_type":"task","assignee":"","blocked_by":[],"blocked_by_count":0,"dependencies":[]},{"id":"gt-blocked1","title":"Blocked issue","status":"open","issue_type":"task","assignee":"","blocked_by":[],"blocked_by_count":0,"dependencies":[{"id":"gt-ready1","status":"open","type":"blocks","issue_type":"task"}]}]'
+        ;;
+      *gt-ready1*)
+        echo '[{"id":"gt-ready1","title":"Ready issue","status":"open","issue_type":"task","assignee":"","blocked_by":[],"blocked_by_count":0,"dependencies":[]}]'
+        ;;
+      *gt-blocked1*)
+        echo '[{"id":"gt-blocked1","title":"Blocked issue","status":"open","issue_type":"task","assignee":"","blocked_by":[],"blocked_by_count":0,"dependencies":[{"id":"gt-ready1","status":"open","type":"blocks","issue_type":"task"}]}]'
+        ;;
+      *)
+        echo '[{"id":"hq-blocks-type","title":"Blocks type convoy","status":"open","issue_type":"convoy"}]'
+        ;;
+    esac
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(bdPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stranded, err := findStrandedConvoys(townRoot)
+	if err != nil {
+		t.Fatalf("findStrandedConvoys() error: %v", err)
+	}
+
+	if len(stranded) != 1 {
+		t.Fatalf("expected 1 stranded convoy, got %d", len(stranded))
+	}
+	s := stranded[0]
+	if s.TrackedCount != 2 {
+		t.Fatalf("TrackedCount = %d, want 2", s.TrackedCount)
+	}
+	if s.ReadyCount != 1 {
+		t.Fatalf("ReadyCount = %d, want 1", s.ReadyCount)
+	}
+	if len(s.ReadyIssues) != 1 || s.ReadyIssues[0] != "gt-ready1" {
+		t.Fatalf("ReadyIssues = %v, want [gt-ready1]", s.ReadyIssues)
+	}
+}

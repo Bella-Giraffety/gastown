@@ -348,7 +348,7 @@ case "$*" in
     echo '[]'
     ;;
   "show hq-cv-ext --json")
-    echo '[{"id":"hq-cv-ext","title":"External convoy","status":"open","issue_type":"convoy","dependencies":[{"id":"external:ghostty:ghostty-123","title":"Ghost 123","status":"open","type":"task","dependency_type":"tracks"},{"id":"external:ghostty:ghostty-456","title":"Ghost 456","status":"closed","type":"task","dependency_type":"tracks"},{"id":"gt-ignore","title":"Ignore me","status":"open","type":"task","dependency_type":"blocks"}]}]'
+    echo '[{"id":"hq-cv-ext","title":"External convoy","status":"open","issue_type":"convoy","dependencies":[{"id":"external:ghostty:ghostty-123","title":"Ghost 123","status":"open","type":"tracks","issue_type":"task"},{"id":"external:ghostty:ghostty-456","title":"Ghost 456","status":"closed","type":"tracks","issue_type":"task"},{"id":"external:ghostty:ghostty-task","title":"Not a relation","status":"open","type":"task","issue_type":"task"},{"id":"gt-ignore","title":"Ignore me","status":"open","type":"blocks","issue_type":"task"}]}]'
     ;;
   "show ghostty-123 ghostty-456 --json"|"show ghostty-456 ghostty-123 --json")
     echo '[{"id":"ghostty-123","title":"Ghost 123","status":"open","issue_type":"task"},{"id":"ghostty-456","title":"Ghost 456","status":"closed","issue_type":"task"}]'

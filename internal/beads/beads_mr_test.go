@@ -1,6 +1,7 @@
 package beads
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -145,6 +146,63 @@ func TestUnresolvedBlockingDependencyIDs(t *testing.T) {
 			got, _ := unresolvedBlockingDependencyIDs(&Issue{Dependencies: tt.deps})
 			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
 				t.Fatalf("unresolvedBlockingDependencyIDs() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIssueDepUnmarshalDependencyTypeFallback(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantDep    string
+		wantType   string
+		wantBlocks bool
+	}{
+		{
+			name:       "dependency type wins over type",
+			input:      `{"id":"gt-parent","status":"open","type":"blocks","issue_type":"task","dependency_type":"parent-child"}`,
+			wantDep:    "parent-child",
+			wantType:   "task",
+			wantBlocks: false,
+		},
+		{
+			name:       "type blocks fallback",
+			input:      `{"id":"gt-blocker","status":"open","type":"blocks","issue_type":"task"}`,
+			wantDep:    "blocks",
+			wantType:   "task",
+			wantBlocks: true,
+		},
+		{
+			name:       "type tracks fallback is nonblocking",
+			input:      `{"id":"gt-tracked","status":"open","type":"tracks","issue_type":"task"}`,
+			wantDep:    "tracks",
+			wantType:   "task",
+			wantBlocks: false,
+		},
+		{
+			name:       "issue type is not relation",
+			input:      `{"id":"gt-task","status":"open","type":"task","issue_type":"task"}`,
+			wantDep:    "",
+			wantType:   "task",
+			wantBlocks: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var dep IssueDep
+			if err := json.Unmarshal([]byte(tt.input), &dep); err != nil {
+				t.Fatalf("json.Unmarshal: %v", err)
+			}
+			if dep.DependencyType != tt.wantDep {
+				t.Fatalf("DependencyType = %q, want %q", dep.DependencyType, tt.wantDep)
+			}
+			if dep.Type != tt.wantType {
+				t.Fatalf("Type = %q, want %q", dep.Type, tt.wantType)
+			}
+			if got := HasUnresolvedBlockers(&Issue{Dependencies: []IssueDep{dep}}); got != tt.wantBlocks {
+				t.Fatalf("HasUnresolvedBlockers() = %v, want %v", got, tt.wantBlocks)
 			}
 		})
 	}

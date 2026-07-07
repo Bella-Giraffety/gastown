@@ -2556,7 +2556,7 @@ func bdShowTrackedDeps(dir, convoyID string) ([]string, error) {
 	}
 
 	var results []struct {
-		Dependencies []issueDependency `json:"dependencies"`
+		Dependencies []beads.IssueDep `json:"dependencies"`
 	}
 	if err := json.Unmarshal(out, &results); err != nil {
 		return nil, fmt.Errorf("parsing show for %s: %w", convoyID, err)
@@ -2568,7 +2568,7 @@ func bdShowTrackedDeps(dir, convoyID string) ([]string, error) {
 	seen := make(map[string]bool)
 	var ids []string
 	for _, dep := range results[0].Dependencies {
-		if dep.DependencyType != "tracks" {
+		if !strings.EqualFold(strings.TrimSpace(dep.DependencyType), "tracks") {
 			continue
 		}
 		id := beads.ExtractIssueID(dep.ID)
@@ -2580,38 +2580,27 @@ func bdShowTrackedDeps(dir, convoyID string) ([]string, error) {
 	return ids, nil
 }
 
-type issueDependency struct {
-	ID             string `json:"id"`
-	Status         string `json:"status"`
-	DependencyType string `json:"dependency_type"`
-}
-
 // issueDetails holds basic issue info.
 type issueDetails struct {
-	ID             string
-	Title          string
-	Status         string
-	IssueType      string
-	Assignee       string
-	Labels         []string
-	BlockedBy      []string
-	BlockedByCount int
-	Dependencies   []issueDependency
+	ID              string
+	Title           string
+	Status          string
+	IssueType       string
+	Assignee        string
+	Labels          []string
+	BlockedBy       []string
+	BlockedByCount  int
+	DependencyCount int
+	Dependencies    []beads.IssueDep
 }
 
 func (d issueDetails) IsBlocked() bool {
-	if d.BlockedByCount > 0 || len(d.BlockedBy) > 0 {
-		return true
-	}
-
-	// bd show can omit blocked_by_count; fall back to live dependency edges.
-	for _, dep := range d.Dependencies {
-		if dep.DependencyType == "blocks" && dep.Status != "closed" && dep.Status != "tombstone" {
-			return true
-		}
-	}
-
-	return false
+	return beads.HasUnresolvedBlockers(&beads.Issue{
+		BlockedBy:       d.BlockedBy,
+		BlockedByCount:  d.BlockedByCount,
+		DependencyCount: d.DependencyCount,
+		Dependencies:    d.Dependencies,
+	})
 }
 
 // getIssueDetailsBatch fetches details through the central routed beads lookup.
@@ -2681,25 +2670,17 @@ func issueToDetails(issue *beads.Issue) *issueDetails {
 		return nil
 	}
 
-	deps := make([]issueDependency, 0, len(issue.Dependencies))
-	for _, dep := range issue.Dependencies {
-		deps = append(deps, issueDependency{
-			ID:             dep.ID,
-			Status:         dep.Status,
-			DependencyType: dep.DependencyType,
-		})
-	}
-
 	return &issueDetails{
-		ID:             issue.ID,
-		Title:          issue.Title,
-		Status:         issue.Status,
-		IssueType:      issue.Type,
-		Assignee:       issue.Assignee,
-		Labels:         issue.Labels,
-		BlockedBy:      issue.BlockedBy,
-		BlockedByCount: issue.BlockedByCount,
-		Dependencies:   deps,
+		ID:              issue.ID,
+		Title:           issue.Title,
+		Status:          issue.Status,
+		IssueType:       issue.Type,
+		Assignee:        issue.Assignee,
+		Labels:          issue.Labels,
+		BlockedBy:       issue.BlockedBy,
+		BlockedByCount:  issue.BlockedByCount,
+		DependencyCount: issue.DependencyCount,
+		Dependencies:    issue.Dependencies,
 	}
 }
 

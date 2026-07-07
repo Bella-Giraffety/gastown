@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/steveyegge/gastown/internal/beads"
 )
 
 func TestIsReadyIssue_BlockingAndStatus(t *testing.T) {
@@ -124,16 +126,52 @@ func TestIssueDetailsIsBlocked(t *testing.T) {
 		{
 			name: "open blocks dependency marks blocked",
 			in: issueDetails{
-				Dependencies: []issueDependency{
+				Dependencies: []beads.IssueDep{
 					{DependencyType: "blocks", Status: "open"},
 				},
 			},
 			want: true,
 		},
 		{
+			name: "open conditional blocks dependency marks blocked",
+			in: issueDetails{
+				Dependencies: []beads.IssueDep{
+					{DependencyType: "conditional-blocks", Status: "open"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "open waits for dependency marks blocked",
+			in: issueDetails{
+				Dependencies: []beads.IssueDep{
+					{DependencyType: "waits-for", Status: "open"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "closed merge blocks dependency without merge reason marks blocked",
+			in: issueDetails{
+				Dependencies: []beads.IssueDep{
+					{DependencyType: "merge-blocks", Status: "closed"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "closed merge blocks dependency with merge reason does not mark blocked",
+			in: issueDetails{
+				Dependencies: []beads.IssueDep{
+					{DependencyType: "merge-blocks", Status: "closed", CloseReason: "Merged in abc123"},
+				},
+			},
+			want: false,
+		},
+		{
 			name: "closed blocks dependency does not mark blocked",
 			in: issueDetails{
-				Dependencies: []issueDependency{
+				Dependencies: []beads.IssueDep{
 					{DependencyType: "blocks", Status: "closed"},
 				},
 			},
@@ -142,7 +180,7 @@ func TestIssueDetailsIsBlocked(t *testing.T) {
 		{
 			name: "non-blocking dependency does not mark blocked",
 			in: issueDetails{
-				Dependencies: []issueDependency{
+				Dependencies: []beads.IssueDep{
 					{DependencyType: "parent-child", Status: "open"},
 				},
 			},
