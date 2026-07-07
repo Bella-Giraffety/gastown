@@ -53,24 +53,40 @@ type HealthReport struct {
 //
 // Either townRoot or rigName may be empty; those tiers are skipped.
 func ResolveFormulaContent(name, townRoot, rigName string) ([]byte, error) {
+	var searchDirs []string
+
+	// Tier 1: rig-level (most specific)
+	if townRoot != "" && rigName != "" {
+		searchDirs = append(searchDirs, filepath.Join(townRoot, rigName, ".beads", "formulas"))
+	}
+
+	// Tier 2: town-level
+	if townRoot != "" {
+		searchDirs = append(searchDirs, filepath.Join(townRoot, ".beads", "formulas"))
+	}
+
+	return ResolveFormulaContentFromDirs(name, searchDirs)
+}
+
+// ResolveFormulaContentFromDirs resolves formula content from explicit formula
+// directories, then falls back to the embedded system formulas.
+func ResolveFormulaContentFromDirs(name string, searchDirs []string) ([]byte, error) {
 	filename := name
 	if !hasFormulaSuffix(filename) {
 		filename = filename + ".formula.toml"
 	}
 
-	// Tier 1: rig-level (most specific)
-	if townRoot != "" && rigName != "" {
-		path := filepath.Join(townRoot, rigName, ".beads", "formulas", filename)
-		if content, err := os.ReadFile(path); err == nil {
+	for _, dir := range searchDirs {
+		if dir == "" {
+			continue
+		}
+		path := filepath.Join(dir, filename)
+		content, err := os.ReadFile(path)
+		if err == nil {
 			return content, nil
 		}
-	}
-
-	// Tier 2: town-level
-	if townRoot != "" {
-		path := filepath.Join(townRoot, ".beads", "formulas", filename)
-		if content, err := os.ReadFile(path); err == nil {
-			return content, nil
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("reading formula %s: %w", path, err)
 		}
 	}
 
