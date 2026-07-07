@@ -212,6 +212,26 @@ func TestRenderFormulaStepsFull_UsesRoutedRigFormula(t *testing.T) {
 	}
 }
 
+func TestRenderFormulaStepsFull_IgnoresLegacyHomeFormula(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	homeFormulas := filepath.Join(home, ".beads", "formulas")
+	if err := os.MkdirAll(homeFormulas, 0755); err != nil {
+		t.Fatalf("mkdir home formulas: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(homeFormulas, "mol-polecat-work.formula.toml"), []byte(testWorkflowFormulaWithStep("mol-polecat-work", 99, "Home Step")), 0644); err != nil {
+		t.Fatalf("write home formula: %v", err)
+	}
+
+	rendered, err := renderFormulaStepsFull("mol-polecat-work", "", "")
+	if err != nil {
+		t.Fatalf("renderFormulaStepsFull() error = %v", err)
+	}
+	if strings.Contains(rendered, "Home Step") {
+		t.Fatalf("prime rendering used legacy home formula: %s", rendered)
+	}
+}
+
 func TestLoadSynthesisFormula_UsesGTTownRootOnly(t *testing.T) {
 	townRoot := setupFormulaResolverTown(t)
 	formulasDir := filepath.Join(townRoot, ".beads", "formulas")

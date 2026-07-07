@@ -9,7 +9,7 @@ import (
 )
 
 func loadFormulaByName(name, townRoot, rigName string) (*formula.Formula, error) {
-	content, err := formula.ResolveFormulaContentFromDirs(name, formulaContentSearchDirs(townRoot, rigName))
+	content, err := formula.ResolveFormulaContentFromDirs(name, formulaContentSearchDirsWithLegacyHome(townRoot, rigName))
 	if err != nil {
 		return nil, err
 	}
@@ -17,6 +17,14 @@ func loadFormulaByName(name, townRoot, rigName string) (*formula.Formula, error)
 }
 
 func formulaContentSearchDirs(townRoot, rigName string) []string {
+	return formulaContentSearchDirsFor(townRoot, rigName, false)
+}
+
+func formulaContentSearchDirsWithLegacyHome(townRoot, rigName string) []string {
+	return formulaContentSearchDirsFor(townRoot, rigName, true)
+}
+
+func formulaContentSearchDirsFor(townRoot, rigName string, includeLegacyHome bool) []string {
 	var dirs []string
 
 	if townRoot != "" && rigName != "" {
@@ -31,9 +39,11 @@ func formulaContentSearchDirs(townRoot, rigName string) []string {
 		dirs = appendFormulaDir(dirs, filepath.Join(beads.ResolveBeadsDir(townRoot), "formulas"))
 	}
 
-	// Preserve the legacy user formula tier for commands that already accepted it.
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		dirs = appendFormulaDir(dirs, filepath.Join(home, ".beads", "formulas"))
+	if includeLegacyHome {
+		// Preserve the legacy user formula tier for commands that already accepted it.
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			dirs = appendFormulaDir(dirs, filepath.Join(home, ".beads", "formulas"))
+		}
 	}
 
 	return dirs
