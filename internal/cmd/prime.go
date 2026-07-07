@@ -809,35 +809,7 @@ func findAgentWorkOnce(ctx RoleContext, agentID string) (*beads.Issue, error) {
 	// always has the authoritative .beads/ database. (GH#2503)
 	b := beads.New(rigBeadsRoot(ctx))
 
-	// Agent bead's hook_bead field. NOTE: updateAgentHookBead was made a no-op
-	// (see sling_helpers.go), so HookBead is typically empty. Kept for backward
-	// compatibility with agent beads that still have hook_bead set.
-	agentBeadID := buildAgentBeadID(agentID, ctx.Role, ctx.TownRoot)
-	var staleHookErr error
-	if agentBeadID != "" {
-		agentBeadDir := beads.ResolveHookDir(ctx.TownRoot, agentBeadID, ctx.WorkDir)
-		ab := beads.New(agentBeadDir)
-		if agentBead, err := ab.Show(agentBeadID); err == nil && agentBead != nil && agentBead.HookBead != "" {
-			hookBeadDir := beads.ResolveHookDir(ctx.TownRoot, agentBead.HookBead, ctx.WorkDir)
-			hb := beads.New(hookBeadDir)
-			hookBead, showErr := hb.Show(agentBead.HookBead)
-			if showErr == nil && hookBead != nil &&
-				(hookBead.Status == beads.StatusHooked || hookBead.Status == "in_progress") {
-				return hookBead, nil
-			}
-			// The agent bead names a hook bead but `bd show` cannot find it.
-			// This is the cross-rig dispatch failure mode (gt-el4): an `hq-`
-			// bead was handed to a polecat whose DB only resolves `gt-`. Fail
-			// fast — never pontificate, the witness will clear the hook on
-			// its next sweep and the dispatcher will (or won't) re-issue.
-			if hookBead == nil || isBeadNotFound(showErr) {
-				staleHookErr = fmt.Errorf("%w: agent=%s hook_bead=%s cwd=%s: %v",
-					ErrHookUnresolvable, agentID, agentBead.HookBead, ctx.WorkDir, showErr)
-			}
-		}
-	}
-
-	// Fallback: query by assignee on the work row, including ephemeral wisps.
+	// Query by assignee on the work row, including ephemeral wisps.
 	hookedBeads, err := queryAssignedWork(b, agentID)
 	if err != nil {
 		return nil, err
@@ -858,9 +830,6 @@ func findAgentWorkOnce(ctx RoleContext, agentID string) (*beads.Issue, error) {
 	}
 
 	if len(hookedBeads) == 0 {
-		if staleHookErr != nil {
-			return nil, staleHookErr
-		}
 		return nil, nil
 	}
 	return hookedBeads[0], nil

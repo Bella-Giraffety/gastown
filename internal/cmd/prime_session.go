@@ -305,7 +305,7 @@ func detectSessionState(ctx RoleContext) SessionState {
 	}
 
 	// Check for hooked work (autonomous state). The source of truth is the
-	// assigned work row; agent hook_bead is only a legacy fallback.
+	// assigned work row.
 	agentID := getAgentIdentity(ctx)
 	if agentID != "" {
 		// Use rig beads directory, not polecat worktree. Polecats don't have their
@@ -333,24 +333,6 @@ func detectSessionState(ctx RoleContext) SessionState {
 				state.State = "autonomous"
 				state.HookedBead = townAssigned[0].ID
 				return state
-			}
-		}
-
-		// Legacy fallback: old agent beads may still name hook_bead, but current
-		// assignments no longer write that slot.
-		agentBeadID := buildAgentBeadID(agentID, ctx.Role, ctx.TownRoot)
-		if agentBeadID != "" {
-			agentBeadDir := beads.ResolveHookDir(ctx.TownRoot, agentBeadID, ctx.WorkDir)
-			ab := beads.New(agentBeadDir)
-			if agentBead, err := ab.Show(agentBeadID); err == nil && agentBead != nil && agentBead.HookBead != "" {
-				hookBeadDir := beads.ResolveHookDir(ctx.TownRoot, agentBead.HookBead, ctx.WorkDir)
-				hb := beads.New(hookBeadDir)
-				if hookBead, err := hb.Show(agentBead.HookBead); err == nil && hookBead != nil &&
-					(hookBead.Status == beads.StatusHooked || hookBead.Status == "in_progress") {
-					state.State = "autonomous"
-					state.HookedBead = agentBead.HookBead
-					return state
-				}
 			}
 		}
 	}
