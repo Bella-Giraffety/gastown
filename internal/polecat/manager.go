@@ -2131,20 +2131,55 @@ func (m *Manager) cleanupOrphanPolecatState() {
 		clonePath := filepath.Join(polecatDir, m.rig.Name)
 		gitPath := filepath.Join(clonePath, ".git")
 
-		// Check if clone directory exists
+		// Only remove truly partial spawn artifacts here. Named polecats with any
+		// agent/work/session evidence must go through recovery or the locked reclaim path.
 		if _, err := os.Stat(clonePath); os.IsNotExist(err) {
-			// Empty polecat directory without clone - remove it
-			_ = os.RemoveAll(polecatDir)
+			_ = m.removePartialOrphanPolecatDir(name, polecatDir)
 			continue
 		}
-
-		// Check if .git exists (file for worktree, or directory for full clone)
 		if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-			// Clone exists but no .git - incomplete worktree, remove it
-			_ = os.RemoveAll(polecatDir)
+			_ = m.removePartialOrphanPolecatDir(name, polecatDir)
 			continue
 		}
 	}
+}
+
+func (m *Manager) removePartialOrphanPolecatDir(name, polecatDir string) error {
+	fl, err := m.lockPolecat(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	if m.tmux == nil {
+		return fmt.Errorf("cannot verify session absence for %s", name)
+	}
+	sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
+	if running, err := m.tmux.HasSession(sessionName); err != nil || running {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("session still exists for %s", name)
+	}
+
+	agentID := m.agentBeadID(name)
+	agentIssue, fields, err := m.agentBeads().GetAgentBead(agentID)
+	if err == nil && (agentIssue != nil || fields != nil) {
+		return fmt.Errorf("agent bead still exists for %s", name)
+	}
+	if err != nil && !errors.Is(err, beads.ErrNotFound) {
+		return err
+	}
+
+	issues, err := m.beads.ListByAssignee(m.assigneeID(name))
+	if err != nil {
+		return err
+	}
+	if len(activeWorkBeadsForCleanup(issues)) > 0 {
+		return fmt.Errorf("assigned work still exists for %s", name)
+	}
+
+	return os.RemoveAll(polecatDir)
 }
 
 // PoolStatus returns information about the name pool.
