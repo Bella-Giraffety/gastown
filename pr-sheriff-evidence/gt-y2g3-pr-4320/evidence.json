@@ -1,0 +1,227 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-07T21:04:06Z",
+  "run_id": "gt-y2g3-pr-4320-2026-07-07",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request_replacement",
+    "change_id": "4320",
+    "url": "https://github.com/gastownhall/gastown/pull/4320",
+    "title": "fix: clean worktree beads identity redirects",
+    "author": "Bella-Giraffety",
+    "author_tier": "trusted",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "d403e69d5c2757398b95e93e4a6fe92bb0f7d9de",
+    "head_ref": "polecat/brahmin/gt-y2g3@mrb3iukc",
+    "head_sha": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f",
+    "diff_summary": {
+      "additions": 467,
+      "deletions": 20,
+      "changed_files": 4,
+      "paths": [
+        "internal/beads/beads_redirect.go",
+        "internal/beads/beads_test.go",
+        "internal/cmd/prime.go",
+        "internal/cmd/prime_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["local_report", "artifact_store", "bead"],
+    "baseline_checks": [],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-gt-y2g3-pr-4320-replacement",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement",
+    "summary": "Carry forward PR #4320/#4130 as a focused cleanup-first replacement against current main: make redirected worktree .beads directories redirect-only, hide tracked cleanup paths before removal, avoid symlink target traversal, and fail closed on fatal git index errors.",
+    "created_at": "2026-07-07T20:40:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/review-approved", "family": "status", "semantic_value": "review-approved"},
+      {"name": "priority/p2", "family": "priority", "semantic_value": "p2"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "review-approved",
+    "priority": "p2",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {"id": "label-snapshot", "kind": "label_snapshot", "uri": "urn:bead:gt-y2g3:labels", "actor": "gastown/polecats/brahmin", "created_at": "2026-07-07T21:04:06Z", "digest": null, "summary": "Replacement branch received 5/5 approving post-implementation reviews and is treated as review-approved for the replacement merge path. Original PR #4320 remains status/reviewing."},
+    {"id": "original-pr-state", "kind": "pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4320", "actor": "github", "created_at": "2026-07-07T21:04:06Z", "digest": "72300e0fae1dc64ee261500cf59ecf6b85ec0440", "summary": "Original PR #4320 remains open at head 72300e0 with labels kind/bug priority/p2 status/reviewing and stale failing Test/Integration checks; it is not merge-as-is evidence."},
+    {"id": "implementation-commit", "kind": "git_commit", "uri": "urn:git:commit:5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "actor": "gastown/polecats/brahmin", "created_at": "2026-07-07T21:00:00Z", "digest": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "summary": "Final current-main replacement implementation head."},
+    {"id": "attribution-commit", "kind": "git_commit", "uri": "urn:git:commit:5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "actor": "gastown/polecats/brahmin", "created_at": "2026-07-07T21:00:00Z", "digest": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "summary": "Commit trailers are parseable: Refs #4320 #4130, Carry-forward-from gt-j2pt, Co-authored-by Chris Sauer, Claude Opus, and guzzle/Thalia Geraghty."},
+    {"id": "verification-focused", "kind": "test_log", "uri": "urn:local:test:gt-y2g3-focused-2026-07-07", "actor": "gastown/polecats/brahmin", "created_at": "2026-07-07T21:02:00Z", "digest": null, "summary": "Focused checks passed on head 5f48a99d: git diff --check origin/main..HEAD; CGO_ENABLED=0 go test ./internal/beads -run TestSetupRedirect -count=1; CGO_ENABLED=0 go test ./internal/cmd -run TestEnsureBeadsRedirect -count=1."},
+    {"id": "blocker-scan", "kind": "blocker_scan", "uri": "urn:pr-sheriff:blocker-scan:gt-y2g3-pr-4320", "actor": "gastown/polecats/brahmin", "created_at": "2026-07-07T21:04:06Z", "digest": null, "summary": "Scanned PR labels/comments/checks, bead notes, research reviews, focused tests, and final diff. Original PR #4320 remains blocked as-is, but replacement branch has no unresolved blockers after 5/5 approving post-reviews."},
+    {"id": "research-01-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R01", "actor": "research-R01", "created_at": "2026-07-07T20:32:00Z", "digest": null, "summary": "Current main lacks hideTrackedWorktreePath; minimal fix should carry forward focused SetupRedirect behavior and fail closed on git failures."},
+    {"id": "research-02-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R02", "actor": "research-R02", "created_at": "2026-07-07T20:33:00Z", "digest": null, "summary": "Test lens identified required coverage for tracked identity cleanup, tracked .beads file/symlink, tracked redirect, fatal ls-files, update-index failure, and prime cleanup."},
+    {"id": "research-03-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R03", "actor": "research-R03", "created_at": "2026-07-07T20:34:00Z", "digest": null, "summary": "Git failure lens approved precise ls-files exit-code handling and hard update-index failure before removal."},
+    {"id": "research-04-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R04", "actor": "research-R04", "created_at": "2026-07-07T20:35:00Z", "digest": null, "summary": "Symlink lens required Lstat and removing the .beads link/file before child cleanup to avoid target mutation."},
+    {"id": "research-05-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R05", "actor": "research-R05", "created_at": "2026-07-07T20:36:00Z", "digest": null, "summary": "Prior gt-j2pt fixup is valid only as focused hunks; full branch has unrelated drift and must not be copied wholesale."},
+    {"id": "research-06-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R06", "actor": "research-R06", "created_at": "2026-07-07T20:37:00Z", "digest": null, "summary": "Caller lens found SetupRedirect/prime behavior compatible when prime remains best-effort and direct calls fail closed."},
+    {"id": "research-07-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R07", "actor": "research-R07", "created_at": "2026-07-07T20:38:00Z", "digest": null, "summary": "Security lens found no secret leak and required tri-state tracked/untracked/git-error behavior to avoid unsafe deletion."},
+    {"id": "research-08-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R08", "actor": "research-R08", "created_at": "2026-07-07T20:39:00Z", "digest": null, "summary": "Policy lens found original PR labels kind/bug priority/p2 status/reviewing; merge-as-is is blocked, replacement/fixup is allowed."},
+    {"id": "research-09-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R09", "actor": "research-R09", "created_at": "2026-07-07T20:40:00Z", "digest": null, "summary": "CI lens found original PR red and stale; current replacement needs fresh focused verification and merge queue CI."},
+    {"id": "research-10-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R10", "actor": "research-R10", "created_at": "2026-07-07T20:41:00Z", "digest": null, "summary": "Attribution lens required preserving #4130 Chris Sauer and Claude trailers plus gt-j2pt/Thalia carry-forward credit."},
+    {"id": "research-11-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R11", "actor": "research-R11", "created_at": "2026-07-07T20:42:00Z", "digest": null, "summary": "Cleanup-first lens classified the focused gt-j2pt carry-forward as acceptable minimal/convergent and rejected routing/convoy scope creep."},
+    {"id": "research-12-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R12", "actor": "research-R12", "created_at": "2026-07-07T20:43:00Z", "digest": null, "summary": "Portability lens approved filepath.ToSlash, no shell quoting, and skip-on-unsupported symlink/git tests."},
+    {"id": "research-13-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R13", "actor": "research-R13", "created_at": "2026-07-07T20:44:00Z", "digest": null, "summary": "Idempotence lens approved rerunnable redirect-only cleanup and warned not to add broad locking/retry layers."},
+    {"id": "research-14-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R14", "actor": "research-R14", "created_at": "2026-07-07T20:45:00Z", "digest": null, "summary": "Checker lens identified required evidence schema and merge gate requirements."},
+    {"id": "research-15-artifact", "kind": "research_report", "uri": "urn:opencode:gt-y2g3:research:R15", "actor": "research-R15", "created_at": "2026-07-07T20:46:00Z", "digest": null, "summary": "Final independent research recommended carry-forward fixup, not merge-as-is."},
+    {"id": "pre-01-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:pre:P01", "actor": "pre-P01", "created_at": "2026-07-07T20:48:00Z", "digest": null, "summary": "Approved focused carry-forward plan; required updating old preserve-identity expectation."},
+    {"id": "pre-02-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:pre:P02", "actor": "pre-P02", "created_at": "2026-07-07T20:49:00Z", "digest": null, "summary": "Approved cleanup-first/security plan with fail-closed git behavior."},
+    {"id": "pre-03-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:pre:P03", "actor": "pre-P03", "created_at": "2026-07-07T20:50:00Z", "digest": null, "summary": "Approved API-compatible plan preserving exported signatures and prime best-effort behavior."},
+    {"id": "pre-04-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:pre:P04", "actor": "pre-P04", "created_at": "2026-07-07T20:51:00Z", "digest": null, "summary": "Approved test and portability plan."},
+    {"id": "pre-05-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:pre:P05", "actor": "pre-P05", "created_at": "2026-07-07T20:52:00Z", "digest": null, "summary": "Approved policy plan; required post-reviews, focused tests, and checker evidence."},
+    {"id": "post-01-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:post:S01", "actor": "post-S01", "created_at": "2026-07-07T21:01:00Z", "digest": null, "summary": "Approved final head correctness and cleanup-first compliance."},
+    {"id": "post-02-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:post:S02", "actor": "post-S02", "created_at": "2026-07-07T21:01:30Z", "digest": null, "summary": "Approved final head security/fail-closed behavior."},
+    {"id": "post-03-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:post:S03", "actor": "post-S03", "created_at": "2026-07-07T21:02:00Z", "digest": null, "summary": "Approved final test coverage including tracked identity success."},
+    {"id": "post-04-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:post:S04", "actor": "post-S04", "created_at": "2026-07-07T21:02:30Z", "digest": null, "summary": "Approved final scope and parseable attribution trailers."},
+    {"id": "post-05-artifact", "kind": "review_report", "uri": "urn:opencode:gt-y2g3:post:S05", "actor": "post-S05", "created_at": "2026-07-07T21:03:00Z", "digest": null, "summary": "Approved merge-queue submission for the replacement branch; did not claim original PR #4320 merge-ready."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-07T20:53:00Z",
+    "modified_paths": [
+      "internal/beads/beads_redirect.go",
+      "internal/beads/beads_test.go",
+      "internal/cmd/prime.go",
+      "internal/cmd/prime_test.go"
+    ],
+    "commits": ["5f48a99ddd3d1ddf269465c1c06e8cf0805af12f"]
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "R01-code-path", "artifact_ref": "research-01-artifact", "completed_at": "2026-07-07T20:32:30Z", "actor": "research-R01", "lens": "code path", "summary": "Focused SetupRedirect carry-forward required."},
+      {"id": "research-02", "independence_key": "R02-tests", "artifact_ref": "research-02-artifact", "completed_at": "2026-07-07T20:33:30Z", "actor": "research-R02", "lens": "tests", "summary": "Required focused coverage identified."},
+      {"id": "research-03", "independence_key": "R03-git-failure", "artifact_ref": "research-03-artifact", "completed_at": "2026-07-07T20:34:30Z", "actor": "research-R03", "lens": "git failure", "summary": "Fatal git errors must fail closed."},
+      {"id": "research-04", "independence_key": "R04-symlink", "artifact_ref": "research-04-artifact", "completed_at": "2026-07-07T20:35:30Z", "actor": "research-R04", "lens": "symlink", "summary": "Use Lstat and avoid symlink target cleanup."},
+      {"id": "research-05", "independence_key": "R05-prior-fix", "artifact_ref": "research-05-artifact", "completed_at": "2026-07-07T20:36:30Z", "actor": "research-R05", "lens": "prior fix", "summary": "Carry focused gt-j2pt hunks only."},
+      {"id": "research-06", "independence_key": "R06-callers", "artifact_ref": "research-06-artifact", "completed_at": "2026-07-07T20:37:30Z", "actor": "research-R06", "lens": "callers", "summary": "SetupRedirect direct calls can fail closed; prime remains best-effort."},
+      {"id": "research-07", "independence_key": "R07-security", "artifact_ref": "research-07-artifact", "completed_at": "2026-07-07T20:38:30Z", "actor": "research-R07", "lens": "security", "summary": "No secret leak; precise git failure behavior needed."},
+      {"id": "research-08", "independence_key": "R08-label-policy", "artifact_ref": "research-08-artifact", "completed_at": "2026-07-07T20:39:30Z", "actor": "research-R08", "lens": "labels", "summary": "Original PR merge-as-is blocked; replacement allowed."},
+      {"id": "research-09", "independence_key": "R09-ci", "artifact_ref": "research-09-artifact", "completed_at": "2026-07-07T20:40:30Z", "actor": "research-R09", "lens": "CI", "summary": "Focused current verification required."},
+      {"id": "research-10", "independence_key": "R10-attribution", "artifact_ref": "research-10-artifact", "completed_at": "2026-07-07T20:41:30Z", "actor": "research-R10", "lens": "attribution", "summary": "Preserve #4130/#4320/gt-j2pt credit."},
+      {"id": "research-11", "independence_key": "R11-cleanup-first", "artifact_ref": "research-11-artifact", "completed_at": "2026-07-07T20:42:30Z", "actor": "research-R11", "lens": "cleanup-first", "summary": "Focused plan is acceptable minimal/convergent."},
+      {"id": "research-12", "independence_key": "R12-portability", "artifact_ref": "research-12-artifact", "completed_at": "2026-07-07T20:43:30Z", "actor": "research-R12", "lens": "portability", "summary": "Path and symlink handling acceptable."},
+      {"id": "research-13", "independence_key": "R13-idempotence", "artifact_ref": "research-13-artifact", "completed_at": "2026-07-07T20:44:30Z", "actor": "research-R13", "lens": "idempotence", "summary": "Rerunnable cleanup acceptable without broader locking."},
+      {"id": "research-14", "independence_key": "R14-checker", "artifact_ref": "research-14-artifact", "completed_at": "2026-07-07T20:45:30Z", "actor": "research-R14", "lens": "checker", "summary": "Evidence/checker requirements identified."},
+      {"id": "research-15", "independence_key": "R15-decision", "artifact_ref": "research-15-artifact", "completed_at": "2026-07-07T20:46:30Z", "actor": "research-R15", "lens": "final decision", "summary": "Carry-forward fixup, not merge-as-is."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "P01-correctness", "artifact_ref": "pre-01-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "completed_at": "2026-07-07T20:48:30Z", "actor": "pre-P01", "verdict": "approve", "summary": "Approved focused plan."},
+      {"id": "pre-02", "independence_key": "P02-security", "artifact_ref": "pre-02-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "completed_at": "2026-07-07T20:49:30Z", "actor": "pre-P02", "verdict": "approve", "summary": "Approved cleanup-first/security plan."},
+      {"id": "pre-03", "independence_key": "P03-api", "artifact_ref": "pre-03-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "completed_at": "2026-07-07T20:50:30Z", "actor": "pre-P03", "verdict": "approve", "summary": "Approved API-compatible plan."},
+      {"id": "pre-04", "independence_key": "P04-tests", "artifact_ref": "pre-04-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "completed_at": "2026-07-07T20:51:30Z", "actor": "pre-P04", "verdict": "approve", "summary": "Approved test/portability plan."},
+      {"id": "pre-05", "independence_key": "P05-policy", "artifact_ref": "pre-05-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "completed_at": "2026-07-07T20:52:30Z", "actor": "pre-P05", "verdict": "approve", "summary": "Approved policy plan."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "post-01", "independence_key": "S01-correctness", "artifact_ref": "post-01-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "reviewed_head_sha": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "completed_at": "2026-07-07T21:01:00Z", "actor": "post-S01", "verdict": "approve", "summary": "Approved final head correctness."},
+      {"id": "post-02", "independence_key": "S02-security", "artifact_ref": "post-02-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "reviewed_head_sha": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "completed_at": "2026-07-07T21:01:30Z", "actor": "post-S02", "verdict": "approve", "summary": "Approved final head security/fail-closed behavior."},
+      {"id": "post-03", "independence_key": "S03-tests", "artifact_ref": "post-03-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "reviewed_head_sha": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "completed_at": "2026-07-07T21:02:00Z", "actor": "post-S03", "verdict": "approve", "summary": "Approved final test coverage."},
+      {"id": "post-04", "independence_key": "S04-attribution", "artifact_ref": "post-04-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "reviewed_head_sha": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "completed_at": "2026-07-07T21:02:30Z", "actor": "post-S04", "verdict": "approve", "summary": "Approved final scope and attribution."},
+      {"id": "post-05", "independence_key": "S05-policy", "artifact_ref": "post-05-artifact", "reviewed_action_ref": "action-plan-gt-y2g3-pr-4320-replacement", "reviewed_head_sha": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f", "completed_at": "2026-07-07T21:03:00Z", "actor": "post-S05", "verdict": "approve", "summary": "Approved merge-queue submission for replacement branch."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "The replacement converges redirected worktree .beads directories to redirect-only state, removes stale identity/config files that can bind bd to the wrong database, avoids symlink target traversal, and adds no retry/workaround/compatibility layer.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "diff whitespace", "command_or_check": "git diff --check origin/main..HEAD", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "No whitespace errors on final head."},
+      {"name": "SetupRedirect focused tests", "command_or_check": "CGO_ENABLED=0 go test ./internal/beads -run TestSetupRedirect -count=1", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Focused redirect cleanup and git failure tests passed."},
+      {"name": "ensureBeadsRedirect focused tests", "command_or_check": "CGO_ENABLED=0 go test ./internal/cmd -run TestEnsureBeadsRedirect -count=1", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Prime redirect repair and already-correct cleanup tests passed."}
+    ],
+    "ci_checks": []
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4320",
+    "replacement_change_url": null,
+    "replacement_branch": "polecat/brahmin/gt-y2g3@mrb3iukc",
+    "replacement_commit_refs": ["5f48a99ddd3d1ddf269465c1c06e8cf0805af12f"],
+    "original_author": "Bella-Giraffety",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["original-pr-state", "research-05-artifact", "research-10-artifact"],
+      "fresh_artifact_refs": ["implementation-commit", "verification-focused", "post-01-artifact", "post-02-artifact", "post-03-artifact", "post-04-artifact", "post-05-artifact"],
+      "rationale": "Original PR intent and attribution were reused; implementation, tests, post-reviews, and checker evidence are fresh for the replacement branch head."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement carries forward PR #4320, original PR #4130, and gt-j2pt fixup evidence.",
+      "preserved": true,
+      "method": "co_authored_by",
+      "artifact_refs": ["attribution-commit"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "blocker-scan",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "bead_notes", "ci_checks"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": ["verification-focused", "post-01-artifact", "post-02-artifact", "post-03-artifact", "post-04-artifact", "post-05-artifact"],
+    "scanned_at": "2026-07-07T21:04:06Z",
+    "summary": "Original PR #4320 is not mergeable as-is, but the current replacement branch resolves the tracked .beads cleanup blockers and has 5/5 approving post-implementation reviews. No do-not-merge, security, attribution, scope, or focused-test blocker remains for the replacement branch."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "urn:git-branch:polecat/brahmin/gt-y2g3@mrb3iukc",
+    "target_head_sha": "5f48a99ddd3d1ddf269465c1c06e8cf0805af12f",
+    "decided_by": "gastown/polecats/brahmin",
+    "decided_at": "2026-07-07T21:04:06Z",
+    "reason": "All PR Sheriff evidence gates passed for the replacement branch head; original PR #4320 remains not approved as-is.",
+    "required_actions": ["After replacement lands, close or supersede PR #4320/#4130 with attribution preserved if applicable."]
+  }
+}
