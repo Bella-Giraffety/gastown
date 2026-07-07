@@ -1132,6 +1132,10 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 	}
 	defer func() { _ = fl.Unlock() }()
 
+	return m.removeWithOptionsLocked(name, force, nuclear, selfNuke)
+}
+
+func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke bool) error {
 	if !m.exists(name) {
 		return ErrPolecatNotFound
 	}
@@ -1303,6 +1307,59 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 	_ = m.namePool.Save()
 
 	return nil
+}
+
+// ReclaimBrokenIdlePolecat removes a structurally broken idle sandbox before new
+// work is attached to it. It deliberately uses the normal non-force removal path.
+func (m *Manager) ReclaimBrokenIdlePolecat(name string) (retErr error) {
+	defer func() { telemetry.RecordPolecatRemove(context.Background(), name, retErr) }()
+
+	fl, err := m.lockPolecat(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	if !m.exists(name) {
+		return ErrPolecatNotFound
+	}
+
+	current, err := m.loadFromBeads(name)
+	if err != nil {
+		return err
+	}
+	if current.State != StateIdle || current.Issue != "" {
+		return fmt.Errorf("not a clean idle polecat: state=%s issue=%s", current.State, current.Issue)
+	}
+
+	if err := VerifyWorktreeExists(current.ClonePath); err == nil {
+		return fmt.Errorf("worktree is healthy: %s", current.ClonePath)
+	} else if !IsStructuralWorktreeError(err) {
+		return fmt.Errorf("worktree check did not prove structural damage: %w", err)
+	}
+
+	if blocker := brokenIdleReclaimDispositionBlocker(m.WorkstateDispositionForPolecat(name, current.State, current.Issue)); blocker != "" {
+		return fmt.Errorf("not safe to reclaim: %s", blocker)
+	}
+
+	agentID := m.agentBeadID(name)
+	agentIssue, fields, err := m.agentBeads().GetAgentBead(agentID)
+	if evidence := AssessAgentRecord(agentID, agentIssue, fields, err); evidence.BlocksCleanup {
+		return fmt.Errorf("not safe to reclaim: %s", evidence.Blocker)
+	}
+	if blocker := brokenIdleReclaimAgentBlocker(fields); blocker != "" {
+		return fmt.Errorf("not safe to reclaim: %s", blocker)
+	}
+	mr, mrErr := m.beads.FindMRForBranch(fields.Branch)
+	if blocker := brokenIdleReclaimMRBlocker(fields.Branch, mr, mrErr); blocker != "" {
+		return fmt.Errorf("not safe to reclaim: %s", blocker)
+	}
+
+	if err := m.killExistingPolecatSession(name, "broken-idle reclaim"); err != nil {
+		return err
+	}
+
+	return m.removeWithOptionsLocked(name, false, false, false)
 }
 
 // verifyRemovalComplete checks that polecat directories were actually removed.
