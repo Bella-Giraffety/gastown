@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -487,6 +488,50 @@ func TestFindHookedBeadForAgent(t *testing.T) {
 				t.Errorf("findHookedBeadForAgent(%q) = %q, want %q", tt.agentID, got, tt.wantIssueID)
 			}
 		})
+	}
+}
+
+func TestQueryAssignedBeadsPropagatesLookupError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell mock is Unix-oriented")
+	}
+
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+
+case "$cmd" in
+  version)
+    echo "bd mock"
+    exit 0
+    ;;
+  list)
+    echo '[]'
+    exit 0
+    ;;
+  query)
+    echo 'wisps unavailable' >&2
+    exit 1
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := queryAssignedBeads(beads.New(t.TempDir()), "testrig/polecats/furiosa")
+	if err == nil || !strings.Contains(err.Error(), "querying hooked beads") {
+		t.Fatalf("queryAssignedBeads error = %v, want hooked lookup error", err)
 	}
 }
 

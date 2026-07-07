@@ -2,6 +2,10 @@ package cmd
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -312,5 +316,54 @@ func TestParseAgentBeadLabels(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGetAllAgentLabelsMissingAgentReturnsError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell mock is Unix-oriented")
+	}
+
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+
+case "$cmd" in
+  version)
+    echo "bd mock"
+    exit 0
+    ;;
+  query)
+    echo '[]'
+    exit 0
+    ;;
+  mol)
+    echo '{"wisps":[]}'
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	beadsDir := filepath.Join(t.TempDir(), ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir beads dir: %v", err)
+	}
+
+	_, err := getAllAgentLabels("hq-missing", beadsDir)
+	if err == nil || !strings.Contains(err.Error(), "agent bead not found") {
+		t.Fatalf("getAllAgentLabels error = %v, want agent bead not found", err)
 	}
 }

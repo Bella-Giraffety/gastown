@@ -254,6 +254,9 @@ func getAllAgentLabels(agentBead, beadsDir string) ([]string, error) {
 		}
 		return nil, fmt.Errorf("querying agent bead: %w", err)
 	}
+	if issue == nil {
+		return nil, fmt.Errorf("agent bead not found: %s", agentBead)
+	}
 	return issue.Labels, nil
 }
 
