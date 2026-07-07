@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -534,10 +535,12 @@ func (b *Beads) PromoteWisp(id, reason string) error {
 	if reason != "" {
 		comment += ": " + reason
 	}
-	_ = store.RunInTransaction(ctx, fmt.Sprintf("bd: comment on promoted wisp %s", id), func(tx beadsdk.Transaction) error {
+	if err := store.RunInTransaction(ctx, fmt.Sprintf("bd: comment on promoted wisp %s", id), func(tx beadsdk.Transaction) error {
 		_, err := tx.ImportIssueComment(ctx, id, actor, comment, time.Now().UTC())
 		return err
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to add promotion comment to %s: %v\n", id, err)
+	}
 
 	return nil
 }
