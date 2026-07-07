@@ -24,6 +24,7 @@ type mockTmux struct {
 	// Call tracking
 	killCalls       []string
 	newSessionCalls int
+	calls           []string
 }
 
 func (m *mockTmux) HasSession(name string) (bool, error) {
@@ -35,16 +36,19 @@ func (m *mockTmux) IsAgentAlive(_ string) bool {
 }
 
 func (m *mockTmux) KillSessionWithProcesses(name string) error {
+	m.calls = append(m.calls, "kill")
 	m.killCalls = append(m.killCalls, name)
 	return m.killErr
 }
 
 func (m *mockTmux) NewSessionWithCommand(_, _, _ string) error {
+	m.calls = append(m.calls, "new")
 	m.newSessionCalls++
 	return m.newSessionErr
 }
 
 func (m *mockTmux) NewSessionWithCommandAndEnv(_, _, _ string, _ map[string]string) error {
+	m.calls = append(m.calls, "new")
 	m.newSessionCalls++
 	return m.newSessionErr
 }
@@ -57,6 +61,7 @@ func (m *mockTmux) ConfigureGasTownSession(_ string, _ *tmux.Theme, _, _, _ stri
 }
 
 func (m *mockTmux) WaitForCommand(_ string, _ []string, _ time.Duration) error {
+	m.calls = append(m.calls, "wait")
 	return m.waitErr
 }
 
@@ -64,15 +69,46 @@ func (m *mockTmux) SetAutoRespawnHook(_ string) error             { return nil }
 func (m *mockTmux) AcceptStartupDialogs(_ string) error           { return nil }
 func (m *mockTmux) AcceptWorkspaceTrustDialog(_ string) error     { return nil }
 func (m *mockTmux) AcceptBypassPermissionsWarning(_ string) error { return nil }
-func (m *mockTmux) SendKeysRaw(_, _ string) error                 { return m.sendKeysErr }
+func (m *mockTmux) SendKeysRaw(_, _ string) error {
+	m.calls = append(m.calls, "send-keys")
+	return m.sendKeysErr
+}
 func (m *mockTmux) GetSessionInfo(_ string) (*tmux.SessionInfo, error) {
 	return m.sessionInfo, m.sessionInfoErr
 }
 
 func newTestManager(townRoot string, mock *mockTmux) *Manager {
 	return &Manager{
-		townRoot: townRoot,
-		tmux:     mock,
+		townRoot:    townRoot,
+		tmux:        mock,
+		startPoller: func(string, string) (int, error) { return 0, nil },
+		stopPoller:  func(string, string) error { return nil },
+	}
+}
+
+func testStartPoller(mock *mockTmux, err error) func(string, string) (int, error) {
+	return func(string, string) (int, error) {
+		mock.calls = append(mock.calls, "start-poller")
+		return 1234, err
+	}
+}
+
+func testStopPoller(mock *mockTmux, err error) func(string, string) error {
+	return func(string, string) error {
+		mock.calls = append(mock.calls, "stop-poller")
+		return err
+	}
+}
+
+func assertCallOrder(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("calls = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("calls = %v, want %v", got, want)
+		}
 	}
 }
 
@@ -112,11 +148,28 @@ func TestStart_AlreadyRunning(t *testing.T) {
 		agentAlive:       true,
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.startPoller = testStartPoller(mock, nil)
 
 	err := m.Start("")
 	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Errorf("Start() error = %v, want ErrAlreadyRunning", err)
 	}
+	assertCallOrder(t, mock.calls, "start-poller")
+}
+
+func TestStart_AlreadyRunningPollerFailureIsNonFatal(t *testing.T) {
+	mock := &mockTmux{
+		hasSessionResult: true,
+		agentAlive:       true,
+	}
+	m := newTestManager(t.TempDir(), mock)
+	m.startPoller = testStartPoller(mock, errors.New("poller failed"))
+
+	err := m.Start("")
+	if !errors.Is(err, ErrAlreadyRunning) {
+		t.Errorf("Start() error = %v, want ErrAlreadyRunning", err)
+	}
+	assertCallOrder(t, mock.calls, "start-poller")
 }
 
 func TestStart_ZombieDetected_KillFails(t *testing.T) {
@@ -127,6 +180,7 @@ func TestStart_ZombieDetected_KillFails(t *testing.T) {
 		killErr:          killErr,
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.stopPoller = testStopPoller(mock, nil)
 
 	err := m.Start("")
 	if err == nil {
@@ -141,6 +195,7 @@ func TestStart_ZombieDetected_KillFails(t *testing.T) {
 	if len(mock.killCalls) > 0 && mock.killCalls[0] != m.SessionName() {
 		t.Errorf("killed session %q, want %q", mock.killCalls[0], m.SessionName())
 	}
+	assertCallOrder(t, mock.calls, "stop-poller", "kill")
 }
 
 func TestStart_ZombieDetected_KillSucceeds(t *testing.T) {
@@ -152,31 +207,37 @@ func TestStart_ZombieDetected_KillSucceeds(t *testing.T) {
 		killErr:          nil,   // kill succeeds
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.startPoller = testStartPoller(mock, nil)
+	m.stopPoller = testStopPoller(mock, nil)
 
-	// Start will proceed past zombie kill into config resolution.
-	// It may fail on config.BuildAgentStartupCommandWithAgentOverride
-	// in the test environment - that's fine, we're verifying zombie handling.
-	_ = m.Start("")
+	err := m.Start("claude")
+	if err != nil {
+		t.Fatalf("Start() error = %v, want nil", err)
+	}
 
 	if len(mock.killCalls) != 1 {
 		t.Errorf("expected 1 zombie kill call, got %d", len(mock.killCalls))
 	}
+	assertCallOrder(t, mock.calls, "stop-poller", "kill", "new", "wait", "start-poller")
 }
 
 func TestStart_NoExistingSession(t *testing.T) {
-	// No existing session - Start proceeds to create one.
-	// Will hit config/runtime calls which may error in test env.
 	mock := &mockTmux{
 		hasSessionResult: false,
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.startPoller = testStartPoller(mock, nil)
 
-	_ = m.Start("")
+	err := m.Start("claude")
+	if err != nil {
+		t.Fatalf("Start() error = %v, want nil", err)
+	}
 
 	// Should NOT have tried to kill anything
 	if len(mock.killCalls) != 0 {
 		t.Errorf("expected 0 kill calls, got %d", len(mock.killCalls))
 	}
+	assertCallOrder(t, mock.calls, "new", "wait", "start-poller")
 }
 
 func TestStart_HasSessionError(t *testing.T) {
@@ -203,6 +264,7 @@ func TestStart_SessionCreateFails(t *testing.T) {
 		newSessionErr:    errors.New("tmux server not running"),
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.startPoller = testStartPoller(mock, nil)
 
 	err := m.Start("claude")
 	if err == nil {
@@ -248,6 +310,7 @@ func TestStart_WaitForCommandFails(t *testing.T) {
 		if len(mock.killCalls) == 0 {
 			t.Error("expected cleanup kill call after WaitForCommand failure")
 		}
+		assertCallOrder(t, mock.calls, "new", "wait", "kill")
 	}
 	// If config failed before reaching NewSessionWithCommand, that's
 	// acceptable - the WaitForCommand path isn't reachable in test env.
@@ -258,10 +321,14 @@ func TestStop_NotRunning(t *testing.T) {
 		hasSessionResult: false,
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.stopPoller = testStopPoller(mock, nil)
 
 	err := m.Stop()
 	if !errors.Is(err, ErrNotRunning) {
 		t.Errorf("Stop() error = %v, want ErrNotRunning", err)
+	}
+	if len(mock.calls) != 0 {
+		t.Errorf("calls = %v, want none", mock.calls)
 	}
 }
 
@@ -271,6 +338,7 @@ func TestStop_HasSessionError(t *testing.T) {
 		hasSessionErr: sessionErr,
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.stopPoller = testStopPoller(mock, nil)
 
 	err := m.Stop()
 	if err == nil {
@@ -286,6 +354,7 @@ func TestStop_Success(t *testing.T) {
 		hasSessionResult: true,
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.stopPoller = testStopPoller(mock, nil)
 
 	err := m.Stop()
 	if err != nil {
@@ -294,6 +363,21 @@ func TestStop_Success(t *testing.T) {
 	if len(mock.killCalls) != 1 {
 		t.Errorf("expected 1 kill call, got %d", len(mock.killCalls))
 	}
+	assertCallOrder(t, mock.calls, "stop-poller", "send-keys", "kill")
+}
+
+func TestStop_StopPollerFailureIsNonFatal(t *testing.T) {
+	mock := &mockTmux{
+		hasSessionResult: true,
+	}
+	m := newTestManager(t.TempDir(), mock)
+	m.stopPoller = testStopPoller(mock, errors.New("poller stop failed"))
+
+	err := m.Stop()
+	if err != nil {
+		t.Errorf("Stop() error = %v, want nil", err)
+	}
+	assertCallOrder(t, mock.calls, "stop-poller", "send-keys", "kill")
 }
 
 func TestStop_KillFails(t *testing.T) {
@@ -303,6 +387,7 @@ func TestStop_KillFails(t *testing.T) {
 		killErr:          killErr,
 	}
 	m := newTestManager(t.TempDir(), mock)
+	m.stopPoller = testStopPoller(mock, nil)
 
 	err := m.Stop()
 	if err == nil {
