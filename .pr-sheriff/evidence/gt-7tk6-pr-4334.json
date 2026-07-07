@@ -1,0 +1,234 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-07T22:13:47Z",
+  "run_id": "gt-7tk6-pr-4334-replacement",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "4334",
+    "url": "https://github.com/gastownhall/gastown/pull/4334",
+    "title": "fix(formula): fall back to GT_TOWN_ROOT when GT_ROOT unset in formula search",
+    "author": "antiwong",
+    "author_tier": "unknown",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "5118351294c8e3cad288314b9a9b7d106ebce960",
+    "head_ref": "fix/formula-search-gt-town-root-fallback",
+    "head_sha": "f7f43ecac85fc72c3bcffcd1a37bcd7e4737b8db",
+    "diff_summary": {
+      "additions": 5,
+      "deletions": 1,
+      "changed_files": 1,
+      "paths": [
+        "internal/cmd/synthesis.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["pr_thread", "review_thread", "artifact_store", "ci_log", "local_report", "bead"],
+    "baseline_checks": [],
+    "no_verification_reasons": ["not_applicable"]
+  },
+  "action_plan": {
+    "id": "action-plan-gt-7tk6",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-gt-7tk6",
+    "summary": "Replace PR #4334's duplicated GT_ROOT/GT_TOWN_ROOT fallback with convergent formula resolution: pure formula content helper, cmd-level routed dirs, synthesis/formula-run shared named loading, prime scoped to rig/town/embedded, explicit formula_path preserved.",
+    "created_at": "2026-07-07T21:10:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/merge-ready", "family": "status", "semantic_value": "merge-ready"},
+      {"name": "priority/p2", "family": "priority", "semantic_value": "p2"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "merge-ready",
+    "priority": "p2",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {"id": "label-snapshot", "kind": "label_snapshot", "uri": "bead:gt-7tk6#labels-and-pr-policy", "actor": "deathclaw", "created_at": "2026-07-07T22:00:00Z", "summary": "Replacement branch is treated as merge-ready after five approving post-implementation reviews; original PR labels were kind/bug priority/p2 status/review-failed and are superseded by this replacement evidence."},
+    {"id": "original-pr-facts", "kind": "pr_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4334", "actor": "deathclaw", "created_at": "2026-07-07T20:54:00Z", "summary": "PR #4334 facts: author antiwong, head f7f43eca, one synthesis.go env fallback patch, status/review-failed, only label automation checks."},
+    {"id": "action-plan-artifact", "kind": "plan", "uri": "bead:gt-7tk6#notes", "actor": "deathclaw", "created_at": "2026-07-07T21:10:00Z", "summary": "Cleanup-first replacement plan persisted to bead notes before implementation."},
+    {"id": "legacy-home-compat", "kind": "compatibility_evidence", "uri": "file:internal/cmd/formula.go", "actor": "deathclaw", "created_at": "2026-07-07T21:12:00Z", "summary": "Legacy ~/.beads/formulas lookup was already accepted by gt formula run; replacement preserves it only for formula run/synthesis named loading, not prime workflow rendering."},
+    {"id": "focused-tests", "kind": "test_log", "uri": "urn:command:CGO_ENABLED=0-go-test-focused-resolver", "actor": "deathclaw", "created_at": "2026-07-07T22:12:00Z", "summary": "CGO_ENABLED=0 go test ./internal/formula ./internal/cmd -run 'TestResolveFormulaContent|TestParseConvoyMetaDescription|TestLoadSynthesisFormula|TestLoadFormulaByName|TestRenderFormulaStepsFull|TestRunFormulaRunDryRun' passed."},
+    {"id": "broad-test-baseline", "kind": "test_log", "uri": "urn:command:CGO_ENABLED=0-go-test-internal-cmd", "actor": "deathclaw", "created_at": "2026-07-07T21:42:00Z", "summary": "Broad CGO_ENABLED=0 go test ./internal/cmd ran 223s and failed on unrelated pre-existing convoy-stage tests; default CGO build is blocked by missing ICU header unicode/uregex.h."},
+    {"id": "replacement-branch", "kind": "replacement_ref", "uri": "https://github.com/Bella-Giraffety/gastown/tree/polecat/deathclaw/gt-7tk6+mrb4fdhq", "actor": "deathclaw", "created_at": "2026-07-07T22:13:00Z", "summary": "Replacement branch polecat/deathclaw/gt-7tk6+mrb4fdhq at final head cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389."},
+    {"id": "attribution-credit", "kind": "attribution", "uri": "bead:gt-7tk6#pr-sheriff-evidence", "actor": "deathclaw", "created_at": "2026-07-07T22:13:00Z", "summary": "Replacement evidence credits original PR #4334 and author antiwong for the valid daemon GT_TOWN_ROOT formula-resolution bug report and initial narrow patch."},
+    {"id": "superseded-intent", "kind": "superseded_closure_intent", "uri": "bead:gt-7tk6#pr-sheriff-evidence", "actor": "deathclaw", "created_at": "2026-07-07T22:13:00Z", "summary": "Intent recorded: original PR #4334 should remain open until this replacement branch is merged, then may be closed as superseded with credit to antiwong."},
+    {"id": "blocker-scan", "kind": "blocker_scan", "uri": "bead:gt-7tk6#blocker-scan", "actor": "deathclaw", "created_at": "2026-07-07T22:13:00Z", "summary": "Scanned PR labels/comments/reviews, CI/check rollup, bead notes, and local test evidence. No unresolved implementation blockers remain for the replacement branch."},
+    {"id": "research-1-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a4855fffeMSeUfE2GKZu5a1", "actor": "research-1", "created_at": "2026-07-07T20:55:00Z", "summary": "Existing formula resolver architecture and duplication."},
+    {"id": "research-2-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a4848cffet8Y1Q1yWh7UZou", "actor": "research-2", "created_at": "2026-07-07T20:56:00Z", "summary": "Synthesis formula load paths and silent degradation."},
+    {"id": "research-3-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a483deffeMDyejsJh5PRcyq", "actor": "research-3", "created_at": "2026-07-07T20:57:00Z", "summary": "Workspace root resolution and GT_TOWN_ROOT/GT_ROOT precedence."},
+    {"id": "research-4-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a48365ffe5kV0pu494qdCq9", "actor": "research-4", "created_at": "2026-07-07T20:58:00Z", "summary": "Formula package parsing/content resolver behavior."},
+    {"id": "research-5-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a4817fffexMsYR7biSZHuKI", "actor": "research-5", "created_at": "2026-07-07T20:59:00Z", "summary": "Formula command duplicate resolver and scope risk."},
+    {"id": "research-6-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a47ffeffeYio39Yxyd0CssD", "actor": "research-6", "created_at": "2026-07-07T21:00:00Z", "summary": "Focused regression test design."},
+    {"id": "research-7-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a47f3dffekp8EICdvaRcyAS", "actor": "research-7", "created_at": "2026-07-07T21:01:00Z", "summary": "Original PR facts and policy blockers."},
+    {"id": "research-8-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a47d3dffe7aFHPgZlo4X5IA", "actor": "research-8", "created_at": "2026-07-07T21:02:00Z", "summary": "Daemon/root env edge cases."},
+    {"id": "research-9-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a47c1dffeHrDGfXHgkOivV6", "actor": "research-9", "created_at": "2026-07-07T21:03:00Z", "summary": "Embedded formula tier and synthesis gap."},
+    {"id": "research-10-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a47b3dffefflnDOQF30tbi0", "actor": "research-10", "created_at": "2026-07-07T21:04:00Z", "summary": "Rig specificity and route inference."},
+    {"id": "research-11-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a47a21ffevzfsGTjdh845cz", "actor": "research-11", "created_at": "2026-07-07T21:05:00Z", "summary": "Compatibility and persisted metadata."},
+    {"id": "research-12-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a47894fferpQe1zbg4GOLVJ", "actor": "research-12", "created_at": "2026-07-07T21:06:00Z", "summary": "Leg output/synthesis behavior when formula is nil."},
+    {"id": "research-13-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a47774ffexvVHBTYAxAvtqJ", "actor": "research-13", "created_at": "2026-07-07T21:07:00Z", "summary": "Docs/design formula-resolution policy."},
+    {"id": "research-14-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a4770affeK6AKEyUn8oNh4A", "actor": "research-14", "created_at": "2026-07-07T21:08:00Z", "summary": "Checker evidence needs and likely blockers."},
+    {"id": "research-15-artifact", "kind": "research_report", "uri": "urn:opencode-task:ses_0c1a476a7ffeWVtilpaOitx3LP", "actor": "research-15", "created_at": "2026-07-07T21:09:00Z", "summary": "Minimal cleanup-first patch proposal."},
+    {"id": "pre-1-artifact", "kind": "pre_review", "uri": "urn:opencode-task:ses_0c189c35dffeC7sURHKn4tLyzv", "actor": "pre-review-1", "created_at": "2026-07-07T21:10:00Z", "summary": "Approved updated plan with pure resolver and cmd-level dirs."},
+    {"id": "pre-2-artifact", "kind": "pre_review", "uri": "urn:opencode-task:ses_0c189c2adffe4uMJDiSIqIjSpZ", "actor": "pre-review-2", "created_at": "2026-07-07T21:11:00Z", "summary": "Approved cleanup-first/minimality."},
+    {"id": "pre-3-artifact", "kind": "pre_review", "uri": "urn:opencode-task:ses_0c189c1d1ffelkkcbjdhcb1418", "actor": "pre-review-3", "created_at": "2026-07-07T21:12:00Z", "summary": "Approved architecture with formula package kept pure."},
+    {"id": "pre-4-artifact", "kind": "pre_review", "uri": "urn:opencode-task:ses_0c18d55f3ffewd2b1auvZviHqs", "actor": "pre-review-4", "created_at": "2026-07-07T21:13:00Z", "summary": "Approved final plan and guardrails."},
+    {"id": "pre-5-artifact", "kind": "pre_review", "uri": "urn:opencode-task:ses_0c18d557dffep9Zb7LcTiAAnIi", "actor": "pre-review-5", "created_at": "2026-07-07T21:14:00Z", "summary": "Approved formula-run inclusion and scope."},
+    {"id": "post-1-artifact", "kind": "post_review", "uri": "urn:opencode-task:ses_0c1638a3bffeDhtqr2DoGgDMLo", "actor": "post-review-1", "created_at": "2026-07-07T22:09:00Z", "summary": "Approved final head and focused tests."},
+    {"id": "post-2-artifact", "kind": "post_review", "uri": "urn:opencode-task:ses_0c1638921ffeEbs0ehP32qb8tW", "actor": "post-review-2", "created_at": "2026-07-07T22:10:00Z", "summary": "Approved previous blocker fixes."},
+    {"id": "post-3-artifact", "kind": "post_review", "uri": "urn:opencode-task:ses_0c163886cffeXQKk2d35YASQ9a", "actor": "post-review-3", "created_at": "2026-07-07T22:11:00Z", "summary": "Approved architecture/cleanup-first."},
+    {"id": "post-4-artifact", "kind": "post_review", "uri": "urn:opencode-task:ses_0c16387fbffeGmHpDYICchFyVK", "actor": "post-review-4", "created_at": "2026-07-07T22:12:00Z", "summary": "Approved focused verification."},
+    {"id": "post-5-artifact", "kind": "post_review", "uri": "urn:opencode-task:ses_0c1638729ffehYHhf3AtaElMdx", "actor": "post-review-5", "created_at": "2026-07-07T22:13:00Z", "summary": "Approved no implementation blockers."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-07T21:15:00Z",
+    "modified_paths": [
+      "internal/cmd/formula.go",
+      "internal/cmd/formula_resolution.go",
+      "internal/cmd/prime_molecule.go",
+      "internal/cmd/synthesis.go",
+      "internal/cmd/synthesis_test.go",
+      "internal/formula/embed.go",
+      "internal/formula/embed_test.go"
+    ],
+    "commits": [
+      "187280309",
+      "4b7717328",
+      "b67ddfd0a",
+      "cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389"
+    ]
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-1", "independence_key": "research-architecture", "artifact_ref": "research-1-artifact", "completed_at": "2026-07-07T20:55:00Z", "actor": "research-1", "lens": "formula resolver architecture", "summary": "Found duplicated synthesis/formula-run lookup and existing pure formula resolver primitives."},
+      {"id": "research-2", "independence_key": "research-synthesis-paths", "artifact_ref": "research-2-artifact", "completed_at": "2026-07-07T20:56:00Z", "actor": "research-2", "lens": "synthesis paths", "summary": "Found synthesis fail-open behavior and all findFormula callsites."},
+      {"id": "research-3", "independence_key": "research-workspace-root", "artifact_ref": "research-3-artifact", "completed_at": "2026-07-07T20:57:00Z", "actor": "research-3", "lens": "workspace root", "summary": "Validated FindFromCwdOrError/FindEnvRoot as shared GT_TOWN_ROOT path."},
+      {"id": "research-4", "independence_key": "research-formula-package", "artifact_ref": "research-4-artifact", "completed_at": "2026-07-07T20:58:00Z", "actor": "research-4", "lens": "formula package", "summary": "Recommended content bytes plus Parse and warned about composition scope."},
+      {"id": "research-5", "independence_key": "research-formula-command", "artifact_ref": "research-5-artifact", "completed_at": "2026-07-07T20:59:00Z", "actor": "research-5", "lens": "formula command", "summary": "Found formula run duplicated lookup and recommended convergent named loading."},
+      {"id": "research-6", "independence_key": "research-tests", "artifact_ref": "research-6-artifact", "completed_at": "2026-07-07T21:00:00Z", "actor": "research-6", "lens": "tests", "summary": "Specified GT_TOWN_ROOT-only and formula lookup regression tests."},
+      {"id": "research-7", "independence_key": "research-pr-facts", "artifact_ref": "research-7-artifact", "completed_at": "2026-07-07T21:01:00Z", "actor": "research-7", "lens": "PR facts", "summary": "Original PR blocked by review-failed status, weak CI, and bandaid fallback."},
+      {"id": "research-8", "independence_key": "research-env-edge", "artifact_ref": "research-8-artifact", "completed_at": "2026-07-07T21:02:00Z", "actor": "research-8", "lens": "daemon env", "summary": "Confirmed daemon/tmux contexts can expose GT_TOWN_ROOT without GT_ROOT."},
+      {"id": "research-9", "independence_key": "research-embedded-tier", "artifact_ref": "research-9-artifact", "completed_at": "2026-07-07T21:03:00Z", "actor": "research-9", "lens": "embedded tier", "summary": "Original synthesis lookup missed embedded formulas."},
+      {"id": "research-10", "independence_key": "research-rig-specificity", "artifact_ref": "research-10-artifact", "completed_at": "2026-07-07T21:04:00Z", "actor": "research-10", "lens": "rig specificity", "summary": "Recommended persisted/current rig and route-aware beads dirs."},
+      {"id": "research-11", "independence_key": "research-compatibility", "artifact_ref": "research-11-artifact", "completed_at": "2026-07-07T21:05:00Z", "actor": "research-11", "lens": "compatibility", "summary": "Explicit formula_path and legacy home formulas identified as compatibility to preserve where already used."},
+      {"id": "research-12", "independence_key": "research-collect-outputs", "artifact_ref": "research-12-artifact", "completed_at": "2026-07-07T21:06:00Z", "actor": "research-12", "lens": "synthesis outputs", "summary": "Recommended fail-closed when configured formula fails."},
+      {"id": "research-13", "independence_key": "research-doc-policy", "artifact_ref": "research-13-artifact", "completed_at": "2026-07-07T21:07:00Z", "actor": "research-13", "lens": "docs policy", "summary": "Confirmed rig/project > town > embedded policy for prime rendering."},
+      {"id": "research-14", "independence_key": "research-checker", "artifact_ref": "research-14-artifact", "completed_at": "2026-07-07T21:08:00Z", "actor": "research-14", "lens": "checker requirements", "summary": "Identified merge_replacement evidence requirements."},
+      {"id": "research-15", "independence_key": "research-minimal-patch", "artifact_ref": "research-15-artifact", "completed_at": "2026-07-07T21:09:00Z", "actor": "research-15", "lens": "minimal patch", "summary": "Proposed pure helper plus cmd-level route resolution."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-1", "independence_key": "pre-addressed-1", "artifact_ref": "pre-1-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "completed_at": "2026-07-07T21:10:00Z", "actor": "pre-review-1", "verdict": "approve", "summary": "Approved pure helper, route dirs, FormulaPath preservation, and formula-run inclusion."},
+      {"id": "pre-2", "independence_key": "pre-addressed-2", "artifact_ref": "pre-2-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "completed_at": "2026-07-07T21:11:00Z", "actor": "pre-review-2", "verdict": "approve", "summary": "Approved cleanup-first/minimality."},
+      {"id": "pre-3", "independence_key": "pre-addressed-4", "artifact_ref": "pre-3-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "completed_at": "2026-07-07T21:12:00Z", "actor": "pre-review-3", "verdict": "approve", "summary": "Approved architecture with route computation in cmd."},
+      {"id": "pre-4", "independence_key": "pre-final-1", "artifact_ref": "pre-4-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "completed_at": "2026-07-07T21:13:00Z", "actor": "pre-review-4", "verdict": "approve", "summary": "Approved final plan and guardrails."},
+      {"id": "pre-5", "independence_key": "pre-final-3", "artifact_ref": "pre-5-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "completed_at": "2026-07-07T21:14:00Z", "actor": "pre-review-5", "verdict": "approve", "summary": "Approved preserving legacy home while keeping formula package pure."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "post-1", "independence_key": "post-final-1", "artifact_ref": "post-1-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "reviewed_head_sha": "cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389", "completed_at": "2026-07-07T22:09:00Z", "actor": "post-review-1", "verdict": "approve", "summary": "Approved final full diff and focused tests."},
+      {"id": "post-2", "independence_key": "post-final-2", "artifact_ref": "post-2-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "reviewed_head_sha": "cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389", "completed_at": "2026-07-07T22:10:00Z", "actor": "post-review-2", "verdict": "approve", "summary": "Approved previous blocker fixes."},
+      {"id": "post-3", "independence_key": "post-final-3", "artifact_ref": "post-3-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "reviewed_head_sha": "cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389", "completed_at": "2026-07-07T22:11:00Z", "actor": "post-review-3", "verdict": "approve", "summary": "Approved architecture and cleanup-first policy."},
+      {"id": "post-4", "independence_key": "post-final-4", "artifact_ref": "post-4-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "reviewed_head_sha": "cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389", "completed_at": "2026-07-07T22:12:00Z", "actor": "post-review-4", "verdict": "approve", "summary": "Approved focused verification."},
+      {"id": "post-5", "independence_key": "post-final-5", "artifact_ref": "post-5-artifact", "reviewed_action_ref": "action-plan-gt-7tk6", "reviewed_head_sha": "cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389", "completed_at": "2026-07-07T22:13:00Z", "actor": "post-review-5", "verdict": "approve", "summary": "Approved no implementation blockers."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "Replaces duplicated formula root lookups and the PR's env fallback bandaid with a shared pure content resolver and cmd-level routed directory computation; prime rendering remains scoped to documented rig/town/embedded tiers.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": true, "exception_reason": "shipped_behavior", "evidence_ref": "legacy-home-compat"},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "focused resolver tests", "command_or_check": "CGO_ENABLED=0 go test ./internal/formula ./internal/cmd -run 'TestResolveFormulaContent|TestParseConvoyMetaDescription|TestLoadSynthesisFormula|TestLoadFormulaByName|TestRenderFormulaStepsFull|TestRunFormulaRunDryRun'", "outcome": "pass", "reason": "Covers routed rig resolution, GT_TOWN_ROOT-only root discovery, formula_path precedence, embedded fallback, formula run dry-run, prime scoped resolver, and fail-closed read errors.", "artifact_ref": "focused-tests"}
+    ],
+    "ci_checks": []
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4334",
+    "replacement_change_url": "https://github.com/Bella-Giraffety/gastown/tree/polecat/deathclaw/gt-7tk6+mrb4fdhq",
+    "replacement_branch": "polecat/deathclaw/gt-7tk6+mrb4fdhq",
+    "replacement_commit_refs": ["cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389"],
+    "original_author": "antiwong",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["original-pr-facts"],
+      "fresh_artifact_refs": ["replacement-branch", "focused-tests", "post-1-artifact", "post-2-artifact", "post-3-artifact", "post-4-artifact", "post-5-artifact"],
+      "rationale": "Reuse original PR only for bug report and attribution; all implementation and verification evidence is fresh for the replacement branch."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement carries forward valid bug report from original PR #4334 by antiwong.",
+      "preserved": true,
+      "method": "comment_credit",
+      "artifact_refs": ["attribution-credit"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "superseded-intent",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "bead_notes"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": [],
+    "scanned_at": "2026-07-07T22:13:00Z",
+    "summary": "Original PR status/review-failed blocks merge-as-is; replacement branch resolved implementation blockers and has five approving post reviews. No unresolved blockers remain for merge_replacement."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "https://github.com/Bella-Giraffety/gastown/tree/polecat/deathclaw/gt-7tk6+mrb4fdhq",
+    "target_head_sha": "cbc7cbd5e10e0bb22d64cb1c0701d8a563b36389",
+    "decided_by": "deathclaw",
+    "decided_at": "2026-07-07T22:13:30Z",
+    "reason": "All PR Sheriff gates pass for the replacement branch; original PR #4334 should be superseded after replacement merge.",
+    "required_actions": []
+  }
+}
