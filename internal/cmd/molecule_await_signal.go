@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -448,18 +447,7 @@ func updateAgentHeartbeat(agentBead, beadsDir string) error {
 		newLabels = append(newLabels, label)
 	}
 	newLabels = append(newLabels, fmt.Sprintf("heartbeat:%d", time.Now().Unix()))
-
-	args := []string{"update", agentBead}
-	for _, label := range newLabels {
-		args = append(args, "--set-labels="+label)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), bdCallTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bd", args...) //nolint:gosec // G204: bd is a trusted internal tool
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
-	return cmd.Run()
+	return setAgentLabels(agentBead, beadsDir, newLabels)
 }
 
 // setAgentIdleCycles sets the idle:N label on an agent bead.
@@ -484,19 +472,7 @@ func setAgentIdleCycles(agentBead, beadsDir string, cycles int) error {
 	// Add new idle value
 	newLabels = append(newLabels, fmt.Sprintf("idle:%d", cycles))
 
-	// Use bd update with --set-labels to replace all labels
-	args := []string{"update", agentBead}
-	for _, label := range newLabels {
-		args = append(args, "--set-labels="+label)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), bdCallTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bd", args...) //nolint:gosec // G204: bd is a trusted internal tool
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
-
-	if err := cmd.Run(); err != nil {
+	if err := setAgentLabels(agentBead, beadsDir, newLabels); err != nil {
 		return fmt.Errorf("setting idle label: %w", err)
 	}
 
@@ -521,17 +497,7 @@ func setAgentBackoffUntil(agentBead, beadsDir string, until time.Time) error {
 	}
 	newLabels = append(newLabels, fmt.Sprintf("backoff-until:%d", until.Unix()))
 
-	args := []string{"update", agentBead}
-	for _, label := range newLabels {
-		args = append(args, "--set-labels="+label)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), bdCallTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bd", args...) //nolint:gosec // G204: bd is a trusted internal tool
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
-	if err := cmd.Run(); err != nil {
+	if err := setAgentLabels(agentBead, beadsDir, newLabels); err != nil {
 		return fmt.Errorf("setting backoff-until label: %w", err)
 	}
 	return nil
@@ -559,22 +525,16 @@ func clearAgentBackoffUntil(agentBead, beadsDir string) error {
 		return nil // Nothing to clear
 	}
 
-	args := []string{"update", agentBead}
-	if len(newLabels) == 0 {
-		args = append(args, "--set-labels=")
-	} else {
-		for _, label := range newLabels {
-			args = append(args, "--set-labels="+label)
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), bdCallTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bd", args...) //nolint:gosec // G204: bd is a trusted internal tool
-	cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
-	if err := cmd.Run(); err != nil {
+	if err := setAgentLabels(agentBead, beadsDir, newLabels); err != nil {
 		return fmt.Errorf("clearing backoff-until label: %w", err)
 	}
 	return nil
+}
+
+func setAgentLabels(agentBead, beadsDir string, labels []string) error {
+	setLabels := labels
+	if len(setLabels) == 0 {
+		setLabels = []string{""}
+	}
+	return agentStateBeads(beadsDir).Update(agentBead, beads.UpdateOptions{SetLabels: setLabels})
 }

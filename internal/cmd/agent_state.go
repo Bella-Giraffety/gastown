@@ -247,7 +247,7 @@ const bdCallTimeout = 30 * time.Second
 
 // getAllAgentLabels retrieves all labels (including non-state) from an agent bead.
 func getAllAgentLabels(agentBead, beadsDir string) ([]string, error) {
-	issue, err := agentStateBeads(beadsDir).Show(agentBead)
+	issue, _, err := agentStateBeads(beadsDir).GetAgentBead(agentBead)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return nil, fmt.Errorf("agent bead not found: %s", agentBead)
