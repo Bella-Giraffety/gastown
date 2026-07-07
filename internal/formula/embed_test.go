@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -954,6 +955,23 @@ func TestResolveFormulaContent(t *testing.T) {
 			t.Error("expected error for non-existent formula")
 		}
 	})
+}
+
+func TestResolveFormulaContentFromDirs_ReturnsReadErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "unreadable.formula.toml")
+	if err := os.WriteFile(path, []byte("formula = \"unreadable\"\n"), 0000); err != nil {
+		t.Fatalf("write formula: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0644) })
+
+	_, err := ResolveFormulaContentFromDirs("unreadable", []string{dir})
+	if err == nil {
+		t.Fatal("ResolveFormulaContentFromDirs() error = nil, want read error")
+	}
+	if !strings.Contains(err.Error(), "reading formula") {
+		t.Fatalf("error = %v, want reading formula", err)
+	}
 }
 
 // TestGetEmbeddedFormulaContent verifies extraction of individual embedded formulas.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/beads"
@@ -174,6 +175,43 @@ func TestLoadFormulaByName_UsesRoutedRigBeadsDir(t *testing.T) {
 	}
 }
 
+func TestRenderFormulaStepsFull_UsesRoutedRigFormula(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir town beads: %v", err)
+	}
+	if err := beads.AppendRoute(townRoot, beads.Route{Prefix: "gt-", Path: "gastown/mayor/rig"}); err != nil {
+		t.Fatalf("append route: %v", err)
+	}
+
+	decoyDir := filepath.Join(townRoot, "gastown", ".beads", "formulas")
+	if err := os.MkdirAll(decoyDir, 0755); err != nil {
+		t.Fatalf("mkdir decoy formulas: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(decoyDir, "prime-routed.formula.toml"), []byte(testWorkflowFormulaWithStep("prime-routed", 1, "Decoy Step")), 0644); err != nil {
+		t.Fatalf("write decoy formula: %v", err)
+	}
+
+	routedDir := filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads", "formulas")
+	if err := os.MkdirAll(routedDir, 0755); err != nil {
+		t.Fatalf("mkdir routed formulas: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(routedDir, "prime-routed.formula.toml"), []byte(testWorkflowFormulaWithStep("prime-routed", 2, "Routed Step")), 0644); err != nil {
+		t.Fatalf("write routed formula: %v", err)
+	}
+
+	rendered, err := renderFormulaStepsFull("prime-routed", townRoot, "gastown")
+	if err != nil {
+		t.Fatalf("renderFormulaStepsFull() error = %v", err)
+	}
+	if !strings.Contains(rendered, "Routed Step") {
+		t.Fatalf("rendered steps did not use routed formula: %s", rendered)
+	}
+	if strings.Contains(rendered, "Decoy Step") {
+		t.Fatalf("rendered steps used decoy formula: %s", rendered)
+	}
+}
+
 func TestLoadSynthesisFormula_UsesGTTownRootOnly(t *testing.T) {
 	townRoot := setupFormulaResolverTown(t)
 	formulasDir := filepath.Join(townRoot, ".beads", "formulas")
@@ -271,13 +309,17 @@ func chdirForTest(t *testing.T, dir string) {
 }
 
 func testWorkflowFormula(name string, version int) string {
+	return testWorkflowFormulaWithStep(name, version, "Step")
+}
+
+func testWorkflowFormulaWithStep(name string, version int, title string) string {
 	return fmt.Sprintf(`formula = %q
 type = "workflow"
 version = %d
 
 [[steps]]
 id = "step"
-title = "Step"
+title = %q
 description = "Do it"
-`, name, version)
+`, name, version, title)
 }

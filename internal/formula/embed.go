@@ -81,8 +81,12 @@ func ResolveFormulaContentFromDirs(name string, searchDirs []string) ([]byte, er
 			continue
 		}
 		path := filepath.Join(dir, filename)
-		if content, err := os.ReadFile(path); err == nil {
+		content, err := os.ReadFile(path)
+		if err == nil {
 			return content, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("reading formula %s: %w", path, err)
 		}
 	}
 
