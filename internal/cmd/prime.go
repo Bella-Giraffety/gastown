@@ -714,8 +714,8 @@ func hasWorkflowAttachment(attachment *beads.AttachmentFields) bool {
 }
 
 // findAgentWork looks up hooked or in-progress beads assigned to this agent.
-// Primary: reads hook_bead from the agent bead (same strategy as detectSessionState/gt hook).
-// Fallback: queries by assignee for agents without an agent bead.
+// The assigned work row (status+assignee) is authoritative; agent hook_bead is
+// not used for discovery.
 // For polecats and crew, retries up to 3 times with 2-second delays to handle
 // the timing race where hook state hasn't propagated by the time gt prime runs.
 // See: https://github.com/steveyegge/gastown/issues/1438
