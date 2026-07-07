@@ -1345,16 +1345,25 @@ func (m *Manager) ReclaimBrokenIdlePolecat(name string) (retErr error) {
 		return fmt.Errorf("worktree check did not prove structural damage: %w", err)
 	}
 
-	if blocker := brokenIdleReclaimDispositionBlocker(m.WorkstateDispositionForPolecat(name, current.State, current.Issue)); blocker != "" {
-		return fmt.Errorf("not safe to reclaim: %s", blocker)
-	}
-
 	agentID := m.agentBeadID(name)
 	agentIssue, fields, err := m.agentBeads().GetAgentBead(agentID)
 	if evidence := AssessAgentRecord(agentID, agentIssue, fields, err); evidence.BlocksCleanup {
 		return fmt.Errorf("not safe to reclaim: %s", evidence.Blocker)
 	}
-	if blocker := brokenIdleReclaimAgentBlocker(fields); blocker != "" {
+
+	terminalActiveMR := ""
+	if fields != nil && strings.TrimSpace(fields.ActiveMR) != "" {
+		assessment := AssessActiveMR(m.beads, ActiveMRInput{ActiveMR: fields.ActiveMR, SourceIssueHint: fields.LastSourceIssue, RequireGitSafe: false})
+		if blocker := brokenIdleReclaimTerminalActiveMRBlocker(assessment); blocker != "" {
+			return fmt.Errorf("not safe to reclaim: %s", blocker)
+		}
+		terminalActiveMR = strings.TrimSpace(fields.ActiveMR)
+	}
+
+	if blocker := brokenIdleReclaimDispositionBlocker(m.WorkstateDispositionForPolecat(name, current.State, current.Issue), terminalActiveMR); blocker != "" {
+		return fmt.Errorf("not safe to reclaim: %s", blocker)
+	}
+	if blocker := brokenIdleReclaimAgentBlocker(fields, terminalActiveMR != ""); blocker != "" {
 		return fmt.Errorf("not safe to reclaim: %s", blocker)
 	}
 	mr, mrErr := m.beads.FindMRForBranch(fields.Branch)
