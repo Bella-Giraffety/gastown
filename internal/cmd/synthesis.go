@@ -436,7 +436,7 @@ func parseConvoyMetaDescription(meta *ConvoyMeta, description string) {
 				meta.FormulaPath = value
 			case "rig":
 				meta.Rig = value
-			case "review_id", "review-id":
+			case "review_id", "review-id", "review id":
 				meta.ReviewID = value
 			}
 		}
