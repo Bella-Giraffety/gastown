@@ -78,6 +78,124 @@ func TestListEphemeralQuotesQueryValuesAndDisablesLimit(t *testing.T) {
 	}
 }
 
+func TestListAssignedWorkMergesDurableAndEphemeral(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell mock is Unix-oriented")
+	}
+	ResetBdAllowStaleCacheForTest()
+	logPath := installAssignedWorkMockBD(t, false)
+
+	got, err := New(t.TempDir()).ListAssignedWork(ListOptions{
+		Status:   StatusHooked,
+		Assignee: "dotfiles/refinery",
+		Priority: 0, // Must be ignored; assigned work must not filter by priority.
+	})
+	if err != nil {
+		t.Fatalf("ListAssignedWork: %v", err)
+	}
+
+	ids := issueIDs(got)
+	want := []string{"hq-wisp-new", "gt-shared", "gt-old"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("ids = %v, want %v", ids, want)
+	}
+	if got[1].Title != "durable shared" {
+		t.Fatalf("duplicate source title = %q, want durable issue row to win", got[1].Title)
+	}
+
+	logOutput := readMockBDLog(t, logPath)
+	for _, wantLog := range []string{
+		`list --json --status=hooked --assignee=dotfiles/refinery --limit=0 --flat`,
+		`query --json ephemeral=true AND status="hooked" AND assignee="dotfiles/refinery" --limit=0`,
+	} {
+		if !strings.Contains(logOutput, wantLog) {
+			t.Fatalf("bd log missing %q\nlog:\n%s", wantLog, logOutput)
+		}
+	}
+	if strings.Contains(logOutput, "--priority=0") || strings.Contains(logOutput, "priority=0") {
+		t.Fatalf("assigned-work lookup unexpectedly filtered by priority:\n%s", logOutput)
+	}
+}
+
+func TestListAssignedWorkFailsOnEphemeralError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell mock is Unix-oriented")
+	}
+	ResetBdAllowStaleCacheForTest()
+	installAssignedWorkMockBD(t, true)
+
+	_, err := New(t.TempDir()).ListAssignedWork(ListOptions{
+		Status:   StatusHooked,
+		Assignee: "dotfiles/refinery",
+		Priority: -1,
+	})
+	if err == nil {
+		t.Fatal("ListAssignedWork succeeded, want ephemeral query error")
+	}
+}
+
+func issueIDs(issues []*Issue) []string {
+	ids := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		ids = append(ids, issue.ID)
+	}
+	return ids
+}
+
+func installAssignedWorkMockBD(t *testing.T, failQuery bool) string {
+	t.Helper()
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "bd.log")
+	fail := "0"
+	if failQuery {
+		fail = "1"
+	}
+	script := `#!/bin/sh
+LOG_FILE='` + logPath + `'
+printf '%s\n' "$*" >> "$LOG_FILE"
+
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+
+case "$cmd" in
+  version)
+    echo "bd mock"
+    exit 0
+    ;;
+  list)
+    cat <<'JSON'
+[{"id":"gt-shared","title":"durable shared","status":"hooked","priority":2,"updated_at":"2026-01-02T00:00:00Z"},{"id":"gt-old","title":"durable old","status":"hooked","priority":3,"updated_at":"2026-01-01T00:00:00Z"}]
+JSON
+    exit 0
+    ;;
+  query)
+    if [ "` + fail + `" = "1" ]; then
+      echo "wisps unavailable" >&2
+      exit 1
+    fi
+    cat <<'JSON'
+[{"id":"hq-wisp-new","title":"ephemeral new","status":"hooked","priority":4,"updated_at":"2026-01-03T00:00:00Z","ephemeral":true},{"id":"gt-shared","title":"ephemeral duplicate","status":"hooked","priority":1,"updated_at":"2026-01-04T00:00:00Z","ephemeral":true}]
+JSON
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return logPath
+}
+
 // TestCreateOptions verifies CreateOptions fields.
 func TestCreateOptions(t *testing.T) {
 	opts := CreateOptions{

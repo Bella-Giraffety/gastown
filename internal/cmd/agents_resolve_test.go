@@ -107,6 +107,57 @@ func TestPickBestAgentBeadPrefersIssueOverDuplicateWisp(t *testing.T) {
 	}
 }
 
+func TestAgentResolveIgnoresUnrelatedHqDeaconDuplicate(t *testing.T) {
+	candidates := []agentBeadCandidate{
+		{
+			ID:     "hq-deacon",
+			Source: agentSourceTownIssues,
+			Status: "open",
+			Issue: &beads.Issue{
+				ID:          "hq-deacon",
+				Status:      "open",
+				Description: "Agent\n\nrole_type: deacon",
+			},
+		},
+		{
+			ID:     "hq-deacon",
+			Source: agentSourceTownWisps,
+			Status: "open",
+			Issue: &beads.Issue{
+				ID:          "hq-deacon",
+				Status:      "open",
+				Description: "Agent\n\nrole_type: deacon",
+			},
+		},
+		{
+			ID:       "do-dotfiles-refinery",
+			Source:   agentSourceTownIssues,
+			BeadsDir: "/town/.beads",
+			Status:   "open",
+			Issue: &beads.Issue{
+				ID:          "do-dotfiles-refinery",
+				Status:      "open",
+				Description: "Agent\n\nrole_type: refinery\nrig: dotfiles",
+			},
+		},
+	}
+
+	var matches []agentBeadCandidate
+	for _, candidate := range candidates {
+		if agentBeadMatches(candidate.Issue, "refinery", "dotfiles") {
+			matches = append(matches, candidate)
+		}
+	}
+
+	got, err := pickBestAgentBead(matches)
+	if err != nil {
+		t.Fatalf("pickBestAgentBead returned error: %v", err)
+	}
+	if got == nil || got.ID != "do-dotfiles-refinery" {
+		t.Fatalf("pickBestAgentBead picked %+v, want dotfiles refinery", got)
+	}
+}
+
 func TestNormalizeAgentResolveRig(t *testing.T) {
 	tests := []struct {
 		in   string

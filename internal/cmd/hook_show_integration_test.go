@@ -107,3 +107,59 @@ func TestHookShowShorthandResolvesToCanonical(t *testing.T) {
 			active.BeadID, active.Status, issue.ID)
 	}
 }
+
+func TestHookShowFindsTownEphemeralRefineryWork(t *testing.T) {
+	if _, err := exec.LookPath("bd"); err != nil {
+		t.Skip("bd not installed, skipping integration test")
+	}
+
+	townRoot, polecatDir, rigPrefix := setupHookTestTown(t)
+	rigDir := filepath.Join(polecatDir, "..", "..", "mayor", "rig")
+	initBeadsDBWithPrefix(t, townRoot, "hq")
+	initBeadsDBWithPrefix(t, rigDir, rigPrefix)
+
+	townB := beads.New(townRoot)
+	wisp, err := townB.Create(beads.CreateOptions{
+		Title:     "mol-refinery-patrol (wisp)",
+		Priority:  -1,
+		Ephemeral: true,
+	})
+	if err != nil {
+		t.Fatalf("create town ephemeral work: %v", err)
+	}
+	hooked := beads.StatusHooked
+	assignee := "gastown/refinery"
+	if err := townB.Update(wisp.ID, beads.UpdateOptions{
+		Status:   &hooked,
+		Assignee: &assignee,
+	}); err != nil {
+		t.Fatalf("hook town ephemeral work: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(polecatDir); err != nil {
+		t.Fatalf("chdir to polecat dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	prevJSON := moleculeJSON
+	moleculeJSON = true
+	t.Cleanup(func() { moleculeJSON = prevJSON })
+
+	out := captureStdout(t, func() {
+		if err := runHookShow(nil, []string{assignee}); err != nil {
+			t.Fatalf("runHookShow(%q): %v", assignee, err)
+		}
+	})
+	var parsed hookShowJSON
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("parse runHookShow output %q: %v", out, err)
+	}
+	if parsed.Agent != assignee || parsed.BeadID != wisp.ID || parsed.Status != beads.StatusHooked {
+		t.Fatalf("hook show mismatch: got agent=%q bead=%q status=%q, want agent=%q bead=%q status=%q",
+			parsed.Agent, parsed.BeadID, parsed.Status, assignee, wisp.ID, beads.StatusHooked)
+	}
+}

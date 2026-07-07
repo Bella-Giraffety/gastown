@@ -662,6 +662,27 @@ func createHookedPatrol(t *testing.T, b *beads.Beads, molName, assignee string, 
 	return root.ID
 }
 
+func createHookedEphemeralPatrol(t *testing.T, b *beads.Beads, molName, assignee string) string {
+	t.Helper()
+	root, err := b.Create(beads.CreateOptions{
+		Title:     molName + " (wisp)",
+		Priority:  -1,
+		Ephemeral: true,
+	})
+	if err != nil {
+		t.Fatalf("create ephemeral patrol root: %v", err)
+	}
+
+	hooked := beads.StatusHooked
+	if err := b.Update(root.ID, beads.UpdateOptions{
+		Status:   &hooked,
+		Assignee: &assignee,
+	}); err != nil {
+		t.Fatalf("hook ephemeral patrol: %v", err)
+	}
+	return root.ID
+}
+
 func TestFindActivePatrolHooked(t *testing.T) {
 	requireBd(t)
 	tmpDir, b := setupPatrolTestDB(t)
@@ -696,6 +717,33 @@ func TestFindActivePatrolHooked(t *testing.T) {
 	}
 	if issue.Status != beads.StatusHooked {
 		t.Errorf("patrol status = %q, want %q", issue.Status, beads.StatusHooked)
+	}
+}
+
+func TestFindActivePatrolEphemeralWisp(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	molName := "mol-test-patrol"
+	assignee := "dotfiles/refinery"
+	rootID := createHookedEphemeralPatrol(t, b, molName, assignee)
+
+	cfg := PatrolConfig{
+		PatrolMolName: molName,
+		BeadsDir:      tmpDir,
+		Assignee:      assignee,
+		Beads:         b,
+	}
+
+	patrolID, _, found, findErr := findActivePatrol(cfg)
+	if findErr != nil {
+		t.Fatalf("findActivePatrol error: %v", findErr)
+	}
+	if !found {
+		t.Fatal("expected to find active ephemeral patrol, got not found")
+	}
+	if patrolID != rootID {
+		t.Errorf("patrolID = %q, want %q", patrolID, rootID)
 	}
 }
 
@@ -990,6 +1038,57 @@ func TestBurnPreviousPatrolWisps(t *testing.T) {
 		if issue.Status != "closed" {
 			t.Errorf("patrol %s status = %q, want %q after burn", id, issue.Status, "closed")
 		}
+	}
+}
+
+func TestBurnPreviousPatrolWispsEphemeral(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	molName := "mol-test-patrol"
+	assignee := "dotfiles/refinery"
+	id1 := createHookedEphemeralPatrol(t, b, molName, assignee)
+	id2 := createHookedEphemeralPatrol(t, b, molName, assignee)
+
+	other, err := b.Create(beads.CreateOptions{
+		Title:    "some-other-work",
+		Priority: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooked := beads.StatusHooked
+	if err := b.Update(other.ID, beads.UpdateOptions{
+		Status:   &hooked,
+		Assignee: &assignee,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := PatrolConfig{
+		PatrolMolName: molName,
+		BeadsDir:      tmpDir,
+		Assignee:      assignee,
+		Beads:         b,
+	}
+
+	burnPreviousPatrolWisps(cfg)
+
+	for _, id := range []string{id1, id2} {
+		issue, err := b.Show(id)
+		if err != nil {
+			t.Fatalf("show %s: %v", id, err)
+		}
+		if issue.Status != "closed" {
+			t.Errorf("patrol %s status = %q, want closed after burn", id, issue.Status)
+		}
+	}
+	otherIssue, err := b.Show(other.ID)
+	if err != nil {
+		t.Fatalf("show other: %v", err)
+	}
+	if otherIssue.Status != beads.StatusHooked {
+		t.Errorf("non-patrol bead status = %q, want hooked", otherIssue.Status)
 	}
 }
 
