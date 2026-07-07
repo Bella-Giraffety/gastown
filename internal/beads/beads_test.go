@@ -3442,6 +3442,62 @@ func TestDelegationTerms(t *testing.T) {
 
 // TestSetupRedirect tests the beads redirect setup for worktrees.
 func TestSetupRedirect(t *testing.T) {
+	requireGit := func(t *testing.T) {
+		t.Helper()
+		if _, err := exec.LookPath("git"); err != nil {
+			t.Skip("git not available")
+		}
+	}
+	runGit := func(t *testing.T, dir string, args ...string) []byte {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return out
+	}
+	initGitRepo := func(t *testing.T, dir string) {
+		t.Helper()
+		requireGit(t)
+		for _, args := range [][]string{
+			{"init"},
+			{"config", "user.email", "test@example.com"},
+			{"config", "user.name", "Test User"},
+		} {
+			runGit(t, dir, args...)
+		}
+	}
+	assertGitStatusClean := func(t *testing.T, dir string, paths ...string) {
+		t.Helper()
+		args := append([]string{"status", "--porcelain", "--"}, paths...)
+		out := runGit(t, dir, args...)
+		if strings.TrimSpace(string(out)) != "" {
+			t.Fatalf("worktree should be clean, got:\n%s", out)
+		}
+	}
+	assertSkipWorktree := func(t *testing.T, dir string, paths ...string) {
+		t.Helper()
+		args := append([]string{"ls-files", "-v", "--"}, paths...)
+		out := runGit(t, dir, args...)
+		seen := make(map[string]bool)
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line == "" {
+				continue
+			}
+			if len(line) < 3 || !strings.HasPrefix(line, "S ") {
+				t.Fatalf("tracked path should be skip-worktree, got %q", line)
+			}
+			seen[line[2:]] = true
+		}
+		for _, path := range paths {
+			if !seen[path] {
+				t.Fatalf("git ls-files did not report %s in output:\n%s", path, out)
+			}
+		}
+	}
+
 	t.Run("rig with own DB redirects to rig-level beads", func(t *testing.T) {
 		// When rig has its own dolt_database in metadata.json, crew must
 		// redirect to rig-level .beads (not town-level) to see correct prefix.
@@ -3720,7 +3776,7 @@ func TestSetupRedirect(t *testing.T) {
 		}
 	})
 
-	t.Run("cleans runtime files but preserves config files", func(t *testing.T) {
+	t.Run("cleans runtime and identity files but preserves docs", func(t *testing.T) {
 		townRoot := t.TempDir()
 		rigRoot := filepath.Join(townRoot, "testrig")
 		rigBeads := filepath.Join(rigRoot, ".beads")
@@ -3738,14 +3794,14 @@ func TestSetupRedirect(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(crewBeads, "daemon.lock"), []byte("1234"), 0644); err != nil {
 			t.Fatalf("write daemon.lock: %v", err)
 		}
-		// Local beads metadata is per-machine configuration and must survive startup.
+		// Redirect-local identity/config must not coexist with a redirect.
 		if err := os.WriteFile(filepath.Join(crewBeads, "metadata.json"), []byte("{}"), 0644); err != nil {
 			t.Fatalf("write metadata.json: %v", err)
 		}
-		// Config files (should be preserved)
 		if err := os.WriteFile(filepath.Join(crewBeads, "config.yaml"), []byte("prefix: test"), 0644); err != nil {
 			t.Fatalf("write config: %v", err)
 		}
+		// Non-identity tracked docs should be preserved.
 		if err := os.WriteFile(filepath.Join(crewBeads, "README.md"), []byte("# Beads"), 0644); err != nil {
 			t.Fatalf("write README: %v", err)
 		}
@@ -3758,14 +3814,14 @@ func TestSetupRedirect(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(crewBeads, "daemon.lock")); !os.IsNotExist(err) {
 			t.Error("daemon.lock should have been removed")
 		}
-		if _, err := os.Stat(filepath.Join(crewBeads, "metadata.json")); err != nil {
-			t.Errorf("metadata.json should have been preserved: %v", err)
+		if _, err := os.Stat(filepath.Join(crewBeads, "metadata.json")); !os.IsNotExist(err) {
+			t.Fatalf("metadata.json should have been removed, stat err=%v", err)
+		}
+		if _, err := os.Stat(filepath.Join(crewBeads, "config.yaml")); !os.IsNotExist(err) {
+			t.Fatalf("config.yaml should have been removed, stat err=%v", err)
 		}
 
-		// Verify config files were preserved
-		if _, err := os.Stat(filepath.Join(crewBeads, "config.yaml")); err != nil {
-			t.Errorf("config.yaml should have been preserved: %v", err)
-		}
+		// Verify docs were preserved.
 		if _, err := os.Stat(filepath.Join(crewBeads, "README.md")); err != nil {
 			t.Errorf("README.md should have been preserved: %v", err)
 		}
@@ -3774,6 +3830,273 @@ func TestSetupRedirect(t *testing.T) {
 		redirectPath := filepath.Join(crewBeads, "redirect")
 		if _, err := os.Stat(redirectPath); err != nil {
 			t.Errorf("redirect file should exist: %v", err)
+		}
+	})
+
+	t.Run("removes tracked identity files without dirtying worktree", func(t *testing.T) {
+		townRoot := t.TempDir()
+		rigRoot := filepath.Join(townRoot, "testrig")
+		rigBeads := filepath.Join(rigRoot, ".beads")
+		crewPath := filepath.Join(rigRoot, "crew", "max")
+		crewBeads := filepath.Join(crewPath, ".beads")
+
+		if err := os.MkdirAll(rigBeads, 0755); err != nil {
+			t.Fatalf("mkdir rig beads: %v", err)
+		}
+		if err := os.MkdirAll(crewBeads, 0755); err != nil {
+			t.Fatalf("mkdir crew beads: %v", err)
+		}
+		initGitRepo(t, crewPath)
+		if err := os.WriteFile(filepath.Join(crewPath, ".gitignore"), []byte(".beads/*\n"), 0644); err != nil {
+			t.Fatalf("write gitignore: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(crewBeads, "metadata.json"), []byte(`{"dolt_database":"stale"}`), 0644); err != nil {
+			t.Fatalf("write metadata: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(crewBeads, "config.yaml"), []byte("prefix: stale\n"), 0644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		runGit(t, crewPath, "add", ".gitignore")
+		runGit(t, crewPath, "add", "-f", ".beads/metadata.json", ".beads/config.yaml")
+		runGit(t, crewPath, "commit", "-m", "track beads identity")
+
+		if err := SetupRedirect(townRoot, crewPath); err != nil {
+			t.Fatalf("SetupRedirect failed: %v", err)
+		}
+		for _, name := range []string{"metadata.json", "config.yaml"} {
+			if _, err := os.Stat(filepath.Join(crewBeads, name)); !os.IsNotExist(err) {
+				t.Fatalf("%s should have been removed, stat err=%v", name, err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(crewBeads, "redirect")); err != nil {
+			t.Fatalf("redirect should exist: %v", err)
+		}
+		assertGitStatusClean(t, crewPath)
+		assertSkipWorktree(t, crewPath, ".beads/metadata.json", ".beads/config.yaml")
+	})
+
+	t.Run("replaces tracked .beads file without dirtying worktree", func(t *testing.T) {
+		townRoot := t.TempDir()
+		rigRoot := filepath.Join(townRoot, "testrig")
+		rigBeads := filepath.Join(rigRoot, ".beads")
+		crewPath := filepath.Join(rigRoot, "crew", "max")
+		crewBeads := filepath.Join(crewPath, ".beads")
+
+		if err := os.MkdirAll(rigBeads, 0755); err != nil {
+			t.Fatalf("mkdir rig beads: %v", err)
+		}
+		if err := os.MkdirAll(crewPath, 0755); err != nil {
+			t.Fatalf("mkdir crew: %v", err)
+		}
+		initGitRepo(t, crewPath)
+		if err := os.WriteFile(filepath.Join(crewPath, ".gitignore"), []byte(".beads/*\n"), 0644); err != nil {
+			t.Fatalf("write gitignore: %v", err)
+		}
+		if err := os.WriteFile(crewBeads, []byte("stale local beads"), 0644); err != nil {
+			t.Fatalf("write tracked .beads file: %v", err)
+		}
+		runGit(t, crewPath, "add", ".gitignore", ".beads")
+		runGit(t, crewPath, "commit", "-m", "track beads file")
+
+		if err := SetupRedirect(townRoot, crewPath); err != nil {
+			t.Fatalf("SetupRedirect failed: %v", err)
+		}
+		info, err := os.Lstat(crewBeads)
+		if err != nil {
+			t.Fatalf("lstat .beads: %v", err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf(".beads should be a real directory, mode=%v", info.Mode())
+		}
+		if _, err := os.Stat(filepath.Join(crewBeads, "redirect")); err != nil {
+			t.Fatalf("redirect should exist: %v", err)
+		}
+		assertGitStatusClean(t, crewPath)
+		assertSkipWorktree(t, crewPath, ".beads")
+	})
+
+	t.Run("replaces tracked .beads symlink without dirtying worktree or mutating target", func(t *testing.T) {
+		townRoot := t.TempDir()
+		rigRoot := filepath.Join(townRoot, "testrig")
+		rigBeads := filepath.Join(rigRoot, ".beads")
+		crewPath := filepath.Join(rigRoot, "crew", "max")
+		crewBeads := filepath.Join(crewPath, ".beads")
+		metadata := []byte(`{"dolt_database":"canonical"}`)
+		config := []byte("prefix: canonical\n")
+
+		if err := os.MkdirAll(rigBeads, 0755); err != nil {
+			t.Fatalf("mkdir rig beads: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(rigBeads, "metadata.json"), metadata, 0644); err != nil {
+			t.Fatalf("write rig metadata: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(rigBeads, "config.yaml"), config, 0644); err != nil {
+			t.Fatalf("write rig config: %v", err)
+		}
+		if err := os.MkdirAll(crewPath, 0755); err != nil {
+			t.Fatalf("mkdir crew: %v", err)
+		}
+		initGitRepo(t, crewPath)
+		if err := os.WriteFile(filepath.Join(crewPath, ".gitignore"), []byte(".beads/*\n"), 0644); err != nil {
+			t.Fatalf("write gitignore: %v", err)
+		}
+		if err := os.Symlink(rigBeads, crewBeads); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		runGit(t, crewPath, "add", ".gitignore", ".beads")
+		mode := strings.Fields(string(runGit(t, crewPath, "ls-files", "-s", "--", ".beads")))
+		if len(mode) == 0 || mode[0] != "120000" {
+			t.Skipf("git did not record .beads as a symlink: %v", mode)
+		}
+		runGit(t, crewPath, "commit", "-m", "track beads symlink")
+
+		if err := SetupRedirect(townRoot, crewPath); err != nil {
+			t.Fatalf("SetupRedirect failed: %v", err)
+		}
+		info, err := os.Lstat(crewBeads)
+		if err != nil {
+			t.Fatalf("lstat crew beads: %v", err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("worktree .beads should be a real directory, mode=%v", info.Mode())
+		}
+		gotMetadata, err := os.ReadFile(filepath.Join(rigBeads, "metadata.json"))
+		if err != nil {
+			t.Fatalf("read rig metadata: %v", err)
+		}
+		if string(gotMetadata) != string(metadata) {
+			t.Fatalf("rig metadata changed: got %q want %q", gotMetadata, metadata)
+		}
+		gotConfig, err := os.ReadFile(filepath.Join(rigBeads, "config.yaml"))
+		if err != nil {
+			t.Fatalf("read rig config: %v", err)
+		}
+		if string(gotConfig) != string(config) {
+			t.Fatalf("rig config changed: got %q want %q", gotConfig, config)
+		}
+		assertGitStatusClean(t, crewPath)
+		assertSkipWorktree(t, crewPath, ".beads")
+	})
+
+	t.Run("hides tracked redirect cleanup before rewriting", func(t *testing.T) {
+		townRoot := t.TempDir()
+		rigRoot := filepath.Join(townRoot, "testrig")
+		rigBeads := filepath.Join(rigRoot, ".beads")
+		crewPath := filepath.Join(rigRoot, "crew", "max")
+		crewBeads := filepath.Join(crewPath, ".beads")
+		redirectPath := filepath.Join(crewBeads, "redirect")
+
+		if err := os.MkdirAll(rigBeads, 0755); err != nil {
+			t.Fatalf("mkdir rig beads: %v", err)
+		}
+		if err := os.MkdirAll(crewBeads, 0755); err != nil {
+			t.Fatalf("mkdir crew beads: %v", err)
+		}
+		initGitRepo(t, crewPath)
+		if err := os.WriteFile(filepath.Join(crewPath, ".gitignore"), []byte(".beads/*\n"), 0644); err != nil {
+			t.Fatalf("write gitignore: %v", err)
+		}
+		if err := os.WriteFile(redirectPath, []byte("stale\n"), 0644); err != nil {
+			t.Fatalf("write redirect: %v", err)
+		}
+		runGit(t, crewPath, "add", ".gitignore")
+		runGit(t, crewPath, "add", "-f", ".beads/redirect")
+		runGit(t, crewPath, "commit", "-m", "track beads redirect")
+
+		if err := SetupRedirect(townRoot, crewPath); err != nil {
+			t.Fatalf("SetupRedirect failed: %v", err)
+		}
+		content, err := os.ReadFile(redirectPath)
+		if err != nil {
+			t.Fatalf("read redirect: %v", err)
+		}
+		if got, want := string(content), "../../.beads\n"; got != want {
+			t.Fatalf("redirect = %q, want %q", got, want)
+		}
+		assertGitStatusClean(t, crewPath)
+		assertSkipWorktree(t, crewPath, ".beads/redirect")
+	})
+
+	t.Run("git ls-files fatal failure preserves tracked identity files", func(t *testing.T) {
+		townRoot := t.TempDir()
+		rigRoot := filepath.Join(townRoot, "testrig")
+		rigBeads := filepath.Join(rigRoot, ".beads")
+		crewPath := filepath.Join(rigRoot, "crew", "max")
+		crewBeads := filepath.Join(crewPath, ".beads")
+
+		if err := os.MkdirAll(rigBeads, 0755); err != nil {
+			t.Fatalf("mkdir rig beads: %v", err)
+		}
+		if err := os.MkdirAll(crewBeads, 0755); err != nil {
+			t.Fatalf("mkdir crew beads: %v", err)
+		}
+		initGitRepo(t, crewPath)
+		if err := os.WriteFile(filepath.Join(crewBeads, "metadata.json"), []byte(`{"dolt_database":"stale"}`), 0644); err != nil {
+			t.Fatalf("write metadata: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(crewBeads, "config.yaml"), []byte("prefix: stale\n"), 0644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		runGit(t, crewPath, "add", ".beads/metadata.json", ".beads/config.yaml")
+		runGit(t, crewPath, "commit", "-m", "track beads identity")
+		if err := os.WriteFile(filepath.Join(crewPath, ".git", "index"), []byte("not a git index\n"), 0644); err != nil {
+			t.Fatalf("corrupt index: %v", err)
+		}
+
+		err := SetupRedirect(townRoot, crewPath)
+		if err == nil {
+			t.Fatal("SetupRedirect should fail on fatal git ls-files error")
+		}
+		if !strings.Contains(err.Error(), "checking whether .beads/metadata.json is tracked") {
+			t.Fatalf("error should mention tracked check, got: %v", err)
+		}
+		for _, name := range []string{"metadata.json", "config.yaml"} {
+			if _, err := os.Stat(filepath.Join(crewBeads, name)); err != nil {
+				t.Fatalf("%s should be preserved after ls-files failure: %v", name, err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(crewBeads, "redirect")); !os.IsNotExist(err) {
+			t.Fatalf("redirect should not be created after ls-files failure, stat err=%v", err)
+		}
+	})
+
+	t.Run("git update-index failure preserves tracked .beads file", func(t *testing.T) {
+		townRoot := t.TempDir()
+		rigRoot := filepath.Join(townRoot, "testrig")
+		rigBeads := filepath.Join(rigRoot, ".beads")
+		crewPath := filepath.Join(rigRoot, "crew", "max")
+		crewBeads := filepath.Join(crewPath, ".beads")
+		original := []byte("stale local beads")
+
+		if err := os.MkdirAll(rigBeads, 0755); err != nil {
+			t.Fatalf("mkdir rig beads: %v", err)
+		}
+		if err := os.MkdirAll(crewPath, 0755); err != nil {
+			t.Fatalf("mkdir crew: %v", err)
+		}
+		initGitRepo(t, crewPath)
+		if err := os.WriteFile(crewBeads, original, 0644); err != nil {
+			t.Fatalf("write tracked .beads file: %v", err)
+		}
+		runGit(t, crewPath, "add", ".beads")
+		runGit(t, crewPath, "commit", "-m", "track beads file")
+		if err := os.WriteFile(filepath.Join(crewPath, ".git", "index.lock"), []byte("locked"), 0644); err != nil {
+			t.Fatalf("write index.lock: %v", err)
+		}
+
+		err := SetupRedirect(townRoot, crewPath)
+		if err == nil {
+			t.Fatal("SetupRedirect should fail when git update-index cannot lock the index")
+		}
+		if !strings.Contains(err.Error(), "hiding stale .beads path") || !strings.Contains(err.Error(), "marking .beads skip-worktree") {
+			t.Fatalf("error should mention stale .beads skip-worktree failure, got: %v", err)
+		}
+		content, err := os.ReadFile(crewBeads)
+		if err != nil {
+			t.Fatalf("tracked .beads file should be preserved: %v", err)
+		}
+		if string(content) != string(original) {
+			t.Fatalf("tracked .beads file changed: got %q want %q", content, original)
 		}
 	})
 
