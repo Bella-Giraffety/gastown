@@ -337,7 +337,7 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 
 	if len(args) > 0 {
 		// Explicit target provided
-		target = args[0]
+		target = normalizeHookShowTarget(args[0])
 		callerCtx := detectRole(cwd, townRoot)
 		validationRole = callerCtx.Role
 	} else {
@@ -395,7 +395,7 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 
 	// lookupHookedWork performs the full multi-step hook lookup for target.
 	// Called in a retry loop for polecats to handle Dolt propagation lag.
-	lookupHookedWork := func() *beads.Issue {
+	lookupHookedWork := func() (*beads.Issue, error) {
 		// Resolve agent bead ID for display purposes only.
 		// Agent bead's hook_bead field is no longer maintained (updateAgentHookBead is
 		// a no-op since hq-l6mm5), so reading it returns stale data. See GH#2371.
@@ -412,27 +412,10 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Query for hooked beads using the authoritative source: bead status + assignee.
-		// First try status=hooked (work that's been slung but not yet claimed)
-		hookedBeads, err := b.List(beads.ListOptions{
-			Status:   beads.StatusHooked,
-			Assignee: target,
-			Priority: -1,
-		})
+		// Query assigned work using the authoritative source: bead status + assignee.
+		hookedBeads, err := queryAssignedWork(b, target)
 		if err != nil {
-			return nil
-		}
-
-		// If no hooked beads found, also check in_progress beads assigned to this agent.
-		// This handles the case where work was claimed (status changed to in_progress)
-		// but the session was interrupted before completion. The hook should persist.
-		if len(hookedBeads) == 0 {
-			inProgressBeads, _ := b.List(beads.ListOptions{
-				Status:   "in_progress",
-				Assignee: target,
-				Priority: -1,
-			})
-			hookedBeads = inProgressBeads
+			return nil, err
 		}
 
 		// For town-level roles (mayor, deacon), scan all rigs if nothing found locally
@@ -446,25 +429,19 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 		// See: https://github.com/steveyegge/gastown/issues/1438
 		if len(hookedBeads) == 0 && !isTownLevelRole(target) && townRoot != "" {
 			townB := beads.New(filepath.Join(townRoot, ".beads"))
-			if townHooked, err := townB.List(beads.ListOptions{
-				Status:   beads.StatusHooked,
-				Assignee: target,
-				Priority: -1,
-			}); err == nil && len(townHooked) > 0 {
-				hookedBeads = townHooked
-			} else if townInProgress, err := townB.List(beads.ListOptions{
-				Status:   "in_progress",
-				Assignee: target,
-				Priority: -1,
-			}); err == nil && len(townInProgress) > 0 {
-				hookedBeads = townInProgress
+			townAssigned, err := queryAssignedWork(townB, target)
+			if err != nil {
+				return nil, err
+			}
+			if len(townAssigned) > 0 {
+				hookedBeads = townAssigned
 			}
 		}
 
 		if len(hookedBeads) > 0 {
-			return hookedBeads[0]
+			return hookedBeads[0], nil
 		}
-		return nil
+		return nil, nil
 	}
 
 	// Run the lookup. In polecat context, retry with backoff to handle Dolt
@@ -477,7 +454,10 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 			return r == RolePolecat
 		}())
 
-	hookBead = lookupHookedWork()
+	hookBead, err = lookupHookedWork()
+	if err != nil {
+		return err
+	}
 	if hookBead == nil && isPolecat {
 		const maxRetries = 5
 		const baseBackoff = 500 * time.Millisecond
@@ -485,7 +465,10 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 		for attempt := 1; attempt <= maxRetries; attempt++ {
 			backoff := slingBackoff(attempt, baseBackoff, maxBackoff)
 			time.Sleep(backoff)
-			hookBead = lookupHookedWork()
+			hookBead, err = lookupHookedWork()
+			if err != nil {
+				return err
+			}
 			if hookBead != nil {
 				break
 			}
@@ -1227,32 +1210,12 @@ func scanAllRigsForHookedBeads(townRoot, target string) []*beads.Issue {
 		}
 
 		b := beads.New(rigBeadsDir)
-		// First check for hooked beads
-		hookedBeads, err := b.List(beads.ListOptions{
-			Status:   beads.StatusHooked,
-			Assignee: target,
-			Priority: -1,
-		})
+		assigned, err := queryAssignedWork(b, target)
 		if err != nil {
 			continue
 		}
-
-		if len(hookedBeads) > 0 {
-			return hookedBeads
-		}
-
-		// Also check for in_progress beads (work that was claimed but session interrupted)
-		inProgressBeads, err := b.List(beads.ListOptions{
-			Status:   "in_progress",
-			Assignee: target,
-			Priority: -1,
-		})
-		if err != nil {
-			continue
-		}
-
-		if len(inProgressBeads) > 0 {
-			return inProgressBeads
+		if len(assigned) > 0 {
+			return assigned
 		}
 	}
 

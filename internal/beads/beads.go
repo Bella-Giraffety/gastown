@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1012,6 +1013,72 @@ func (b *Beads) List(opts ListOptions) ([]*Issue, error) {
 	}
 
 	return issues, nil
+}
+
+// ListAssignedWork returns assigned work from both durable issues and ephemeral
+// wisps. The authoritative hook source is status+assignee on the work row; bd's
+// normal list path only returns durable issues, so patrol/root wisps need the
+// explicit ephemeral query as well.
+func (b *Beads) ListAssignedWork(opts ListOptions) ([]*Issue, error) {
+	if opts.Assignee == "" {
+		return nil, fmt.Errorf("assignee is required")
+	}
+	if opts.Status == "" {
+		return nil, fmt.Errorf("status is required")
+	}
+
+	issueOpts := opts
+	issueOpts.Priority = -1
+	issueOpts.Ephemeral = false
+	issues, err := b.List(issueOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	wispOpts := opts
+	wispOpts.Priority = -1
+	wispOpts.Ephemeral = true
+	wisps, err := b.List(wispOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	merged := make(map[string]*Issue, len(issues)+len(wisps))
+	for _, issue := range issues {
+		if issue == nil || issue.ID == "" {
+			continue
+		}
+		merged[issue.ID] = issue
+	}
+	for _, wisp := range wisps {
+		if wisp == nil || wisp.ID == "" {
+			continue
+		}
+		if _, exists := merged[wisp.ID]; !exists {
+			merged[wisp.ID] = wisp
+		}
+	}
+
+	assigned := make([]*Issue, 0, len(merged))
+	for _, issue := range merged {
+		assigned = append(assigned, issue)
+	}
+	sort.SliceStable(assigned, func(i, j int) bool {
+		leftTime := assigned[i].UpdatedAt
+		if leftTime == "" {
+			leftTime = assigned[i].CreatedAt
+		}
+		rightTime := assigned[j].UpdatedAt
+		if rightTime == "" {
+			rightTime = assigned[j].CreatedAt
+		}
+		if leftTime != rightTime {
+			return leftTime > rightTime
+		}
+		return assigned[i].ID < assigned[j].ID
+	})
+
+	return assigned, nil
 }
 
 // listEphemeral searches the wisps table using "bd query" with ephemeral=true.
