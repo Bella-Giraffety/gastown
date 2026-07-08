@@ -1,0 +1,315 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-08T17:26:55Z",
+  "run_id": "gt-8rv7-pr4310-replacement-recovered-2026-07-08",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request_replacement",
+    "change_id": "4437",
+    "url": "https://github.com/gastownhall/gastown/pull/4437",
+    "title": "fix: reclaim agent-dead dogs",
+    "author": "munizr13",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "3b9c2bf73939bad7c6744eddf12d0c5882923cc7",
+    "head_ref": "Bella-Giraffety/gastown:polecat/ghoul/gt-8rv7+46017f",
+    "head_sha": "ccd36f08c5ce4076e2274096b0df064d6d439bdd",
+    "diff_summary": {
+      "additions": 180,
+      "deletions": 14,
+      "changed_files": 2,
+      "paths": [
+        "internal/daemon/handler.go",
+        "internal/daemon/handler_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["pr_thread", "review_thread", "artifact_store", "ci_log", "local_report", "bead"],
+    "baseline_checks": [
+      "Reject go.mod replace directives",
+      "Reject issues.jsonl",
+      "Windows Smoke Test",
+      "Test",
+      "Lint",
+      "Integration Tests"
+    ],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-gt-8rv7-pr4310-replacement",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-gt-8rv7-pr4310-replacement",
+    "summary": "Recover the missing durable PR Sheriff evidence for replacement PR #4437, then allow merge_replacement only if gt-pr-sheriff-check --merge-gate passes for current head ccd36f08c5ce4076e2274096b0df064d6d439bdd.",
+    "created_at": "2026-07-08T17:24:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/merge-ready", "family": "status", "semantic_value": "merge-ready"},
+      {"name": "priority/p1", "family": "priority", "semantic_value": "p1"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "merge-ready",
+    "priority": "p1",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot-final"
+  },
+  "artifacts": [
+    {
+      "id": "label-snapshot-final",
+      "kind": "pr_metadata",
+      "uri": "https://github.com/gastownhall/gastown/pull/4437",
+      "actor": "gastown/polecats/scavenger",
+      "created_at": "2026-07-08T17:26:55Z",
+      "digest": null,
+      "summary": "PR #4437 is open, non-draft, mergeable/CLEAN, and labeled kind/bug, priority/p1, status/merge-ready at head ccd36f08c5ce4076e2274096b0df064d6d439bdd."
+    },
+    {
+      "id": "original-pr-4310",
+      "kind": "pr_metadata",
+      "uri": "https://github.com/gastownhall/gastown/pull/4310",
+      "actor": "gastown/polecats/scavenger",
+      "created_at": "2026-07-08T17:26:55Z",
+      "digest": null,
+      "summary": "Original draft PR #4310 by munizr13 carried the agent-dead dog cleanup intent; commit 9fa47da preserves Rodrigo Muniz as author and Paperclip as co-author."
+    },
+    {
+      "id": "replacement-pr-body",
+      "kind": "pr_metadata",
+      "uri": "https://github.com/gastownhall/gastown/pull/4437",
+      "actor": "Bella-Giraffety",
+      "created_at": "2026-07-08T17:01:12Z",
+      "digest": null,
+      "summary": "PR #4437 body records it as a replacement/fixup for #4310, lists focused verification, credits original PR #4310 and commit 9fa47da, preserves Rodrigo Muniz author attribution, and includes Paperclip co-author credit."
+    },
+    {
+      "id": "diff-summary-final",
+      "kind": "diff_summary",
+      "uri": "https://github.com/gastownhall/gastown/pull/4437/files",
+      "actor": "gastown/polecats/scavenger",
+      "created_at": "2026-07-08T17:26:55Z",
+      "digest": null,
+      "summary": "PR #4437 changes only internal/daemon/handler.go and internal/daemon/handler_test.go, with 180 additions and 14 deletions."
+    },
+    {
+      "id": "ci-final-green",
+      "kind": "ci_log",
+      "uri": "https://github.com/gastownhall/gastown/actions/runs/28959749009",
+      "actor": "github-actions",
+      "created_at": "2026-07-08T17:03:42Z",
+      "digest": null,
+      "summary": "Current PR head ccd36f08 passed Integration Tests, Test, Lint, Reject go.mod replace directives, Reject issues.jsonl, Windows Smoke Test, remove-label, and remove-triage-label checks."
+    },
+    {
+      "id": "focused-local-verify",
+      "kind": "local_verification",
+      "uri": "file:///tmp/opencode/pr4437",
+      "actor": "gastown/polecats/scavenger",
+      "created_at": "2026-07-08T17:21:00Z",
+      "digest": null,
+      "summary": "Focused local verification on detached PR head passed: CGO_ENABLED=0 go test ./internal/daemon -run 'TestCleanupStuckDogs|TestDetectStaleWorkingDogs_KillsSessionBeforeClearing|TestFindDispatchableDog' -count=1."
+    },
+    {
+      "id": "gt-8rv7-evidence-comment",
+      "kind": "bead_comment",
+      "uri": "urn:bead:gt-8rv7#comment-2026-07-08T17:04Z",
+      "actor": "gastown/polecats/ghoul",
+      "created_at": "2026-07-08T17:04:00Z",
+      "digest": null,
+      "summary": "Original Sheriff completion comment recorded replacement PR #4437, merge_replacement, 15/15 research, 5/5 pre reviews, 5/5 post reviews, green CI, focused verification, attribution, and the missing evidence path."
+    },
+    {
+      "id": "recovered-evidence-artifact",
+      "kind": "local_report",
+      "uri": "file://pr-sheriff-evidence/gt-8rv7-pr4310-replacement/evidence.json",
+      "actor": "gastown/polecats/scavenger",
+      "created_at": "2026-07-08T17:26:55Z",
+      "digest": null,
+      "summary": "Recovered durable PR Sheriff evidence artifact for #4437 at the path referenced by bead gt-8rv7."
+    },
+    {
+      "id": "merge-gate-check-output",
+      "kind": "checker_output",
+      "uri": "file://pr-sheriff-evidence/gt-8rv7-pr4310-replacement/merge-gate-check.txt",
+      "actor": "gastown/polecats/scavenger",
+      "created_at": "2026-07-08T17:26:55Z",
+      "digest": null,
+      "summary": "Checker output artifact for gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-8rv7-pr4310-replacement/evidence.json --merge-gate."
+    },
+    {"id": "research-01-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:pr4437-metadata", "actor": "pr4437-metadata-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "PR #4437 metadata shows open, non-draft, mergeable/CLEAN, labels kind/bug priority/p1 status/merge-ready, and replacement relationship to PR #4310."},
+    {"id": "research-02-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:handler-diff", "actor": "pr4437-handler-readonly-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Handler diff extends working-dog cleanup from dead tmux sessions to agent-dead sessions, kills the session, and compare-clears matching work."},
+    {"id": "research-03-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:test-coverage", "actor": "pr4437-handler-test-scavenger-readonly-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Tests cover dead sessions, agent-dead live sessions, idle dogs, stale kill-before-clear, and dispatchability; one lens noted no explicit healthy-working no-op test, resolved as non-blocking by direct code review and green focused checks."},
+    {"id": "research-04-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:attribution", "actor": "pr4437-attribution-supersession-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "PR #4437 preserves PR #4310 attribution: Rodrigo Muniz as original author and Paperclip as co-author, with PR body and commits citing original work."},
+    {"id": "research-05-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:ci-checks", "actor": "ci-checks-pr4437-ccd36f08-scavenger", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "All visible current-head checks passed; no baseline-red waiver is needed."},
+    {"id": "research-06-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:security", "actor": "security_privacy_pr4437_scavenger_20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Diff touches only daemon cleanup code/tests; no secrets, auth, CI credential, dependency, generated-state, or logging risk found."},
+    {"id": "research-07-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:cleanup-first", "actor": "scavenger-cleanup-first-pr4437-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "PR converges daemon cleanup on existing health, kill, and compare-clear primitives; no compatibility shim, workaround, or scope creep found."},
+    {"id": "research-08-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:blocker-scan", "actor": "blocker-scan-4437-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Labels, PR comments, reviews, and CI had no blocker; bead gt-gd7h blocked only on the missing durable evidence file now recovered by this artifact."},
+    {"id": "research-09-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:deps-workflow", "actor": "pr4437-deps-ci-release-perms-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "No go.mod/go.sum, workflow, release, or install script changes; daemon process lifecycle risk is covered by focused post reviews and green CI."},
+    {"id": "research-10-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:branch-topology", "actor": "branch-topology-fork-flow-4437-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Cross-repo fork PR from Bella-Giraffety/gastown into gastownhall/gastown main is mergeable/CLEAN and matches Gastown fork PR policy."},
+    {"id": "research-11-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:freshness", "actor": "pr4437-evidence-freshness-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Evidence is tied to current head ccd36f08; checks completed after current head and no comments/reviews conflict with labels or checks."},
+    {"id": "research-12-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:dog-lifecycle", "actor": "dog-lifecycle-agent-dead-reclaim-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Reclaim targets only working dogs with dead sessions or AgentDead; hung/live/busy handling remains separate and compare-clear prevents stale assignment erasure."},
+    {"id": "research-13-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:tmux-edgecases", "actor": "scavenger-tmux-process-edgecases-pr4437-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Dead session, shell-only agent-dead session, kill failures, and cleanup ordering were reviewed; kill/check failures fail closed."},
+    {"id": "research-14-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:label-policy", "actor": "pr4437-semantic-label-policy-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Exactly one semantic status, priority, and kind label exist; kind/bug means no enhancement approval is required."},
+    {"id": "research-15-artifact", "kind": "research_report", "uri": "urn:opencode:research:gt-gd7h:checker-schema", "actor": "evidence-checker-requirements-scavenger-20260708", "created_at": "2026-07-08T17:15:00Z", "digest": null, "summary": "Checker requires schema v1/policy v1.1, 15 research legs, 5 pre reviews, post reviews for replacement head, blocker scan, and final verdict/head alignment."},
+    {"id": "pre-01-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:gt-gd7h:correctness", "actor": "scavenger-pr4437-evidence-recovery-review-20260708", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved evidence recovery as correct and minimal; merge_replacement only if checker passes for ccd36f08."},
+    {"id": "pre-02-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:gt-gd7h:cleanup", "actor": "scavenger-readonly-cleanup-risk-20260708", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved recovered artifact and checker rerun as cleanup-first with no PR code churn."},
+    {"id": "pre-03-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:gt-gd7h:security", "actor": "scavenger-pr4437-security-workflow-20260708", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved merge-gate recovery only after durable current-head evidence and checker pass; no security workflow blocker found."},
+    {"id": "pre-04-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:gt-gd7h:attribution", "actor": "scavenger-attribution-supersession-gt-gd7h-20260708", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved attribution and supersession sequencing; #4310 closure deferred until #4437 lands."},
+    {"id": "pre-05-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:gt-gd7h:policy", "actor": "scavenger-pr4437-predecision-20260708", "created_at": "2026-07-08T17:25:00Z", "digest": null, "summary": "Approved policy plan if durable evidence is reconstructed and gt-pr-sheriff-check --merge-gate passes."},
+    {"id": "post-01-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:gt-gd7h:correctness", "actor": "pr4437-post-review-scavenger-20260708", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved final handler/test correctness for head ccd36f08."},
+    {"id": "post-02-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:gt-gd7h:tests", "actor": "postimpl-tests-ci-focused-scavenger-20260708-4437", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved CI and focused verification sufficiency at head ccd36f08."},
+    {"id": "post-03-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:gt-gd7h:cleanup", "actor": "post-review-scavenger-20260708-ccd36f08", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved cleanup-first implementation at head ccd36f08."},
+    {"id": "post-04-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:gt-gd7h:security", "actor": "post-review-scavenger-security-process-kill-ccd36f08", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved security/process-kill/workflow risk for head ccd36f08."},
+    {"id": "post-05-artifact", "kind": "review_report", "uri": "urn:opencode:post-review:gt-gd7h:attribution", "actor": "scavenger-pr4437-postimpl-ccd36f08", "created_at": "2026-07-08T17:23:00Z", "digest": null, "summary": "Approved attribution and supersession evidence at head ccd36f08."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-08T17:26:55Z",
+    "modified_paths": [
+      "pr-sheriff-evidence/gt-8rv7-pr4310-replacement/evidence.json"
+    ],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "pr4437-metadata-scavenger-20260708", "artifact_ref": "research-01-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-pr-metadata", "lens": "PR metadata and replacement relationship", "summary": "PR #4437 is open, non-draft, mergeable/CLEAN, labeled kind/bug priority/p1 status/merge-ready, and carries forward PR #4310."},
+      {"id": "research-02", "independence_key": "pr4437-handler-readonly-scavenger-20260708", "artifact_ref": "research-02-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-handler-diff", "lens": "handler diff correctness", "summary": "The handler diff safely extends cleanup to agent-dead sessions, kills them before clearing, and compare-clears exact work."},
+      {"id": "research-03", "independence_key": "pr4437-handler-test-scavenger-readonly-20260708", "artifact_ref": "research-03-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-test-coverage", "lens": "test coverage", "summary": "Regression tests cover dead-session, agent-dead, idle, stale kill-before-clear, and dispatchability; an explicit healthy-live no-op test gap is non-blocking after direct review and green checks."},
+      {"id": "research-04", "independence_key": "pr4437-attribution-supersession-scavenger-20260708", "artifact_ref": "research-04-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-attribution", "lens": "attribution and supersession", "summary": "PR #4437 preserves Rodrigo Muniz and Paperclip attribution and records #4310 replacement linkage."},
+      {"id": "research-05", "independence_key": "ci-checks-pr4437-ccd36f08-scavenger", "artifact_ref": "research-05-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-ci-checks", "lens": "CI checks", "summary": "All current-head GitHub checks passed; no baseline-red waiver needed."},
+      {"id": "research-06", "independence_key": "security_privacy_pr4437_scavenger_20260708", "artifact_ref": "research-06-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-security", "lens": "security and privacy", "summary": "No secrets, auth, CI credentials, dependency, generated-state, or logging risk found."},
+      {"id": "research-07", "independence_key": "scavenger-cleanup-first-pr4437-20260708", "artifact_ref": "research-07-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-cleanup-first", "lens": "cleanup-first", "summary": "The change converges daemon cleanup on existing health, kill, and compare-clear primitives without workaround layers."},
+      {"id": "research-08", "independence_key": "blocker-scan-4437-scavenger-20260708", "artifact_ref": "research-08-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-blocker-scan", "lens": "blocker scan", "summary": "No GitHub blocker remains; the bead blocker was missing evidence and is resolved by this recovered artifact."},
+      {"id": "research-09", "independence_key": "pr4437-deps-ci-release-perms-scavenger-20260708", "artifact_ref": "research-09-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-deps-workflow", "lens": "dependencies and workflow", "summary": "No dependency, workflow, release, or install script changes; daemon lifecycle risk receives focused review."},
+      {"id": "research-10", "independence_key": "branch-topology-fork-flow-4437-scavenger-20260708", "artifact_ref": "research-10-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-branch-topology", "lens": "branch topology", "summary": "Fork PR topology into upstream main is clean and compatible with Gastown fork PR policy."},
+      {"id": "research-11", "independence_key": "pr4437-evidence-freshness-scavenger-20260708", "artifact_ref": "research-11-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-freshness", "lens": "freshness", "summary": "Labels and checks are tied to current head ccd36f08 and no newer comments/reviews conflict."},
+      {"id": "research-12", "independence_key": "dog-lifecycle-agent-dead-reclaim-scavenger-20260708", "artifact_ref": "research-12-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-dog-lifecycle", "lens": "dog lifecycle", "summary": "Reclaim targets working dogs with dead sessions or AgentDead only; hung/live/busy handling remains separate."},
+      {"id": "research-13", "independence_key": "scavenger-tmux-process-edgecases-pr4437-20260708", "artifact_ref": "research-13-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-tmux-edgecases", "lens": "tmux/process edge cases", "summary": "Dead, shell-only agent-dead, kill-failure, and cleanup-ordering cases were reviewed; failures fail closed."},
+      {"id": "research-14", "independence_key": "pr4437-semantic-label-policy-scavenger-20260708", "artifact_ref": "research-14-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-label-policy", "lens": "semantic label policy", "summary": "Exactly one status/priority/kind exists and kind/bug requires no enhancement approval."},
+      {"id": "research-15", "independence_key": "evidence-checker-requirements-scavenger-20260708", "artifact_ref": "research-15-artifact", "completed_at": "2026-07-08T17:15:30Z", "actor": "research-checker-schema", "lens": "checker evidence requirements", "summary": "Required checker gates and missing artifact gap were identified; final evidence aligns verdict and current head."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "scavenger-pr4437-evidence-recovery-review-20260708", "artifact_ref": "pre-01-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "completed_at": "2026-07-08T17:23:30Z", "actor": "pre-review-correctness", "verdict": "approve", "summary": "Recovered evidence and checker rerun are correct and minimal; merge_replacement only after checker pass."},
+      {"id": "pre-02", "independence_key": "scavenger-readonly-cleanup-risk-20260708", "artifact_ref": "pre-02-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "completed_at": "2026-07-08T17:23:30Z", "actor": "pre-review-cleanup", "verdict": "approve", "summary": "Evidence recovery restores the missing artifact without PR code churn or workaround layering."},
+      {"id": "pre-03", "independence_key": "scavenger-pr4437-security-workflow-20260708", "artifact_ref": "pre-03-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "completed_at": "2026-07-08T17:23:30Z", "actor": "pre-review-security", "verdict": "approve", "summary": "Security/workflow risk is acceptable if durable evidence and checker pass are required before merge path."},
+      {"id": "pre-04", "independence_key": "scavenger-attribution-supersession-gt-gd7h-20260708", "artifact_ref": "pre-04-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "completed_at": "2026-07-08T17:23:30Z", "actor": "pre-review-attribution", "verdict": "approve", "summary": "Attribution is preserved and #4310 closure remains deferred until #4437 lands."},
+      {"id": "pre-05", "independence_key": "scavenger-pr4437-predecision-20260708", "artifact_ref": "pre-05-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "completed_at": "2026-07-08T17:25:30Z", "actor": "pre-review-policy", "verdict": "approve", "summary": "Policy-compliant if reconstructed evidence passes gt-pr-sheriff-check --merge-gate for current head."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "post-01", "independence_key": "pr4437-post-review-scavenger-20260708", "artifact_ref": "post-01-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "reviewed_head_sha": "ccd36f08c5ce4076e2274096b0df064d6d439bdd", "completed_at": "2026-07-08T17:23:30Z", "actor": "post-review-correctness", "verdict": "approve", "summary": "Final handler/test implementation correctly reclaims dead-session and agent-dead working dogs and kills stale sessions before clearing."},
+      {"id": "post-02", "independence_key": "postimpl-tests-ci-focused-scavenger-20260708-4437", "artifact_ref": "post-02-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "reviewed_head_sha": "ccd36f08c5ce4076e2274096b0df064d6d439bdd", "completed_at": "2026-07-08T17:23:30Z", "actor": "post-review-tests", "verdict": "approve", "summary": "CI and focused verification are sufficient for this replacement head."},
+      {"id": "post-03", "independence_key": "post-review-scavenger-20260708-ccd36f08", "artifact_ref": "post-03-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "reviewed_head_sha": "ccd36f08c5ce4076e2274096b0df064d6d439bdd", "completed_at": "2026-07-08T17:23:30Z", "actor": "post-review-cleanup", "verdict": "approve", "summary": "Final head is cleanup-first and avoids bandaids, workaround layers, compatibility shims, or broad daemon rewrites."},
+      {"id": "post-04", "independence_key": "post-review-scavenger-security-process-kill-ccd36f08", "artifact_ref": "post-04-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "reviewed_head_sha": "ccd36f08c5ce4076e2274096b0df064d6d439bdd", "completed_at": "2026-07-08T17:23:30Z", "actor": "post-review-security", "verdict": "approve", "summary": "No process-kill, workflow, credential, dependency, or security blocker found at final head."},
+      {"id": "post-05", "independence_key": "scavenger-pr4437-postimpl-ccd36f08", "artifact_ref": "post-05-artifact", "reviewed_action_ref": "action-plan-gt-8rv7-pr4310-replacement", "reviewed_head_sha": "ccd36f08c5ce4076e2274096b0df064d6d439bdd", "completed_at": "2026-07-08T17:23:30Z", "actor": "post-review-attribution", "verdict": "approve", "summary": "Attribution is preserved and superseded closure remains deferred until #4437 lands."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "acceptable_minimal",
+    "rationale": "The replacement keeps the accepted bugfix narrow, reuses CheckSessionHealth(..., 0), KillSessionWithProcesses, and ClearWorkIfMatches, and avoids retry layers, compatibility shims, broad daemon rewrites, or PR-content churn. The recovery work only restores missing evidence at the referenced artifact path.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "internal/daemon focused cleanup tests", "command_or_check": "CGO_ENABLED=0 go test ./internal/daemon -run 'TestCleanupStuckDogs|TestDetectStaleWorkingDogs_KillsSessionBeforeClearing|TestFindDispatchableDog' -count=1", "outcome": "pass", "artifact_ref": "focused-local-verify", "reason": "Focused local verification on detached PR head passed for dead-session, agent-dead, stale kill-before-clear, and dispatchability coverage."},
+      {"name": "PR body focused daemon/dog/tmux verification", "command_or_check": "Commands recorded in PR #4437 body for daemon, dog, tmux, vet, and build", "outcome": "pass", "artifact_ref": "replacement-pr-body", "reason": "PR body records focused verification run by the replacement author for affected daemon/dog/tmux packages."}
+    ],
+    "ci_checks": [
+      {"name": "Reject go.mod replace directives", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28959749009/job/85927964735", "artifact_ref": "ci-final-green", "reason": "Current PR head check passed."},
+      {"name": "Reject issues.jsonl", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28959749009/job/85927964689", "artifact_ref": "ci-final-green", "reason": "Current PR head check passed."},
+      {"name": "Windows Smoke Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28959749020/job/85927965032", "artifact_ref": "ci-final-green", "reason": "Current PR head check passed."},
+      {"name": "Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28959749009/job/85927964756", "artifact_ref": "ci-final-green", "reason": "Current PR head check passed."},
+      {"name": "Lint", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28959749009/job/85927964774", "artifact_ref": "ci-final-green", "reason": "Current PR head check passed."},
+      {"name": "Integration Tests", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28959749009/job/85927964716", "artifact_ref": "ci-final-green", "reason": "Current PR head check passed."},
+      {"name": "remove-label", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28959747828/job/85927960564", "artifact_ref": "ci-final-green", "reason": "Current PR head check passed."},
+      {"name": "remove-triage-label", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28960843098/job/85931686289", "artifact_ref": "ci-final-green", "reason": "Current PR head check passed."}
+    ]
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4310",
+    "replacement_change_url": "https://github.com/gastownhall/gastown/pull/4437",
+    "replacement_branch": "Bella-Giraffety/gastown:polecat/ghoul/gt-8rv7+46017f",
+    "replacement_commit_refs": [
+      "10ff33793828564a6164849bf3dd5f2340d3e4de",
+      "ccd36f08c5ce4076e2274096b0df064d6d439bdd"
+    ],
+    "original_author": "munizr13",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["original-pr-4310", "gt-8rv7-evidence-comment"],
+      "fresh_artifact_refs": ["label-snapshot-final", "diff-summary-final", "ci-final-green", "focused-local-verify", "recovered-evidence-artifact", "post-01-artifact", "post-02-artifact", "post-03-artifact", "post-04-artifact", "post-05-artifact"],
+      "rationale": "Original PR intent and attribution evidence are reused; PR #4437 metadata, final head, CI, focused verification, and reviews are fresh for the replacement merge path."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement PR #4437 carries forward original PR #4310 intent from Rodrigo Muniz and Paperclip.",
+      "preserved": true,
+      "method": "co_authored_by",
+      "artifact_refs": ["original-pr-4310", "replacement-pr-body", "gt-8rv7-evidence-comment"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "gt-8rv7-evidence-comment",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "bead_notes", "ci_checks", "github_pr_body"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": ["recovered-evidence-artifact", "merge-gate-check-output"],
+    "scanned_at": "2026-07-08T17:26:55Z",
+    "summary": "Scanned labels, PR comments, reviews, bead gt-8rv7, bead gt-gd7h, CI, and PR body. The only current blocker was missing durable evidence at the referenced path; this recovered evidence artifact and checker output resolve it. No do-not-merge label, change-request review, needs-info state, security blocker, or failing check remains."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4437",
+    "target_head_sha": "ccd36f08c5ce4076e2274096b0df064d6d439bdd",
+    "decided_by": "gastown/polecats/scavenger",
+    "decided_at": "2026-07-08T17:26:55Z",
+    "reason": "Replacement PR #4437 is current-head, mergeable/CLEAN, kind/bug priority/p1 status/merge-ready, preserves #4310 attribution, has green CI and focused verification, passes cleanup-first review, and now has recovered durable PR Sheriff evidence at the referenced path.",
+    "required_actions": ["Merge replacement PR #4437 via GitHub PR flow; do not close or supersede original PR #4310 until #4437 lands."]
+  }
+}
