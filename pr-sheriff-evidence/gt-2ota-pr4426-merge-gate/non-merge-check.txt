@@ -1,0 +1,9 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-2ota-pr4426-merge-gate/evidence.json
+Exit code: 0
+Target PR head SHA: b0467e95fa21b020bf6dfcde2ae2eb9b72905944
+Current main SHA: 3b9c2bf73939bad7c6744eddf12d0c5882923cc7
+
+PR Sheriff: PASS
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 6 pass, 6 not_applicable, 0 waived, 2 fail

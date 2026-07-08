@@ -1,0 +1,235 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-08T16:03:00Z",
+  "run_id": "gt-2ota-pr4426-merge-gate-2026-07-08",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request_review",
+    "change_id": "4426",
+    "url": "https://github.com/gastownhall/gastown/pull/4426",
+    "title": "fix(formula): converge formula root resolution",
+    "author": "Bella-Giraffety",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "0220c910de595ac617dff7d601a9d263fc87fb7b",
+    "current_base_sha": "3b9c2bf73939bad7c6744eddf12d0c5882923cc7",
+    "head_ref": "Bella-Giraffety/gastown:polecat/mirelurk/gt-6uao-pr4334-clean",
+    "head_sha": "b0467e95fa21b020bf6dfcde2ae2eb9b72905944",
+    "diff_summary": {
+      "additions": 342,
+      "deletions": 184,
+      "changed_files": 6,
+      "paths": [
+        "internal/cmd/formula.go",
+        "internal/cmd/formula_test.go",
+        "internal/cmd/synthesis.go",
+        "internal/cmd/synthesis_test.go",
+        "internal/formula/embed.go",
+        "internal/formula/embed_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "status_values": ["needs-triage", "needs-info", "needs-repro", "accepted", "reviewing", "in-progress", "review-approved", "merge-ready", "review-failed", "changes-requested", "merge-failed", "merged"],
+    "priority_values": ["p0", "p1", "p2", "p3"],
+    "kind_values": ["bug", "feature", "enhancement", "docs", "chore"],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["local_report", "artifact_store", "pr_thread"],
+    "baseline_checks": [],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-4426-merge-gate",
+    "mode": "none",
+    "proposed_action_ref": "action-plan-4426-merge-gate",
+    "summary": "Do not mutate PR #4426. Record fresh current-main PR Sheriff evidence and a defer_human_review merge gate because the PR is not merge-ready.",
+    "created_at": "2026-07-08T15:52:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/reviewing", "family": "status", "semantic_value": "reviewing"},
+      {"name": "priority/p2", "family": "priority", "semantic_value": "p2"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "reviewing",
+    "priority": "p2",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {"id": "label-snapshot", "kind": "label_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4426", "actor": "scavenger", "created_at": "2026-07-08T15:54:00Z", "digest": null, "summary": "PR #4426 has exactly one semantic label in each required family: status/reviewing, priority/p2, kind/bug."},
+    {"id": "pr-facts", "kind": "pr_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4426", "actor": "scavenger", "created_at": "2026-07-08T15:54:05Z", "digest": "b0467e95fa21b020bf6dfcde2ae2eb9b72905944", "summary": "PR #4426 is open, non-draft, GitHub reports MERGEABLE/CLEAN, head b0467e95, base 0220c910, current main 3b9c2bf."},
+    {"id": "ci-snapshot", "kind": "ci_snapshot", "uri": "https://github.com/gastownhall/gastown/actions/runs/28906684238", "actor": "scavenger", "created_at": "2026-07-08T15:54:10Z", "digest": "b0467e95fa21b020bf6dfcde2ae2eb9b72905944", "summary": "Head checks passed: Test, Integration Tests, Lint, Windows Smoke Test, Reject go.mod replace directives, Reject issues.jsonl; Block Internal PRs skipped."},
+    {"id": "base-delta", "kind": "compare_snapshot", "uri": "https://api.github.com/repos/gastownhall/gastown/compare/main...Bella-Giraffety:polecat/mirelurk/gt-6uao-pr4334-clean", "actor": "scavenger", "created_at": "2026-07-08T15:54:15Z", "digest": null, "summary": "Current main 3b9c2bf and PR head b0467e95 are diverged; ahead_by=4, behind_by=5, merge base 0220c910."},
+    {"id": "review-snapshot", "kind": "review_snapshot", "uri": "https://api.github.com/repos/gastownhall/gastown/pulls/4426/reviews", "actor": "scavenger", "created_at": "2026-07-08T15:54:20Z", "digest": null, "summary": "GitHub reviews, latestReviews, latestOpinionatedReviews, requested reviewers, and reviewDecision are empty."},
+    {"id": "blocker-merge-status", "kind": "blocker", "uri": "urn:pr-sheriff:blocker:4426:merge-status", "actor": "scavenger", "created_at": "2026-07-08T15:54:25Z", "digest": null, "summary": "status/reviewing is not a merge-ready semantic status; merge path requires review-approved or merge-ready."},
+    {"id": "blocker-review-approval", "kind": "blocker", "uri": "urn:pr-sheriff:blocker:4426:review-approval", "actor": "scavenger", "created_at": "2026-07-08T15:54:30Z", "digest": null, "summary": "No GitHub review approval is present for PR #4426."},
+    {"id": "blocker-stale-base", "kind": "blocker", "uri": "urn:pr-sheriff:blocker:4426:stale-base", "actor": "scavenger", "created_at": "2026-07-08T15:54:35Z", "digest": null, "summary": "Passing checks are stale for final merge readiness because current main advanced five commits beyond the PR merge base after checks."},
+    {"id": "blocker-route-containment", "kind": "blocker", "uri": "urn:pr-sheriff:blocker:4426:route-containment", "actor": "scavenger", "created_at": "2026-07-08T15:54:40Z", "digest": null, "summary": "PR #4426 route-resolved formula lookup uses GetRigDirForName plus ResolveBeadsDir without a containment check for malformed route paths such as rig/../../outside."},
+    {"id": "blocker-prior-defer", "kind": "blocker", "uri": "urn:bead:gt-6uao", "actor": "scavenger", "created_at": "2026-07-08T15:54:45Z", "digest": null, "summary": "Prior replacement evidence on gt-6uao recorded checker verdict defer_human_review and merge_path_allowed=false until replacement PR #4426 is review/status promoted."},
+    {"id": "replacement-attribution", "kind": "attribution", "uri": "https://github.com/gastownhall/gastown/pull/4426", "actor": "scavenger", "created_at": "2026-07-08T15:54:50Z", "digest": null, "summary": "Replacement PR #4426 body credits #4334 by Anthony Wong / antiwong, and commit d7d02a65 includes Co-authored-by: Anthony Wong <anthonywong@moovita.com>."},
+    {"id": "closure-intent", "kind": "closure_intent", "uri": "https://github.com/gastownhall/gastown/pull/4426", "actor": "scavenger", "created_at": "2026-07-08T15:54:55Z", "digest": null, "summary": "Original PR #4334 should remain open until replacement PR #4426 lands, then be closed or superseded with attribution."},
+    {"id": "research-01-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-pr-facts", "actor": "research-pr-facts", "created_at": "2026-07-08T15:55:00Z", "digest": null, "summary": "Collected PR #4426 facts: open, non-draft, head b0467e95, labels kind/bug priority/p2 status/reviewing, six files, green head checks, no reviews."},
+    {"id": "research-02-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-label-policy", "actor": "research-label-policy", "created_at": "2026-07-08T15:55:06Z", "digest": null, "summary": "Label policy found exactly one status/priority/kind, but status/reviewing does not allow merge path."},
+    {"id": "research-03-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-ci-checks", "actor": "research-ci-checks", "created_at": "2026-07-08T15:55:12Z", "digest": null, "summary": "CI checks pass on head b0467e95, but current main is 3b9c2bf and the PR is five commits behind."},
+    {"id": "research-04-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-diff-scope", "actor": "research-diff-scope", "created_at": "2026-07-08T15:55:18Z", "digest": null, "summary": "Diff is limited to formula/synthesis resolver code and tests, with duplicated lookup helpers removed."},
+    {"id": "research-05-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-cleanup-first", "actor": "research-cleanup-first", "created_at": "2026-07-08T15:55:24Z", "digest": null, "summary": "Cleanup-first lens found convergent shared formula resolver direction and no env fallback bandaid."},
+    {"id": "research-06-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-blocker-scan", "actor": "research-blocker-scan", "created_at": "2026-07-08T15:55:30Z", "digest": null, "summary": "Blocker scan found status/reviewing, no approvals, prior defer evidence, and low Codecov advisory coverage."},
+    {"id": "research-07-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-review-state", "actor": "research-review-state", "created_at": "2026-07-08T15:55:36Z", "digest": null, "summary": "Review state is empty: no reviews, requested reviewers, review threads, or review comments."},
+    {"id": "research-08-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-mergeability", "actor": "research-mergeability", "created_at": "2026-07-08T15:55:42Z", "digest": null, "summary": "GitHub reports clean mergeability, but base evidence is stale because main advanced five commits."},
+    {"id": "research-09-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-verification", "actor": "research-verification", "created_at": "2026-07-08T15:55:48Z", "digest": null, "summary": "Verification scope is adequate for head b0467e95, but merge-readiness verification needs current-main refresh or rerun."},
+    {"id": "research-10-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-security-risk", "actor": "research-security-risk", "created_at": "2026-07-08T15:55:54Z", "digest": null, "summary": "Security lens found a formula route containment blocker for malformed routes escaping town-root containment."},
+    {"id": "research-11-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-attribution", "actor": "research-attribution", "created_at": "2026-07-08T15:56:00Z", "digest": null, "summary": "Attribution is preserved in PR body and co-author trailer; #4334 closure should wait until #4426 lands."},
+    {"id": "research-12-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-policy-config", "actor": "research-policy-config", "created_at": "2026-07-08T15:56:06Z", "digest": null, "summary": "No repo-local .pr-sheriff config found; default policy requires exactly one label family and review-approved or merge-ready for merge path."},
+    {"id": "research-13-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-issue-context", "actor": "research-issue-context", "created_at": "2026-07-08T15:56:12Z", "digest": null, "summary": "Prior gt-6uao evidence created #4426 as replacement for #4334 and explicitly deferred merge until review/status promotion."},
+    {"id": "research-14-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-base-delta", "actor": "research-base-delta", "created_at": "2026-07-08T15:56:18Z", "digest": null, "summary": "Current main has no overlapping file changes with PR #4426, but PR merge ref/check context is stale."},
+    {"id": "research-15-artifact", "kind": "research_report", "uri": "urn:opencode:research:research-final-gates", "actor": "research-final-gates", "created_at": "2026-07-08T15:56:24Z", "digest": null, "summary": "Final gate assessment blocked merge path on status/review, no approvals, stale base/checks, and unresolved blockers."},
+    {"id": "pre-01-artifact", "kind": "review_report", "uri": "urn:opencode:pre-decision:correctness", "actor": "pre-decision-correctness", "created_at": "2026-07-08T16:00:20Z", "digest": null, "summary": "Approved defer_human_review/merge_path_allowed=false as correct and minimal."},
+    {"id": "pre-02-artifact", "kind": "review_report", "uri": "urn:opencode:pre-decision:policy", "actor": "pre-decision-policy", "created_at": "2026-07-08T16:00:26Z", "digest": null, "summary": "Initially required adding non-merge checker validation; approved the final action after that adjustment was incorporated."},
+    {"id": "pre-03-artifact", "kind": "review_report", "uri": "urn:opencode:pre-decision:security", "actor": "pre-decision-security", "created_at": "2026-07-08T16:00:32Z", "digest": null, "summary": "Approved blocking merge on malformed route path containment risk."},
+    {"id": "pre-04-artifact", "kind": "review_report", "uri": "urn:opencode:pre-decision:freshness", "actor": "pre-decision-freshness", "created_at": "2026-07-08T16:00:38Z", "digest": null, "summary": "Approved stale-base wording: head b0467e95 is based on 0220c910 while current main is 3b9c2bf."},
+    {"id": "pre-05-artifact", "kind": "review_report", "uri": "urn:opencode:pre-decision:attribution", "actor": "pre-decision-attribution", "created_at": "2026-07-08T16:00:44Z", "digest": null, "summary": "Approved attribution and superseded sequencing; #4334 remains open until #4426 lands."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": false,
+    "mode": "none",
+    "first_code_change_at": null,
+    "modified_paths": [],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "research-pr-facts", "artifact_ref": "research-01-artifact", "completed_at": "2026-07-08T15:55:00Z", "actor": "research-pr-facts", "lens": "PR facts", "summary": "Current PR facts collected."},
+      {"id": "research-02", "independence_key": "research-label-policy", "artifact_ref": "research-02-artifact", "completed_at": "2026-07-08T15:55:06Z", "actor": "research-label-policy", "lens": "label policy", "summary": "Status label is not merge-ready."},
+      {"id": "research-03", "independence_key": "research-ci-checks", "artifact_ref": "research-03-artifact", "completed_at": "2026-07-08T15:55:12Z", "actor": "research-ci-checks", "lens": "CI checks", "summary": "Head checks pass but base is stale."},
+      {"id": "research-04", "independence_key": "research-diff-scope", "artifact_ref": "research-04-artifact", "completed_at": "2026-07-08T15:55:18Z", "actor": "research-diff-scope", "lens": "diff scope", "summary": "Diff scope is narrow and resolver-focused."},
+      {"id": "research-05", "independence_key": "research-cleanup-first", "artifact_ref": "research-05-artifact", "completed_at": "2026-07-08T15:55:24Z", "actor": "research-cleanup-first", "lens": "cleanup-first", "summary": "Resolver direction is convergent."},
+      {"id": "research-06", "independence_key": "research-blocker-scan", "artifact_ref": "research-06-artifact", "completed_at": "2026-07-08T15:55:30Z", "actor": "research-blocker-scan", "lens": "blocker scan", "summary": "Status/review/previous defer blockers remain."},
+      {"id": "research-07", "independence_key": "research-review-state", "artifact_ref": "research-07-artifact", "completed_at": "2026-07-08T15:55:36Z", "actor": "research-review-state", "lens": "review state", "summary": "No approval exists."},
+      {"id": "research-08", "independence_key": "research-mergeability", "artifact_ref": "research-08-artifact", "completed_at": "2026-07-08T15:55:42Z", "actor": "research-mergeability", "lens": "mergeability", "summary": "GitHub reports clean but base is stale."},
+      {"id": "research-09", "independence_key": "research-verification", "artifact_ref": "research-09-artifact", "completed_at": "2026-07-08T15:55:48Z", "actor": "research-verification", "lens": "verification", "summary": "Verification is stale for final merge readiness."},
+      {"id": "research-10", "independence_key": "research-security-risk", "artifact_ref": "research-10-artifact", "completed_at": "2026-07-08T15:55:54Z", "actor": "research-security-risk", "lens": "security", "summary": "Route containment risk blocks merge."},
+      {"id": "research-11", "independence_key": "research-attribution", "artifact_ref": "research-11-artifact", "completed_at": "2026-07-08T15:56:00Z", "actor": "research-attribution", "lens": "attribution", "summary": "Attribution is preserved; closure deferred."},
+      {"id": "research-12", "independence_key": "research-policy-config", "artifact_ref": "research-12-artifact", "completed_at": "2026-07-08T15:56:06Z", "actor": "research-policy-config", "lens": "policy config", "summary": "Default PR Sheriff policy applies."},
+      {"id": "research-13", "independence_key": "research-issue-context", "artifact_ref": "research-13-artifact", "completed_at": "2026-07-08T15:56:12Z", "actor": "research-issue-context", "lens": "issue context", "summary": "Prior evidence deferred merge."},
+      {"id": "research-14", "independence_key": "research-base-delta", "artifact_ref": "research-14-artifact", "completed_at": "2026-07-08T15:56:18Z", "actor": "research-base-delta", "lens": "base delta", "summary": "Main advanced without overlapping files."},
+      {"id": "research-15", "independence_key": "research-final-gates", "artifact_ref": "research-15-artifact", "completed_at": "2026-07-08T15:56:24Z", "actor": "research-final-gates", "lens": "final gates", "summary": "Merge gates block."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "pre-decision-correctness", "artifact_ref": "pre-01-artifact", "reviewed_action_ref": "action-plan-4426-merge-gate", "completed_at": "2026-07-08T16:00:20Z", "actor": "pre-decision-correctness", "verdict": "approve", "summary": "Defer verdict is correct and minimal."},
+      {"id": "pre-02", "independence_key": "pre-decision-policy", "artifact_ref": "pre-02-artifact", "reviewed_action_ref": "action-plan-4426-merge-gate", "completed_at": "2026-07-08T16:00:26Z", "actor": "pre-decision-policy", "verdict": "approve", "summary": "Policy-compliant after adding non-merge checker validation."},
+      {"id": "pre-03", "independence_key": "pre-decision-security", "artifact_ref": "pre-03-artifact", "reviewed_action_ref": "action-plan-4426-merge-gate", "completed_at": "2026-07-08T16:00:32Z", "actor": "pre-decision-security", "verdict": "approve", "summary": "Route containment concern blocks merge."},
+      {"id": "pre-04", "independence_key": "pre-decision-freshness", "artifact_ref": "pre-04-artifact", "reviewed_action_ref": "action-plan-4426-merge-gate", "completed_at": "2026-07-08T16:00:38Z", "actor": "pre-decision-freshness", "verdict": "approve", "summary": "Stale base/check context blocks merge readiness."},
+      {"id": "pre-05", "independence_key": "pre-decision-attribution", "artifact_ref": "pre-05-artifact", "reviewed_action_ref": "action-plan-4426-merge-gate", "completed_at": "2026-07-08T16:00:44Z", "actor": "pre-decision-attribution", "verdict": "approve", "summary": "Attribution and superseded sequencing are correct."}
+    ],
+    "post_implementation_reviews": []
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "PR #4426 replaces the original env fallback with a shared formula resolver and removes duplicated formula-run/synthesis lookup paths. The current Sheriff action adds evidence only and does not add code surface.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [],
+    "ci_checks": [
+      {"name": "Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28906684238/job/85755169017", "artifact_ref": "ci-snapshot", "reason": "Passed on PR head b0467e95; stale for final merge readiness because main advanced after this run."},
+      {"name": "Integration Tests", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28906684238/job/85755169059", "artifact_ref": "ci-snapshot", "reason": "Passed on PR head b0467e95; stale for final merge readiness because main advanced after this run."},
+      {"name": "Lint", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28906684238/job/85755169037", "artifact_ref": "ci-snapshot", "reason": "Passed on PR head b0467e95; stale for final merge readiness because main advanced after this run."},
+      {"name": "Windows Smoke Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28906684195/job/85755168987", "artifact_ref": "ci-snapshot", "reason": "Passed on PR head b0467e95; stale for final merge readiness because main advanced after this run."}
+    ]
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": false,
+    "mode": "none",
+    "state": "in_progress",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4334",
+    "replacement_change_url": "https://github.com/gastownhall/gastown/pull/4426",
+    "replacement_branch": "Bella-Giraffety/gastown:polecat/mirelurk/gt-6uao-pr4334-clean",
+    "replacement_commit_refs": [
+      "d7d02a65d2c0102e1e22707654deb2c662e8c713",
+      "31687fd00b4fe874053c8e1fb453cfd7ef685635",
+      "5e9abb34273a9be3ed6dc8c4bacb494fd0bac441",
+      "b0467e95fa21b020bf6dfcde2ae2eb9b72905944"
+    ],
+    "original_author": "antiwong",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["blocker-prior-defer"],
+      "fresh_artifact_refs": ["pr-facts", "ci-snapshot", "base-delta", "replacement-attribution", "closure-intent"],
+      "rationale": "Prior gt-6uao replacement evidence established the carry-forward implementation; this gt-2ota pass refreshes merge-gate facts for current main."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "PR #4426 carries forward accepted bug-fix intent from original PR #4334 by antiwong / Anthony Wong.",
+      "preserved": true,
+      "method": "co_authored_by",
+      "artifact_refs": ["replacement-attribution"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "closure-intent",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "ci_annotations", "bead_notes"],
+    "unresolved_blockers_found": true,
+    "blocker_refs": ["blocker-merge-status", "blocker-review-approval", "blocker-stale-base", "blocker-route-containment", "blocker-prior-defer"],
+    "resolution_refs": [],
+    "scanned_at": "2026-07-08T16:01:00Z",
+    "summary": "Current blockers remain unresolved: status/reviewing is not merge-ready, no review approval exists, PR checks are stale against current main, prior evidence deferred merge, and route-resolved formula lookup needs containment review/fix."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "defer_human_review",
+    "decision_valid": true,
+    "merge_path_allowed": false,
+    "blocking_gates": ["merge_status", "blocker_scan"],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4426",
+    "target_head_sha": "b0467e95fa21b020bf6dfcde2ae2eb9b72905944",
+    "decided_by": "gastown/polecats/scavenger",
+    "decided_at": "2026-07-08T16:03:00Z",
+    "reason": "PR #4426 is a cleanup-first replacement but is not merge-ready: status is reviewing, approval is absent, checks are stale against current main, and route containment needs human/code review before promotion.",
+    "required_actions": [
+      "Keep PR #4426 open and do not merge yet.",
+      "Resolve or explicitly accept the route path containment concern in formula resolution.",
+      "Refresh/rebase PR #4426 onto current main and rerun CI before any merge-ready claim.",
+      "Obtain maintainer review and promote status to review-approved or merge-ready only after blockers are resolved.",
+      "Keep original PR #4334 open until replacement PR #4426 lands; then close/supersede #4334 with attribution to Anthony Wong / antiwong."
+    ]
+  }
+}

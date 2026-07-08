@@ -1,0 +1,13 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-2ota-pr4426-merge-gate/evidence.json --merge-gate
+Exit code: 1
+Target PR head SHA: b0467e95fa21b020bf6dfcde2ae2eb9b72905944
+Current main SHA: 3b9c2bf73939bad7c6744eddf12d0c5882923cc7
+
+PR Sheriff: BLOCK
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 6 pass, 5 not_applicable, 0 waived, 3 fail
+blocking_gates:
+- merge_status: status reviewing is not merge-ready; merge-ready status is contradicted by unresolved blocker evidence
+- blocker_scan: unresolved blockers found
+- final_verdict: --merge-gate requires final.verdict merge_as_is or merge_replacement
