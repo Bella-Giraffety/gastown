@@ -1,0 +1,274 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-09T15:15:47Z",
+  "run_id": "gt-f817-pr4100-superseded-2026-07-09",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "4100",
+    "url": "https://github.com/gastownhall/gastown/pull/4100",
+    "title": "Repair Dolt runtime tracking from live metadata",
+    "author": "Jacob-qd",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "09cf8ce37558316ef7b09d23a2ce4758527a3523",
+    "head_ref": "Jacob-qd/gastown:mayor/dolt-runtime-tracking-repair",
+    "head_sha": "cc78c6a0697c9b881501dc97f6bfcfc4547d006f",
+    "diff_summary": {
+      "additions": 114,
+      "deletions": 29,
+      "changed_files": 3,
+      "paths": [
+        "internal/cmd/dolt.go",
+        "internal/doltserver/doltserver.go",
+        "internal/doltserver/doltserver_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["local_report", "artifact_store", "bead", "pr_thread", "review_thread", "ci_log"],
+    "baseline_checks": [
+      "Reject go.mod replace directives",
+      "Reject issues.jsonl",
+      "Windows Smoke Test",
+      "Test",
+      "Lint",
+      "Integration Tests"
+    ],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-pr-4100-reject-superseded",
+    "mode": "reject",
+    "proposed_action_ref": "action-plan-pr-4100-reject-superseded",
+    "summary": "Reject any merge path for PR #4100. Treat it as superseded by current main's cleaner refreshPIDStateFromLiveInfo implementation; record blockers and recommend public superseded closure rather than Sheriff code changes or replacement.",
+    "created_at": "2026-07-09T15:05:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/review-failed", "family": "status", "semantic_value": "review-failed"},
+      {"name": "priority/p3", "family": "priority", "semantic_value": "p3"},
+      {"name": "kind/chore", "family": "kind", "semantic_value": "chore"}
+    ],
+    "status": "review-failed",
+    "priority": "p3",
+    "kind": "chore",
+    "snapshot_artifact_ref": "label-snapshot-pr-4100"
+  },
+  "artifacts": [
+    {
+      "id": "label-snapshot-pr-4100",
+      "kind": "pr_metadata",
+      "uri": "https://github.com/gastownhall/gastown/pull/4100",
+      "actor": "gastown/polecats/atom",
+      "created_at": "2026-07-09T15:15:47Z",
+      "digest": null,
+      "summary": "PR #4100 labels are priority/p3, kind/chore, status/review-failed; mergeStateStatus=DIRTY; mergeable=CONFLICTING; head cc78c6a0697c9b881501dc97f6bfcfc4547d006f."
+    },
+    {
+      "id": "diff-summary-pr-4100",
+      "kind": "diff_summary",
+      "uri": "https://github.com/gastownhall/gastown/pull/4100/files",
+      "actor": "gastown/polecats/atom",
+      "created_at": "2026-07-09T15:15:47Z",
+      "digest": null,
+      "summary": "PR #4100 changes internal/cmd/dolt.go, internal/doltserver/doltserver.go, and internal/doltserver/doltserver_test.go for 114 insertions and 29 deletions."
+    },
+    {
+      "id": "ci-snapshot-pr-4100",
+      "kind": "ci_log",
+      "uri": "https://github.com/gastownhall/gastown/pull/4100/checks",
+      "actor": "github-actions",
+      "created_at": "2026-07-09T15:15:47Z",
+      "digest": null,
+      "summary": "gh pr checks showed only passing add-triage-label/remove-triage-label automation. No substantive PR-head Test, Lint, Integration Tests, Windows Smoke Test, Reject go.mod replace directives, or Reject issues.jsonl check evidence was present."
+    },
+    {
+      "id": "comments-reviews-pr-4100",
+      "kind": "review_report",
+      "uri": "https://github.com/gastownhall/gastown/pull/4100",
+      "actor": "gastown/polecats/atom",
+      "created_at": "2026-07-09T15:15:47Z",
+      "digest": null,
+      "summary": "GitHub issue comments, review comments, and submitted reviews were empty; reviewDecision was empty."
+    },
+    {
+      "id": "current-main-supersession",
+      "kind": "source_inspection",
+      "uri": "https://github.com/gastownhall/gastown/commit/48706a55d8a83dad9aaf7918c3a3897a40afe92a",
+      "actor": "gastown/polecats/atom",
+      "created_at": "2026-07-09T15:15:47Z",
+      "digest": "48706a55d8a83dad9aaf7918c3a3897a40afe92a",
+      "summary": "Current upstream/main already contains refreshPIDStateFromLiveInfo, wired into live sql-server.info, PID-file, port-scan, and Start paths with tests; it uses a more converged error-reporting and atomic PID-write approach than PR #4100."
+    },
+    {
+      "id": "merge-conflict-snapshot",
+      "kind": "git_metadata",
+      "uri": "urn:git:merge-tree:upstream/main...pr-4100",
+      "actor": "gastown/polecats/atom",
+      "created_at": "2026-07-09T15:15:47Z",
+      "digest": null,
+      "summary": "GitHub reported mergeable=CONFLICTING and mergeStateStatus=DIRTY; local merge-tree research found a content conflict in internal/doltserver/doltserver.go."
+    },
+    {
+      "id": "attribution-pr-4100",
+      "kind": "pr_metadata",
+      "uri": "https://github.com/gastownhall/gastown/pull/4100/commits/cc78c6a0697c9b881501dc97f6bfcfc4547d006f",
+      "actor": "gastown/polecats/atom",
+      "created_at": "2026-07-09T15:15:47Z",
+      "digest": "cc78c6a0697c9b881501dc97f6bfcfc4547d006f",
+      "summary": "PR author is Jacob-qd. The sole commit author is mayor <67457551@qq.com>; any future carry-forward of PR-specific material should credit PR #4100 and preserve/co-author this identity."
+    },
+    {
+      "id": "superseded-closure-intent",
+      "kind": "review_report",
+      "uri": "urn:bead:gt-f817#superseded-closure-intent",
+      "actor": "gastown/polecats/atom",
+      "created_at": "2026-07-09T15:15:47Z",
+      "digest": null,
+      "summary": "Recommended next action: close PR #4100 as superseded by current main, publicly citing the current-main refreshPIDStateFromLiveInfo path and thanking/referenceing the contributor; do not merge as-is."
+    },
+    {"id": "research-01-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg01-metadata", "actor": "leg01-metadata", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Metadata: open non-draft PR by Jacob-qd, author_association=CONTRIBUTOR, read permission, head cc78c6a, labels priority/p3 kind/chore status/review-failed, mergeStateStatus=DIRTY, 3 files +114/-29."},
+    {"id": "research-02-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg02-ci", "actor": "leg02-ci", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "CI: only label automation checks passed on PR head; no substantive PR-head CI, Windows, lint, integration, or guard checks. Current main checks were green."},
+    {"id": "research-03-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg03-label-policy", "actor": "leg03-label-policy", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Labels have exactly one status, priority, and kind. Status review-failed blocks merge path because it is not review-approved or merge-ready."},
+    {"id": "research-04-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg04-comments-reviews", "actor": "leg04-comments-reviews", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Comments/reviews: zero issue comments, review comments, reviews, latest reviews, and review threads; no approval evidence and no comment resolving review-failed."},
+    {"id": "research-05-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg05-diff-scope", "actor": "leg05-diff-scope", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Diff scope is narrow for Dolt runtime tracking: dolt status output, doltserver repair helper, and focused tests; current-main conflict behavior required separate evidence."},
+    {"id": "research-06-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg06-correctness", "actor": "leg06-correctness", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Correctness: PR direction is valid but silently ignores write/save errors, writes PID non-atomically, and is superseded by current main's cleaner refreshPIDStateFromLiveInfo."},
+    {"id": "research-07-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg07-cleanup-first", "actor": "leg07-cleanup-first", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Cleanup-first: PR was acceptable-minimal at creation, but hidden IsRunning write side effects and ignored errors make it less clean than current main."},
+    {"id": "research-08-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg08-security-operational", "actor": "leg08-security-operational", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Security/ops: no secret/data leak found, but runtime path disclosure, silent repair, non-atomic writes, and conflict with current main block as-is merge."},
+    {"id": "research-09-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg09-current-main-applicability", "actor": "leg09-current-main-applicability", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Current-main applicability: PR is conflicting and largely duplicated/superseded by current main's refreshPIDStateFromLiveInfo implementation and tests."},
+    {"id": "research-10-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg10-tests-verification", "actor": "leg10-tests-verification", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Tests: PR adds useful parser/helper tests but lacks fresh rebase verification, full live-discovery path coverage, status output assertions, and substantive CI."},
+    {"id": "research-11-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg11-attribution", "actor": "leg11-attribution", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Attribution: PR author Jacob-qd; commit author mayor <67457551@qq.com>; future carry-forward should preserve or publicly credit this attribution."},
+    {"id": "research-12-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg12-problem-validity", "actor": "leg12-problem-validity", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Problem is valid; live Dolt metadata can diverge. Current upstream/main already substantially implements the self-heal path, so PR #4100 is stale rather than invalid."},
+    {"id": "research-13-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg13-architecture-fit", "actor": "leg13-architecture-fit", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Architecture intent is right layer, but current main's refreshPIDStateFromLiveInfo is the better converged integration with error reporting and atomic writes."},
+    {"id": "research-14-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg14-blocker-scan", "actor": "leg14-blocker-scan", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Blocker scan: unresolved status/review-failed, merge conflict, stale branch 428 commits behind, no approvals, no substantive build/test CI evidence."},
+    {"id": "research-15-artifact", "kind": "research_report", "uri": "urn:opencode:gt-f817:research:leg15-merge-path", "actor": "leg15-merge-path", "created_at": "2026-07-09T14:55:00Z", "digest": null, "summary": "Merge-path lens independently recommended reject/close superseded: no merge-as-is, no replacement warranted because core behavior is already on main."},
+    {"id": "pre-01-artifact", "kind": "review_report", "uri": "urn:opencode:gt-f817:pre:pre01", "actor": "pre01", "created_at": "2026-07-09T15:05:00Z", "digest": null, "summary": "Approved the non-merge recommendation as sound, minimal, cleanup-first, and evidence-supported; prefer close_superseded over combined reject wording."},
+    {"id": "pre-02-artifact", "kind": "review_report", "uri": "urn:opencode:gt-f817:pre:pre02", "actor": "pre02", "created_at": "2026-07-09T15:05:00Z", "digest": null, "summary": "Approved label/merge-status rationale; close_superseded is most precise, defer_human_review not needed on collected evidence."},
+    {"id": "pre-03-artifact", "kind": "review_report", "uri": "urn:opencode:gt-f817:pre:pre03", "actor": "pre03", "created_at": "2026-07-09T15:05:00Z", "digest": null, "summary": "Approved technical current-main rationale: cleaner core repair path already exists and PR #4100's remaining differences are stale/conflicting."},
+    {"id": "pre-04-artifact", "kind": "review_report", "uri": "urn:opencode:gt-f817:pre:pre04", "actor": "pre04", "created_at": "2026-07-09T15:05:00Z", "digest": null, "summary": "Approved cleanup-first rationale; no replacement/fixup warranted, and nonce PID concerns should be handled separately only if reproduced."},
+    {"id": "pre-05-artifact", "kind": "review_report", "uri": "urn:opencode:gt-f817:pre:pre05", "actor": "pre05", "created_at": "2026-07-09T15:05:00Z", "digest": null, "summary": "Approved attribution/ethics: public superseded closure should cite current main and thank/reference PR #4100; no carry-forward credit required unless future work imports PR-specific extras."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": false,
+    "mode": "reject",
+    "first_code_change_at": null,
+    "modified_paths": [],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "leg01-metadata", "artifact_ref": "research-01-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg01-metadata", "lens": "PR metadata", "summary": "Open non-draft PR by Jacob-qd at cc78c6a, labels priority/p3 kind/chore status/review-failed, mergeStateStatus=DIRTY, 3 files changed +114/-29."},
+      {"id": "research-02", "independence_key": "leg02-ci", "artifact_ref": "research-02-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg02-ci", "lens": "CI and checks", "summary": "Only label automation checks were present on PR head; substantive PR-head verification is missing."},
+      {"id": "research-03", "independence_key": "leg03-label-policy", "artifact_ref": "research-03-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg03-label-policy", "lens": "label policy", "summary": "Exactly one label per semantic family exists, but status/review-failed blocks merge path."},
+      {"id": "research-04", "independence_key": "leg04-comments-reviews", "artifact_ref": "research-04-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg04-comments-reviews", "lens": "comments and reviews", "summary": "No comments, reviews, approvals, or review threads exist; no evidence resolves review-failed."},
+      {"id": "research-05", "independence_key": "leg05-diff-scope", "artifact_ref": "research-05-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg05-diff-scope", "lens": "diff scope", "summary": "Diff is narrow for Dolt runtime tracking but stale relative to current main."},
+      {"id": "research-06", "independence_key": "leg06-correctness", "artifact_ref": "research-06-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg06-correctness", "lens": "correctness", "summary": "PR direction is valid but implementation is stale and weaker than current main due silent errors and non-atomic writes."},
+      {"id": "research-07", "independence_key": "leg07-cleanup-first", "artifact_ref": "research-07-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg07-cleanup-first", "lens": "cleanup-first", "summary": "Original PR was acceptable-minimal but current main is more converged; no new workaround should be layered in."},
+      {"id": "research-08", "independence_key": "leg08-security-operational", "artifact_ref": "research-08-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg08-security-operational", "lens": "security and operational risk", "summary": "No direct secret leak, but operational risks from path disclosure, silent repair, and non-atomic writes block as-is merge."},
+      {"id": "research-09", "independence_key": "leg09-current-main-applicability", "artifact_ref": "research-09-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg09-current-main-applicability", "lens": "current-main applicability", "summary": "PR is conflicting and substantially superseded by current main's refreshPIDStateFromLiveInfo."},
+      {"id": "research-10", "independence_key": "leg10-tests-verification", "artifact_ref": "research-10-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg10-tests-verification", "lens": "tests and verification", "summary": "PR tests are useful but incomplete; fresh rebase, CI, and live path verification are missing."},
+      {"id": "research-11", "independence_key": "leg11-attribution", "artifact_ref": "research-11-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg11-attribution", "lens": "attribution", "summary": "Future carry-forward should preserve or credit Jacob-qd and mayor <67457551@qq.com>; no carry-forward occurred in this review."},
+      {"id": "research-12", "independence_key": "leg12-problem-validity", "artifact_ref": "research-12-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg12-problem-validity", "lens": "problem validity", "summary": "The bug class is valid, but current main already substantially implements the live-metadata self-heal."},
+      {"id": "research-13", "independence_key": "leg13-architecture-fit", "artifact_ref": "research-13-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg13-architecture-fit", "lens": "architecture fit", "summary": "Right architectural layer, but current main has the better error-aware atomic integration."},
+      {"id": "research-14", "independence_key": "leg14-blocker-scan", "artifact_ref": "research-14-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg14-blocker-scan", "lens": "blocker scan", "summary": "Unresolved blockers: review-failed label, merge conflict, stale branch, no approvals, no substantive CI."},
+      {"id": "research-15", "independence_key": "leg15-merge-path", "artifact_ref": "research-15-artifact", "completed_at": "2026-07-09T14:55:00Z", "actor": "leg15-merge-path", "lens": "merge path", "summary": "Independent merge-path recommendation: do not merge as-is; close as superseded by current main."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "pre01", "artifact_ref": "pre-01-artifact", "reviewed_action_ref": "action-plan-pr-4100-reject-superseded", "completed_at": "2026-07-09T15:05:00Z", "actor": "pre01", "verdict": "approve", "summary": "Approved non-merge action as sound, minimal, cleanup-first, and evidence-supported."},
+      {"id": "pre-02", "independence_key": "pre02", "artifact_ref": "pre-02-artifact", "reviewed_action_ref": "action-plan-pr-4100-reject-superseded", "completed_at": "2026-07-09T15:05:00Z", "actor": "pre02", "verdict": "approve", "summary": "Approved label policy and close-superseded practical recommendation; defer_human_review not needed."},
+      {"id": "pre-03", "independence_key": "pre03", "artifact_ref": "pre-03-artifact", "reviewed_action_ref": "action-plan-pr-4100-reject-superseded", "completed_at": "2026-07-09T15:05:00Z", "actor": "pre03", "verdict": "approve", "summary": "Approved current-main technical rationale."},
+      {"id": "pre-04", "independence_key": "pre04", "artifact_ref": "pre-04-artifact", "reviewed_action_ref": "action-plan-pr-4100-reject-superseded", "completed_at": "2026-07-09T15:05:00Z", "actor": "pre04", "verdict": "approve", "summary": "Approved cleanup-first rationale and no-replacement decision."},
+      {"id": "pre-05", "independence_key": "pre05", "artifact_ref": "pre-05-artifact", "reviewed_action_ref": "action-plan-pr-4100-reject-superseded", "completed_at": "2026-07-09T15:05:00Z", "actor": "pre05", "verdict": "approve", "summary": "Approved attribution/ethics for public superseded closure."}
+    ],
+    "post_implementation_reviews": []
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "The decision avoids layering the stale PR's older repairRuntimeTracking helper over current main and instead converges on the already-landed refreshPIDStateFromLiveInfo path with error reporting, atomic PID writes, and tests.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [],
+    "ci_checks": [
+      {"name": "add-triage-label", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/26266663890/job/77311322189", "artifact_ref": "ci-snapshot-pr-4100", "reason": "Label automation only; not substantive code verification."},
+      {"name": "remove-triage-label", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/27716425274/job/81990401524", "artifact_ref": "ci-snapshot-pr-4100", "reason": "Label automation only; not substantive code verification."},
+      {"name": "Test", "outcome": "missing", "head_outcome": "missing", "run_url": null, "artifact_ref": "ci-snapshot-pr-4100", "reason": "No substantive PR-head test check was available for the conflicting/stale head."},
+      {"name": "Lint", "outcome": "missing", "head_outcome": "missing", "run_url": null, "artifact_ref": "ci-snapshot-pr-4100", "reason": "No substantive PR-head lint check was available for the conflicting/stale head."},
+      {"name": "Integration Tests", "outcome": "missing", "head_outcome": "missing", "run_url": null, "artifact_ref": "ci-snapshot-pr-4100", "reason": "No substantive PR-head integration check was available for the conflicting/stale head."},
+      {"name": "Windows Smoke Test", "outcome": "missing", "head_outcome": "missing", "run_url": null, "artifact_ref": "ci-snapshot-pr-4100", "reason": "No substantive PR-head Windows check was available for the conflicting/stale head."}
+    ]
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": false,
+    "mode": "none",
+    "state": "not_applicable",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4100",
+    "replacement_change_url": null,
+    "replacement_branch": null,
+    "replacement_commit_refs": [],
+    "original_author": "Jacob-qd",
+    "evidence_reuse": {"reused_artifact_refs": [], "fresh_artifact_refs": ["current-main-supersession", "merge-conflict-snapshot"], "rationale": "No replacement or carry-forward occurred; current main already contains the converged core repair."},
+    "attribution": {"required": false, "required_reason": "No PR #4100 code was carried forward in this Sheriff action.", "preserved": false, "method": "not_required", "artifact_refs": ["attribution-pr-4100"]},
+    "superseded_closure": {"required": true, "state": "intent_recorded", "closure_intent_ref": "superseded-closure-intent", "replacement_merge_ref": "current-main-supersession", "closure_ref": null}
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "reviews", "ci_checks", "git_mergeability", "current_main_code", "bead_notes"],
+    "unresolved_blockers_found": true,
+    "blocker_refs": ["label-snapshot-pr-4100", "ci-snapshot-pr-4100", "comments-reviews-pr-4100", "merge-conflict-snapshot", "current-main-supersession"],
+    "resolution_refs": ["superseded-closure-intent"],
+    "scanned_at": "2026-07-09T15:15:47Z",
+    "summary": "Unresolved blockers for any merge path: status/review-failed, mergeable=CONFLICTING/DIRTY, no approvals or reviews, no substantive PR-head CI, stale branch behind current main, and current main already has a cleaner refreshPIDStateFromLiveInfo implementation."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "reject",
+    "decision_valid": true,
+    "merge_path_allowed": false,
+    "blocking_gates": ["merge_status", "blocker_scan", "focused_verification"],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4100",
+    "target_head_sha": "cc78c6a0697c9b881501dc97f6bfcfc4547d006f",
+    "decided_by": "gastown/polecats/atom",
+    "decided_at": "2026-07-09T15:15:47Z",
+    "reason": "Reject the merge path for PR #4100: it is conflicting/dirty, labeled status/review-failed, lacks approval and substantive CI, and current upstream/main already contains the cleaner refreshPIDStateFromLiveInfo implementation covering the core Dolt runtime tracking repair.",
+    "required_actions": [
+      "Do not merge PR #4100 as-is.",
+      "Close or mark PR #4100 as superseded with a public note citing current main's refreshPIDStateFromLiveInfo path and thanking/referenceing the contributor.",
+      "If future work imports PR #4100-specific extras such as nonce PID parsing or status path display, preserve attribution to PR #4100, Jacob-qd, and mayor <67457551@qq.com>."
+    ]
+  }
+}
