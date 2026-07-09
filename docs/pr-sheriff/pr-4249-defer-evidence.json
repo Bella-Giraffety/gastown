@@ -1,0 +1,205 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-09T19:47:00Z",
+  "run_id": "gt-shx9-pr-4249-defer",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "4249",
+    "url": "https://github.com/gastownhall/gastown/pull/4249",
+    "title": "fix(test): align stale test expectations to unbreak main CI (9 tests)",
+    "author": "andrewboldi",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "ccd16c18606ad87e9e62abdf048c337a7323282b",
+    "head_ref": "andrewboldi/fix/unbreak-main-ci-stale-tests",
+    "head_sha": "7d19c57585a5fa551a4f23ae7a3ad4153096c419",
+    "diff_summary": {
+      "additions": 17,
+      "deletions": 11,
+      "changed_files": 9,
+      "paths": [
+        "internal/cmd/convoy_bd_routing_test.go",
+        "internal/cmd/convoy_external_tracking_test.go",
+        "internal/cmd/convoy_test_helpers_test.go",
+        "internal/cmd/dolt_status_test.go",
+        "internal/cmd/install_test.go",
+        "internal/cmd/statusline_test.go",
+        "internal/polecat/manager_test.go",
+        "internal/refinery/engineer_test.go",
+        "internal/rig/manager_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [
+      {"from": "status/accepted", "to_family": "status", "to_value": "accepted"},
+      {"from": "status/review-approved", "to_family": "status", "to_value": "review-approved"},
+      {"from": "status/merge-ready", "to_family": "status", "to_value": "merge-ready"},
+      {"from": "priority/p1", "to_family": "priority", "to_value": "p1"},
+      {"from": "kind/chore", "to_family": "kind", "to_value": "chore"},
+      {"from": "kind/enhancement", "to_family": "kind", "to_value": "enhancement"}
+    ],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["beads_note", "local_report", "github_pr", "ci_log"],
+    "baseline_checks": ["Test", "Lint", "Integration Tests", "Windows Smoke Test", "Reject go.mod replace directives", "Reject issues.jsonl"],
+    "no_verification_reasons": []
+  },
+  "action_plan": {
+    "id": "action-plan-gt-shx9-pr-4249-defer",
+    "mode": "defer_human_review",
+    "proposed_action_ref": "action-plan-gt-shx9-pr-4249-defer",
+    "summary": "Produce a checker-validated non-merge PR Sheriff report for PR #4249 with merge_path_allowed=false. Do not mutate GitHub or carry code forward because the PR is stale/conflicting, status/accepted is not merge-ready, CI is stale/red, and remaining non-overlapping hunks require maintainer judgment against #4248/#4272/current main rather than a Sheriff merge path.",
+    "created_at": "2026-07-09T19:40:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/accepted", "family": "status", "semantic_value": "accepted", "subject": "PR #4249"},
+      {"name": "priority/p1", "family": "priority", "semantic_value": "p1", "subject": "PR #4249"},
+      {"name": "kind/chore", "family": "kind", "semantic_value": "chore", "subject": "PR #4249"}
+    ],
+    "status": "accepted",
+    "priority": "p1",
+    "kind": "chore",
+    "snapshot_artifact_ref": "artifact-label-snapshot"
+  },
+  "artifacts": [
+    {"id": "artifact-pr-metadata-final", "kind": "github_pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4249", "actor": "gh-pr-view", "created_at": "2026-07-09T19:39:00Z", "digest": "7d19c57585a5fa551a4f23ae7a3ad4153096c419", "summary": "PR #4249 is open, non-draft, authored by andrewboldi, base main@ccd16c18606ad87e9e62abdf048c337a7323282b, head 7d19c57585a5fa551a4f23ae7a3ad4153096c419, mergeable=CONFLICTING, mergeStateStatus=DIRTY, 9 test files changed +17/-11."},
+    {"id": "artifact-label-snapshot", "kind": "github_label_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4249", "actor": "gh-pr-view", "created_at": "2026-07-09T19:39:00Z", "digest": "status/accepted priority/p1 kind/chore", "summary": "Current labels are exactly status/accepted, priority/p1, and kind/chore. Status accepted is a triage state, not review-approved or merge-ready."},
+    {"id": "artifact-ci-pr", "kind": "ci_log", "uri": "https://github.com/gastownhall/gastown/actions/runs/27392260000", "actor": "gh-pr-view", "created_at": "2026-07-09T19:39:00Z", "digest": "7d19c57585a5fa551a4f23ae7a3ad4153096c419", "summary": "PR head checks are stale from 2026-06-12: Test, Integration Tests, Windows Smoke Test, Reject go.mod replace directives, and Reject issues.jsonl passed; Lint failed in untouched production files."},
+    {"id": "artifact-comments-reviews", "kind": "blocker_scan", "uri": "https://github.com/gastownhall/gastown/pull/4249", "actor": "gh-pr-view", "created_at": "2026-07-09T19:39:00Z", "digest": null, "summary": "PR comments, review comments, and reviews scanned. There are no reviews or approvals, no explicit do-not-merge comment, and author comments state Lint was pre-existing and #4255 was a sibling lint fix."},
+    {"id": "artifact-pr-4273", "kind": "github_pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4273", "actor": "gh-pr-view", "created_at": "2026-07-09T19:39:00Z", "digest": "70507ec58a8d8658e4d6272e9de6cad6579a1039", "summary": "PR #4273 merged 2026-06-16 as fix(test): repair stale #4272 test fixtures. Its merge commit 70507ec58 and head 8c5d53567 are ancestors of current upstream/main and overlap with the accepted stale-fixture subset of #4249."},
+    {"id": "artifact-pr-4255", "kind": "github_pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4255", "actor": "gh-pr-view", "created_at": "2026-07-09T19:39:00Z", "digest": "99e5b416d096b05c724bc905488daec88a752b4d", "summary": "PR #4255 merged 2026-06-17 and addressed the six golangci-lint findings that kept PR #4249's old Lint check red; it does not make #4249 merge-ready."},
+    {"id": "artifact-issue-4248", "kind": "github_issue_comments", "uri": "https://github.com/gastownhall/gastown/issues/4248", "actor": "gh-issue-view", "created_at": "2026-07-09T19:39:00Z", "digest": null, "summary": "Issue #4248 remains open. Later diagnosis says TestJSONOutput_* involved runConvoyStage JSON/error-path and typed dependency migration work, not only a stale fixture wildcard."},
+    {"id": "artifact-issue-4272", "kind": "github_issue_comments", "uri": "https://github.com/gastownhall/gastown/issues/4272", "actor": "gh-issue-view", "created_at": "2026-07-09T19:39:00Z", "digest": null, "summary": "Issue #4272 records that #4273 fixed groups A/B/C/E stale fixtures, while #4248 and integration/default-port/migration tails required separate handling."},
+    {"id": "artifact-current-main", "kind": "git_ref", "uri": "urn:git:commit:81233d36f27465fcae83944f78bdea1674d7143e", "actor": "git", "created_at": "2026-07-09T19:39:00Z", "digest": "81233d36f27465fcae83944f78bdea1674d7143e", "summary": "Current upstream/main at review time. Merge-base checks confirm PR #4273/#4255-related commits and later current-main fixes are ancestors."},
+    {"id": "artifact-current-main-tests", "kind": "verification_log", "uri": "urn:local-command:CGO_ENABLED=0-go-test-internal-cmd-polecat-refinery-rig-focused", "actor": "go-test", "created_at": "2026-07-09T19:39:00Z", "digest": "pass", "summary": "CGO_ENABLED=0 go test ./internal/cmd ./internal/polecat ./internal/refinery ./internal/rig -run '^(TestRunConvoyList_UsesTownRootAndStripsBeadsDir|TestRunConvoyStatus_UsesTownRootAndStripsBeadsDir|TestGetTrackedIssues_FallsBackToShowTrackedDependencies|TestEnsureBeadsConfigYAML_CreatesWhenMissing|TestFilterAndSortSessions_SortOrder|TestGuessSessionFromWorkerDir|TestJSONOutput_NoHumanReadableText|TestJSONOutput_ErrorsReturnNonZeroExit|TestReadBeadsRuntimeConfigDefaultServerAddr|TestManagerAgentLifecycleUsesTownBeadsDir|TestEngineerTerminalCloseClearsAgentActiveMRUsesTownBeadsDir|TestInitBeadsWritesConfigOnFailure)$' -count=1 passed on current upstream/main."},
+    {"id": "artifact-current-main-ci", "kind": "ci_log", "uri": "https://github.com/gastownhall/gastown/actions/runs/29033718103", "actor": "gh-run-list", "created_at": "2026-07-09T19:39:00Z", "digest": "81233d36f27465fcae83944f78bdea1674d7143e", "summary": "Latest current-main CI at review time failed before repo tests due Dolt install/setup; Windows CI passed. Earlier run 29031677825 on b810686e passed CI, but current head is not globally green."},
+    {"id": "artifact-research-fanout", "kind": "agent_fanout", "uri": "file:docs/pr-sheriff/pr-4249-defer-evidence.json#research_legs", "actor": "opencode-task-subagents", "created_at": "2026-07-09T19:05:00Z", "digest": null, "summary": "15 read-only PR Sheriff research legs completed: metadata, labels, CI, comments, diff correctness, current-main applicability, security, operational risk, attribution, scope, repo policy, tests, cleanup-first, merge strategy, and checker schema."},
+    {"id": "artifact-pre-reviews-defer", "kind": "agent_fanout", "uri": "file:docs/pr-sheriff/pr-4249-defer-evidence.json#pre_implementation_reviews", "actor": "opencode-task-subagents", "created_at": "2026-07-09T19:46:30Z", "digest": null, "summary": "5 independent pre-decision reviews approved the exact defer_human_review action with no code changes, no GitHub mutation, final blockers merge_status and blocker_scan, and maintainer-review wording for any later closure."},
+    {"id": "artifact-checker-schema", "kind": "tool_schema", "uri": "file:/home/coder/.local/bin/gt-pr-sheriff-check", "actor": "gt-pr-sheriff-check", "created_at": "2026-07-09T19:15:00Z", "digest": "pr-sheriff-policy/v1.1", "summary": "Checker supports non-merge validation without --merge-gate for defer_human_review, allowing declared merge_status and blocker_scan failures as the reason for merge_path_allowed=false when required always-on gates pass."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": false,
+    "mode": "none",
+    "first_code_change_at": null,
+    "modified_paths": [],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "R01-pr-metadata", "artifact_ref": "artifact-pr-metadata-final", "completed_at": "2026-07-09T18:18:42Z", "actor": "subagent", "lens": "PR metadata", "summary": "PR #4249 metadata is sufficient for review but not merge approval: open, not draft, head 7d19c575, 9 test files, GitHub reports DIRTY/CONFLICTING, and body is stale relative to commits."},
+      {"id": "research-02", "independence_key": "R02-label-policy", "artifact_ref": "artifact-label-snapshot", "completed_at": "2026-07-09T18:19:00Z", "actor": "subagent", "lens": "labels", "summary": "Labels have valid cardinality but status/accepted is not a merge-ready semantic status."},
+      {"id": "research-03", "independence_key": "R03-ci-checks", "artifact_ref": "artifact-ci-pr", "completed_at": "2026-07-09T18:19:15Z", "actor": "subagent", "lens": "CI checks", "summary": "Old PR checks had Test and Integration green but Lint red; no fresh PR run exists against current main."},
+      {"id": "research-04", "independence_key": "R04-comments-blockers", "artifact_ref": "artifact-comments-reviews", "completed_at": "2026-07-09T18:19:30Z", "actor": "subagent", "lens": "comments and reviews", "summary": "No explicit do-not-merge or changes-requested comments, but no reviews or approvals; author comments are superseded in part by later #4248/#4272 diagnosis."},
+      {"id": "research-05", "independence_key": "R05-diff-correctness", "artifact_ref": "artifact-research-fanout", "completed_at": "2026-07-09T18:19:45Z", "actor": "subagent", "lens": "diff correctness", "summary": "Most hunks are valid stale-test cleanup, but dolt_status_test.go is stale against current main behavior and convoy JSON hunks require current #4248 context."},
+      {"id": "research-06", "independence_key": "R06-current-main-applicability", "artifact_ref": "artifact-current-main-tests", "completed_at": "2026-07-09T18:20:00Z", "actor": "subagent", "lens": "current-main applicability", "summary": "Useful stale-fixture fixes are already landed or superseded; focused affected tests pass on current main; whole PR is obsolete/conflicting as a merge candidate."},
+      {"id": "research-07", "independence_key": "R07-security", "artifact_ref": "artifact-research-fanout", "completed_at": "2026-07-09T18:20:15Z", "actor": "subagent", "lens": "security", "summary": "Security review found no secrets, auth, dependency, CI credential, or sensitive generated-state risk; changed files are tests only."},
+      {"id": "research-08", "independence_key": "R08-operational-risk", "artifact_ref": "artifact-ci-pr", "completed_at": "2026-07-09T18:20:30Z", "actor": "subagent", "lens": "operational risk", "summary": "Content risk is low because the diff is tests-only, but operational merge risk is blocked by conflict/staleness and stale red CI."},
+      {"id": "research-09", "independence_key": "R09-attribution", "artifact_ref": "artifact-pr-metadata-final", "completed_at": "2026-07-09T18:20:45Z", "actor": "subagent", "lens": "attribution", "summary": "Andrew Boldi authored the PR. Any future carry-forward must preserve Andrew attribution and existing Claude co-author trailers, but this defer report carries no code."},
+      {"id": "research-10", "independence_key": "R10-scope-classification", "artifact_ref": "artifact-label-snapshot", "completed_at": "2026-07-09T18:21:00Z", "actor": "subagent", "lens": "scope", "summary": "PR is kind/chore test cleanup, not feature/enhancement; no feature approval is required, but scope drift exists around folded-back #4248 JSON-output changes."},
+      {"id": "research-11", "independence_key": "R11-repo-policy", "artifact_ref": "artifact-checker-schema", "completed_at": "2026-07-09T18:21:15Z", "actor": "subagent", "lens": "repo policy", "summary": "Repo has no local .pr-sheriff config; applicable checker policy requires labels, 15 research legs, 5 pre-reviews, blocker scan, verification evidence, and final verdict consistency."},
+      {"id": "research-12", "independence_key": "R12-test-reproduction", "artifact_ref": "artifact-current-main-tests", "completed_at": "2026-07-09T18:21:30Z", "actor": "subagent", "lens": "focused tests", "summary": "Affected packages and tests were identified; current-main focused tests pass locally with CGO_ENABLED=0."},
+      {"id": "research-13", "independence_key": "R13-cleanup-first", "artifact_ref": "artifact-research-fanout", "completed_at": "2026-07-09T18:21:45Z", "actor": "subagent", "lens": "cleanup-first", "summary": "Original PR diff is acceptable-minimal in isolation, but carrying stale residual hunks forward now would risk patch-on-patch test fixture debt; defer is cleanup-first."},
+      {"id": "research-14", "independence_key": "R14-merge-strategy", "artifact_ref": "artifact-pr-4273", "completed_at": "2026-07-09T18:22:00Z", "actor": "subagent", "lens": "merge strategy", "summary": "merge_as_is is blocked; close_superseded is not checker-valid without actual closure artifacts; defer_human_review is viable and honest."},
+      {"id": "research-15", "independence_key": "R15-checker-schema", "artifact_ref": "artifact-checker-schema", "completed_at": "2026-07-09T18:22:15Z", "actor": "subagent", "lens": "checker schema", "summary": "gt-pr-sheriff-check is available; defer_human_review must be checked without --merge-gate and list real failing gates in final.blocking_gates."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "D01-defer-soundness", "artifact_ref": "artifact-pre-reviews-defer", "reviewed_action_ref": "action-plan-gt-shx9-pr-4249-defer", "completed_at": "2026-07-09T19:45:30Z", "actor": "subagent", "verdict": "approve", "summary": "Approved defer_human_review as sound, minimal, cleanup-first, attribution-safe, and checker-compatible when final.required_actions and resolvable blocker refs are present."},
+      {"id": "pre-02", "independence_key": "D02-verdict-selection", "artifact_ref": "artifact-pre-reviews-defer", "reviewed_action_ref": "action-plan-gt-shx9-pr-4249-defer", "completed_at": "2026-07-09T19:45:45Z", "actor": "subagent", "verdict": "approve", "summary": "Approved defer over merge_as_is, reject, or close_superseded because conflict/stale CI/status block merge, rejection is too strong, and closure is not evidenced."},
+      {"id": "pre-03", "independence_key": "D03-cleanup-scope", "artifact_ref": "artifact-pre-reviews-defer", "reviewed_action_ref": "action-plan-gt-shx9-pr-4249-defer", "completed_at": "2026-07-09T19:46:00Z", "actor": "subagent", "verdict": "approve", "summary": "Approved no code changes because remaining residual hunks are stale or separately tracked, and merging them would be patch-on-patch fixture debt."},
+      {"id": "pre-04", "independence_key": "D04-checker-compatibility", "artifact_ref": "artifact-pre-reviews-defer", "reviewed_action_ref": "action-plan-gt-shx9-pr-4249-defer", "completed_at": "2026-07-09T19:46:15Z", "actor": "subagent", "verdict": "approve", "summary": "Approved checker shape: defer_human_review, merge_path_allowed=false, blocking_gates merge_status and blocker_scan, code_changed_by_sheriff=false, empty post reviews, and replacement_flow.required=false."},
+      {"id": "pre-05", "independence_key": "D05-attribution-supersession", "artifact_ref": "artifact-pre-reviews-defer", "reviewed_action_ref": "action-plan-gt-shx9-pr-4249-defer", "completed_at": "2026-07-09T19:46:30Z", "actor": "subagent", "verdict": "approve", "summary": "Approved wording that credits Andrew Boldi and avoids claiming #4249 is closed or fully superseded; any later closure needs maintainer review of #4273/current main/#4248/#4272."}
+    ],
+    "post_implementation_reviews": []
+  },
+  "cleanup_first": {
+    "assessment": "acceptable_minimal",
+    "rationale": "The Sheriff action is report-only and avoids carrying stale residual test-fixture hunks into current main. Deferring with exact blockers is the smallest safe cleanup-first action and adds no workaround layer or compatibility shim.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "current-main affected tests", "command_or_check": "CGO_ENABLED=0 go test ./internal/cmd ./internal/polecat ./internal/refinery ./internal/rig -run '^(TestRunConvoyList_UsesTownRootAndStripsBeadsDir|TestRunConvoyStatus_UsesTownRootAndStripsBeadsDir|TestGetTrackedIssues_FallsBackToShowTrackedDependencies|TestEnsureBeadsConfigYAML_CreatesWhenMissing|TestFilterAndSortSessions_SortOrder|TestGuessSessionFromWorkerDir|TestJSONOutput_NoHumanReadableText|TestJSONOutput_ErrorsReturnNonZeroExit|TestReadBeadsRuntimeConfigDefaultServerAddr|TestManagerAgentLifecycleUsesTownBeadsDir|TestEngineerTerminalCloseClearsAgentActiveMRUsesTownBeadsDir|TestInitBeadsWritesConfigOnFailure)$' -count=1", "outcome": "pass", "reason": "Focused current-main verification for packages/tests touched or discussed by PR #4249.", "artifact_ref": "artifact-current-main-tests", "completed_at": "2026-07-09T19:39:00Z"}
+    ],
+    "ci_checks": [
+      {"name": "Reject go.mod replace directives", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/27392260000/job/80952097245", "artifact_ref": "artifact-ci-pr", "reason": "Old PR guard check passed on head 7d19c575."},
+      {"name": "Reject issues.jsonl", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/27392260000/job/80952097328", "artifact_ref": "artifact-ci-pr", "reason": "Old PR guard check passed on head 7d19c575."},
+      {"name": "Test", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/27392260000/job/80952097146", "artifact_ref": "artifact-ci-pr", "reason": "Old PR Test check passed, but it is stale relative to current main."},
+      {"name": "Lint", "outcome": "fail", "run_url": "https://github.com/gastownhall/gastown/actions/runs/27392260000/job/80952097103", "artifact_ref": "artifact-ci-pr", "reason": "Old PR Lint check failed in untouched production files; #4255 later merged lint fixes, but PR #4249 was not rerun/rebased."},
+      {"name": "Integration Tests", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/27392260000/job/80952097091", "artifact_ref": "artifact-ci-pr", "reason": "Old PR Integration check passed, but it is stale relative to current main."},
+      {"name": "Windows Smoke Test", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/27392259974/job/80952097015", "artifact_ref": "artifact-ci-pr", "reason": "Old PR Windows check passed, but it is stale relative to current main."}
+    ]
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "No waiver is requested because this is a non-merge verdict.",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": false,
+    "mode": "none",
+    "state": "not_applicable",
+    "original_change_url": null,
+    "replacement_change_url": null,
+    "replacement_branch": null,
+    "replacement_commit_refs": [],
+    "original_author": null,
+    "evidence_reuse": {"reused_artifact_refs": [], "fresh_artifact_refs": [], "rationale": "No replacement or carry-forward was performed."},
+    "attribution": {"required": false, "required_reason": null, "preserved": false, "method": "not_required", "artifact_refs": []},
+    "superseded_closure": {"required": false, "state": "not_required", "closure_intent_ref": null, "replacement_merge_ref": null, "closure_ref": null}
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "reviews", "ci_checks", "github_pr_metadata", "issue_comments", "current_main", "beads_notes"],
+    "unresolved_blockers_found": true,
+    "blocker_refs": ["artifact-label-snapshot", "artifact-pr-metadata-final", "artifact-ci-pr", "artifact-comments-reviews", "artifact-issue-4248", "artifact-issue-4272"],
+    "resolution_refs": [],
+    "scanned_at": "2026-07-09T19:40:00Z",
+    "summary": "Unresolved blockers: semantic status is accepted rather than review-approved/merge-ready; GitHub reports mergeable=CONFLICTING and mergeStateStatus=DIRTY; PR CI is stale and includes failed Lint; there are no approvals; remaining unique hunks require maintainer review against #4248/#4272/current main rather than a Sheriff merge path. No explicit security or ownership blocker was found. Andrew Boldi and PR #4249 should be credited for the original stale-test investigation if a maintainer later closes or carries forward work."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "defer_human_review",
+    "decision_valid": true,
+    "merge_path_allowed": false,
+    "blocking_gates": ["merge_status", "blocker_scan"],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4249",
+    "target_head_sha": "7d19c57585a5fa551a4f23ae7a3ad4153096c419",
+    "decided_by": "gastown/polecats/mirelurk",
+    "decided_at": "2026-07-09T19:47:00Z",
+    "reason": "PR #4249 cannot enter a merge path: it is status/accepted rather than review-approved or merge-ready, GitHub reports CONFLICTING/DIRTY, the only PR CI is stale and has failed Lint, no approval exists, and residual hunks are partly superseded or need maintainer judgment against current main/#4248/#4272. The report makes no code changes and does not claim closure or full supersession.",
+    "required_actions": [
+      "Maintainer reviews PR #4249 against current main and merged PR #4273 before deciding whether any residual work remains.",
+      "Maintainer resolves or explicitly disposes of #4248/#4272 context for TestJSONOutput and migration/default-port tails before any carry-forward.",
+      "If any #4249 work is carried forward, preserve Andrew Boldi attribution and existing co-author trailers where applicable.",
+      "If PR #4249 is later closed as superseded, closure wording should credit Andrew Boldi/PR #4249 and cite maintainer review rather than this report as completed closure evidence."
+    ]
+  }
+}
