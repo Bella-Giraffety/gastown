@@ -98,11 +98,20 @@
     {"id": "post-05-artifact", "kind": "review_report", "uri": "urn:opencode:gt-mll4:post:post05b-attribution-flow", "actor": "post05b-attribution-flow", "created_at": "2026-07-09T13:25:00Z", "digest": null, "summary": "Approved replacement attribution and superseded closure sequencing; close #4061 only after #4447 merge evidence exists."}
   ],
   "implementation": {
-    "code_changed_by_sheriff": false,
-    "mode": "merge_replacement",
-    "first_code_change_at": null,
-    "modified_paths": [],
-    "commits": []
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-09T13:23:30Z",
+    "modified_paths": [
+      "internal/cmd/polecat.go",
+      "internal/cmd/polecat_prune_test.go",
+      "internal/git/git.go",
+      "internal/git/git_test.go"
+    ],
+    "commits": [
+      "cf9c2bcdf5254b76eead6a22015f170efac04a47",
+      "3ffd1e48015e1ca06fa1a30b36bdb1384d7e5451",
+      "0bcc9c507ba243d5c697c5cb9634e2c614a45643"
+    ]
   },
   "evidence": {
     "research_legs": [
