@@ -1,0 +1,212 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-09T13:30:40Z",
+  "run_id": "gt-2ne2-pr-4438-merge-gate-2026-07-09",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "4438",
+    "url": "https://github.com/gastownhall/gastown/pull/4438",
+    "title": "ci: converge bd setup for workflows",
+    "author": "Bella-Giraffety",
+    "author_tier": "trusted",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "3b9c2bf73939bad7c6744eddf12d0c5882923cc7",
+    "head_ref": "Bella-Giraffety/gastown:polecat/dust/gt-fjau+3e4227",
+    "head_sha": "8df00cca2304242353d9964b9523f0a7fa01da53",
+    "diff_summary": {
+      "additions": 43,
+      "deletions": 39,
+      "changed_files": 3,
+      "paths": [
+        ".github/actions/setup-bd/action.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/nightly-integration.yml"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["pr_thread", "review_thread", "artifact_store", "ci_log", "local_report", "bead"],
+    "baseline_checks": [
+      "Reject go.mod replace directives",
+      "Reject issues.jsonl",
+      "Windows Smoke Test",
+      "Test",
+      "Lint",
+      "Integration Tests"
+    ],
+    "no_verification_reasons": []
+  },
+  "action_plan": {
+    "id": "action-plan-pr-4438-merge-as-is",
+    "mode": "merge_as_is",
+    "proposed_action_ref": "action-plan-pr-4438-merge-as-is",
+    "summary": "Recommend merging PR #4438 as-is after PR Sheriff gates pass. Do not perform Sheriff rebase, fixup, or replacement because the PR head is clean, CI-green, attribution-safe, cleanup-first, and its synthetic merge ref against current upstream/main passes focused checks.",
+    "created_at": "2026-07-09T13:24:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/review-approved", "family": "status", "semantic_value": "review-approved"},
+      {"name": "priority/p1", "family": "priority", "semantic_value": "p1"},
+      {"name": "kind/chore", "family": "kind", "semantic_value": "chore"}
+    ],
+    "status": "review-approved",
+    "priority": "p1",
+    "kind": "chore",
+    "snapshot_artifact_ref": "label-snapshot-final"
+  },
+  "artifacts": [
+    {"id": "pr-metadata-final", "kind": "pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4438", "actor": "gastown/polecats/guzzle", "created_at": "2026-07-09T13:20:00Z", "digest": null, "summary": "PR #4438 is open, non-draft, mergeable=CLEAN, head 8df00cca2304242353d9964b9523f0a7fa01da53, base recorded at 3b9c2bf73939bad7c6744eddf12d0c5882923cc7; authorAssociation=COLLABORATOR; 3 files changed with +43/-39."},
+    {"id": "label-snapshot-final", "kind": "label_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4438", "actor": "gastown/polecats/guzzle", "created_at": "2026-07-09T13:20:00Z", "digest": null, "summary": "Current labels are exactly one per semantic family: status/review-approved, priority/p1, kind/chore."},
+    {"id": "ci-green-final", "kind": "ci_log", "uri": "https://github.com/gastownhall/gastown/actions/runs/28960880126", "actor": "github-actions", "created_at": "2026-07-09T13:20:00Z", "digest": null, "summary": "PR head checks passed: Reject go.mod replace directives, Reject issues.jsonl, Test, Lint, Integration Tests. Windows Smoke Test passed in run 28960880055. Block Internal PRs was skipped, not failed."},
+    {"id": "current-main-merge-ref", "kind": "git_ref", "uri": "urn:git:ref:refs/pull/4438/merge", "actor": "github", "created_at": "2026-07-09T13:17:00Z", "digest": "b0090f6b39e52f93311dade6e9b5bea25340af34", "summary": "GitHub synthetic merge ref b0090f6b39e52f93311dade6e9b5bea25340af34 merges PR head 8df00cca2304242353d9964b9523f0a7fa01da53 into current upstream/main 55576cd6ec07d13b7a58a4fe53dbb88d322ae5d8."},
+    {"id": "focused-local-verify", "kind": "local_verification", "uri": "file:///tmp/opencode/pr-4438-verify-46a14d", "actor": "gastown/polecats/guzzle", "created_at": "2026-07-09T13:18:00Z", "digest": null, "summary": "Focused checks on PR head passed: go list resolved github.com/steveyegge/beads v1.0.5; yq parsed setup-bd, ci, and nightly YAML; expected setup-bd uses were present; old hardcoded bd versions v0.57.0/v1.0.0 were absent."},
+    {"id": "focused-merge-ref-verify", "kind": "local_verification", "uri": "file:///tmp/opencode/pr-4438-merge-fccc8c", "actor": "gastown/polecats/guzzle", "created_at": "2026-07-09T13:19:00Z", "digest": null, "summary": "Same focused checks passed on GitHub synthetic merge ref b0090f6b39e52f93311dade6e9b5bea25340af34 against current upstream/main."},
+    {"id": "blocker-scan-final", "kind": "blocker_scan", "uri": "https://github.com/gastownhall/gastown/pull/4438", "actor": "gastown/polecats/guzzle", "created_at": "2026-07-09T13:29:30Z", "digest": null, "summary": "Scanned labels, PR comments, reviews, review comments, CI/checks, bead gt-2ne2, current-main applicability, workflow security, attribution, and cleanup-first evidence. No unresolved blocker remains."},
+    {"id": "attribution-evidence", "kind": "attribution", "uri": "https://github.com/gastownhall/gastown/commit/8df00cca2304242353d9964b9523f0a7fa01da53", "actor": "gastown/polecats/guzzle", "created_at": "2026-07-09T13:20:00Z", "digest": "8df00cca2304242353d9964b9523f0a7fa01da53", "summary": "Single commit authored by dust/Thalia-geraghty with Co-authored-by mayor <bbriski@raybeam.com>; PR body credits carrying forward/superseding PR #4318 by @rbriski. Merge-as-is preserves this attribution."},
+    {"id": "research-r01", "kind": "research_report", "uri": "urn:opencode:task:ses_0b90381c7ffeLkK0IIo6PjERPh#R01", "actor": "research-r01", "created_at": "2026-07-09T13:07:20Z", "digest": null, "summary": "PR metadata: open, non-draft collaborator PR, mergeable clean, 3 files, +43/-39, labels priority/p1 kind/chore status/review-approved, checks success, no comments/reviews."},
+    {"id": "research-r02", "kind": "research_report", "uri": "urn:opencode:task:ses_0b90380a5ffeZa5ZfKxhU7H4Ie#R02", "actor": "research-r02", "created_at": "2026-07-09T13:07:26Z", "digest": null, "summary": "Label policy has exactly one status, priority, and kind; status/review-approved is merge-path eligible under default PR Sheriff semantics."},
+    {"id": "research-r03", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037fcfffesyxfrM087XWYXR#R03", "actor": "research-r03", "created_at": "2026-07-09T13:07:36Z", "digest": null, "summary": "CI/checks on PR head are green for Test, Lint, Integration Tests, guards, and Windows Smoke Test; no required-check failure or baseline-red waiver need found."},
+    {"id": "research-r04", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037ea4ffepCxbe9fa0sgNXf#R04", "actor": "research-r04", "created_at": "2026-07-09T13:09:22Z", "digest": null, "summary": "PR has zero issue comments, zero reviews, zero review comments, and only non-blocking timeline label/commit events."},
+    {"id": "research-r05", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037d32ffe78OK40RUbH3Msr#R05", "actor": "research-r05", "created_at": "2026-07-09T13:09:09Z", "digest": null, "summary": "Diff scope matches title: add .github/actions/setup-bd/action.yml and simplify ci/nightly workflow bd setup; risk is localized to CI workflows."},
+    {"id": "research-r06", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037c9dffeXU1i9TN1XxaKs2#R06", "actor": "research-r06", "created_at": "2026-07-09T13:10:54Z", "digest": null, "summary": "Workflow security pass: no pull_request_target, no secret exposure, permissions remain contents: read, no token expansion, and shell/version handling risk is low."},
+    {"id": "research-r07", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037bd8ffeWxLLu39SvuDKK6#R07", "actor": "research-r07", "created_at": "2026-07-09T13:09:18Z", "digest": null, "summary": "Current-main applicability pass: current upstream/main is two commits ahead but touched PR files have not drifted; GitHub exposes a clean merge ref and setup-bd has not already landed."},
+    {"id": "research-r08", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037b36ffe5fUvHttLcd9o2X#R08", "actor": "research-r08", "created_at": "2026-07-09T13:08:45Z", "digest": null, "summary": "Cleanup-first assessment is convergent: one local composite action collapses duplicated bd setup and replaces hardcoded versions with go.mod resolution, with no workaround layer."},
+    {"id": "research-r09", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037acaffefCv1Xr0wdHrxrC#R09", "actor": "research-r09", "created_at": "2026-07-09T13:12:34Z", "digest": null, "summary": "Problem validity pass: CI bd setup problem is valid and PR #4438 is a more direct cleanup-first carry-forward of PR #4318 than additive hardcoded setup."},
+    {"id": "research-r10", "kind": "research_report", "uri": "urn:opencode:task:ses_0b90379a5ffeLNLl68WA0oH8dQ#R10", "actor": "research-r10", "created_at": "2026-07-09T13:10:16Z", "digest": null, "summary": "Attribution pass: merge-as-is preserves Bella-Giraffety PR metadata, Thalia-geraghty/dust commit author, mayor co-author trailer, and PR #4318 credit."},
+    {"id": "research-r11", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037932ffeOyHUFutwgkd0jN#R11", "actor": "research-r11", "created_at": "2026-07-09T13:09:47Z", "digest": null, "summary": "Verification plan identified focused checks: go list beads version, YAML parse, expected setup-bd usage, and no old hardcoded bd versions."},
+    {"id": "research-r12", "kind": "research_report", "uri": "urn:opencode:task:ses_0b90378baffeFdGuDMq0dgm5nr#R12", "actor": "research-r12", "created_at": "2026-07-09T13:12:07Z", "digest": null, "summary": "Repo policy research found semantic labels, CI workflows, no local .pr-sheriff config, and no branch-protection required-status evidence beyond visible checks."},
+    {"id": "research-r13", "kind": "research_report", "uri": "urn:opencode:task:ses_0b9037811ffeQKZ33bcKfwYC2a#R13", "actor": "research-r13", "created_at": "2026-07-09T13:08:55Z", "digest": null, "summary": "Feature approval not required: semantic kind is CI/chore cleanup, not feature or enhancement."},
+    {"id": "research-r14", "kind": "research_report", "uri": "urn:opencode:task:ses_0b903775bffeGkN0JJVKyo8xwG#R14", "actor": "research-r14", "created_at": "2026-07-09T13:12:03Z", "digest": null, "summary": "Static correctness pass: setup action is called after checkout/setup-go, cache/action inputs are valid, PATH ordering is correct, and CI corroborates."},
+    {"id": "research-r15", "kind": "research_report", "uri": "urn:opencode:task:ses_0b90376e9ffegFR4Y99EYUv6fJ#R15", "actor": "research-r15", "created_at": "2026-07-09T13:12:32Z", "digest": null, "summary": "Final blocker scan raised current-main staleness as a candidate blocker; later synthetic merge-ref verification resolved it without requiring a Sheriff rebase."},
+    {"id": "pre-p01", "kind": "review_report", "uri": "urn:opencode:task:ses_0b8f34dd2ffeOBOi30xCHxA9cF#P01", "actor": "pre-review-p01", "created_at": "2026-07-09T13:26:08Z", "digest": null, "summary": "Approved correctness/current-main applicability for merge_as_is; synthetic merge ref is current main plus PR head and contains intended CI files."},
+    {"id": "pre-p02", "kind": "review_report", "uri": "urn:opencode:task:ses_0b8f34c98ffeZW275ChekCX5YD#P02", "actor": "pre-review-p02", "created_at": "2026-07-09T13:26:39Z", "digest": null, "summary": "Approved security/ops; no unsafe event, permission, secret, cache, or dependency-install blocker found."},
+    {"id": "pre-p03", "kind": "review_report", "uri": "urn:opencode:task:ses_0b8f34bddffeRLK7yBErdDigON#P03", "actor": "pre-review-p03", "created_at": "2026-07-09T13:25:19Z", "digest": null, "summary": "Approved cleanup-first; composite action collapses duplicated bd setup without bandaids or broad rewrite."},
+    {"id": "pre-p04b", "kind": "review_report", "uri": "urn:opencode:task:ses_0b8eef22bffeKInY762RZS3s6z#P04b", "actor": "pre-review-p04b", "created_at": "2026-07-09T13:29:29Z", "digest": null, "summary": "Approved policy gates after clarifying that status/review-approved satisfies default semantic status and checker output follows pre-review collection."},
+    {"id": "pre-p05", "kind": "review_report", "uri": "urn:opencode:task:ses_0b8f34980ffezqp8Gg88SjQCkX#P05", "actor": "pre-review-p05", "created_at": "2026-07-09T13:26:25Z", "digest": null, "summary": "Approved attribution/scope; merge-as-is preserves PR #4438 and carried-forward #4318 attribution, no feature approval required."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": false,
+    "mode": "merge_as_is",
+    "first_code_change_at": null,
+    "modified_paths": [],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "R01-pr-metadata", "artifact_ref": "research-r01", "completed_at": "2026-07-09T13:07:20Z", "actor": "research-r01", "lens": "PR metadata", "summary": "Open, non-draft collaborator PR with clean mergeability, complete labels, green checks, and no comments/reviews."},
+      {"id": "research-02", "independence_key": "R02-label-policy", "artifact_ref": "research-r02", "completed_at": "2026-07-09T13:07:26Z", "actor": "research-r02", "lens": "label policy", "summary": "Exactly one semantic status, priority, and kind; status/review-approved is merge-path eligible."},
+      {"id": "research-03", "independence_key": "R03-ci-checks", "artifact_ref": "research-r03", "completed_at": "2026-07-09T13:07:36Z", "actor": "research-r03", "lens": "CI checks", "summary": "All relevant head checks passed and no baseline-red waiver is needed."},
+      {"id": "research-04", "independence_key": "R04-comments-blockers", "artifact_ref": "research-r04", "completed_at": "2026-07-09T13:09:22Z", "actor": "research-r04", "lens": "comments and blockers", "summary": "No PR comments, reviews, review comments, or timeline blockers found."},
+      {"id": "research-05", "independence_key": "R05-diff-scope", "artifact_ref": "research-r05", "completed_at": "2026-07-09T13:09:09Z", "actor": "research-r05", "lens": "diff scope", "summary": "Scope is limited to setup-bd action and CI/nightly workflow convergence."},
+      {"id": "research-06", "independence_key": "R06-workflow-security", "artifact_ref": "research-r06", "completed_at": "2026-07-09T13:10:54Z", "actor": "research-r06", "lens": "workflow security", "summary": "No unsafe workflow permissions, events, secrets, or shell/dependency blockers."},
+      {"id": "research-07", "independence_key": "R07-current-main", "artifact_ref": "research-r07", "completed_at": "2026-07-09T13:09:18Z", "actor": "research-r07", "lens": "current main applicability", "summary": "PR remains applicable to current upstream/main; no touched-file drift or supersession."},
+      {"id": "research-08", "independence_key": "R08-cleanup-first", "artifact_ref": "research-r08", "completed_at": "2026-07-09T13:08:45Z", "actor": "research-r08", "lens": "cleanup-first", "summary": "Convergent: collapses duplicated bd setup and avoids workaround layers."},
+      {"id": "research-09", "independence_key": "R09-problem-solution", "artifact_ref": "research-r09", "completed_at": "2026-07-09T13:12:34Z", "actor": "research-r09", "lens": "problem and solution fit", "summary": "Valid CI bd setup problem; PR #4438 directly solves it and improves on PR #4318."},
+      {"id": "research-10", "independence_key": "R10-attribution", "artifact_ref": "research-r10", "completed_at": "2026-07-09T13:10:16Z", "actor": "research-r10", "lens": "attribution", "summary": "Merge-as-is preserves PR and commit attribution, including #4318 carry-forward credit."},
+      {"id": "research-11", "independence_key": "R11-verification", "artifact_ref": "research-r11", "completed_at": "2026-07-09T13:09:47Z", "actor": "research-r11", "lens": "verification plan", "summary": "Focused YAML/version/setup usage checks identified and later passed."},
+      {"id": "research-12", "independence_key": "R12-repo-policy", "artifact_ref": "research-r12", "completed_at": "2026-07-09T13:12:07Z", "actor": "research-r12", "lens": "repo policy", "summary": "Repo-visible policy supports semantic label families and CI review; no local policy requires GitHub reviewDecision approval."},
+      {"id": "research-13", "independence_key": "R13-feature-approval", "artifact_ref": "research-r13", "completed_at": "2026-07-09T13:08:55Z", "actor": "research-r13", "lens": "feature approval", "summary": "Kind is chore/CI cleanup; explicit feature approval is not required."},
+      {"id": "research-14", "independence_key": "R14-correctness", "artifact_ref": "research-r14", "completed_at": "2026-07-09T13:12:03Z", "actor": "research-r14", "lens": "YAML correctness", "summary": "No correctness blockers in changed YAML or setup ordering."},
+      {"id": "research-15", "independence_key": "R15-final-blocker-scan", "artifact_ref": "research-r15", "completed_at": "2026-07-09T13:12:32Z", "actor": "research-r15", "lens": "final blocker scan", "summary": "Identified stale-base concern; merge-ref verification resolved current-main risk."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "P01-correctness-current-main", "artifact_ref": "pre-p01", "reviewed_action_ref": "action-plan-pr-4438-merge-as-is", "completed_at": "2026-07-09T13:26:08Z", "actor": "pre-review-p01", "verdict": "approve", "summary": "Approved merge_as_is for correctness and current-main applicability using the synthetic merge ref."},
+      {"id": "pre-02", "independence_key": "P02-security-ops", "artifact_ref": "pre-p02", "reviewed_action_ref": "action-plan-pr-4438-merge-as-is", "completed_at": "2026-07-09T13:26:39Z", "actor": "pre-review-p02", "verdict": "approve", "summary": "Approved merge_as_is for workflow security and operational risk."},
+      {"id": "pre-03", "independence_key": "P03-cleanup-first", "artifact_ref": "pre-p03", "reviewed_action_ref": "action-plan-pr-4438-merge-as-is", "completed_at": "2026-07-09T13:25:19Z", "actor": "pre-review-p03", "verdict": "approve", "summary": "Approved cleanup-first convergence and absence of bandaids."},
+      {"id": "pre-04", "independence_key": "P04b-policy-gates", "artifact_ref": "pre-p04b", "reviewed_action_ref": "action-plan-pr-4438-merge-as-is", "completed_at": "2026-07-09T13:29:29Z", "actor": "pre-review-p04b", "verdict": "approve", "summary": "Approved policy gates and semantic label readiness, conditional on checker pass."},
+      {"id": "pre-05", "independence_key": "P05-attribution-scope", "artifact_ref": "pre-p05", "reviewed_action_ref": "action-plan-pr-4438-merge-as-is", "completed_at": "2026-07-09T13:26:25Z", "actor": "pre-review-p05", "verdict": "approve", "summary": "Approved attribution preservation, scope, and no replacement/rebase need."}
+    ],
+    "post_implementation_reviews": []
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "PR #4438 collapses duplicated bd version resolution, cache, install, and PATH setup from multiple workflows into one local composite action, resolves the bd version from go.mod, and adds no retry, skip, compatibility, or workaround layer.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "bd version resolution on PR head", "command_or_check": "go list -mod=readonly -m -f '{{.Version}}' github.com/steveyegge/beads", "outcome": "pass", "artifact_ref": "focused-local-verify", "reason": "Resolved v1.0.5 from go.mod on PR head."},
+      {"name": "YAML parse on PR head", "command_or_check": "yq '.' .github/actions/setup-bd/action.yml .github/workflows/ci.yml .github/workflows/nightly-integration.yml >/dev/null", "outcome": "pass", "artifact_ref": "focused-local-verify", "reason": "Changed action/workflow YAML parsed."},
+      {"name": "setup-bd usage on PR head", "command_or_check": "git grep -n 'uses: ./.github/actions/setup-bd' -- .github/workflows/ci.yml .github/workflows/nightly-integration.yml", "outcome": "pass", "artifact_ref": "focused-local-verify", "reason": "Setup action is used in Test, Integration, and nightly workflows."},
+      {"name": "old hardcoded bd versions absent on PR head", "command_or_check": "git grep -n -E 'beads/cmd/bd@(v0\\.57\\.0|v1\\.0\\.0)' -- .github/workflows/ci.yml .github/workflows/nightly-integration.yml", "outcome": "pass", "artifact_ref": "focused-local-verify", "reason": "No old hardcoded bd versions remained."},
+      {"name": "focused checks on current-main merge ref", "command_or_check": "same four focused checks on refs/pull/4438/merge", "outcome": "pass", "artifact_ref": "focused-merge-ref-verify", "reason": "The PR remains valid when merged into current upstream/main."}
+    ],
+    "ci_checks": [
+      {"name": "Reject go.mod replace directives", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28960880126/job/85931811778", "artifact_ref": "ci-green-final", "reason": "PR head check passed."},
+      {"name": "Reject issues.jsonl", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28960880126/job/85931811780", "artifact_ref": "ci-green-final", "reason": "PR head check passed."},
+      {"name": "Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28960880126/job/85931811857", "artifact_ref": "ci-green-final", "reason": "PR head check passed."},
+      {"name": "Lint", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28960880126/job/85931811796", "artifact_ref": "ci-green-final", "reason": "PR head check passed."},
+      {"name": "Integration Tests", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28960880126/job/85931811789", "artifact_ref": "ci-green-final", "reason": "PR head check passed."},
+      {"name": "Windows Smoke Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28960880055/job/85931811686", "artifact_ref": "ci-green-final", "reason": "PR head check passed."}
+    ]
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": false,
+    "mode": "none",
+    "state": "not_applicable",
+    "original_change_url": null,
+    "replacement_change_url": null,
+    "replacement_branch": null,
+    "replacement_commit_refs": [],
+    "original_author": null,
+    "evidence_reuse": {"reused_artifact_refs": [], "fresh_artifact_refs": [], "rationale": "not applicable; merge_as_is preserves contributor attribution directly"},
+    "attribution": {"required": false, "required_reason": null, "preserved": true, "method": "merge_as_is", "artifact_refs": ["attribution-evidence"]},
+    "superseded_closure": {"required": false, "state": "not_required", "closure_intent_ref": null, "replacement_merge_ref": null, "closure_ref": null}
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "reviews", "review_comments", "ci_checks", "bead_notes", "current_main_merge_ref", "workflow_security", "attribution", "cleanup_first"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": ["focused-merge-ref-verify", "pre-p04b"],
+    "scanned_at": "2026-07-09T13:29:30Z",
+    "summary": "No unresolved blockers remain. The only candidate blocker was stale PR base versus current upstream/main; GitHub synthetic merge ref b0090f6b39e52f93311dade6e9b5bea25340af34 exists against current main and passed the focused setup-bd checks. No rebase or replacement is required."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_as_is",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4438",
+    "target_head_sha": "8df00cca2304242353d9964b9523f0a7fa01da53",
+    "decided_by": "gastown/polecats/guzzle",
+    "decided_at": "2026-07-09T13:30:40Z",
+    "reason": "PR #4438 has complete merge-eligible semantic labels, green CI, no unresolved comments/reviews/blockers, a convergent cleanup-first CI workflow change, no feature-approval requirement, attribution preserved by merge-as-is, and focused checks passed on both PR head and the current-main synthetic merge ref.",
+    "required_actions": ["Maintainer or GitHub PR workflow may merge PR #4438 as-is; no Sheriff fixup, replacement, or rebase is required."]
+  }
+}

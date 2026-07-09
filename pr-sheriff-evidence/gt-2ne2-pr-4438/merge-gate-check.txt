@@ -1,0 +1,10 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-2ne2-pr-4438/evidence.json --merge-gate
+Exit code: 0
+Target PR head SHA: 8df00cca2304242353d9964b9523f0a7fa01da53
+Current upstream/main SHA: 55576cd6ec07d13b7a58a4fe53dbb88d322ae5d8
+Synthetic merge ref SHA: b0090f6b39e52f93311dade6e9b5bea25340af34
+
+PR Sheriff: PASS
+merge_path_allowed: true
+verdict: merge_as_is
+gates: 8 pass, 6 not_applicable, 0 waived, 0 fail
