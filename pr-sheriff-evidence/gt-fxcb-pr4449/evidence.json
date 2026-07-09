@@ -1,0 +1,223 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-09T18:55:00Z",
+  "run_id": "gt-fxcb-pr4449-sheriff-2026-07-09",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "4449",
+    "url": "https://github.com/gastownhall/gastown/pull/4449",
+    "title": "fix(daemon): parse bd children schema envelope",
+    "author": "Bella-Giraffety",
+    "author_tier": "trusted",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "68320ca2298faafe25f27cfcb8f31ecd6eb1873a",
+    "head_ref": "Bella-Giraffety/gastown:polecat/minuteman/gt-wncm+14235b",
+    "head_sha": "d4527aaf00647fc9e7c337e45b96ebd82a99d91a",
+    "diff_summary": {
+      "additions": 53,
+      "deletions": 6,
+      "changed_files": 2,
+      "paths": [
+        "internal/daemon/dog_molecule.go",
+        "internal/daemon/dog_molecule_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["pr_thread", "review_thread", "artifact_store", "ci_log", "local_report", "bead"],
+    "baseline_checks": [
+      "Reject go.mod replace directives",
+      "Reject issues.jsonl",
+      "Test",
+      "Lint",
+      "Integration Tests",
+      "Windows Smoke Test"
+    ],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-pr-4449-defer",
+    "mode": "defer_human_review",
+    "proposed_action_ref": "action-plan-pr-4449-defer",
+    "summary": "Produce durable PR Sheriff evidence and defer merge-path approval for PR #4449 without Sheriff code changes. The code diff is narrow and acceptable, but the PR is not in a merge-ready status and has no approval/review evidence.",
+    "created_at": "2026-07-09T18:44:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"},
+      {"name": "priority/p1", "family": "priority", "semantic_value": "p1"},
+      {"name": "status/reviewing", "family": "status", "semantic_value": "reviewing"}
+    ],
+    "status": "reviewing",
+    "priority": "p1",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {"id": "pr-metadata", "kind": "pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4449", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:15:00Z", "digest": null, "summary": "PR #4449 is open, non-draft, mergeable/clean; base 68320ca, head d4527aaf; two files changed with +53/-6."},
+    {"id": "label-snapshot", "kind": "label_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4449", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:15:00Z", "digest": null, "summary": "Labels are exactly one each: kind/bug, priority/p1, status/reviewing."},
+    {"id": "ci-snapshot", "kind": "ci_log", "uri": "https://github.com/gastownhall/gastown/pull/4449/checks", "actor": "github-actions", "created_at": "2026-07-08T20:55:00Z", "digest": null, "summary": "PR head checks passed for CI Test, Lint, Integration Tests, Reject issues.jsonl, Reject go.mod replace directives, Windows Smoke Test, and labeling workflows; Block Internal PRs was skipped."},
+    {"id": "comments-reviews-snapshot", "kind": "review_report", "uri": "https://github.com/gastownhall/gastown/pull/4449", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:18:00Z", "digest": null, "summary": "PR has one Codecov comment, no submitted reviews, no review comments, no review threads, and no approval or changes-requested evidence."},
+    {"id": "diff-summary", "kind": "diff_summary", "uri": "https://github.com/gastownhall/gastown/pull/4449/files", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:18:00Z", "digest": null, "summary": "Diff narrows parseChildrenJSON to RawMessage map handling, skips schema_version, rejects non-array/malformed/ambiguous child payloads, and adds regression tests."},
+    {"id": "current-main-compare", "kind": "comparison", "uri": "https://github.com/gastownhall/gastown/compare/81233d36f27465fcae83944f78bdea1674d7143e...d4527aaf00647fc9e7c337e45b96ebd82a99d91a", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:24:00Z", "digest": null, "summary": "Live upstream/main is 81233d36; PR head is ahead by 1 and behind by 7 from live main, with merge base 68320ca."},
+    {"id": "current-main-merge-simulation", "kind": "local_verification", "uri": "file:///tmp/opencode/gastown-pr4449-current-main", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:51:00Z", "digest": null, "summary": "Detached upstream/main worktree merged upstream/pr/4449 with git merge --no-ff --no-commit; merge completed cleanly."},
+    {"id": "focused-pr-head-verify", "kind": "local_verification", "uri": "file:///tmp/opencode/gastown-pr4449-gt-fxcb", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:48:00Z", "digest": null, "summary": "On PR head d4527aaf: gofmt -l returned no files; CGO_ENABLED=0 focused daemon tests passed; CGO_ENABLED=0 go vet ./internal/daemon passed; CGO_ENABLED=0 go build ./cmd/gt passed."},
+    {"id": "focused-current-main-verify", "kind": "local_verification", "uri": "file:///tmp/opencode/gastown-pr4449-current-main", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:53:00Z", "digest": null, "summary": "On current-main merge simulation: gofmt -l returned no files; CGO_ENABLED=0 focused daemon tests passed; CGO_ENABLED=0 go vet ./internal/daemon passed; CGO_ENABLED=0 go build ./cmd/gt passed."},
+    {"id": "attribution-evidence", "kind": "attribution", "uri": "https://github.com/gastownhall/gastown/pull/4449/commits/d4527aaf00647fc9e7c337e45b96ebd82a99d91a", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:22:00Z", "digest": "d4527aaf00647fc9e7c337e45b96ebd82a99d91a", "summary": "Commit message cites Original-PR #4327 and includes Co-authored-by: Anthony Wong <anthonywong@moovita.com>; PR body credits #4327 and @antiwong."},
+    {"id": "original-pr-4327", "kind": "pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4327", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:23:00Z", "digest": null, "summary": "Original PR #4327 by antiwong targeted the same bd children schema_version envelope failure; #4449 carries the intent forward with stricter parsing and attribution."},
+    {"id": "status-reviewing-blocker", "kind": "blocker", "uri": "https://github.com/gastownhall/gastown/pull/4449", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:55:00Z", "digest": null, "summary": "Blocking merge-path status: status/reviewing is not status/review-approved or status/merge-ready."},
+    {"id": "review-approval-missing", "kind": "blocker", "uri": "https://github.com/gastownhall/gastown/pull/4449", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:55:00Z", "digest": null, "summary": "No submitted reviews, approvals, reviewDecision, or review threads are present."},
+    {"id": "branch-freshness-note", "kind": "blocker", "uri": "https://github.com/gastownhall/gastown/compare/81233d36f27465fcae83944f78bdea1674d7143e...d4527aaf00647fc9e7c337e45b96ebd82a99d91a", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:55:00Z", "digest": null, "summary": "PR head is behind live upstream/main by seven commits; local merge simulation is clean, but hosted PR CI is not tied to the live main merge result."},
+    {"id": "blocker-scan-final", "kind": "blocker_scan", "uri": "urn:bead:gt-fxcb#blocker-scan-final", "actor": "gastown/polecats/radrat", "created_at": "2026-07-09T18:55:00Z", "digest": null, "summary": "Scanned labels, PR comments, review comments, CI, original PR, and bead notes. No code/security blocker found; merge path remains blocked by status/review evidence and freshness."},
+    {"id": "research-pr-metadata-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:metadata", "actor": "research-pr-metadata", "created_at": "2026-07-09T18:20:00Z", "digest": null, "summary": "Metadata leg found PR open, non-draft, clean/mergeable, head d4527aaf, base 68320ca, two changed files."},
+    {"id": "research-label-semantics-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:label-semantics", "actor": "research-label-semantics", "created_at": "2026-07-09T18:20:30Z", "digest": null, "summary": "Labels map to status=reviewing, priority=p1, kind=bug; merge path status is insufficient."},
+    {"id": "research-ci-checks-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:ci-checks", "actor": "research-ci-checks", "created_at": "2026-07-09T18:21:00Z", "digest": null, "summary": "PR rollup checks are successful except skipped Block Internal PRs; no new PR-head CI failure observed."},
+    {"id": "research-comments-reviews-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:comments-reviews", "actor": "research-comments-reviews", "created_at": "2026-07-09T18:21:30Z", "digest": null, "summary": "No PR reviews, no review comments, no review threads, and no approval or changes-requested evidence."},
+    {"id": "research-diff-correctness-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:diff-correctness", "actor": "research-diff-correctness", "created_at": "2026-07-09T18:22:00Z", "digest": null, "summary": "Parser change correctly handles current bd children schema envelope and rejects malformed/ambiguous child payloads."},
+    {"id": "research-test-coverage-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:test-coverage", "actor": "research-test-coverage", "created_at": "2026-07-09T18:22:30Z", "digest": null, "summary": "Tests cover schema_version envelope, empty children, scalar payload errors, malformed child arrays, ambiguous arrays, and existing shapes."},
+    {"id": "research-current-main-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:current-main", "actor": "research-current-main-applicability", "created_at": "2026-07-09T18:23:00Z", "digest": null, "summary": "PR remains applicable to current upstream/main; local fork origin/main is divergent and not valid upstream evidence."},
+    {"id": "research-security-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:security", "actor": "research-security-operational-risk", "created_at": "2026-07-09T18:23:30Z", "digest": null, "summary": "No new auth, secrets, dependency, CI, raw DB, shell expansion, or high-risk operational surface was added."},
+    {"id": "research-cleanup-first-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:cleanup-first", "actor": "research-cleanup-first", "created_at": "2026-07-09T18:24:00Z", "digest": null, "summary": "Change is cleanup-first aligned: narrow parser-boundary fix, stricter than #4327, no workaround layer."},
+    {"id": "research-attribution-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:attribution", "actor": "research-attribution", "created_at": "2026-07-09T18:24:30Z", "digest": null, "summary": "Original contributor credit is publicly preserved by PR body and commit message, with a caveat that GitHub may not parse the co-author trailer."},
+    {"id": "research-original-pr-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:original-pr-4327", "actor": "research-original-pr-4327", "created_at": "2026-07-09T18:25:00Z", "digest": null, "summary": "PR #4449 accurately carries forward #4327 intent while narrowing behavior and preserving attribution."},
+    {"id": "research-blocker-scan-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:blocker-scan", "actor": "research-blocker-scan", "created_at": "2026-07-09T18:25:30Z", "digest": null, "summary": "No content blocker found; merge-gate readiness blocked by status/review evidence and branch freshness."},
+    {"id": "research-repo-policy-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:repo-policy", "actor": "research-repo-policy-config", "created_at": "2026-07-09T18:26:00Z", "digest": null, "summary": "No checked-in .pr-sheriff config found; prior evidence uses policy v1.1, exact status/priority/kind labels, and baseline GitHub Actions checks."},
+    {"id": "research-verification-plan-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:verification-plan", "actor": "research-focused-verification-plan", "created_at": "2026-07-09T18:26:30Z", "digest": null, "summary": "Recommended CGO_ENABLED=0 focused daemon tests, gofmt, go vet, and cmd/gt build because default CGO path lacks local ICU headers."},
+    {"id": "research-action-feasibility-artifact", "kind": "research_report", "uri": "urn:opencode:research:pr4449:action-feasibility", "actor": "research-action-feasibility", "created_at": "2026-07-09T18:27:00Z", "digest": null, "summary": "No Sheriff code change or replacement is warranted; defer_human_review is appropriate until merge-ready status and review evidence exist."},
+    {"id": "pre-review-label-gate-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:pr4449:label-gate", "actor": "pre-review-label-gate", "created_at": "2026-07-09T18:38:00Z", "digest": null, "summary": "Approved non-merge action because status/reviewing is not a merge-path status and no code replacement is warranted."},
+    {"id": "pre-review-no-code-change-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:pr4449:no-code-change", "actor": "pre-review-no-code-change", "created_at": "2026-07-09T18:38:30Z", "digest": null, "summary": "Approved skipping Sheriff implementation; PR code is narrow, strict, and cleanup-first."},
+    {"id": "pre-review-current-main-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:pr4449:current-main", "actor": "pre-review-current-main", "created_at": "2026-07-09T18:39:00Z", "digest": null, "summary": "Approved branch-currency reasoning; phrase staleness as freshness evidence, not merge-conflict evidence."},
+    {"id": "pre-review-final-action-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:pr4449:final-action", "actor": "pre-review-final-action", "created_at": "2026-07-09T18:39:30Z", "digest": null, "summary": "Approved defer_human_review; reject and merge_replacement would be wrong; do not close #4327 until #4449 merges."},
+    {"id": "pre-review-evidence-plan-artifact", "kind": "review_report", "uri": "urn:opencode:pre-review:pr4449:evidence-plan", "actor": "pre-review-evidence-plan-replacement", "created_at": "2026-07-09T18:54:00Z", "digest": null, "summary": "Approved evidence/checker plan: persist evidence, run checker without --merge-gate for non-merge decision and with --merge-gate to record merge_path_allowed=false."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": false,
+    "mode": "none",
+    "first_code_change_at": null,
+    "modified_paths": [],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-1", "independence_key": "research-pr-metadata", "artifact_ref": "research-pr-metadata-artifact", "completed_at": "2026-07-09T18:20:00Z", "actor": "research-pr-metadata", "lens": "PR metadata", "summary": "PR is open, non-draft, clean/mergeable, with head d4527aaf and two changed files."},
+      {"id": "research-2", "independence_key": "research-label-semantics", "artifact_ref": "research-label-semantics-artifact", "completed_at": "2026-07-09T18:20:30Z", "actor": "research-label-semantics", "lens": "label semantics", "summary": "Labels are cardinality-correct but status/reviewing cannot enter a merge path."},
+      {"id": "research-3", "independence_key": "research-ci-checks", "artifact_ref": "research-ci-checks-artifact", "completed_at": "2026-07-09T18:21:00Z", "actor": "research-ci-checks", "lens": "CI checks", "summary": "PR head rollup is green except skipped Block Internal PRs."},
+      {"id": "research-4", "independence_key": "research-comments-reviews", "artifact_ref": "research-comments-reviews-artifact", "completed_at": "2026-07-09T18:21:30Z", "actor": "research-comments-reviews", "lens": "comments and reviews", "summary": "No reviews, approval evidence, review comments, review threads, or changes-requested blockers."},
+      {"id": "research-5", "independence_key": "research-diff-correctness", "artifact_ref": "research-diff-correctness-artifact", "completed_at": "2026-07-09T18:22:00Z", "actor": "research-diff-correctness", "lens": "diff correctness", "summary": "Parser fix matches the current bd children schema envelope and rejects malformed shapes."},
+      {"id": "research-6", "independence_key": "research-test-coverage", "artifact_ref": "research-test-coverage-artifact", "completed_at": "2026-07-09T18:22:30Z", "actor": "research-test-coverage", "lens": "test coverage", "summary": "Tests cover schema_version envelope, empty children, malformed payloads, ambiguity, and legacy shapes."},
+      {"id": "research-7", "independence_key": "research-current-main-applicability", "artifact_ref": "research-current-main-artifact", "completed_at": "2026-07-09T18:23:00Z", "actor": "research-current-main-applicability", "lens": "current main applicability", "summary": "PR remains applicable to live upstream/main; fork origin/main is divergent and not valid evidence."},
+      {"id": "research-8", "independence_key": "research-security-operational-risk", "artifact_ref": "research-security-artifact", "completed_at": "2026-07-09T18:23:30Z", "actor": "research-security-operational-risk", "lens": "security and operations", "summary": "No new security, dependency, CI, raw DB, shell expansion, or high-risk operational surface."},
+      {"id": "research-9", "independence_key": "research-cleanup-first", "artifact_ref": "research-cleanup-first-artifact", "completed_at": "2026-07-09T18:24:00Z", "actor": "research-cleanup-first", "lens": "cleanup-first", "summary": "Narrow parser-boundary fix is cleanup-first and avoids workaround layers."},
+      {"id": "research-10", "independence_key": "research-attribution", "artifact_ref": "research-attribution-artifact", "completed_at": "2026-07-09T18:24:30Z", "actor": "research-attribution", "lens": "attribution", "summary": "Original PR #4327 and Anthony Wong are credited in PR body and commit text."},
+      {"id": "research-11", "independence_key": "research-original-pr-4327", "artifact_ref": "research-original-pr-artifact", "completed_at": "2026-07-09T18:25:00Z", "actor": "research-original-pr-4327", "lens": "original PR carry-forward", "summary": "#4449 accurately carries forward #4327 intent with stricter behavior and attribution."},
+      {"id": "research-12", "independence_key": "research-blocker-scan", "artifact_ref": "research-blocker-scan-artifact", "completed_at": "2026-07-09T18:25:30Z", "actor": "research-blocker-scan", "lens": "blocker scan", "summary": "No content blocker; merge-gate readiness blocked by status/review evidence and freshness."},
+      {"id": "research-13", "independence_key": "research-repo-policy-config", "artifact_ref": "research-repo-policy-artifact", "completed_at": "2026-07-09T18:26:00Z", "actor": "research-repo-policy-config", "lens": "repo policy", "summary": "No checked-in .pr-sheriff config; prior evidence uses policy v1.1 with merge-ready statuses."},
+      {"id": "research-14", "independence_key": "research-focused-verification-plan", "artifact_ref": "research-verification-plan-artifact", "completed_at": "2026-07-09T18:26:30Z", "actor": "research-focused-verification-plan", "lens": "verification plan", "summary": "Focused CGO_ENABLED=0 daemon tests, gofmt, go vet, and cmd/gt build are relevant and feasible."},
+      {"id": "research-15", "independence_key": "research-action-feasibility", "artifact_ref": "research-action-feasibility-artifact", "completed_at": "2026-07-09T18:27:00Z", "actor": "research-action-feasibility", "lens": "action feasibility", "summary": "Defer human review; no Sheriff code change or replacement is warranted."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-1", "independence_key": "pre-review-label-gate", "artifact_ref": "pre-review-label-gate-artifact", "reviewed_action_ref": "action-plan-pr-4449-defer", "completed_at": "2026-07-09T18:38:00Z", "actor": "pre-review-label-gate", "verdict": "approve", "summary": "Approved non-merge action because status/reviewing is not merge-ready and no code replacement is warranted."},
+      {"id": "pre-2", "independence_key": "pre-review-no-code-change", "artifact_ref": "pre-review-no-code-change-artifact", "reviewed_action_ref": "action-plan-pr-4449-defer", "completed_at": "2026-07-09T18:38:30Z", "actor": "pre-review-no-code-change", "verdict": "approve", "summary": "Approved skipping Sheriff implementation; code diff is narrow, strict, and cleanup-first."},
+      {"id": "pre-3", "independence_key": "pre-review-current-main", "artifact_ref": "pre-review-current-main-artifact", "reviewed_action_ref": "action-plan-pr-4449-defer", "completed_at": "2026-07-09T18:39:00Z", "actor": "pre-review-current-main", "verdict": "approve", "summary": "Approved freshness reasoning and advised not conflating stale branch with merge conflict."},
+      {"id": "pre-4", "independence_key": "pre-review-final-action", "artifact_ref": "pre-review-final-action-artifact", "reviewed_action_ref": "action-plan-pr-4449-defer", "completed_at": "2026-07-09T18:39:30Z", "actor": "pre-review-final-action", "verdict": "approve", "summary": "Approved defer_human_review; reject and merge_replacement would be wrong."},
+      {"id": "pre-5", "independence_key": "pre-review-evidence-plan-replacement", "artifact_ref": "pre-review-evidence-plan-artifact", "reviewed_action_ref": "action-plan-pr-4449-defer", "completed_at": "2026-07-09T18:54:00Z", "actor": "pre-review-evidence-plan-replacement", "verdict": "approve", "summary": "Approved evidence/checker plan and final no-code defer action."}
+    ],
+    "post_implementation_reviews": []
+  },
+  "cleanup_first": {
+    "assessment": "acceptable_minimal",
+    "rationale": "The PR itself fixes the parser at the existing boundary and adds targeted regression tests. Sheriff made no code change because replacement or fixup would add churn without improving convergence.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "gofmt PR head", "command_or_check": "gofmt -l internal/daemon/dog_molecule.go internal/daemon/dog_molecule_test.go", "outcome": "pass", "artifact_ref": "focused-pr-head-verify", "reason": "No files were listed on PR head d4527aaf."},
+      {"name": "focused daemon parser tests PR head", "command_or_check": "CGO_ENABLED=0 go test ./internal/daemon -run 'TestParseWispID|TestStripANSI|TestParseChildrenJSON|TestDogMolGracefulDegradation' -count=1 -timeout=60s", "outcome": "pass", "artifact_ref": "focused-pr-head-verify", "reason": "Focused daemon tests passed on PR head."},
+      {"name": "go vet daemon PR head", "command_or_check": "CGO_ENABLED=0 go vet ./internal/daemon", "outcome": "pass", "artifact_ref": "focused-pr-head-verify", "reason": "Daemon vet passed on PR head."},
+      {"name": "cmd build PR head", "command_or_check": "CGO_ENABLED=0 go build -o /tmp/opencode/gastown-pr4449-gt ./cmd/gt", "outcome": "pass", "artifact_ref": "focused-pr-head-verify", "reason": "cmd/gt build passed on PR head."},
+      {"name": "current-main merge simulation", "command_or_check": "git merge --no-ff --no-commit upstream/pr/4449", "outcome": "pass", "artifact_ref": "current-main-merge-simulation", "reason": "PR merged cleanly into detached upstream/main 81233d36."},
+      {"name": "focused daemon parser tests current-main merge", "command_or_check": "CGO_ENABLED=0 go test ./internal/daemon -run 'TestParseWispID|TestStripANSI|TestParseChildrenJSON|TestDogMolGracefulDegradation' -count=1 -timeout=60s", "outcome": "pass", "artifact_ref": "focused-current-main-verify", "reason": "Focused daemon tests passed on the live-main merge simulation."}
+    ],
+    "ci_checks": [
+      {"name": "Reject go.mod replace directives", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28974196543/job/85977136855", "artifact_ref": "ci-snapshot", "reason": "PR head check passed."},
+      {"name": "Reject issues.jsonl", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28974196543/job/85977136826", "artifact_ref": "ci-snapshot", "reason": "PR head check passed."},
+      {"name": "Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28974196543/job/85977136834", "artifact_ref": "ci-snapshot", "reason": "PR head check passed."},
+      {"name": "Lint", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28974196543/job/85977136814", "artifact_ref": "ci-snapshot", "reason": "PR head check passed."},
+      {"name": "Integration Tests", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28974196543/job/85977136847", "artifact_ref": "ci-snapshot", "reason": "PR head check passed."},
+      {"name": "Windows Smoke Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28974196553/job/85977136757", "artifact_ref": "ci-snapshot", "reason": "PR head check passed."}
+    ]
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": false,
+    "mode": "none",
+    "state": "not_applicable",
+    "original_change_url": null,
+    "replacement_change_url": null,
+    "replacement_branch": null,
+    "replacement_commit_refs": [],
+    "original_author": null,
+    "evidence_reuse": {"reused_artifact_refs": [], "fresh_artifact_refs": [], "rationale": "not applicable; PR #4449 itself is the reviewed change and no Sheriff replacement is warranted"},
+    "attribution": {"required": false, "required_reason": null, "preserved": false, "method": "not_required", "artifact_refs": []},
+    "superseded_closure": {"required": false, "state": "not_required", "closure_intent_ref": null, "replacement_merge_ref": null, "closure_ref": null}
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "bead_notes", "ci_checks"],
+    "unresolved_blockers_found": true,
+    "blocker_refs": ["status-reviewing-blocker", "review-approval-missing", "branch-freshness-note"],
+    "resolution_refs": [],
+    "scanned_at": "2026-07-09T18:55:00Z",
+    "summary": "No content/security blocker found. Merge path is blocked because status/reviewing is not a merge-ready status, no approval/review evidence exists, and PR-hosted CI is not tied to the live main merge result. Local current-main merge simulation passed. Do not close original PR #4327 until #4449 actually merges."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "defer_human_review",
+    "decision_valid": true,
+    "merge_path_allowed": false,
+    "blocking_gates": ["merge_status", "blocker_scan"],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4449",
+    "target_head_sha": "d4527aaf00647fc9e7c337e45b96ebd82a99d91a",
+    "decided_by": "gastown/polecats/radrat",
+    "decided_at": "2026-07-09T18:56:00Z",
+    "reason": "PR #4449 code is narrow, cleanup-first, verified on PR head and a current-main merge simulation, and does not need Sheriff replacement. Merge path is not allowed because the PR remains status/reviewing, lacks review/approval evidence, and needs refreshed merge-ready evidence before any merge-as-is recommendation.",
+    "required_actions": [
+      "Advance PR #4449 to status/review-approved or status/merge-ready only after appropriate review/approval evidence exists.",
+      "Refresh or otherwise tie PR #4449 verification to live upstream/main before any merge-as-is recommendation.",
+      "Do not close or mark original PR #4327 superseded until #4449 has actually merged."
+    ]
+  }
+}
