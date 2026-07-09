@@ -1,0 +1,9 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-pr-4346-stuck-agent-mass-death/evidence.json
+Exit code: 0
+Target PR head SHA: ff2f53f38bb93183abac829e4fc127670acb6b0e
+Current upstream/main SHA: 81233d36f27465fcae83944f78bdea1674d7143e
+
+PR Sheriff: PASS
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 5 pass, 7 not_applicable, 0 waived, 2 fail

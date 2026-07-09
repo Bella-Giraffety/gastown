@@ -1,0 +1,273 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-09T19:49:00Z",
+  "run_id": "pr-4346-sheriff-2026-07-09-pipboy",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "4346",
+    "url": "https://github.com/gastownhall/gastown/pull/4346",
+    "title": "fix: guard stuck-agent mass-death escalation",
+    "author": "Bella-Giraffety",
+    "author_tier": "trusted",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "81233d36f27465fcae83944f78bdea1674d7143e",
+    "head_ref": "Bella-Giraffety/gastown:polecat/deathclaw/gt-stuck-agent-dog-clean-upstream-port@0a2f85",
+    "head_sha": "ff2f53f38bb93183abac829e4fc127670acb6b0e",
+    "diff_summary": {
+      "additions": 425,
+      "deletions": 113,
+      "changed_files": 3,
+      "paths": [
+        "plugins/stuck-agent-dog/plugin.md",
+        "plugins/stuck-agent-dog/run.sh",
+        "plugins/stuck-agent-dog/run_test.sh"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "status_values": ["needs-triage", "needs-info", "needs-repro", "accepted", "help-wanted", "reviewing", "in-progress", "review-approved", "merge-ready", "review-failed", "changes-requested", "merge-failed", "merged"],
+    "priority_values": ["p0", "p1", "p2", "p3"],
+    "kind_values": ["bug", "feature", "enhancement", "docs", "chore"],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["pr_thread", "review_thread", "issue_tracker", "artifact_store", "ci_log", "local_report", "bead"],
+    "baseline_checks": ["Reject go.mod replace directives", "Reject issues.jsonl", "Windows Smoke Test", "Test", "Lint", "Integration Tests"],
+    "no_verification_reasons": ["docs_only", "config_only", "not_executable_in_sandbox"]
+  },
+  "action_plan": {
+    "id": "action-defer-pr4346-20260709",
+    "mode": "defer_human_review",
+    "proposed_action_ref": "action-defer-pr4346-20260709",
+    "summary": "Produce a durable PR Sheriff defer report for PR #4346 without code changes, replacement, labels, or merge-path recommendation because policy/status and blocker evidence still fail.",
+    "created_at": "2026-07-09T19:43:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/reviewing", "family": "status", "semantic_value": "reviewing"},
+      {"name": "priority/p0", "family": "priority", "semantic_value": "p0"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "reviewing",
+    "priority": "p0",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot-20260709"
+  },
+  "artifacts": [
+    {
+      "id": "label-snapshot-20260709",
+      "kind": "pr_metadata",
+      "uri": "https://github.com/gastownhall/gastown/pull/4346",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T19:31:00Z",
+      "digest": null,
+      "summary": "PR #4346 is open, non-draft, head ff2f53f38bb93183abac829e4fc127670acb6b0e, labels kind/bug priority/p0 status/reviewing, reviewDecision empty, and no visible reviews."
+    },
+    {
+      "id": "status-reviewing-blocker",
+      "kind": "policy_blocker",
+      "uri": "https://github.com/gastownhall/gastown/pull/4346",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T19:31:00Z",
+      "digest": null,
+      "summary": "status/reviewing is not a merge-path status; configured merge statuses are status/review-approved and status/merge-ready. No approval or status-promotion artifact is visible."
+    },
+    {
+      "id": "stale-pr-body-blocker",
+      "kind": "blocker_scan",
+      "uri": "https://github.com/gastownhall/gastown/pull/4346",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T19:37:00Z",
+      "digest": null,
+      "summary": "The PR body still claims only two intended commits, but the current PR contains three commits including the docs fallback commit. Prior Sheriff reports identified this stale evidence and no newer artifact resolves it."
+    },
+    {
+      "id": "docs-contract-blocker",
+      "kind": "blocker_scan",
+      "uri": "https://github.com/gastownhall/gastown/pull/4346/files",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T19:37:00Z",
+      "digest": null,
+      "summary": "plugin.md still documents copied-script rigs.json/RIGS_JSON_PATH fallback guidance while run.sh now fails closed through gt rig list --json with no rigs.json fallback. A maintainer should resolve or explicitly accept this docs-contract mismatch before status promotion."
+    },
+    {
+      "id": "current-main-freshness-blocker",
+      "kind": "ci_log",
+      "uri": "https://github.com/gastownhall/gastown/actions/runs/29033718103",
+      "actor": "github-actions",
+      "created_at": "2026-07-09T19:38:00Z",
+      "digest": null,
+      "summary": "Current upstream/main is 81233d36f27465fcae83944f78bdea1674d7143e. The latest main CI run is red for CI while PR head checks are from 2026-06-29, so merge-result freshness is not established for a merge recommendation."
+    },
+    {
+      "id": "current-main-merge-tree",
+      "kind": "local_verification",
+      "uri": "urn:git:merge-tree:596b85446300ff1b721123b74f8548fe93a3f84e",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T19:38:00Z",
+      "digest": "596b85446300ff1b721123b74f8548fe93a3f84e",
+      "summary": "git merge-tree --write-tree upstream/main refs/remotes/upstream/pr/4346 exited 0 and produced tree 596b85446300ff1b721123b74f8548fe93a3f84e, so the PR applies cleanly to current upstream/main."
+    },
+    {
+      "id": "focused-local-verify-20260709",
+      "kind": "local_verification",
+      "uri": "file:///tmp/opencode/pr-4346-verify-pipboy",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T19:42:00Z",
+      "digest": null,
+      "summary": "Detached PR-head worktree verification passed: git diff --check upstream/main...HEAD had no output; bash -n plugins/stuck-agent-dog/run.sh plugins/stuck-agent-dog/run_test.sh passed; bash plugins/stuck-agent-dog/run_test.sh passed with 83 passed, 0 failed."
+    },
+    {
+      "id": "pr-ci-green-20260629",
+      "kind": "ci_log",
+      "uri": "https://github.com/gastownhall/gastown/actions/runs/28378033371",
+      "actor": "github-actions",
+      "created_at": "2026-07-09T19:32:00Z",
+      "digest": null,
+      "summary": "Visible PR head checks for ff2f53f38bb93183abac829e4fc127670acb6b0e passed: Integration Tests, Lint, Reject go.mod replace directives, Reject issues.jsonl, Test, Windows Smoke Test, and remove-label."
+    },
+    {
+      "id": "prior-sheriff-report-20260707",
+      "kind": "review_report",
+      "uri": "https://github.com/gastownhall/gastown/pull/4346#issuecomment-4910036776",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T19:36:00Z",
+      "digest": null,
+      "summary": "Latest prior public Sheriff report for PR #4346 also ended defer_human_review with merge_path_allowed false and identified status/reviewing plus stale PR body/docs-contract blocker evidence."
+    },
+    {
+      "id": "bead-gt-3l5w",
+      "kind": "issue_tracker",
+      "uri": "urn:bead:gt-3l5w",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T19:30:00Z",
+      "digest": null,
+      "summary": "Hooked bead gt-3l5w requested a PR Sheriff merge gate for GitHub PR #4346 with 15 research legs, 5 pre-decision reviews, cleanup-first assessment, and durable merge_path_allowed true/false evidence."
+    }
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": false,
+    "mode": "none",
+    "first_code_change_at": null,
+    "modified_paths": [],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "research-pr4346-metadata", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346#research-pr4346-metadata", "completed_at": "2026-07-09T19:35:01Z", "actor": "research-pr4346-metadata", "lens": "PR metadata, labels, status policy", "summary": "PR is open, non-draft, mergeable clean, labels are exactly kind/bug priority/p0 status/reviewing, reviewDecision is empty, and status/reviewing makes merge_path_allowed false under status policy."},
+      {"id": "research-02", "independence_key": "research-pr4346-problem-fit", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346/files#research-pr4346-problem-fit", "completed_at": "2026-07-09T19:35:02Z", "actor": "research-pr4346-problem-fit", "lens": "problem validity and solution fit", "summary": "The PR addresses the false mass-death bug by using live operational rigs, live hook state, and live health recheck before CRITICAL escalation; residual blockers are policy/status and stale docs/evidence."},
+      {"id": "research-03", "independence_key": "research-pr4346-scope", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346#research-pr4346-scope", "completed_at": "2026-07-09T19:35:03Z", "actor": "research-pr4346-scope", "lens": "scope control and stale PR body", "summary": "Runtime/test/docs scope is narrow to one plugin, but the PR body remains stale: it claims two commits while the current PR has three and is behind current main by 112 commits."},
+      {"id": "research-04", "independence_key": "research-pr4346-cleanup", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346/files#research-pr4346-cleanup", "completed_at": "2026-07-09T19:35:04Z", "actor": "research-pr4346-cleanup", "lens": "cleanup-first convergence", "summary": "Runtime behavior is convergent: stale rigs.json and bead-status authorities are replaced by live rig registry, live hook state, and central health recheck. No runtime bandaid or workaround layer found."},
+      {"id": "research-05", "independence_key": "research-pr4346-correctness", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346/files#research-pr4346-correctness", "completed_at": "2026-07-09T19:35:05Z", "actor": "research-pr4346-correctness", "lens": "runtime correctness and edge cases", "summary": "run.sh correctly filters operational rigs, uses gt hook show --json hooked/in_progress, rechecks health/hook state before mass-death escalation, defaults invalid thresholds, and fails closed on inconclusive live state."},
+      {"id": "research-06", "independence_key": "research-pr4346-tests", "artifact_ref": "focused-local-verify-20260709", "completed_at": "2026-07-09T19:35:06Z", "actor": "research-pr4346-tests", "lens": "test coverage", "summary": "run_test.sh covers active hooks, no-hook and non-actionable statuses, docked rigs, rig-list fail-closed behavior, recovered candidates, cleared hooks, downgrade to one restart, mass-death source/fingerprint, and threshold validation."},
+      {"id": "research-07", "independence_key": "research-pr4346-security", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346/files#research-pr4346-security", "completed_at": "2026-07-09T19:35:07Z", "actor": "research-pr4346-security", "lens": "security and operational safety", "summary": "No new secrets, auth, dependency, workflow, env dump, or command-injection risk was found. The change reduces mass restart/escalation blast radius by fail-closing on uncertain live state."},
+      {"id": "research-08", "independence_key": "research-pr4346-docs", "artifact_ref": "docs-contract-blocker", "completed_at": "2026-07-09T19:35:08Z", "actor": "research-pr4346-docs", "lens": "plugin docs contract", "summary": "plugin.md mostly matches live registry/hook/recheck behavior but still contains stale copied-script rigs.json/RIGS_JSON_PATH fallback guidance contradicting run.sh, which now fail-closes through gt rig list --json."},
+      {"id": "research-09", "independence_key": "research-pr4346-ci", "artifact_ref": "pr-ci-green-20260629", "completed_at": "2026-07-09T19:35:09Z", "actor": "research-pr4346-ci", "lens": "CI and baseline freshness", "summary": "Visible PR head checks pass for ff2f53f38bb93183abac829e4fc127670acb6b0e, but checks are from 2026-06-29 while current main is 81233d36 with a failing latest CI run."},
+      {"id": "research-10", "independence_key": "research-pr4346-blockers", "artifact_ref": "prior-sheriff-report-20260707", "completed_at": "2026-07-09T19:35:10Z", "actor": "research-pr4346-blockers", "lens": "blocker scan", "summary": "No changes-requested, do-not-merge, security, or missing-info blocker was found, but prior Sheriff defer blockers remain unresolved: status/reviewing, stale PR body, docs-contract concern, and no approval/status promotion."},
+      {"id": "research-11", "independence_key": "research-pr4346-attribution", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346/commits#research-pr4346-attribution", "completed_at": "2026-07-09T19:35:11Z", "actor": "research-pr4346-attribution", "lens": "contributor attribution", "summary": "Current PR preserves commit authorship for deathclaw/mayor identities mapped to Thalia-geraghty. Any future replacement or cherry-pick should preserve author metadata or public co-author/citation credit."},
+      {"id": "research-12", "independence_key": "research-pr4346-current-main", "artifact_ref": "current-main-merge-tree", "completed_at": "2026-07-09T19:35:12Z", "actor": "research-pr4346-current-main", "lens": "current-main applicability", "summary": "PR head applies cleanly to current upstream/main; merge-tree exited 0 and current main has not superseded the plugin changes. This does not clear status or verification freshness blockers."},
+      {"id": "research-13", "independence_key": "research-pr4346-shell", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346/files#research-pr4346-shell", "completed_at": "2026-07-09T19:35:13Z", "actor": "research-pr4346-shell", "lens": "shell portability and reliability", "summary": "Bash usage, set -euo pipefail, quoting, jq guards, and fail-closed handling are acceptable. The lack of rigs.json executable fallback is a product/docs contract issue, not a shell blocker."},
+      {"id": "research-14", "independence_key": "research-pr4346-operational", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346/files#research-pr4346-operational", "completed_at": "2026-07-09T19:35:14Z", "actor": "research-pr4346-operational", "lens": "operational impact", "summary": "The PR reduces false CRITICAL mass-death escalations by requiring live health and hook recheck, while still allowing action on confirmed hooked/in_progress stuck polecats. Fail-closed unavailable live state may delay detection for a cycle."},
+      {"id": "research-15", "independence_key": "research-pr4346-decision", "artifact_ref": "bead-gt-3l5w", "completed_at": "2026-07-09T19:35:15Z", "actor": "research-pr4346-decision", "lens": "decision and checker sufficiency", "summary": "The correct current Sheriff decision is defer_human_review with merge_path_allowed=false until a configured reviewer resolves or accepts the stale evidence/docs concerns, promotes status, and fresh merge-gate evidence passes."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "pre-pr4346-policy", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346#pre-pr4346-policy", "reviewed_action_ref": "action-defer-pr4346-20260709", "completed_at": "2026-07-09T19:45:01Z", "actor": "pre-pr4346-policy", "verdict": "approve", "summary": "Approved defer_human_review because status/reviewing is not merge-ready, approval/status evidence is missing, current main advanced, and stale PR body/docs concerns remain unresolved."},
+      {"id": "pre-02", "independence_key": "pre-pr4346-cleanup", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346#pre-pr4346-cleanup", "reviewed_action_ref": "action-defer-pr4346-20260709", "completed_at": "2026-07-09T19:45:02Z", "actor": "pre-pr4346-cleanup", "verdict": "approve", "summary": "Approved deferral as cleanup-first/minimal because the blockers are policy/evidence blockers; fixup or replacement now would add churn without resolving status or approval."},
+      {"id": "pre-03", "independence_key": "pre-pr4346-verification", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346#pre-pr4346-verification", "reviewed_action_ref": "action-defer-pr4346-20260709", "completed_at": "2026-07-09T19:45:03Z", "actor": "pre-pr4346-verification", "verdict": "approve", "summary": "Approved because PR head checks are green but stale relative to current main and cannot substitute for status promotion, approval, or fresh merge-result evidence."},
+      {"id": "pre-04", "independence_key": "pre-pr4346-risk", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346#pre-pr4346-risk", "reviewed_action_ref": "action-defer-pr4346-20260709", "completed_at": "2026-07-09T19:45:04Z", "actor": "pre-pr4346-risk", "verdict": "approve", "summary": "Approved as safer than merging now because watchdog restart/escalation behavior has availability blast radius and unresolved stale evidence/status blockers should not be bypassed."},
+      {"id": "pre-05", "independence_key": "pre-pr4346-evidence", "artifact_ref": "https://github.com/gastownhall/gastown/pull/4346#pre-pr4346-evidence", "reviewed_action_ref": "action-defer-pr4346-20260709", "completed_at": "2026-07-09T19:45:05Z", "actor": "pre-pr4346-evidence", "verdict": "approve", "summary": "Approved evidence shape: final.verdict defer_human_review, merge_path_allowed=false, code_changed_by_sheriff=false, post reviews empty, and blocking gates derived from merge_status plus blocker_scan."}
+    ],
+    "post_implementation_reviews": []
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "The PR's executable behavior converges mass-death decisions on live rig registry, live hook state, and central health recheck. This Sheriff run itself is no-code and avoids a fixup/replacement bandaid while the remaining blockers are policy/evidence blockers.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "diff check", "command_or_check": "git -C /tmp/opencode/pr-4346-verify-pipboy diff --check upstream/main...HEAD", "outcome": "pass", "artifact_ref": "focused-local-verify-20260709", "reason": "PR-head diff check against upstream/main produced no output."},
+      {"name": "shell syntax", "command_or_check": "bash -n plugins/stuck-agent-dog/run.sh plugins/stuck-agent-dog/run_test.sh", "outcome": "pass", "artifact_ref": "focused-local-verify-20260709", "reason": "Focused bash syntax check passed on PR head."},
+      {"name": "stuck-agent-dog focused tests", "command_or_check": "bash plugins/stuck-agent-dog/run_test.sh", "outcome": "pass", "artifact_ref": "focused-local-verify-20260709", "reason": "Focused plugin test suite passed with 83 passed and 0 failed."}
+    ],
+    "ci_checks": [
+      {"name": "Reject go.mod replace directives", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28378033371/job/84072783965", "artifact_ref": "pr-ci-green-20260629", "reason": "Visible PR head check passed for ff2f53f38bb93183abac829e4fc127670acb6b0e."},
+      {"name": "Reject issues.jsonl", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28378033371/job/84072784106", "artifact_ref": "pr-ci-green-20260629", "reason": "Visible PR head check passed for ff2f53f38bb93183abac829e4fc127670acb6b0e."},
+      {"name": "Windows Smoke Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28378033367/job/84072784085", "artifact_ref": "pr-ci-green-20260629", "reason": "Visible PR head check passed for ff2f53f38bb93183abac829e4fc127670acb6b0e."},
+      {"name": "Test", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28378033371/job/84072783994", "artifact_ref": "pr-ci-green-20260629", "reason": "Visible PR head check passed for ff2f53f38bb93183abac829e4fc127670acb6b0e."},
+      {"name": "Lint", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28378033371/job/84072783981", "artifact_ref": "pr-ci-green-20260629", "reason": "Visible PR head check passed for ff2f53f38bb93183abac829e4fc127670acb6b0e."},
+      {"name": "Integration Tests", "outcome": "pass", "head_outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/actions/runs/28378033371/job/84072783998", "artifact_ref": "pr-ci-green-20260629", "reason": "Visible PR head check passed for ff2f53f38bb93183abac829e4fc127670acb6b0e."}
+    ]
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": false,
+    "mode": "none",
+    "state": "not_applicable",
+    "original_change_url": null,
+    "replacement_change_url": null,
+    "replacement_branch": null,
+    "replacement_commit_refs": [],
+    "original_author": null,
+    "evidence_reuse": {"reused_artifact_refs": [], "fresh_artifact_refs": [], "rationale": "not applicable; no Sheriff fixup, replacement, or cherry-pick was performed"},
+    "attribution": {"required": false, "required_reason": null, "preserved": false, "method": "not_required", "artifact_refs": []},
+    "superseded_closure": {"required": false, "state": "not_required", "closure_intent_ref": null, "replacement_merge_ref": null, "closure_ref": null}
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "ci_checks", "bead_notes"],
+    "unresolved_blockers_found": true,
+    "blocker_refs": ["status-reviewing-blocker", "stale-pr-body-blocker", "docs-contract-blocker", "current-main-freshness-blocker"],
+    "resolution_refs": [],
+    "scanned_at": "2026-07-09T19:48:00Z",
+    "summary": "Scanned labels, PR comments, reviews, review comments, PR checks, current main CI, and bead gt-3l5w. No changes-requested/do-not-merge/security blocker was found, but status/reviewing, missing approval/status promotion, stale PR body/docs-contract evidence, and current-main freshness remain unresolved."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "defer_human_review",
+    "decision_valid": true,
+    "merge_path_allowed": false,
+    "blocking_gates": ["merge_status", "blocker_scan"],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4346",
+    "target_head_sha": "ff2f53f38bb93183abac829e4fc127670acb6b0e",
+    "decided_by": "gastown/polecats/pipboy",
+    "decided_at": "2026-07-09T19:49:00Z",
+    "reason": "PR #4346 has sound, cleanup-first runtime evidence and focused tests pass, but it is not merge-path eligible while status remains reviewing, approval/status promotion is absent, stale PR body/docs-contract blockers are unresolved, and current-main verification freshness is not established.",
+    "required_actions": [
+      "A configured maintainer/reviewer must resolve or explicitly accept the stale PR body commit-count/current-main evidence and plugin.md fallback-docs contract concern.",
+      "If approved, promote PR #4346 to status/review-approved or status/merge-ready.",
+      "Refresh verification against current main or provide a valid explicit baseline-red waiver if current main remains red.",
+      "Rerun gt-pr-sheriff-check --evidence <file> --merge-gate against unchanged head ff2f53f38bb93183abac829e4fc127670acb6b0e, or recollect full evidence if the head changes."
+    ]
+  }
+}

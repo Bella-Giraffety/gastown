@@ -1,0 +1,13 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-pr-4346-stuck-agent-mass-death/evidence.json --merge-gate
+Exit code: 1
+Target PR head SHA: ff2f53f38bb93183abac829e4fc127670acb6b0e
+Current upstream/main SHA: 81233d36f27465fcae83944f78bdea1674d7143e
+
+PR Sheriff: BLOCK
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 5 pass, 6 not_applicable, 0 waived, 3 fail
+blocking_gates:
+- merge_status: status reviewing is not merge-ready; merge-ready status is contradicted by unresolved blocker evidence
+- blocker_scan: unresolved blockers found
+- final_verdict: --merge-gate requires final.verdict merge_as_is or merge_replacement
