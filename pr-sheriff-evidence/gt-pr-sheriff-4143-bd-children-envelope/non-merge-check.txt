@@ -1,0 +1,7 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-pr-sheriff-4143-bd-children-envelope/evidence.json
+Exit code: 0
+
+PR Sheriff: PASS
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 5 pass, 6 not_applicable, 0 waived, 3 fail

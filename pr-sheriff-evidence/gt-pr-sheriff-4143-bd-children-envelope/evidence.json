@@ -1,0 +1,261 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-09T14:22:33Z",
+  "run_id": "gt-pr-sheriff-4143-bd-children-envelope-2026-07-09",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "4143",
+    "url": "https://github.com/gastownhall/gastown/pull/4143",
+    "title": "fix(daemon): parse bd show --children envelope so molecule steps close (#4142)",
+    "author": "dickeyf",
+    "author_tier": "unknown",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "241a72c642975b43f094c8096b3ed1430dd4adc9",
+    "head_ref": "dickeyf/gastown:fix/dog-molecule-children-parse",
+    "head_sha": "14adfda9cbeb044e25227359369672e68ebc8483",
+    "diff_summary": {
+      "additions": 26,
+      "deletions": 0,
+      "changed_files": 2,
+      "paths": [
+        "internal/daemon/dog_molecule.go",
+        "internal/daemon/dog_molecule_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["local_report", "artifact_store", "pr_thread", "ci_log", "bead"],
+    "baseline_checks": [
+      "Reject go.mod replace directives",
+      "Reject issues.jsonl",
+      "Windows Smoke Test",
+      "Test",
+      "Lint",
+      "Integration Tests"
+    ],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-4143-defer-report",
+    "mode": "none",
+    "proposed_action_ref": "action-plan-4143-defer-report",
+    "summary": "Produce a durable report-only PR Sheriff decision for PR #4143: defer merge-path approval because labels, review approval, and substantive verification gates are missing. Do not mutate the PR, labels, or code in this pass.",
+    "created_at": "2026-07-09T14:20:30Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/reviewing", "family": "status", "semantic_value": "reviewing"},
+      {"name": "priority/p2", "family": "priority", "semantic_value": "p2"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "reviewing",
+    "priority": "p2",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {
+      "id": "label-snapshot",
+      "kind": "pr_metadata",
+      "uri": "https://github.com/gastownhall/gastown/pull/4143",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:22:00Z",
+      "digest": null,
+      "summary": "PR #4143 labels are exactly kind/bug, priority/p2, status/reviewing; status/reviewing is not a merge-ready status."
+    },
+    {
+      "id": "pr-metadata-snapshot",
+      "kind": "pr_metadata",
+      "uri": "https://github.com/gastownhall/gastown/pull/4143",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:22:00Z",
+      "digest": "14adfda9cbeb044e25227359369672e68ebc8483",
+      "summary": "PR is open, non-draft, GitHub reports MERGEABLE/CLEAN, head is 14adfda9c, base SHA is 241a72c64."
+    },
+    {
+      "id": "diff-summary",
+      "kind": "diff_summary",
+      "uri": "https://github.com/gastownhall/gastown/pull/4143/files",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:16:00Z",
+      "digest": null,
+      "summary": "Diff is +26/-0 across internal/daemon/dog_molecule.go and internal/daemon/dog_molecule_test.go; it extends parseChildrenJSON for the observed top-level schema_version sibling."
+    },
+    {
+      "id": "ci-snapshot",
+      "kind": "ci_log",
+      "uri": "https://github.com/gastownhall/gastown/pull/4143/checks",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:14:00Z",
+      "digest": null,
+      "summary": "PR-head checks visible in GitHub are only add-triage-label and remove-triage-label workflow successes; no substantive Go build/test/lint CI is attached to the PR head."
+    },
+    {
+      "id": "review-snapshot",
+      "kind": "review_report",
+      "uri": "https://github.com/gastownhall/gastown/pull/4143",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:15:00Z",
+      "digest": null,
+      "summary": "No formal reviews, approvals, PR comments, or review comments were found; reviewDecision is empty."
+    },
+    {
+      "id": "upstream-main-snapshot",
+      "kind": "git_ref",
+      "uri": "urn:git:ref:upstream/main@09cf8ce37558316ef7b09d23a2ce4758527a3523",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:22:33Z",
+      "digest": "09cf8ce37558316ef7b09d23a2ce4758527a3523",
+      "summary": "Current upstream/main is 09cf8ce37; PR compare is behind current main by 257 commits while GitHub still reports clean mergeability."
+    },
+    {
+      "id": "observed-bd-children-shape",
+      "kind": "local_command_output",
+      "uri": "urn:local-command:bd-show-gt-we2z-children-json",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:18:00Z",
+      "digest": null,
+      "summary": "Local bd show gt-we2z --children --json returned an object with a parent-ID key and a top-level schema_version integer: {\"gt-we2z\": [], \"schema_version\": 1}."
+    },
+    {
+      "id": "focused-verification-missing",
+      "kind": "verification_gap",
+      "uri": "urn:pr-sheriff:4143:verification-gap",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:21:00Z",
+      "digest": null,
+      "summary": "Focused verification commands were identified but no PR-head run output is available: go test ./internal/daemon -run TestParseChildrenJSON -count=1 and go test ./internal/daemon -count=1."
+    },
+    {
+      "id": "attribution-snapshot",
+      "kind": "attribution",
+      "uri": "https://github.com/gastownhall/gastown/pull/4143/commits/14adfda9cbeb044e25227359369672e68ebc8483",
+      "actor": "gastown/polecats/pipboy",
+      "created_at": "2026-07-09T14:17:00Z",
+      "digest": "14adfda9cbeb044e25227359369672e68ebc8483",
+      "summary": "PR author is dickeyf / Francois Dickey. Commit author is mayor <francois@r730.local> and includes Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>. Future carry-forward must preserve attribution without inventing a new email."
+    }
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": false,
+    "mode": "none",
+    "first_code_change_at": null,
+    "modified_paths": [],
+    "commits": []
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "pr-metadata-labels", "artifact_ref": "urn:opencode:pr4143:research:01", "completed_at": "2026-07-09T14:10:00Z", "actor": "research-leg-01", "lens": "PR metadata and labels", "summary": "PR is open, non-draft, cleanly mergeable, labels are kind/bug priority/p2 status/reviewing, and status is not merge-ready."},
+      {"id": "research-02", "independence_key": "ci-check-status", "artifact_ref": "urn:opencode:pr4143:research:02", "completed_at": "2026-07-09T14:10:30Z", "actor": "research-leg-02", "lens": "CI and checks", "summary": "Only label-management checks are present on the PR head; no substantive Go build/test PR-head CI evidence exists."},
+      {"id": "research-03", "independence_key": "comments-reviews", "artifact_ref": "urn:opencode:pr4143:research:03", "completed_at": "2026-07-09T14:11:00Z", "actor": "research-leg-03", "lens": "comments and reviews", "summary": "No formal reviews, approvals, comments, review comments, changes-requested, or do-not-merge comments were found."},
+      {"id": "research-04", "independence_key": "diff-risk", "artifact_ref": "urn:opencode:pr4143:research:04", "completed_at": "2026-07-09T14:11:30Z", "actor": "research-leg-04", "lens": "diff and blast radius", "summary": "Small two-file daemon parser/test diff; path is control-plane sensitive because molecule step discovery and closure depend on it."},
+      {"id": "research-05", "independence_key": "daemon-code-context", "artifact_ref": "urn:opencode:pr4143:research:05", "completed_at": "2026-07-09T14:12:00Z", "actor": "research-leg-05", "lens": "daemon code path", "summary": "discoverSteps and closeRemainingSteps both parse bd show --children --json; parse failures leave stepIDs empty and prevent child step wisps from closing."},
+      {"id": "research-06", "independence_key": "envelope-schema-context", "artifact_ref": "urn:opencode:pr4143:research:06", "completed_at": "2026-07-09T14:12:30Z", "actor": "research-leg-06", "lens": "bd JSON envelope", "summary": "bd show --children emits a parent-ID-keyed map and may include schema_version; BD_JSON_ENVELOPE can also wrap data under a data key."},
+      {"id": "research-07", "independence_key": "molecule-close-workflow", "artifact_ref": "urn:opencode:pr4143:research:07", "completed_at": "2026-07-09T14:13:00Z", "actor": "research-leg-07", "lens": "molecule close workflow", "summary": "If children cannot be parsed, closeStep/failStep see unknown steps and closeRemainingSteps cannot clean open children."},
+      {"id": "research-08", "independence_key": "test-coverage", "artifact_ref": "urn:opencode:pr4143:research:08", "completed_at": "2026-07-09T14:13:30Z", "actor": "research-leg-08", "lens": "tests", "summary": "PR adds parser test coverage but no full daemon step-discovery/closure test; focused internal/daemon tests are the relevant fast gate."},
+      {"id": "research-09", "independence_key": "current-main-applicability", "artifact_ref": "urn:opencode:pr4143:research:09", "completed_at": "2026-07-09T14:14:00Z", "actor": "research-leg-09", "lens": "current main applicability", "summary": "Fix is not superseded on current upstream/main; PR is behind current main by 257 commits but GitHub reports clean mergeability."},
+      {"id": "research-10", "independence_key": "security-operational-risk", "artifact_ref": "urn:opencode:pr4143:research:10", "completed_at": "2026-07-09T14:14:30Z", "actor": "research-leg-10", "lens": "security and operations", "summary": "No auth, secrets, dependency, CI, or shell-injection risk found; the change only parses JSON for an existing bd command path."},
+      {"id": "research-11", "independence_key": "cleanup-first", "artifact_ref": "urn:opencode:pr4143:research:11", "completed_at": "2026-07-09T14:15:00Z", "actor": "research-leg-11", "lens": "cleanup-first", "summary": "The PR extends the existing parseChildrenJSON function instead of adding retries or alternate paths; cleanup-first quality is acceptable minimal."},
+      {"id": "research-12", "independence_key": "attribution", "artifact_ref": "urn:opencode:pr4143:research:12", "completed_at": "2026-07-09T14:15:30Z", "actor": "research-leg-12", "lens": "attribution", "summary": "Carry-forward must credit dickeyf/Francois and PR #4143; cherry-pick preserves the public commit metadata, replacement should not invent a new email."},
+      {"id": "research-13", "independence_key": "label-policy", "artifact_ref": "urn:opencode:pr4143:research:13", "completed_at": "2026-07-09T14:16:00Z", "actor": "research-leg-13", "lens": "label policy", "summary": "Label cardinality passes exactly one status/priority/kind, but status/reviewing does not allow a merge path."},
+      {"id": "research-14", "independence_key": "failure-mode", "artifact_ref": "urn:opencode:pr4143:research:14", "completed_at": "2026-07-09T14:16:30Z", "actor": "research-leg-14", "lens": "failure reconstruction", "summary": "A map/envelope parse failure leaves child step IDs undiscovered and can orphan open step wisps after root closure."},
+      {"id": "research-15", "independence_key": "fixup-feasibility", "artifact_ref": "urn:opencode:pr4143:research:15", "completed_at": "2026-07-09T14:17:00Z", "actor": "research-leg-15", "lens": "fixup feasibility", "summary": "Same-PR or replacement fixup is feasible if carried forward, but current policy gates block merge-as-is."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "pre-defer-correctness", "artifact_ref": "urn:opencode:pr4143:pre:01", "reviewed_action_ref": "action-plan-4143-defer-report", "completed_at": "2026-07-09T14:21:00Z", "actor": "pre-review-01", "verdict": "approve", "summary": "Approved defer_human_review with merge_path_allowed=false as the correct minimal action because status, approvals, verification, and freshness are incomplete."},
+      {"id": "pre-02", "independence_key": "pre-defer-cleanup", "artifact_ref": "urn:opencode:pr4143:pre:02", "reviewed_action_ref": "action-plan-4143-defer-report", "completed_at": "2026-07-09T14:21:10Z", "actor": "pre-review-02", "verdict": "approve", "summary": "Approved cleanup-first defer; future carry-forward should keep parsing centralized and avoid shims/retries/workarounds."},
+      {"id": "pre-03", "independence_key": "pre-defer-policy", "artifact_ref": "urn:opencode:pr4143:pre:03", "reviewed_action_ref": "action-plan-4143-defer-report", "completed_at": "2026-07-09T14:21:20Z", "actor": "pre-review-03", "verdict": "approve", "summary": "Approved policy compliance for non-merge verdict and noted non-merge checker pass must not be described as merge approval."},
+      {"id": "pre-04", "independence_key": "pre-defer-verification", "artifact_ref": "urn:opencode:pr4143:pre:04", "reviewed_action_ref": "action-plan-4143-defer-report", "completed_at": "2026-07-09T14:21:30Z", "actor": "pre-review-04", "verdict": "approve", "summary": "Approved defer because focused PR-head verification and substantive CI are missing."},
+      {"id": "pre-05", "independence_key": "pre-defer-attribution", "artifact_ref": "urn:opencode:pr4143:pre:05", "reviewed_action_ref": "action-plan-4143-defer-report", "completed_at": "2026-07-09T14:21:40Z", "actor": "pre-review-05", "verdict": "approve", "summary": "Approved attribution/security coverage for defer; future carry-forward must credit dickeyf/Francois without inventing private email use."}
+    ],
+    "post_implementation_reviews": []
+  },
+  "cleanup_first": {
+    "assessment": "acceptable_minimal",
+    "rationale": "The reviewed PR is a narrow bug fix that extends the existing parseChildrenJSON function and test instead of adding a retry, alternate command path, workaround layer, or unrelated rewrite. The Sheriff action here is report-only and adds no production code surface.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [],
+    "ci_checks": []
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": false,
+    "mode": "none",
+    "state": "not_applicable",
+    "original_change_url": null,
+    "replacement_change_url": null,
+    "replacement_branch": null,
+    "replacement_commit_refs": [],
+    "original_author": null,
+    "evidence_reuse": {"reused_artifact_refs": [], "fresh_artifact_refs": [], "rationale": "not applicable for report-only defer"},
+    "attribution": {"required": false, "required_reason": null, "preserved": false, "method": "not_required", "artifact_refs": []},
+    "superseded_closure": {"required": false, "state": "not_required", "closure_intent_ref": null, "replacement_merge_ref": null, "closure_ref": null}
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "ci_checks", "bead_notes"],
+    "unresolved_blockers_found": true,
+    "blocker_refs": ["label-snapshot", "review-snapshot", "ci-snapshot", "upstream-main-snapshot", "focused-verification-missing"],
+    "resolution_refs": [],
+    "scanned_at": "2026-07-09T14:22:00Z",
+    "summary": "Scanned labels, comments/reviews, CI/checks, PR metadata, current upstream/main, and bead context. Unresolved blockers: status/reviewing is not merge-ready, approvals are absent, substantive PR-head verification is absent, and PR base is stale relative to current upstream/main."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "defer_human_review",
+    "decision_valid": true,
+    "merge_path_allowed": false,
+    "blocking_gates": [
+      {"name": "merge_status", "reason": "status/reviewing is not review-approved or merge-ready"},
+      {"name": "blocker_scan", "reason": "approval, verification, and freshness blockers remain unresolved"},
+      {"name": "focused_verification", "reason": "no substantive PR-head build/test or focused verification evidence is available"}
+    ],
+    "target_change_url": "https://github.com/gastownhall/gastown/pull/4143",
+    "target_head_sha": "14adfda9cbeb044e25227359369672e68ebc8483",
+    "decided_by": "gastown/polecats/pipboy",
+    "decided_at": "2026-07-09T14:22:33Z",
+    "reason": "PR #4143 is a valid, narrow bug-fix candidate, but it is not merge-path eligible: the semantic status is only reviewing, no approval exists, no substantive PR-head build/test evidence exists, and the PR is stale behind current upstream/main. Produce this durable defer report and rerun PR Sheriff after those gates are satisfied.",
+    "required_actions": [
+      "Do not merge PR #4143 as-is while status is status/reviewing and approval/verification gates are missing.",
+      "If carried forward by Sheriff or maintainer, preserve attribution to dickeyf / Francois Dickey and cite PR #4143; avoid inventing a replacement email for the local-looking commit author address.",
+      "Refresh or replacement/fixup against current upstream/main before final merge decision.",
+      "Run focused daemon verification on the final PR/replacement head, at minimum go test ./internal/daemon -run TestParseChildrenJSON -count=1 and go test ./internal/daemon -count=1, then capture output tied to the final head SHA.",
+      "Promote to review-approved or merge-ready only after approval and verification evidence exist, then rerun gt-pr-sheriff-check with --merge-gate."
+    ]
+  }
+}

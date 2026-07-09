@@ -1,0 +1,12 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-pr-sheriff-4143-bd-children-envelope/evidence.json --merge-gate
+Exit code: 1
+
+PR Sheriff: BLOCK
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 4 pass, 6 not_applicable, 0 waived, 4 fail
+blocking_gates:
+- merge_status: status reviewing is not merge-ready; merge-ready status is contradicted by unresolved blocker evidence
+- blocker_scan: unresolved blockers found
+- focused_verification: verification requires focused_checks, ci_checks, or a not_applicable reason; verification.ci_checks missing configured baseline checks: Integration Tests, Lint, Reject go.mod replace directives, Reject issues.jsonl, Test, Windows Smoke Test; no passing or explicitly not-applicable verification evidence found
+- final_verdict: --merge-gate requires final.verdict merge_as_is or merge_replacement
