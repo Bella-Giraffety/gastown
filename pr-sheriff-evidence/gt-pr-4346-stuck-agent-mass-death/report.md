@@ -1,11 +1,11 @@
 # PR Sheriff Report
 
-Subject: `gastownhall/gastown` PR #4346 `fix: guard stuck-agent mass-death escalation`  
-URL: https://github.com/gastownhall/gastown/pull/4346  
-Mode: merge decision, review-only/no code change  
-Author: `Bella-Giraffety` (trusted/maintainer-adjacent)  
-Base/Head Checked: `upstream/main@81233d36f27465fcae83944f78bdea1674d7143e` -> PR head `ff2f53f38bb93183abac829e4fc127670acb6b0e`  
-Evidence: `pr-sheriff-evidence/gt-pr-4346-stuck-agent-mass-death/evidence.json`
+- Subject: `gastownhall/gastown` PR #4346 `fix: guard stuck-agent mass-death escalation`
+- URL: https://github.com/gastownhall/gastown/pull/4346
+- Mode: merge decision, review-only/no code change
+- Author: `Bella-Giraffety` (trusted/maintainer-adjacent)
+- Base/Head Checked: `upstream/main@81233d36f27465fcae83944f78bdea1674d7143e` -> PR head `ff2f53f38bb93183abac829e4fc127670acb6b0e`
+- Evidence: `pr-sheriff-evidence/gt-pr-4346-stuck-agent-mass-death/evidence.json`
 
 ## Final Verdict
 
