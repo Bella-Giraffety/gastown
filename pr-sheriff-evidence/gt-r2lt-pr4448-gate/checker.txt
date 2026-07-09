@@ -1,0 +1,13 @@
+Command:
+gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-r2lt-pr4448-gate/evidence.json
+
+Exit code: 0
+
+Output:
+PR Sheriff: PASS
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 5 pass, 7 not_applicable, 0 waived, 2 fail
+
+JSON output:
+{"blocking_gates": [], "errors": [], "exit_code": 0, "gates": [{"name": "label_triage", "outcome": "pass", "reason": "status=reviewing, priority=p2, kind=bug"}, {"name": "merge_status", "outcome": "fail", "reason": "status reviewing is not merge-ready; merge-ready status is contradicted by unresolved blocker evidence"}, {"evidence_refs": ["blocker-merge-status", "blocker-current-head-evidence", "blocker-current-main-refresh", "blocker-create-run-mismatch", "blocker-codecov-warning"], "name": "blocker_scan", "outcome": "fail", "reason": "unresolved blockers found"}, {"name": "research_count", "outcome": "pass", "reason": "15 independent research legs present"}, {"name": "pre_review_count", "outcome": "pass", "reason": "5 approving pre-implementation reviews present"}, {"name": "post_review_count", "outcome": "not_applicable", "reason": "Sheriff did not change code"}, {"name": "cleanup_first", "outcome": "pass", "reason": "assessment convergent satisfies cleanup-first policy"}, {"name": "enhancement_approval", "outcome": "not_applicable", "reason": "subject kind does not require human feature approval"}, {"name": "focused_verification", "outcome": "not_applicable", "reason": "not required for non-merge verdict"}, {"name": "baseline_red_waiver", "outcome": "not_applicable", "reason": "no baseline-red CI failures"}, {"name": "replacement_flow", "outcome": "not_applicable", "reason": "no replacement/fixup/cherry-pick flow"}, {"name": "contributor_attribution", "outcome": "not_applicable", "reason": "attribution not required"}, {"name": "superseded_closure", "outcome": "not_applicable", "reason": "no superseded original closure"}, {"name": "final_verdict", "outcome": "pass", "reason": "final verdict defer_human_review is internally consistent"}], "merge_path_allowed": false, "status": "pass", "verdict": "defer_human_review"}
