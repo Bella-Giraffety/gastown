@@ -1,0 +1,7 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-fln8-pr4322-review/evidence.json
+Exit: 0
+
+PR Sheriff: PASS
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 5 pass, 6 not_applicable, 0 waived, 3 fail

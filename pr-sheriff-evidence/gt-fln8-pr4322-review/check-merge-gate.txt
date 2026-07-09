@@ -1,0 +1,13 @@
+Command: gt-pr-sheriff-check --evidence pr-sheriff-evidence/gt-fln8-pr4322-review/evidence.json --merge-gate
+Exit: 1
+
+PR Sheriff: BLOCK
+merge_path_allowed: false
+verdict: defer_human_review
+gates: 4 pass, 5 not_applicable, 0 waived, 5 fail
+blocking_gates:
+- merge_status: status review-failed is not merge-ready; merge-ready status is contradicted by unresolved blocker evidence
+- blocker_scan: unresolved blockers found
+- cleanup_first: cleanup_first.assessment must be convergent or acceptable_minimal, found bandaid_blocked; cleanup_first.bandaid is present without an allowed exception; cleanup_first.bandaid exception evidence_ref is required; cleanup_first.workaround_layer is present without an allowed exception; cleanup_first.workaround_layer exception evidence_ref is required
+- baseline_red_waiver: baseline_red_waiver.requested must be true for failed checks; baseline_red_waiver.approved must be true; baseline_red_waiver.approved_by is required; baseline_red_waiver.approver_role is required; baseline_red_waiver.approved_at is required; baseline_red_waiver.approval_ref is required; baseline_red_waiver.unrelated_rationale is required; baseline_red_waiver.failing_checks must name exact failed checks
+- final_verdict: --merge-gate requires final.verdict merge_as_is or merge_replacement
