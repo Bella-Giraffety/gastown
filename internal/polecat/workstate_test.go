@@ -19,6 +19,11 @@ func TestDecideWorkstateCanonicalFields(t *testing.T) {
 			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "cleanup-has_unpushed", NeedsRecovery: true, ReuseStatus: "idle-recovery-needed"},
 		},
 		{
+			name: "dirty keeper idle is not reusable or safe to nuke",
+			in:   WorkstateInput{State: StateIdle, CleanupStatus: CleanupUncommitted, GitDirty: true},
+			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "cleanup-has_uncommitted", NeedsRecovery: true, ReuseStatus: "idle-recovery-needed"},
+		},
+		{
 			name: "active hook blocks clean idle cleanup",
 			in:   WorkstateInput{State: StateIdle, CleanupStatus: CleanupClean, HookBead: "gt-work", ActiveWorkCountsTowardCapacity: true},
 			want: WorkstateDisposition{Verdict: WorkstateVerdictNeedsRecovery, Reason: "hook-still-set", NeedsRecovery: true, CountsTowardCapacity: true, ReuseStatus: "idle-recovery-needed"},

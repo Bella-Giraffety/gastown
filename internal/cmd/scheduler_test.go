@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/scheduler/capacity"
@@ -72,6 +74,20 @@ func TestScheduledWorkReadinessReasons(t *testing.T) {
 			wantOK:  true,
 			wantWhy: "",
 		},
+		{
+			name:    "force does not allow terminal status",
+			fields:  &capacity.SlingContextFields{WorkBeadID: "gt-task", TargetRig: "gastown", Force: true},
+			info:    beadStatusInfo{Status: "closed"},
+			found:   true,
+			wantWhy: "status:closed",
+		},
+		{
+			name:    "unknown status reason",
+			fields:  fields,
+			info:    beadStatusInfo{},
+			found:   true,
+			wantWhy: "status:unknown",
+		},
 	}
 
 	for _, tt := range tests {
@@ -81,6 +97,31 @@ func TestScheduledWorkReadinessReasons(t *testing.T) {
 				t.Fatalf("scheduledWorkReadiness() = (%v, %q), want (%v, %q)", gotOK, gotWhy, tt.wantOK, tt.wantWhy)
 			}
 		})
+	}
+}
+
+func TestTargetRigBeadsDirUsesRoutesOnly(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	dotfilesRig := filepath.Join(townRoot, "dotfiles", "mayor", "rig")
+	if err := os.MkdirAll(filepath.Join(dotfilesRig, ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(`{"prefix":"do-","path":"dotfiles/mayor/rig"}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := targetRigBeadsDir(townRoot, "dotfiles"); got != filepath.Join(dotfilesRig, ".beads") {
+		t.Fatalf("targetRigBeadsDir(dotfiles) = %q, want canonical route dir", got)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "ghost", ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetRigBeadsDir(townRoot, "ghost"); got != "" {
+		t.Fatalf("targetRigBeadsDir(ghost) = %q, want no filesystem fallback without route", got)
 	}
 }
 

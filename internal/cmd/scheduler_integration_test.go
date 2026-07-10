@@ -685,6 +685,21 @@ func TestScheduleBead_WorkStatusBeatsOpenContextIdempotency(t *testing.T) {
 	}
 }
 
+func TestSchedulerSlingForceStoredInContext(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Force context test")
+	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig", "--force", "--no-convoy")
+
+	fields := findSlingContext(t, hqPath, beadID)
+	if fields == nil {
+		t.Fatalf("bead %s has no sling context after force scheduling", beadID)
+	}
+	if !fields.Force {
+		t.Fatalf("context force = false, want true")
+	}
+}
+
 // TestSchedulerSlingContextWorkBeadPristine verifies that scheduling a bead
 // does NOT modify the work bead's description or labels.
 func TestSchedulerSlingContextWorkBeadPristine(t *testing.T) {

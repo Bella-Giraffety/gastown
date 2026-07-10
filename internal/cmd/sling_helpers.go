@@ -20,7 +20,6 @@ import (
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/daemon"
-	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/formula"
 	rigpkg "github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
@@ -488,11 +487,7 @@ func targetRigBeadsDir(townRoot, targetRig string) string {
 	if targetRigDir != "" {
 		return beads.ResolveBeadsDir(targetRigDir)
 	}
-	targetBeadsDir := doltserver.FindRigBeadsDir(townRoot, targetRig)
-	if targetBeadsDir == "" {
-		return ""
-	}
-	return targetBeadsDir
+	return ""
 }
 
 func sameBeadsDir(a, b string) bool {
