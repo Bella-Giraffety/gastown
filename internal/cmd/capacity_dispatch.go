@@ -422,7 +422,7 @@ func cleanupStaleContexts(townRoot string) {
 	keepContext := preferredSlingContextIndexes(townRoot, staleCheckContexts, staleCheckFields)
 	for i, keep := range keepContext {
 		if !keep {
-			_ = beadsForContextRecord(staleCheckContexts[i]).CloseSlingContext(staleCheckContexts[i].issue.ID, "duplicate-work-bead")
+			closeDuplicateSlingContext(staleCheckContexts[i], staleCheckFields[i])
 		}
 	}
 
@@ -460,6 +460,24 @@ func cleanupStaleContexts(townRoot string) {
 		if found && !concreteWorkAssessment(fields.WorkBeadID, info).Concrete {
 			_ = beadsForContextRecord(ctx).CloseSlingContext(ctx.issue.ID, "invalid-work-bead")
 		}
+	}
+}
+
+func closeDuplicateSlingContext(ctx slingContextRecord, fields *capacity.SlingContextFields) {
+	ctxBeads := beadsForContextRecord(ctx)
+	if err := ctxBeads.CloseSlingContext(ctx.issue.ID, "duplicate-work-bead"); err == nil {
+		return
+	} else {
+		fmt.Fprintf(os.Stderr, "%s Could not close duplicate context %s: %v\n", style.Warning.Render("⚠"), ctx.issue.ID, err)
+	}
+	if fields == nil {
+		return
+	}
+	fields.Force = false
+	fields.DispatchFailures = maxDispatchFailures
+	fields.LastFailure = "duplicate context close failed"
+	if err := ctxBeads.UpdateSlingContextFields(ctx.issue.ID, fields); err != nil {
+		fmt.Fprintf(os.Stderr, "%s CRITICAL: could not quarantine duplicate context %s: %v\n", style.Warning.Render("⚠"), ctx.issue.ID, err)
 	}
 }
 
