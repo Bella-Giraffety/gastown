@@ -486,6 +486,11 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		// Without this fallthrough, dispatchFeedDog can't feed stranded convoys when a
 		// scheduler is active (bead aa-4yf2).
 		if _, isDog := IsDogTarget(args[1]); !isDog {
+			if rigName, ok := missingPolecatTargetRig(args[1], true, townRoot); ok {
+				if _, isRig := IsRigName(rigName); isRig {
+					return fmt.Errorf("deferred dispatch is rig-scoped: target %q names a specific polecat, but scheduler.max_polecats > 0 means the scheduler chooses or creates a %s polecat to preserve capacity control.\nUse: %s", args[1], rigName, deferredRigTargetSuggestion(args[0], rigName))
+				}
+			}
 			// Non-rig, non-dog target in deferred mode — reject to prevent bypassing capacity control
 			return fmt.Errorf("deferred dispatch requires a rig target: gt sling %s <rig>\n'%s' is not a known rig", args[0], args[1])
 		}
@@ -543,9 +548,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		if deferred {
 			return fmt.Errorf("deferred dispatch requires a rig target: gt sling %s <rig>", args[0])
 		}
-	}
+}
 
-	// 2-bead auto-resolve: gt sling gt-abc gt-def
+// 2-bead auto-resolve: gt sling gt-abc gt-def
 	if len(args) == 2 && allBeadIDs(args) {
 		if _, isRig := IsRigName(args[1]); !isRig {
 			rigName, err := resolveRigFromBeadIDs(args, filepath.Dir(townBeadsDir))
@@ -1187,6 +1192,23 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	}
 
 	return nil
+}
+
+func deferredRigTargetSuggestion(beadID, rigName string) string {
+	parts := []string{"gt", "sling", beadID, rigName}
+	if slingCreate {
+		parts = append(parts, "--create")
+	}
+	if slingForce {
+		parts = append(parts, "--force")
+	}
+	if slingNoConvoy {
+		parts = append(parts, "--no-convoy")
+	}
+	if slingDryRun {
+		parts = append(parts, "--dry-run")
+	}
+	return strings.Join(parts, " ")
 }
 
 // checkCrossRigGuard validates that a bead's prefix matches the target rig.

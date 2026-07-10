@@ -19,6 +19,7 @@ func TestFormatParseSlingContextRoundTrip(t *testing.T) {
 		Convoy:           "hq-cv-test",
 		BaseBranch:       "develop",
 		NoMerge:          true,
+		Force:            true,
 		Account:          "acme",
 		Agent:            "gemini",
 		HookRawBead:      true,
@@ -67,6 +68,9 @@ func TestFormatParseSlingContextRoundTrip(t *testing.T) {
 	}
 	if parsed.NoMerge != original.NoMerge {
 		t.Errorf("NoMerge: got %v, want %v", parsed.NoMerge, original.NoMerge)
+	}
+	if parsed.Force != original.Force {
+		t.Errorf("Force: got %v, want %v", parsed.Force, original.Force)
 	}
 	if parsed.Account != original.Account {
 		t.Errorf("Account: got %q, want %q", parsed.Account, original.Account)

@@ -8,13 +8,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gofrs/flock"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
-	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/scheduler/capacity"
 	"github.com/steveyegge/gastown/internal/style"
@@ -277,9 +277,44 @@ func dispatchScheduledWork(townRoot, actor string, batchOverride int, dryRun boo
 		}
 		fmt.Printf("\n%s Skipped %d bead(s) — zero capacity (working: %d recovery_blocked: %d reservations: %d reusable_idle: %d pending_mr: %d)\n",
 			style.Dim.Render("○"), report.Skipped, snapshot.Working, snapshot.RecoveryBlocked, snapshot.Reservations, snapshot.ReusableIdle, snapshot.PendingMR)
+	} else if !isDaemonDispatch() {
+		printNoReadyScheduledWork(townRoot)
 	}
 
 	return report.Dispatched, nil
+}
+
+func printNoReadyScheduledWork(townRoot string) {
+	scheduled := listScheduledBeads(townRoot)
+	if len(scheduled) == 0 {
+		return
+	}
+	reasons := make(map[string]int)
+	blocked := 0
+	for _, b := range scheduled {
+		if !b.Blocked {
+			continue
+		}
+		reason := b.BlockedReason
+		if reason == "" {
+			reason = "not_ready"
+		}
+		reasons[reason]++
+		blocked++
+	}
+	if blocked == 0 {
+		return
+	}
+	keys := make([]string, 0, len(reasons))
+	for reason := range reasons {
+		keys = append(keys, reason)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, reason := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", reason, reasons[reason]))
+	}
+	fmt.Printf("\n%s No ready beads scheduled for dispatch (%s)\n", style.Dim.Render("○"), strings.Join(parts, ", "))
 }
 
 // printDryRunPlan displays a dry-run dispatch plan.
@@ -314,7 +349,7 @@ func printDryRunPlan(plan capacity.DispatchPlan, snapshot polecatCapacitySnapsho
 // the target rig is unknown (e.g., invalid context with nil fields).
 func beadsForContext(townRoot string, fields *capacity.SlingContextFields) *beads.Beads {
 	if fields != nil && fields.TargetRig != "" {
-		rigBeadsDir := doltserver.FindRigBeadsDir(townRoot, fields.TargetRig)
+		rigBeadsDir := targetRigBeadsDir(townRoot, fields.TargetRig)
 		if rigBeadsDir != "" {
 			return beads.NewWithBeadsDir(townRoot, rigBeadsDir)
 		}
@@ -392,7 +427,11 @@ func cleanupStaleContexts(townRoot string) {
 	for i, ctx := range staleCheckContexts {
 		fields := staleCheckFields[i]
 		info, found := workBeadInfo[fields.WorkBeadID]
-		if found && (beads.IssueStatus(info.Status) == beads.IssueStatusHooked || isTerminalWorkStatus(info.Status)) {
+		if found && isTerminalWorkStatus(info.Status) {
+			_ = beadsForContextRecord(ctx).CloseSlingContext(ctx.issue.ID, "stale-work-bead")
+			continue
+		}
+		if found && beads.IssueStatus(info.Status) == beads.IssueStatusHooked && !fields.Force {
 			_ = beadsForContextRecord(ctx).CloseSlingContext(ctx.issue.ID, "stale-work-bead")
 			continue
 		}
@@ -542,7 +581,8 @@ func getReadySlingContexts(townRoot string) ([]capacity.PendingBead, error) {
 		// cache plus targeted show output instead of shelling out to bd ready for
 		// every rig, which is prohibitively expensive in large towns.
 		info, found := workBeadInfo[fields.WorkBeadID]
-		if !isScheduledWorkBeadReady(fields.WorkBeadID, info, found, blockedWorkIDs) {
+		ready, _ := scheduledWorkReadiness(fields, info, found, blockedWorkIDs)
+		if !ready {
 			continue
 		}
 
@@ -607,6 +647,7 @@ func dispatchSingleBead(b capacity.PendingBead, townRoot, _ string) (*SlingResul
 		CallerContext:    "scheduler-dispatch",
 		NoConvoy:         true,
 		NoBoot:           true,
+		Force:            dp.Force,
 		TownRoot:         townRoot,
 		BeadsDir:         beadsDir,
 	}
@@ -788,11 +829,30 @@ func listBlockedWorkBeadIDs(townRoot string) map[string]bool {
 	return ids
 }
 
-func isScheduledWorkBeadReady(workBeadID string, info beadStatusInfo, found bool, blockedWorkIDs map[string]bool) bool {
-	if !found || blockedWorkIDs[workBeadID] {
-		return false
+func scheduledWorkReadiness(fields *capacity.SlingContextFields, info beadStatusInfo, found bool, blockedWorkIDs map[string]bool) (bool, string) {
+	if fields == nil || fields.WorkBeadID == "" {
+		return false, "invalid_context"
 	}
-	return beads.IssueStatus(info.Status) == beads.StatusOpen
+	if !found {
+		return false, "not_found"
+	}
+	if blockedWorkIDs != nil && blockedWorkIDs[fields.WorkBeadID] {
+		return false, "blocked_by_dependency"
+	}
+	status := beads.IssueStatus(info.Status)
+	if status == beads.StatusOpen {
+		return true, ""
+	}
+	if isTerminalWorkStatus(info.Status) {
+		return false, "status:" + info.Status
+	}
+	if fields.Force {
+		return true, ""
+	}
+	if info.Status == "" {
+		return false, "status:unknown"
+	}
+	return false, "status:" + info.Status
 }
 
 func concreteWorkAssessment(workBeadID string, info beadStatusInfo) workitem.Assessment {

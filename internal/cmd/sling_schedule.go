@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
-	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/scheduler/capacity"
@@ -112,7 +111,7 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 	// Create the sling context in the target rig's beads dir so that the target
 	// rig's witness can discover it during patrol. Previously this used the HQ
 	// beads dir, which meant non-HQ rig witnesses never saw the context. (GH#3468)
-	rigBeadsDir := doltserver.FindRigBeadsDir(townRoot, rigName)
+	rigBeadsDir := targetRigBeadsDir(townRoot, rigName)
 	rigBeads := beads.NewWithBeadsDir(townRoot, rigBeadsDir)
 	existingCtx, _, findErr := rigBeads.FindOpenSlingContext(beadID)
 	if findErr != nil {
@@ -174,6 +173,7 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 	}
 	fields.NoMerge = opts.NoMerge
 	fields.ReviewOnly = opts.ReviewOnly
+	fields.Force = opts.Force
 	if opts.Account != "" {
 		fields.Account = opts.Account
 	}

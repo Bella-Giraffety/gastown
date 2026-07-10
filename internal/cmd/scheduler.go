@@ -124,6 +124,7 @@ type scheduledBeadInfo struct {
 	Status    string `json:"status"`
 	TargetRig string `json:"target_rig"`
 	Blocked   bool   `json:"blocked,omitempty"`
+	BlockedReason string `json:"blocked_reason,omitempty"`
 }
 
 func runSchedulerStatus(cmd *cobra.Command, args []string) error {
@@ -432,12 +433,14 @@ func scheduledBeadInfoFromWork(ctxTitle string, fields *capacity.SlingContextFie
 			return scheduledBeadInfo{}, false
 		}
 	}
+	ready, reason := scheduledWorkReadiness(fields, info, found, blockedWorkIDs)
 	return scheduledBeadInfo{
 		ID:        fields.WorkBeadID,
 		Title:     title,
 		Status:    status,
 		TargetRig: fields.TargetRig,
-		Blocked:   !isScheduledWorkBeadReady(fields.WorkBeadID, info, found, blockedWorkIDs),
+		Blocked:   !ready,
+		BlockedReason: reason,
 	}, true
 }
 

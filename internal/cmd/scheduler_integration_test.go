@@ -455,6 +455,9 @@ func TestSchedulerBlockedStatusReporting(t *testing.T) {
 			if !blocked {
 				t.Errorf("bead %s SHOULD be blocked", blockedID)
 			}
+			if reason, _ := item["blocked_reason"].(string); reason != "blocked_by_dependency" {
+				t.Errorf("bead %s blocked_reason = %q, want blocked_by_dependency", blockedID, reason)
+			}
 		}
 	}
 	if !foundReady {
@@ -493,6 +496,9 @@ func TestSchedulerBlockedStatusReporting(t *testing.T) {
 			foundBlocked = true
 			if blocked {
 				t.Errorf("bead %s should become ready after blocker closes", blockedID)
+			}
+			if reason, _ := item["blocked_reason"].(string); reason != "" {
+				t.Errorf("bead %s blocked_reason after unblock = %q, want empty", blockedID, reason)
 			}
 		}
 	}
@@ -1258,6 +1264,37 @@ func TestSchedulerDeferredNonRigRejection(t *testing.T) {
 	}
 	if !strings.Contains(out, "deferred dispatch requires a rig target") {
 		t.Errorf("expected 'deferred dispatch requires a rig target' error for '.', got:\n%s", out)
+	}
+}
+
+func TestSchedulerDeferredSpecificPolecatTargetMessage(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Specific polecat target message test")
+
+	for _, target := range []string{"testrig/furiosa", "testrig/polecats/furiosa"} {
+		t.Run(target, func(t *testing.T) {
+			out, err := runGTCmdMayFail(t, gtBinary, hqPath, env,
+				"sling", beadID, target, "--hook-raw-bead", "--create", "--force", "--no-convoy", "--dry-run")
+			if err == nil {
+				t.Fatalf("gt sling %s %s in deferred mode should fail, but succeeded:\n%s", beadID, target, out)
+			}
+			for _, want := range []string{
+				"deferred dispatch is rig-scoped",
+				"scheduler chooses or creates a testrig polecat",
+				"gt sling " + beadID + " testrig --create --force --no-convoy --dry-run",
+			} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("output for target %q missing %q:\n%s", target, want, out)
+				}
+			}
+			if strings.Contains(out, "is not a known rig") {
+				t.Fatalf("target %q should not use generic unknown-rig error:\n%s", target, out)
+			}
+			if hasSlingContext(t, hqPath, beadID) {
+				t.Fatalf("specific-target rejection should not create a sling context for %s", beadID)
+			}
+		})
 	}
 }
 

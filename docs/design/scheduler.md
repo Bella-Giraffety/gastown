@@ -99,8 +99,7 @@ Scheduling state is stored on **separate ephemeral beads** called sling contexts
 
 Each sling context bead:
 - Is created via `bd create --ephemeral` with label `gt:sling-context`
-- Has a `tracks` dependency pointing to the work bead
-- Stores all scheduling parameters as JSON in its description
+- Stores the canonical work link and all scheduling parameters as JSON in its description
 - Is closed when dispatch succeeds, the bead is cleared, or the circuit breaker trips
 
 ### Why Separate Beads?
@@ -132,6 +131,7 @@ Sling context beads eliminate all of this:
 | `convoy` | string | Convoy bead ID (set after auto-convoy creation) |
 | `base_branch` | string | Override base branch for polecat worktree |
 | `no_merge` | bool | Skip merge queue on completion |
+| `force` | bool | Preserve `--force` through deferred dispatch |
 | `account` | string | Claude Code account handle |
 | `agent` | string | Agent/runtime override |
 | `hook_raw_bead` | bool | Hook without default formula |
@@ -228,7 +228,7 @@ func (d *Daemon) dispatchScheduledWork() {
 5. **Validate formula** — verify formula exists (lightweight, no side effects)
 6. **Cook formula** — `bd cook` to catch bad protos before daemon dispatch
 7. **Build context fields** — `SlingContextFields` struct with all sling params
-8. **Create sling context** — `bd create --ephemeral` + `bd dep add --type=tracks` (atomic)
+8. **Create sling context** — one atomic `bd create --ephemeral` with `work_bead_id` in JSON
 9. **Auto-convoy** — create convoy if not already tracked, store convoy ID in context fields
 10. **Log event** — feed event for dashboard visibility
 
