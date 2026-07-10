@@ -113,11 +113,24 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 	// beads dir, which meant non-HQ rig witnesses never saw the context. (GH#3468)
 	rigBeadsDir := targetRigBeadsDir(townRoot, rigName)
 	rigBeads := beads.NewWithBeadsDir(townRoot, rigBeadsDir)
-	existingCtx, _, findErr := rigBeads.FindOpenSlingContext(beadID)
+	existingCtx, existingFields, findErr := rigBeads.FindOpenSlingContext(beadID)
 	if findErr != nil {
 		return fmt.Errorf("checking for existing sling context: %w", findErr)
 	}
 	if existingCtx != nil {
+		if opts.Force && existingFields != nil && !existingFields.Force {
+			if opts.DryRun {
+				fmt.Printf("Would update scheduled %s context %s with force=true\n", beadID, existingCtx.ID)
+				return nil
+			}
+			existingFields.Force = true
+			if err := rigBeads.UpdateSlingContextFields(existingCtx.ID, existingFields); err != nil {
+				return fmt.Errorf("updating existing sling context with force=true: %w", err)
+			}
+			fmt.Printf("%s Updated scheduled %s context %s with force=true\n",
+				style.Bold.Render("✓"), beadID, existingCtx.ID)
+			return nil
+		}
 		fmt.Printf("%s Bead %s is already scheduled (context: %s), no-op\n",
 			style.Dim.Render("○"), beadID, existingCtx.ID)
 		return nil

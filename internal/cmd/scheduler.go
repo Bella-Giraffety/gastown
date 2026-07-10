@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -389,6 +390,17 @@ func listScheduledBeads(townRoot string) []scheduledBeadInfo {
 	// the full ready graph and is too slow for scheduler display paths.
 	blockedWorkIDs, _ := listBlockedWorkBeadIDsWithError(townRoot, workBeadIDs)
 	workBeadInfo := batchFetchBeadInfoByIDs(townRoot, workBeadIDs)
+	sort.Slice(allContexts, func(i, j int) bool {
+		fi := beads.ParseSlingContextFields(allContexts[i].Description)
+		fj := beads.ParseSlingContextFields(allContexts[j].Description)
+		if fi == nil || fj == nil {
+			return fi != nil
+		}
+		if fi.EnqueuedAt != fj.EnqueuedAt {
+			return fi.EnqueuedAt < fj.EnqueuedAt
+		}
+		return allContexts[i].ID < allContexts[j].ID
+	})
 
 	seenWork := make(map[string]bool)
 	var result []scheduledBeadInfo
@@ -403,17 +415,18 @@ func listScheduledBeads(townRoot string) []scheduledBeadInfo {
 			continue
 		}
 
-		// Dedup by WorkBeadID (mirrors getReadySlingContexts logic)
+		// Dedup by WorkBeadID after reportability checks so a hidden stale
+		// context cannot suppress a later force-upgraded context.
 		if seenWork[fields.WorkBeadID] {
 			continue
 		}
-		seenWork[fields.WorkBeadID] = true
 
 		info, found := workBeadInfo[fields.WorkBeadID]
 		bead, ok := scheduledBeadInfoFromWork(ctx.Title, fields, info, found, blockedWorkIDs)
 		if !ok {
 			continue
 		}
+		seenWork[fields.WorkBeadID] = true
 		result = append(result, bead)
 	}
 
