@@ -676,7 +676,11 @@ func resolveSessionHealthTarget(target string) string {
 	if identity, err := session.ParseAddress(target); err == nil {
 		if identity.Rig != "" {
 			if _, ok := session.DefaultRegistry().AllRigs()[identity.Rig]; !ok {
-				return target
+				prefix, ok := resolveSessionHealthRigPrefix(identity.Rig)
+				if !ok {
+					return target
+				}
+				identity.Prefix = prefix
 			}
 		}
 		if sessionName := identity.SessionName(); sessionName != "" {
@@ -684,6 +688,18 @@ func resolveSessionHealthTarget(target string) string {
 		}
 	}
 	return target
+}
+
+func resolveSessionHealthRigPrefix(rigName string) (string, bool) {
+	_, r, err := getRig(rigName)
+	if err != nil || r == nil || r.Config == nil {
+		return "", false
+	}
+	prefix := strings.TrimSpace(strings.TrimSuffix(r.Config.Prefix, "-"))
+	if prefix == "" {
+		return "", false
+	}
+	return prefix, true
 }
 
 // formatDuration formats a duration for human display.
