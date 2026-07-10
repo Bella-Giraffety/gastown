@@ -347,9 +347,10 @@ func writeSessionHealthFakeTmux(t *testing.T, sessionExists bool) {
 case "$*" in
   *"capture-pane"*) echo "health must not rely on pane capture or prompt text" >&2; exit 1;;
   *"has-session -t =gt-guzzle"*) exit ` + missingStatus + `;;
-  *"show-environment -t gt-guzzle GT_PROCESS_NAMES"*) echo "GT_PROCESS_NAMES=sleep"; exit 0;;
-  *"show-environment -t gt-guzzle GT_PANE_ID"*) echo "unknown variable: GT_PANE_ID" >&2; exit 1;;
-  *"display-message -t gt-guzzle:^ -p #{pane_current_command}"*) echo "sleep"; exit 0;;
+	*"show-environment -t gt-guzzle GT_PROCESS_NAMES"*) echo "GT_PROCESS_NAMES=opencode,node,bun"; exit 0;;
+	*"show-environment -t gt-guzzle GT_AGENT"*) echo "GT_AGENT=opencode"; exit 0;;
+	*"show-environment -t gt-guzzle GT_PANE_ID"*) echo "unknown variable: GT_PANE_ID" >&2; exit 1;;
+	*"display-message -t gt-guzzle:^ -p #{pane_current_command}"*) echo "opencode"; exit 0;;
   *"display-message -t gt-guzzle:^ -p #{pane_pid}"*) echo "12345"; exit 0;;
   *) echo "unexpected tmux command: $*" >&2; exit 1;;
 esac
