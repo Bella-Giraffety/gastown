@@ -393,13 +393,7 @@ func listScheduledBeads(townRoot string) []scheduledBeadInfo {
 	sort.Slice(allContexts, func(i, j int) bool {
 		fi := beads.ParseSlingContextFields(allContexts[i].Description)
 		fj := beads.ParseSlingContextFields(allContexts[j].Description)
-		if fi == nil || fj == nil {
-			return fi != nil
-		}
-		if fi.EnqueuedAt != fj.EnqueuedAt {
-			return fi.EnqueuedAt < fj.EnqueuedAt
-		}
-		return allContexts[i].ID < allContexts[j].ID
+		return slingContextFieldsLess(fi, fj, allContexts[i].ID, allContexts[j].ID)
 	})
 
 	seenWork := make(map[string]bool)

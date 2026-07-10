@@ -409,10 +409,14 @@ func cleanupStaleContexts(townRoot string) {
 	if len(staleCheckContexts) == 0 {
 		return
 	}
+	keepContext := keepPreferredSlingContexts(staleCheckContexts, staleCheckFields)
 
 	// Collect work bead IDs to fetch
 	workBeadIDs := make([]string, 0, len(staleCheckFields))
-	for _, fields := range staleCheckFields {
+	for i, fields := range staleCheckFields {
+		if !keepContext[i] {
+			continue
+		}
 		workBeadIDs = append(workBeadIDs, fields.WorkBeadID)
 	}
 
@@ -425,6 +429,9 @@ func cleanupStaleContexts(townRoot string) {
 	// already prevents re-dispatch. The context stays open until the polecat
 	// finishes and the bead transitions to closed/tombstone.
 	for i, ctx := range staleCheckContexts {
+		if !keepContext[i] {
+			continue
+		}
 		fields := staleCheckFields[i]
 		info, found := workBeadInfo[fields.WorkBeadID]
 		if found && isTerminalWorkStatus(info.Status) {
@@ -439,6 +446,50 @@ func cleanupStaleContexts(townRoot string) {
 			_ = beadsForContextRecord(ctx).CloseSlingContext(ctx.issue.ID, "invalid-work-bead")
 		}
 	}
+}
+
+func keepPreferredSlingContexts(contexts []slingContextRecord, fields []*capacity.SlingContextFields) []bool {
+	keep := make([]bool, len(contexts))
+	selected := make(map[string]int)
+	for i, f := range fields {
+		if f == nil || f.WorkBeadID == "" {
+			continue
+		}
+		prev, exists := selected[f.WorkBeadID]
+		if !exists {
+			selected[f.WorkBeadID] = i
+			keep[i] = true
+			continue
+		}
+		if slingContextFieldsLess(f, fields[prev], contexts[i].issue.ID, contexts[prev].issue.ID) {
+			_ = beadsForContextRecord(contexts[prev]).CloseSlingContext(contexts[prev].issue.ID, "duplicate-work-bead")
+			keep[prev] = false
+			selected[f.WorkBeadID] = i
+			keep[i] = true
+			continue
+		}
+		_ = beadsForContextRecord(contexts[i]).CloseSlingContext(contexts[i].issue.ID, "duplicate-work-bead")
+	}
+	return keep
+}
+
+func slingContextFieldsLess(a, b *capacity.SlingContextFields, aID, bID string) bool {
+	if a == nil || b == nil {
+		return a != nil
+	}
+	if a.Force != b.Force {
+		return a.Force
+	}
+	if a.EnqueuedAt != b.EnqueuedAt {
+		if a.EnqueuedAt == "" {
+			return false
+		}
+		if b.EnqueuedAt == "" {
+			return true
+		}
+		return a.EnqueuedAt < b.EnqueuedAt
+	}
+	return aID < bID
 }
 
 // beadStatusInfo holds batch-fetched bead status, title, labels, and identity.
@@ -552,13 +603,7 @@ func getReadySlingContexts(townRoot string) ([]capacity.PendingBead, error) {
 	sort.Slice(allContexts, func(i, j int) bool {
 		fi := beads.ParseSlingContextFields(allContexts[i].issue.Description)
 		fj := beads.ParseSlingContextFields(allContexts[j].issue.Description)
-		if fi == nil || fj == nil {
-			return fi != nil // valid contexts sort before invalid
-		}
-		if fi.EnqueuedAt != fj.EnqueuedAt {
-			return fi.EnqueuedAt < fj.EnqueuedAt
-		}
-		return allContexts[i].issue.ID < allContexts[j].issue.ID // deterministic tiebreaker
+		return slingContextFieldsLess(fi, fj, allContexts[i].issue.ID, allContexts[j].issue.ID)
 	})
 
 	seenWork := make(map[string]bool)

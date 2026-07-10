@@ -125,6 +125,23 @@ func TestTargetRigBeadsDirUsesRoutesOnly(t *testing.T) {
 	}
 }
 
+func TestSlingContextFieldsLessPrefersForceThenOldest(t *testing.T) {
+	old := &capacity.SlingContextFields{WorkBeadID: "gt-task", EnqueuedAt: "2026-01-01T00:00:00Z"}
+	forcedNew := &capacity.SlingContextFields{WorkBeadID: "gt-task", EnqueuedAt: "2026-01-02T00:00:00Z", Force: true}
+	if !slingContextFieldsLess(forcedNew, old, "ctx-new", "ctx-old") {
+		t.Fatalf("forced context should sort before older non-force context")
+	}
+	if slingContextFieldsLess(old, forcedNew, "ctx-old", "ctx-new") {
+		t.Fatalf("older non-force context should not sort before forced context")
+	}
+
+	oldForced := &capacity.SlingContextFields{WorkBeadID: "gt-task", EnqueuedAt: "2026-01-01T00:00:00Z", Force: true}
+	newForced := &capacity.SlingContextFields{WorkBeadID: "gt-task", EnqueuedAt: "2026-01-02T00:00:00Z", Force: true}
+	if !slingContextFieldsLess(oldForced, newForced, "ctx-old", "ctx-new") {
+		t.Fatalf("oldest forced context should sort first when both are forced")
+	}
+}
+
 func TestScheduledBeadInfoFromWorkReportsBlockedReason(t *testing.T) {
 	fields := &capacity.SlingContextFields{WorkBeadID: "gt-task", TargetRig: "gastown"}
 	info := beadStatusInfo{Status: "open", Title: "Concrete task", IssueType: "task"}

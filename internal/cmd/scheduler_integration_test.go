@@ -688,6 +688,16 @@ func TestScheduleBead_WorkStatusBeatsOpenContextIdempotency(t *testing.T) {
 func TestSchedulerSlingForceStoredInContext(t *testing.T) {
 	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
 
+	forceFirstID := createTestBead(t, rigPath, "Force first context test")
+	slingToScheduler(t, gtBinary, hqPath, env, forceFirstID, "testrig", "--force", "--no-convoy")
+	forceFirstFields := findSlingContext(t, hqPath, forceFirstID)
+	if forceFirstFields == nil {
+		t.Fatalf("bead %s has no sling context after first force scheduling", forceFirstID)
+	}
+	if !forceFirstFields.Force {
+		t.Fatalf("first force context force = false, want true")
+	}
+
 	beadID := createTestBead(t, rigPath, "Force context test")
 	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig", "--no-convoy")
 	fields := findSlingContext(t, hqPath, beadID)
