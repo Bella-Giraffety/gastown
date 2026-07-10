@@ -212,6 +212,16 @@ func dispatchScheduledWork(townRoot, actor string, batchOverride int, dryRun boo
 				if closeErr := ctxBeads.CloseSlingContext(b.ID, "dispatch-close-failed"); closeErr != nil {
 					fmt.Fprintf(os.Stderr, "%s CRITICAL: last-resort close of %s failed — risk of double-dispatch for %s: %v\n",
 						style.Warning.Render("⚠"), b.ID, b.WorkBeadID, closeErr)
+					if b.Context != nil {
+						b.Context.Force = false
+						b.Context.DispatchFailures = maxDispatchFailures
+						b.Context.LastFailure = "dispatch succeeded but context close failed: " + err.Error()
+						if updateErr := ctxBeads.UpdateSlingContextFields(b.ID, b.Context); updateErr != nil {
+							fmt.Fprintf(os.Stderr, "%s CRITICAL: could not quarantine close-failed context %s: %v\n",
+								style.Warning.Render("⚠"), b.ID, updateErr)
+						}
+					}
+					return
 				} else {
 					// Last-resort close succeeded — context is now closed.
 					// Log feed event so dashboards can detect bead DB degradation.
