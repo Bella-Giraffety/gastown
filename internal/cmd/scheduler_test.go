@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/scheduler/capacity"
 )
 
@@ -125,20 +126,58 @@ func TestTargetRigBeadsDirUsesRoutesOnly(t *testing.T) {
 	}
 }
 
-func TestSlingContextFieldsLessPrefersForceThenOldest(t *testing.T) {
+func TestSlingContextFieldsChronologicalLessUsesOldest(t *testing.T) {
 	old := &capacity.SlingContextFields{WorkBeadID: "gt-task", EnqueuedAt: "2026-01-01T00:00:00Z"}
 	forcedNew := &capacity.SlingContextFields{WorkBeadID: "gt-task", EnqueuedAt: "2026-01-02T00:00:00Z", Force: true}
-	if !slingContextFieldsLess(forcedNew, old, "ctx-new", "ctx-old") {
-		t.Fatalf("forced context should sort before older non-force context")
+	if !slingContextFieldsChronologicalLess(old, forcedNew, "ctx-old", "ctx-new") {
+		t.Fatalf("older context should sort first globally even when newer context is forced")
 	}
-	if slingContextFieldsLess(old, forcedNew, "ctx-old", "ctx-new") {
-		t.Fatalf("older non-force context should not sort before forced context")
+	if slingContextFieldsChronologicalLess(forcedNew, old, "ctx-new", "ctx-old") {
+		t.Fatalf("newer forced context should not jump older unrelated queue entries")
 	}
 
 	oldForced := &capacity.SlingContextFields{WorkBeadID: "gt-task", EnqueuedAt: "2026-01-01T00:00:00Z", Force: true}
 	newForced := &capacity.SlingContextFields{WorkBeadID: "gt-task", EnqueuedAt: "2026-01-02T00:00:00Z", Force: true}
-	if !slingContextFieldsLess(oldForced, newForced, "ctx-old", "ctx-new") {
+	if !slingContextFieldsChronologicalLess(oldForced, newForced, "ctx-old", "ctx-new") {
 		t.Fatalf("oldest forced context should sort first when both are forced")
+	}
+}
+
+func TestPreferredSlingContextIndexesPrefersCanonicalThenForce(t *testing.T) {
+	townRoot := t.TempDir()
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	dotfilesBeadsDir := filepath.Join(townRoot, "dotfiles", "mayor", "rig", ".beads")
+	for _, dir := range []string{townBeadsDir, dotfilesBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townBeadsDir, "routes.jsonl"), []byte(`{"prefix":"do-","path":"dotfiles/mayor/rig"}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	wrongForced := slingContextRecord{issue: &beads.Issue{ID: "ctx-wrong"}, workDir: townRoot, beadsDir: townBeadsDir}
+	canonical := slingContextRecord{issue: &beads.Issue{ID: "ctx-canonical"}, workDir: filepath.Dir(dotfilesBeadsDir), beadsDir: dotfilesBeadsDir}
+	keep := preferredSlingContextIndexes(townRoot,
+		[]slingContextRecord{wrongForced, canonical},
+		[]*capacity.SlingContextFields{
+			{WorkBeadID: "do-csbb", TargetRig: "dotfiles", EnqueuedAt: "2026-01-01T00:00:00Z", Force: true},
+			{WorkBeadID: "do-csbb", TargetRig: "dotfiles", EnqueuedAt: "2026-01-02T00:00:00Z"},
+		})
+	if keep[0] || !keep[1] {
+		t.Fatalf("keep = %v, want canonical context preferred over wrong-DB forced context", keep)
+	}
+
+	canonicalForced := slingContextRecord{issue: &beads.Issue{ID: "ctx-canonical-force"}, workDir: filepath.Dir(dotfilesBeadsDir), beadsDir: dotfilesBeadsDir}
+	keep = preferredSlingContextIndexes(townRoot,
+		[]slingContextRecord{canonical, canonicalForced},
+		[]*capacity.SlingContextFields{
+			{WorkBeadID: "do-csbb", TargetRig: "dotfiles", EnqueuedAt: "2026-01-01T00:00:00Z"},
+			{WorkBeadID: "do-csbb", TargetRig: "dotfiles", EnqueuedAt: "2026-01-02T00:00:00Z", Force: true},
+		})
+	if keep[0] || !keep[1] {
+		t.Fatalf("keep = %v, want forced canonical context preferred", keep)
 	}
 }
 

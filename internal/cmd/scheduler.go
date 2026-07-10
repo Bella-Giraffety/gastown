@@ -370,16 +370,16 @@ func runSchedulerRun(cmd *cobra.Command, args []string) error {
 // Reconciles sling context beads with work bead readiness to mark blocked status.
 // Uses batch fetch for work bead info to avoid N+1 subprocess spawns.
 func listScheduledBeads(townRoot string) []scheduledBeadInfo {
-	allContexts := listAllSlingContexts(townRoot)
+	allContextRecords := listAllSlingContextRecords(townRoot)
 
-	if len(allContexts) == 0 {
+	if len(allContextRecords) == 0 {
 		return nil
 	}
 
 	// Collect work bead IDs from contexts for targeted fetch
 	var workBeadIDs []string
-	for _, ctx := range allContexts {
-		fields := beads.ParseSlingContextFields(ctx.Description)
+	for _, rec := range allContextRecords {
+		fields := beads.ParseSlingContextFields(rec.issue.Description)
 		if fields != nil && fields.WorkBeadID != "" {
 			workBeadIDs = append(workBeadIDs, fields.WorkBeadID)
 		}
@@ -390,16 +390,25 @@ func listScheduledBeads(townRoot string) []scheduledBeadInfo {
 	// the full ready graph and is too slow for scheduler display paths.
 	blockedWorkIDs, _ := listBlockedWorkBeadIDsWithError(townRoot, workBeadIDs)
 	workBeadInfo := batchFetchBeadInfoByIDs(townRoot, workBeadIDs)
-	sort.Slice(allContexts, func(i, j int) bool {
-		fi := beads.ParseSlingContextFields(allContexts[i].Description)
-		fj := beads.ParseSlingContextFields(allContexts[j].Description)
-		return slingContextFieldsLess(fi, fj, allContexts[i].ID, allContexts[j].ID)
+	sort.Slice(allContextRecords, func(i, j int) bool {
+		fi := beads.ParseSlingContextFields(allContextRecords[i].issue.Description)
+		fj := beads.ParseSlingContextFields(allContextRecords[j].issue.Description)
+		return slingContextFieldsChronologicalLess(fi, fj, allContextRecords[i].issue.ID, allContextRecords[j].issue.ID)
 	})
+	allFields := make([]*capacity.SlingContextFields, len(allContextRecords))
+	for i, rec := range allContextRecords {
+		allFields[i] = beads.ParseSlingContextFields(rec.issue.Description)
+	}
+	keepContext := preferredSlingContextIndexes(townRoot, allContextRecords, allFields)
 
 	seenWork := make(map[string]bool)
 	var result []scheduledBeadInfo
-	for _, ctx := range allContexts {
-		fields := beads.ParseSlingContextFields(ctx.Description)
+	for i, rec := range allContextRecords {
+		if !keepContext[i] {
+			continue
+		}
+		ctx := rec.issue
+		fields := allFields[i]
 		if fields == nil {
 			continue
 		}

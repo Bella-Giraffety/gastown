@@ -409,7 +409,12 @@ func cleanupStaleContexts(townRoot string) {
 	if len(staleCheckContexts) == 0 {
 		return
 	}
-	keepContext := keepPreferredSlingContexts(staleCheckContexts, staleCheckFields)
+	keepContext := preferredSlingContextIndexes(townRoot, staleCheckContexts, staleCheckFields)
+	for i, keep := range keepContext {
+		if !keep {
+			_ = beadsForContextRecord(staleCheckContexts[i]).CloseSlingContext(staleCheckContexts[i].issue.ID, "duplicate-work-bead")
+		}
+	}
 
 	// Collect work bead IDs to fetch
 	workBeadIDs := make([]string, 0, len(staleCheckFields))
@@ -448,7 +453,7 @@ func cleanupStaleContexts(townRoot string) {
 	}
 }
 
-func keepPreferredSlingContexts(contexts []slingContextRecord, fields []*capacity.SlingContextFields) []bool {
+func preferredSlingContextIndexes(townRoot string, contexts []slingContextRecord, fields []*capacity.SlingContextFields) []bool {
 	keep := make([]bool, len(contexts))
 	selected := make(map[string]int)
 	for i, f := range fields {
@@ -461,24 +466,42 @@ func keepPreferredSlingContexts(contexts []slingContextRecord, fields []*capacit
 			keep[i] = true
 			continue
 		}
-		if slingContextFieldsLess(f, fields[prev], contexts[i].issue.ID, contexts[prev].issue.ID) {
-			_ = beadsForContextRecord(contexts[prev]).CloseSlingContext(contexts[prev].issue.ID, "duplicate-work-bead")
+		if preferDuplicateSlingContext(townRoot, contexts[i], f, contexts[prev], fields[prev]) {
 			keep[prev] = false
 			selected[f.WorkBeadID] = i
 			keep[i] = true
 			continue
 		}
-		_ = beadsForContextRecord(contexts[i]).CloseSlingContext(contexts[i].issue.ID, "duplicate-work-bead")
 	}
 	return keep
 }
 
-func slingContextFieldsLess(a, b *capacity.SlingContextFields, aID, bID string) bool {
+func preferDuplicateSlingContext(townRoot string, candidateRec slingContextRecord, candidate *capacity.SlingContextFields, currentRec slingContextRecord, current *capacity.SlingContextFields) bool {
+	if candidate == nil || current == nil {
+		return candidate != nil
+	}
+	candidateCanonical := isCanonicalSlingContextRecord(townRoot, candidateRec, candidate)
+	currentCanonical := isCanonicalSlingContextRecord(townRoot, currentRec, current)
+	if candidateCanonical != currentCanonical {
+		return candidateCanonical
+	}
+	if candidate.Force != current.Force {
+		return candidate.Force
+	}
+	return slingContextFieldsChronologicalLess(candidate, current, candidateRec.issue.ID, currentRec.issue.ID)
+}
+
+func isCanonicalSlingContextRecord(townRoot string, rec slingContextRecord, fields *capacity.SlingContextFields) bool {
+	if fields == nil || fields.TargetRig == "" || rec.beadsDir == "" {
+		return false
+	}
+	target := targetRigBeadsDir(townRoot, fields.TargetRig)
+	return sameBeadsDir(rec.beadsDir, target)
+}
+
+func slingContextFieldsChronologicalLess(a, b *capacity.SlingContextFields, aID, bID string) bool {
 	if a == nil || b == nil {
 		return a != nil
-	}
-	if a.Force != b.Force {
-		return a.Force
 	}
 	if a.EnqueuedAt != b.EnqueuedAt {
 		if a.EnqueuedAt == "" {
@@ -603,13 +626,21 @@ func getReadySlingContexts(townRoot string) ([]capacity.PendingBead, error) {
 	sort.Slice(allContexts, func(i, j int) bool {
 		fi := beads.ParseSlingContextFields(allContexts[i].issue.Description)
 		fj := beads.ParseSlingContextFields(allContexts[j].issue.Description)
-		return slingContextFieldsLess(fi, fj, allContexts[i].issue.ID, allContexts[j].issue.ID)
+		return slingContextFieldsChronologicalLess(fi, fj, allContexts[i].issue.ID, allContexts[j].issue.ID)
 	})
+	allFields := make([]*capacity.SlingContextFields, len(allContexts))
+	for i, ctx := range allContexts {
+		allFields[i] = beads.ParseSlingContextFields(ctx.issue.Description)
+	}
+	keepContext := preferredSlingContextIndexes(townRoot, allContexts, allFields)
 
 	seenWork := make(map[string]bool)
 	var result []capacity.PendingBead
-	for _, ctx := range allContexts {
-		fields := beads.ParseSlingContextFields(ctx.issue.Description)
+	for i, ctx := range allContexts {
+		if !keepContext[i] {
+			continue
+		}
+		fields := allFields[i]
 		if fields == nil {
 			continue // Skip invalid — cleanupStaleContexts handles these
 		}
