@@ -63,8 +63,9 @@ func TestReadBeadsRuntimeConfigDefaultServerAddr(t *testing.T) {
 	if cfg.Host != "127.0.0.1" {
 		t.Fatalf("Host = %q, want 127.0.0.1", cfg.Host)
 	}
-	if cfg.Port != doltserver.DefaultPort {
-		t.Fatalf("Port = %d, want default %d", cfg.Port, doltserver.DefaultPort)
+	wantPort := doltserver.DefaultConfig(townRoot).Port
+	if cfg.Port != wantPort {
+		t.Fatalf("Port = %d, want default %d", cfg.Port, wantPort)
 	}
 }
 
