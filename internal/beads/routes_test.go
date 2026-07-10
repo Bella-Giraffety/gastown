@@ -287,6 +287,31 @@ func TestResolveBeadsDirForID(t *testing.T) {
 	}
 }
 
+func TestResolveBeadsDirForID_DotfilesDoPrefix(t *testing.T) {
+	tmpDir := t.TempDir()
+	townBeadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(townBeadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dotfilesBeadsDir := filepath.Join(tmpDir, "dotfiles", "mayor", "rig", ".beads")
+	if err := os.MkdirAll(dotfilesBeadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	routesContent := `{"prefix": "do-", "path": "dotfiles/mayor/rig"}
+{"prefix": "gt-", "path": "gastown/mayor/rig"}
+`
+	if err := os.WriteFile(filepath.Join(townBeadsDir, "routes.jsonl"), []byte(routesContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ResolveBeadsDirForID(townBeadsDir, "do-csbb"); got != dotfilesBeadsDir {
+		t.Fatalf("ResolveBeadsDirForID(do-csbb) = %q, want %q", got, dotfilesBeadsDir)
+	}
+	if got := GetRigNameForPrefix(tmpDir, "do-"); got != "dotfiles" {
+		t.Fatalf("GetRigNameForPrefix(do-) = %q, want dotfiles", got)
+	}
+}
+
 func TestResolveBeadsDirForID_NoRoutes(t *testing.T) {
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")

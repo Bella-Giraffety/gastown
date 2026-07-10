@@ -548,9 +548,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		if deferred {
 			return fmt.Errorf("deferred dispatch requires a rig target: gt sling %s <rig>", args[0])
 		}
-}
+	}
 
-// 2-bead auto-resolve: gt sling gt-abc gt-def
+	// 2-bead auto-resolve: gt sling gt-abc gt-def
 	if len(args) == 2 && allBeadIDs(args) {
 		if _, isRig := IsRigName(args[1]); !isRig {
 			rigName, err := resolveRigFromBeadIDs(args, filepath.Dir(townBeadsDir))

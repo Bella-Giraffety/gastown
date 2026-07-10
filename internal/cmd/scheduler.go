@@ -119,11 +119,11 @@ func init() {
 
 // scheduledBeadInfo holds info about a scheduled bead for display.
 type scheduledBeadInfo struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
-	TargetRig string `json:"target_rig"`
-	Blocked   bool   `json:"blocked,omitempty"`
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Status        string `json:"status"`
+	TargetRig     string `json:"target_rig"`
+	Blocked       bool   `json:"blocked,omitempty"`
 	BlockedReason string `json:"blocked_reason,omitempty"`
 }
 
@@ -429,17 +429,20 @@ func scheduledBeadInfoFromWork(ctxTitle string, fields *capacity.SlingContextFie
 	if found {
 		title = info.Title
 		status = info.Status
-		if beads.IssueStatus(status) == beads.IssueStatusHooked || isTerminalWorkStatus(status) {
+		if isTerminalWorkStatus(status) {
+			return scheduledBeadInfo{}, false
+		}
+		if beads.IssueStatus(status) == beads.IssueStatusHooked && !fields.Force {
 			return scheduledBeadInfo{}, false
 		}
 	}
 	ready, reason := scheduledWorkReadiness(fields, info, found, blockedWorkIDs)
 	return scheduledBeadInfo{
-		ID:        fields.WorkBeadID,
-		Title:     title,
-		Status:    status,
-		TargetRig: fields.TargetRig,
-		Blocked:   !ready,
+		ID:            fields.WorkBeadID,
+		Title:         title,
+		Status:        status,
+		TargetRig:     fields.TargetRig,
+		Blocked:       !ready,
 		BlockedReason: reason,
 	}, true
 }

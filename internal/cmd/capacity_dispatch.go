@@ -577,9 +577,8 @@ func getReadySlingContexts(townRoot string) ([]capacity.PendingBead, error) {
 			continue
 		}
 
-		// Only include open, unblocked work beads. This uses the fast blocked
-		// cache plus targeted show output instead of shelling out to bd ready for
-		// every rig, which is prohibitively expensive in large towns.
+		// Only include unblocked work beads that are dispatchable now. Forced
+		// contexts may intentionally dispatch non-terminal assigned/deferred work.
 		info, found := workBeadInfo[fields.WorkBeadID]
 		ready, _ := scheduledWorkReadiness(fields, info, found, blockedWorkIDs)
 		if !ready {

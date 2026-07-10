@@ -1450,6 +1450,7 @@ func TestSchedulerActualDispatchRoutesPollutedEnvToTargetRig(t *testing.T) {
 		WorkBeadID:  beadID,
 		TargetRig:   "testrig",
 		HookRawBead: true,
+		Force:       true,
 		EnqueuedAt:  "2026-01-01T00:00:00Z",
 	})
 	if err != nil {
@@ -1461,6 +1462,9 @@ func TestSchedulerActualDispatchRoutesPollutedEnvToTargetRig(t *testing.T) {
 	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
 		if rigName != "testrig" {
 			t.Fatalf("spawn rig = %q, want testrig", rigName)
+		}
+		if !opts.Force {
+			t.Fatalf("spawn opts Force = false, want true")
 		}
 		return &SpawnedPolecatInfo{
 			RigName:     rigName,
