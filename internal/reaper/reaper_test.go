@@ -327,14 +327,80 @@ func TestScanExcludesAgentBeads(t *testing.T) {
 		t.Fatalf("read %s: %v", sourcePath, err)
 	}
 	source := string(data)
-	scanStart := strings.Index(source, "func Scan(")
-	reapStart := strings.Index(source, "func Reap(")
-	if scanStart == -1 || reapStart == -1 || reapStart <= scanStart {
-		t.Fatalf("could not isolate Scan() body in %s", sourcePath)
+	reapCountBody := sourceBetween(t, source, "func countReapCandidates(", "func countAlertableWisps(")
+	if !strings.Contains(reapCountBody, "w.issue_type != 'agent'") {
+		t.Fatalf("expected scan/reap eligibility to exclude agent beads, candidate-count body was:\n%s", reapCountBody)
 	}
-	scanBody := source[scanStart:reapStart]
-	if !strings.Contains(scanBody, "w.issue_type != 'agent'") {
-		t.Fatalf("expected Scan() eligibility to exclude agent beads, scan body was:\n%s", scanBody)
+}
+
+func TestAlertableWispsIgnoreHealthyOpenInventory(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeReaperState{
+		wisps: map[string]*fakeWisp{
+			"active-molecule": {id: "active-molecule", status: "open", issueType: "molecule", createdAt: now},
+		},
+		ops: map[int][]string{},
+	}
+	for i := 0; i <= DefaultAlertThreshold; i++ {
+		id := fmt.Sprintf("healthy-step-%d", i)
+		status := "open"
+		switch i % 3 {
+		case 1:
+			status = "hooked"
+		case 2:
+			status = "in_progress"
+		}
+		state.wisps[id] = &fakeWisp{id: id, status: status, issueType: "task", createdAt: now.Add(-48 * time.Hour)}
+		state.deps = append(state.deps, fakeDep{issueID: id, dependsOnID: "active-molecule", depType: "parent-child"})
+	}
+
+	db := openFakeReaperDB(t, state)
+	t.Cleanup(func() { _ = db.Close() })
+
+	scan, err := Scan(db, "testdb", 24*time.Hour, 7*24*time.Hour, 7*24*time.Hour, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if scan.OpenWisps <= DefaultAlertThreshold {
+		t.Fatalf("OpenWisps = %d, want above threshold %d", scan.OpenWisps, DefaultAlertThreshold)
+	}
+	if scan.ReapCandidates != 0 || scan.MoleculeStepCandidates != 0 {
+		t.Fatalf("healthy inventory produced candidates: reap=%d molecule_steps=%d", scan.ReapCandidates, scan.MoleculeStepCandidates)
+	}
+	if scan.AlertableWisps != 0 {
+		t.Fatalf("AlertableWisps = %d, want 0 for healthy open inventory", scan.AlertableWisps)
+	}
+	if ExceedsAlertThreshold(scan.AlertableWisps, DefaultAlertThreshold) {
+		t.Fatal("healthy open inventory should not exceed alert threshold")
+	}
+}
+
+func TestAlertableWispsCatchStaleOrphanBacklog(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeReaperState{
+		wisps: map[string]*fakeWisp{},
+		ops:   map[int][]string{},
+	}
+	for i := 0; i <= DefaultAlertThreshold; i++ {
+		id := fmt.Sprintf("stale-orphan-%d", i)
+		state.wisps[id] = &fakeWisp{id: id, status: "open", issueType: "task", createdAt: now.Add(-48 * time.Hour)}
+	}
+
+	db := openFakeReaperDB(t, state)
+	t.Cleanup(func() { _ = db.Close() })
+
+	scan, err := Scan(db, "testdb", 24*time.Hour, 7*24*time.Hour, 7*24*time.Hour, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if scan.ReapCandidates <= DefaultAlertThreshold {
+		t.Fatalf("ReapCandidates = %d, want above threshold %d", scan.ReapCandidates, DefaultAlertThreshold)
+	}
+	if scan.AlertableWisps != scan.ReapCandidates+scan.MoleculeStepCandidates {
+		t.Fatalf("AlertableWisps = %d, want reap+molecule=%d", scan.AlertableWisps, scan.ReapCandidates+scan.MoleculeStepCandidates)
+	}
+	if !ExceedsAlertThreshold(scan.AlertableWisps, DefaultAlertThreshold) {
+		t.Fatal("stale orphan backlog should exceed alert threshold")
 	}
 }
 

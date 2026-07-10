@@ -155,13 +155,14 @@ The Dog uses this to understand the state before deciding what to reap.`,
 		if reaperJSON {
 			fmt.Println(reaper.FormatJSON(results))
 		} else {
-			var totalReap, totalMoleculeSteps, totalPurge, totalMail, totalStale, totalOpen int
+			var totalReap, totalMoleculeSteps, totalAlertable, totalPurge, totalMail, totalStale, totalOpen int
 			for _, r := range results {
 				fmt.Printf("Database: %s\n", r.Database)
 				fmt.Printf("  Reap candidates:  %d\n", r.ReapCandidates)
 				if r.MoleculeStepCandidates > 0 {
 					fmt.Printf("  Molecule steps:   %d\n", r.MoleculeStepCandidates)
 				}
+				fmt.Printf("  Alertable wisps:  %d\n", r.AlertableWisps)
 				fmt.Printf("  Purge candidates: %d\n", r.PurgeCandidates)
 				fmt.Printf("  Mail candidates:  %d\n", r.MailCandidates)
 				fmt.Printf("  Stale candidates: %d\n", r.StaleCandidates)
@@ -171,6 +172,7 @@ The Dog uses this to understand the state before deciding what to reap.`,
 				}
 				totalReap += r.ReapCandidates
 				totalMoleculeSteps += r.MoleculeStepCandidates
+				totalAlertable += r.AlertableWisps
 				totalPurge += r.PurgeCandidates
 				totalMail += r.MailCandidates
 				totalStale += r.StaleCandidates
@@ -182,6 +184,7 @@ The Dog uses this to understand the state before deciding what to reap.`,
 				if totalMoleculeSteps > 0 {
 					fmt.Printf("  Molecule steps:   %d\n", totalMoleculeSteps)
 				}
+				fmt.Printf("  Alertable wisps:  %d\n", totalAlertable)
 				fmt.Printf("  Purge candidates: %d\n", totalPurge)
 				fmt.Printf("  Mail candidates:  %d\n", totalMail)
 				fmt.Printf("  Stale candidates: %d\n", totalStale)
@@ -247,7 +250,7 @@ Returns the count of reaped wisps. Use --dry-run to preview.`,
 		if reaperJSON {
 			fmt.Println(reaper.FormatJSON(results))
 		} else {
-			var totalReaped, totalMoleculeSteps, totalOpen int
+			var totalReaped, totalMoleculeSteps, totalOpen, totalAlertable int
 			for _, r := range results {
 				prefix := ""
 				if r.DryRun {
@@ -257,11 +260,12 @@ Returns the count of reaped wisps. Use --dry-run to preview.`,
 				if r.MoleculeStepsClosed > 0 {
 					extra = fmt.Sprintf(" (+%d closed-molecule steps)", r.MoleculeStepsClosed)
 				}
-				fmt.Printf("%s: %sreaped %d wisps%s, %d open remain\n",
-					r.Database, prefix, r.Reaped, extra, r.OpenRemain)
+				fmt.Printf("%s: %sreaped %d wisps%s, %d open remain, %d alertable remain\n",
+					r.Database, prefix, r.Reaped, extra, r.OpenRemain, r.AlertableRemain)
 				totalReaped += r.Reaped
 				totalMoleculeSteps += r.MoleculeStepsClosed
 				totalOpen += r.OpenRemain
+				totalAlertable += r.AlertableRemain
 			}
 			if len(results) > 1 {
 				prefix := ""
@@ -272,11 +276,11 @@ Returns the count of reaped wisps. Use --dry-run to preview.`,
 				if totalMoleculeSteps > 0 {
 					extra = fmt.Sprintf(" (+%d closed-molecule steps)", totalMoleculeSteps)
 				}
-				fmt.Printf("\n%sReap summary (%d databases): reaped %d wisps%s, %d open remain\n",
-					prefix, len(results), totalReaped, extra, totalOpen)
-				if totalOpen > reaper.DefaultAlertThreshold {
-					fmt.Fprintf(os.Stderr, "WARNING: %d open wisps exceed alert threshold (%d)\n",
-						totalOpen, reaper.DefaultAlertThreshold)
+				fmt.Printf("\n%sReap summary (%d databases): reaped %d wisps%s, %d open remain, %d alertable remain\n",
+					prefix, len(results), totalReaped, extra, totalOpen, totalAlertable)
+				if reaper.ExceedsAlertThreshold(totalAlertable, reaper.DefaultAlertThreshold) {
+					fmt.Fprintf(os.Stderr, "WARNING: %d alertable wisps exceed alert threshold (%d)\n",
+						totalAlertable, reaper.DefaultAlertThreshold)
 				}
 			}
 		}
