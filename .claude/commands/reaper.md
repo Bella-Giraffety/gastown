@@ -20,7 +20,7 @@ If `--dry-run` is passed, report counts without making changes.
 | purge_age | 72h | Closed wisps older than this are purged (deleted) |
 | stale_issue_age | 168h | Issues stale longer than this are auto-closed |
 | mail_delete_age | 72h | Closed mail older than this is purged |
-| alert_threshold | 500 | Open wisp count that triggers escalation |
+| alert_threshold | 800 | Alertable wisp backlog that triggers escalation |
 | dolt_port | 3307 | Dolt server port |
 
 ## Execution Steps
@@ -59,10 +59,12 @@ gt reaper scan --db=<name> --port=3307 \
 Inspect the JSON output:
 - `reap_candidates`: wisps eligible for closing
 - `purge_candidates`: closed wisps eligible for deletion
-- `open_wisps`: total open wisp count
+- `open_wisps`: total open wisp inventory for context
+- `alertable_wisps`: cleanup backlog that can trigger escalation
 - `anomalies`: array of detected problems
 
-If `open_wisps` exceeds 500 across all databases, note for escalation.
+If `alertable_wisps` exceeds 800 across all databases, note for escalation.
+Do not escalate on `open_wisps` alone; it includes healthy active work.
 If no candidates found across all databases, report "nothing to reap" and stop.
 
 ### Step 4: Reap stale wisps
@@ -111,6 +113,7 @@ Print a summary in this format:
 **Mail purged**: N (old closed mail deleted)
 **Issues auto-closed**: N (stale issues past 168h)
 **Open wisps remaining**: N
+**Alertable wisps remaining**: N
 **Anomalies**: <list or "none">
 ```
 

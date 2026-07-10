@@ -483,7 +483,7 @@ Normally the daemon dispatches a Dog to execute the mol-dog-reaper formula.`,
 			return fmt.Errorf("invalid --stale-age: %w", err)
 		}
 
-		var totalReaped, totalMoleculeSteps, totalPurged, totalMailPurged, totalClosed, totalOpen int
+		var totalReaped, totalMoleculeSteps, totalPurged, totalMailPurged, totalClosed, totalOpen, totalAlertable int
 
 		for i, dbName := range databases {
 			if err := waitBeforeReaperDatabase(i); err != nil {
@@ -529,6 +529,7 @@ Normally the daemon dispatches a Dog to execute the mol-dog-reaper formula.`,
 				totalReaped += reapResult.Reaped
 				totalMoleculeSteps += reapResult.MoleculeStepsClosed
 				totalOpen += reapResult.OpenRemain
+				totalAlertable += reapResult.AlertableRemain
 			}
 
 			// Purge
@@ -570,6 +571,11 @@ Normally the daemon dispatches a Dog to execute the mol-dog-reaper formula.`,
 		fmt.Printf("  Purged:    %d wisps, %d mail\n", totalPurged, totalMailPurged)
 		fmt.Printf("  Closed:    %d stale issues\n", totalClosed)
 		fmt.Printf("  Open:      %d wisps remain\n", totalOpen)
+		fmt.Printf("  Alertable: %d wisps remain\n", totalAlertable)
+		if reaper.ExceedsAlertThreshold(totalAlertable, reaper.DefaultAlertThreshold) {
+			fmt.Fprintf(os.Stderr, "WARNING: %d alertable wisps exceed alert threshold (%d)\n",
+				totalAlertable, reaper.DefaultAlertThreshold)
+		}
 
 		return nil
 	},
