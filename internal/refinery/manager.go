@@ -462,6 +462,7 @@ func (m *Manager) issueToMR(issue *beads.Issue) *MergeRequest {
 		Branch:       fields.Branch,
 		Worker:       fields.Worker,
 		IssueID:      fields.SourceIssue,
+		AgentBead:    fields.AgentBead,
 		TargetBranch: target,
 		MergeCommit:  fields.MergeCommit,
 		Status:       MROpen,
@@ -626,28 +627,17 @@ func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
 		result.MRClosed = true
 	}
 
-	// Close the source issue with reason and --force to bypass dependency checks.
-	// The source issue may have an attached molecule (wisp) whose open steps
-	// would block a normal bd close. ForceCloseWithReason bypasses this,
-	// matching how gt done handles closures for the no-MR path.
-	if mr.IssueID != "" {
-		closeReason := fmt.Sprintf("Merged in %s", mr.ID)
-		if mr.MergeCommit != "" {
-			closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, mr.TargetBranch, mr.MergeCommit)
-		}
-		if err := b.ForceCloseWithReason(closeReason, mr.IssueID); err != nil {
-			// Check if already closed (by polecat's gt done) — that's fine
-			if issue, showErr := b.Show(mr.IssueID); showErr == nil && beads.IssueStatus(issue.Status).IsTerminal() {
-				_, _ = fmt.Fprintf(m.output, "  %s source issue already closed: %s\n", style.Dim.Render("○"), mr.IssueID)
-				result.SourceIssueClosed = true
-			} else {
-				_, _ = fmt.Fprintf(m.output, "  %s source issue close: %v\n", style.Dim.Render("○"), err)
-				result.SourceIssueNotFound = true
-			}
-		} else {
-			result.SourceIssueClosed = true
-		}
-	}
+	workClose := closeMergedWorkBead(b, b.ForAgentBead(), m.output, mergedWorkBeadCloseRequest{
+		MRID:        mr.ID,
+		Branch:      mr.Branch,
+		Target:      mr.TargetBranch,
+		SourceIssue: mr.IssueID,
+		AgentBead:   mr.AgentBead,
+		MergeCommit: mr.MergeCommit,
+	})
+	result.SourceIssueID = workClose.WorkBeadID
+	result.SourceIssueClosed = workClose.Closed
+	result.SourceIssueNotFound = workClose.NotFound
 
 	return result, nil
 }

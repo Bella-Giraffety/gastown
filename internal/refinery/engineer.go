@@ -1206,25 +1206,19 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 		}
 	}
 
-	// 1. Close source issue with reference to MR.
-	// Use ForceCloseWithReason to bypass dependency checks — the source issue
-	// may have an attached molecule (wisp) whose open steps would block a
-	// normal close. This matches how gt done handles closures.
-	if mr.SourceIssue != "" {
-		closeReason := fmt.Sprintf("Merged in %s", mr.ID)
-		if result.MergeCommit != "" {
-			closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, mr.Target, result.MergeCommit)
-		}
-		if err := e.beads.ForceCloseWithReason(closeReason, mr.SourceIssue); err != nil {
-			// Check if already closed (by polecat's gt done) — that's fine
-			if issue, showErr := e.beads.Show(mr.SourceIssue); showErr == nil && beads.IssueStatus(issue.Status).IsTerminal() {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Source issue already closed: %s\n", mr.SourceIssue)
-			} else {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close source issue %s: %v\n", mr.SourceIssue, err)
-			}
-		} else {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Closed source issue: %s\n", mr.SourceIssue)
-		}
+	// 1. Close the work bead with reference to the successful merge. This is
+	// shared with the manual post-merge path so the two success cleanup paths
+	// cannot drift.
+	workClose := closeMergedWorkBead(e.beads, e.beads.ForAgentBead(), e.output, mergedWorkBeadCloseRequest{
+		MRID:        mr.ID,
+		Branch:      mr.Branch,
+		Target:      mr.Target,
+		SourceIssue: mr.SourceIssue,
+		AgentBead:   mr.AgentBead,
+		MergeCommit: result.MergeCommit,
+	})
+	if mr.SourceIssue == "" && workClose.WorkBeadID != "" {
+		mr.SourceIssue = workClose.WorkBeadID
 	}
 
 	// 1.2. Close conflict-resolution tasks that this land has made moot (hq-jnap).

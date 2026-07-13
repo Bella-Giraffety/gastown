@@ -24,6 +24,9 @@ type MergeRequest struct {
 	// IssueID is the beads issue being worked on.
 	IssueID string `json:"issue_id"`
 
+	// AgentBead is the worker agent bead that created this MR.
+	AgentBead string `json:"agent_bead,omitempty"`
+
 	// SwarmID is the swarm this work belongs to (if any).
 	SwarmID string `json:"swarm_id,omitempty"`
 
