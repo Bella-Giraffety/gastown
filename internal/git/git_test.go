@@ -3772,6 +3772,70 @@ func TestBranchTargetStatusPreservesSquashMergedAdvancedTarget(t *testing.T) {
 	}
 }
 
+func TestRefTargetStatusUsesSubmittedRefNotHead(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "feature/submitted-ref"
+
+	if err := g.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout branch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "submitted.txt"), []byte("submitted\n"), 0644); err != nil {
+		t.Fatalf("write submitted: %v", err)
+	}
+	if err := g.Add("submitted.txt"); err != nil {
+		t.Fatalf("Add submitted: %v", err)
+	}
+	if err := g.Commit("submitted branch work"); err != nil {
+		t.Fatalf("Commit submitted: %v", err)
+	}
+
+	if err := g.Checkout(mainBranch); err != nil {
+		t.Fatalf("Checkout main: %v", err)
+	}
+	status, err := g.RefTargetStatus("refs/heads/"+branch, "origin", []string{"origin/" + mainBranch})
+	if err != nil {
+		t.Fatalf("RefTargetStatus: %v", err)
+	}
+	if status.Preserved || status.UnpreservedPatchCount == 0 {
+		t.Fatalf("RefTargetStatus = %+v, want submitted branch work despite HEAD on target", status)
+	}
+}
+
+func TestRefTargetStatusDoesNotTreatRemoteSourceBranchAsTargetEvidence(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "feature/remote-source-only"
+
+	if err := g.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout branch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "remote-only.txt"), []byte("remote only\n"), 0644); err != nil {
+		t.Fatalf("write remote only: %v", err)
+	}
+	if err := g.Add("remote-only.txt"); err != nil {
+		t.Fatalf("Add remote only: %v", err)
+	}
+	if err := g.Commit("remote source work"); err != nil {
+		t.Fatalf("Commit remote source: %v", err)
+	}
+	runGit(t, localDir, "push", "origin", branch)
+
+	status, err := g.RefTargetStatus("refs/heads/"+branch, "origin", []string{"origin/" + mainBranch})
+	if err != nil {
+		t.Fatalf("RefTargetStatus: %v", err)
+	}
+	if status.Preserved || status.UnpreservedPatchCount == 0 {
+		t.Fatalf("RefTargetStatus = %+v, want source branch not preserved on target", status)
+	}
+}
+
 // TestBranchPushedToRemote_NoPushURL verifies baseline behavior: when fetch and
 // push URLs are the same, BranchPushedToRemote works normally.
 func TestBranchPushedToRemote_NoPushURL(t *testing.T) {

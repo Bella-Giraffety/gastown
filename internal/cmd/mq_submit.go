@@ -219,6 +219,13 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 	if shaErr != nil {
 		style.PrintWarning("could not resolve submitted branch SHA: %v (falling back to branch-only dedup)", shaErr)
 	}
+	if sourceIssue == nil {
+		return fmt.Errorf("cannot submit %s to merge queue: source issue unavailable", issueID)
+	}
+	baseRef := g.CleanBaseRef("origin", defaultBranch, target)
+	if _, err := assessSourceCompletionEvidence(g, "refs/heads/"+branch, completionTargetRefs(target, baseRef), issueID, sourceIssue, beads.ParseAttachmentFields(sourceIssue), completionEvidenceMQSubmit); err != nil {
+		return err
+	}
 
 	// Build MR bead title and description
 	title := fmt.Sprintf("Merge: %s", issueID)

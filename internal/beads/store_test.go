@@ -139,10 +139,31 @@ func (m *mockStorage) CloseIssue(_ context.Context, id, reason, actor, session s
 		return fmt.Errorf("issue %s not found", id)
 	}
 	issue.Status = beadsdk.StatusClosed
+	issue.CloseReason = reason
 	now := time.Now()
 	issue.ClosedAt = &now
 	m.closed[id] = true
 	return nil
+}
+
+func TestStoreShowMapsCloseReason(t *testing.T) {
+	store := newMockStorage()
+	b := newTestBeads(store)
+
+	if err := store.CreateIssue(context.Background(), &beadsdk.Issue{Title: "closed issue"}, "actor"); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	if err := store.CloseIssue(context.Background(), "test-1", "no-changes: already handled", "actor", "session"); err != nil {
+		t.Fatalf("CloseIssue: %v", err)
+	}
+
+	issue, err := b.Show("test-1")
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if issue.CloseReason != "no-changes: already handled" {
+		t.Fatalf("CloseReason = %q", issue.CloseReason)
+	}
 }
 
 func (m *mockStorage) DeleteIssue(_ context.Context, id string) error {

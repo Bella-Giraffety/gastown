@@ -141,6 +141,34 @@ func cleanupStatusAfterSuccessfulPush(status string) string {
 	return status
 }
 
+func resolveDoneTargetBranch(townRoot, rigName, defaultBranch, explicitTarget string, bd *beads.Beads, g *git.Git, issueID string, sourceIssue *beads.Issue) string {
+	target := defaultBranch
+	if strings.TrimSpace(explicitTarget) != "" {
+		return strings.TrimSpace(explicitTarget)
+	}
+	if sourceIssue != nil {
+		if af := beads.ParseAttachmentFields(sourceIssue); af != nil {
+			if bb := extractFormulaVar(af.FormulaVars, "base_branch"); bb != "" && bb != defaultBranch {
+				return bb
+			}
+		}
+	} else if issueID != "" {
+		style.PrintWarning("could not load source issue %s for target branch detection — using default branch %s", issueID, defaultBranch)
+	}
+
+	settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
+	refineryEnabled := true
+	if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
+		refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
+	}
+	if refineryEnabled && bd != nil && g != nil && issueID != "" {
+		if autoTarget, err := beads.DetectIntegrationBranch(bd, g, issueID); err == nil && autoTarget != "" {
+			target = autoTarget
+		}
+	}
+	return target
+}
+
 var reviewEvidencePrefixes = []string{
 	"report:",
 	"findings:",
@@ -838,144 +866,22 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			return fmt.Errorf("cannot complete: uncommitted changes would be lost\nCommit your changes first, or use --status DEFERRED to exit without completing\nUncommitted: %s", workStatus.String())
 		}
 
-		// Check if branch has commits ahead of the clean target base. In fork-backed
-		// rigs this is upstream/main, not the fork's origin/main.
-		aheadCount, err := g.CommitsAhead(baseRef, "HEAD")
-		if err != nil {
-			// Fallback to local branch comparison if origin not available
-			aheadCount, err = g.CommitsAhead(defaultBranch, branch)
-			if err != nil {
-				// Can't determine - assume work exists and continue
-				style.PrintWarning("could not check commits ahead of %s: %v", defaultBranch, err)
-				aheadCount = 1
-			}
-		}
-
-		// Check no_merge or review_only flags on the hooked bead. When set,
-		// this is a non-code task (email, research, analysis, PRD review)
-		// where zero commits is expected.
-		// Must be checked before the zero-commit guard below (GH#2496, gt-kvf).
-		isNoMergeTask := false
+		var sourceIssue *beads.Issue
+		var sourceAttachment *beads.AttachmentFields
 		reviewOnlySource := false
+		completionBd := beads.New(cwd)
 		if issueID != "" {
-			noMergeBd := beads.New(cwd)
-			noMergeIssue, showErr := noMergeBd.Show(issueID)
+			noMergeIssue, showErr := completionBd.Show(issueID)
 			if showErr != nil {
 				return fmt.Errorf("cannot inspect source issue %s before completion: %w", issueID, showErr)
 			}
-			if af := beads.ParseAttachmentFields(noMergeIssue); af != nil {
-				if af.NoMerge || af.ReviewOnly {
-					isNoMergeTask = true
-				}
-				reviewOnlySource = af.ReviewOnly
-			}
+			sourceIssue = noMergeIssue
+			sourceAttachment = beads.ParseAttachmentFields(noMergeIssue)
+			reviewOnlySource = sourceAttachment != nil && sourceAttachment.ReviewOnly
 		}
 
-		// If no commits ahead, work was likely already merged or is a legitimate
-		// report-only completion. Fork-backed rigs must not infer success from fork main.
-		// For polecats, zero commits usually means the polecat sleepwalked through
-		// implementation without writing code (gastown#1484, beads#emma).
-		// The --cleanup-status=clean escape is preserved for legitimate report-only
-		// tasks (audits, reviews) that the formula explicitly directs to use it.
-		// no_merge/review_only tasks (GH#2496, gt-kvf) also bypass: non-code work has no commits by design.
-		// IMPORTANT: The error message must NOT mention --cleanup-status=clean.
-		// LLM agents read error messages and self-bypass (the original bug).
-		if aheadCount == 0 {
-			if os.Getenv("GT_POLECAT") != "" && doneCleanupStatus != "clean" && !isNoMergeTask {
-				// Before failing, check whether commits exist on the remote feature branch.
-				// After a polecat pushes to origin/<feature-branch> and submits an MR,
-				// if master advances (e.g., other MRs land), the feature branch is no
-				// longer ahead of origin/master — but the work WAS committed and pushed.
-				// In that case, treat as "MR already submitted" and fall through. (GH#wd7)
-				branchPushedWithWork := false
-				if branch != defaultBranch {
-					pushed, unpushed, pushErr := g.BranchPushedToRemote(branch, "origin")
-					branchPushedWithWork = pushErr == nil && pushed && unpushed == 0
-				}
-				if !branchPushedWithWork {
-					return fmt.Errorf("cannot complete: no commits on branch ahead of %s\n"+
-						"Polecats must have at least 1 commit to submit.\n"+
-						"If the bug was already fixed upstream: gt done --status DEFERRED\n"+
-						"If you're blocked: gt done --status ESCALATED",
-						baseRef)
-				}
-			}
-
-			// Non-polecat (crew/mayor), polecat with --cleanup-status=clean
-			// (report-only tasks like audits/reviews), or no_merge polecat
-			// (non-code tasks like email/research per GH#2496):
-			// zero commits is valid.
-			fmt.Printf("%s Branch has no commits ahead of %s\n", style.Bold.Render("→"), baseRef)
-			fmt.Printf("  Work was likely already merged or report-only.\n")
-			fmt.Printf("  Skipping MR creation - completing without merge request.\n\n")
-
-			// G15 fix: Close the base issue when completing with no MR.
-			// Without this, no-op polecats (bug already fixed) leave issues stuck
-			// in HOOKED state with assignee pointing to the nuked polecat.
-			// Normally the Refinery closes after merge, but with no MR, nothing
-			// would ever close the issue.
-			if issueID != "" {
-				bd := beads.New(cwd)
-
-				skipClose := false
-				if skipReason, fatal := doneSourceCloseSkipReason(bd, issueID, nil); skipReason != "" {
-					style.PrintWarning("%s", skipReason)
-					fmt.Printf("  The bead will remain open for witness/mayor review.\n")
-					notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
-					if fatal {
-						return fmt.Errorf("cannot complete review-only/no-MR work: %s", skipReason)
-					}
-					skipClose = true
-				}
-
-				if !skipClose {
-					closeReason := "Completed with no code changes (already fixed or already merged)"
-					noMRCommitSHA, _ := g.Rev("HEAD")
-					if doneSkipVerify {
-						noteVerifiedPushSkipped(cwd, issueID, defaultBranch, noMRCommitSHA, "--skip-verify on no-MR close")
-						if noMRCommitSHA != "" {
-							closeReason = fmt.Sprintf("%s\nskip_verify: true\ntarget_branch: %s\ncommit_sha: %s", closeReason, defaultBranch, noMRCommitSHA)
-						}
-					} else if !isNoMergeTask {
-						if g.ForkBackedRemote("origin") {
-							return fmt.Errorf("cannot close no-MR code bead in fork/upstream mode: %s has no commits ahead of %s; use the fork PR flow instead", branch, baseRef)
-						}
-						if verifyErr := g.VerifyPushedCommitReachableFromPushTarget("origin", defaultBranch, noMRCommitSHA); verifyErr != nil {
-							noteVerifiedPushFailure(cwd, issueID, defaultBranch, noMRCommitSHA, verifyErr)
-							return fmt.Errorf("cannot close no-MR code bead: %w", verifyErr)
-						}
-						if noMRCommitSHA != "" {
-							closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, defaultBranch, noMRCommitSHA)
-						}
-					}
-					// G15 fix: Force-close bypasses molecule dependency checks.
-					// The polecat is about to be nuked — open wisps should not block closure.
-					// Retry with backoff handles transient dolt lock contention (A2).
-					var closeErr error
-					for attempt := 1; attempt <= 3; attempt++ {
-						closeErr = bd.ForceCloseWithReason(closeReason, issueID)
-						if closeErr == nil {
-							fmt.Printf("%s Issue %s closed (no MR needed)\n", style.Bold.Render("✓"), issueID)
-							break
-						}
-						if attempt < 3 {
-							style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
-							time.Sleep(time.Duration(attempt*2) * time.Second)
-						}
-					}
-					if closeErr != nil {
-						style.PrintWarning("could not close issue %s after 3 attempts: %v (issue may be left HOOKED)", issueID, closeErr)
-					}
-				}
-			}
-
-			// Skip straight to witness notification (no MR needed)
-			goto notifyWitness
-		}
-
-		if reviewOnlySource {
-			return fmt.Errorf("cannot complete review-only issue %s with commits ahead of %s; add a fresh review evidence comment and complete without code changes", issueID, baseRef)
-		}
+		target := resolveDoneTargetBranch(townRoot, rigName, defaultBranch, doneTarget, completionBd, g, issueID, sourceIssue)
+		baseRef = g.CleanBaseRef("origin", defaultBranch, target)
 
 		// Branch contamination preflight: check if branch is significantly behind
 		// the effective target branch, which indicates the branch may contain stale merge-base
@@ -1017,8 +923,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			}
 			if rebased {
 				fmt.Printf("%s Branch rebased onto %s\n", style.Bold.Render("✓"), contaminationBase)
-				// Recompute commits ahead since rebase rewrote history.
-				aheadCount, _ = g.CommitsAhead(baseRef, "HEAD")
 			} else if skipReason != "" {
 				style.PrintWarning("branch is %d commits behind %s but %s; skipping auto-rebase", contam.Behind, contaminationBase, skipReason)
 			}
@@ -1027,9 +931,62 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// Strip Gas Town overlay from CLAUDE.md / CLAUDE.local.md (gt-p35).
 		// Polecats commit the overlay (polecat lifecycle boilerplate) into repos,
 		// overwriting project-specific CLAUDE.md content. Detect and revert before push.
-		if stripped := stripOverlayCLAUDEmd(g, defaultBranch, baseRef); stripped {
-			// Recalculate commits ahead since we added a cleanup commit
-			aheadCount, _ = g.CommitsAhead(baseRef, "HEAD")
+		stripOverlayCLAUDEmd(g, defaultBranch, baseRef)
+
+		completionEvidence, err := assessSourceCompletionEvidence(g, "HEAD", completionTargetRefs(target, baseRef), issueID, sourceIssue, sourceAttachment, completionEvidenceDone)
+		if err != nil {
+			return err
+		}
+		if !completionEvidence.HasSubmittableWork {
+			if completionEvidence.NoBranchWorkReason == "source-terminal" {
+				fmt.Printf("%s Source issue %s is already terminal with completion evidence; skipping MR creation.\n", style.Bold.Render("→"), issueID)
+				goto notifyWitness
+			}
+
+			fmt.Printf("%s Branch has no patch work requiring merge into %s\n", style.Bold.Render("→"), baseRef)
+			fmt.Printf("  Skipping MR creation for evidence-backed no-code completion.\n\n")
+
+			if issueID != "" {
+				bd := completionBd
+				skipClose := false
+				if skipReason, fatal := doneSourceCloseSkipReason(bd, issueID, sourceIssue); skipReason != "" {
+					style.PrintWarning("%s", skipReason)
+					fmt.Printf("  The bead will remain open for witness/mayor review.\n")
+					notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
+					if fatal {
+						return fmt.Errorf("cannot complete review-only/no-MR work: %s", skipReason)
+					}
+					skipClose = true
+				}
+
+				if !skipClose {
+					closeReason := "Review-only work completed; merge queue skipped"
+					if noMRCommitSHA, _ := g.Rev("HEAD"); noMRCommitSHA != "" {
+						closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, target, noMRCommitSHA)
+					}
+					var closeErr error
+					for attempt := 1; attempt <= 3; attempt++ {
+						closeErr = bd.ForceCloseWithReason(closeReason, issueID)
+						if closeErr == nil {
+							fmt.Printf("%s Issue %s closed (no MR needed)\n", style.Bold.Render("✓"), issueID)
+							break
+						}
+						if attempt < 3 {
+							style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
+							time.Sleep(time.Duration(attempt*2) * time.Second)
+						}
+					}
+					if closeErr != nil {
+						style.PrintWarning("could not close issue %s after 3 attempts: %v (issue may be left HOOKED)", issueID, closeErr)
+					}
+				}
+			}
+
+			goto notifyWitness
+		}
+
+		if reviewOnlySource {
+			return fmt.Errorf("cannot complete review-only issue %s with branch changes; add a fresh review evidence comment and complete without code changes", issueID)
 		}
 
 		// Determine merge strategy from convoy (gt-myofa.3)
@@ -1294,7 +1251,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					prBodyBuilder.WriteString(fmt.Sprintf("*Polecat: %s | Issue: %s*\n", worker, issueID))
 					prBody := prBodyBuilder.String()
 					ghCmd := exec.CommandContext(context.Background(), "gh", "pr", "create",
-						"--base", defaultBranch,
+						"--base", target,
 						"--head", branch,
 						"--title", prTitle,
 						"--body", prBody,
@@ -1443,53 +1400,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				}
 
 				goto notifyWitness
-			}
-		}
-
-		// Determine target branch for the MR.
-		// Priority: explicit --target flag > formula_vars base_branch > integration branch auto-detect > rig default.
-		target := defaultBranch
-		explicitTarget := false
-
-		// 1. Explicit --target flag (highest priority — polecat knows its base branch).
-		// This is the most reliable path: the formula passes {{base_branch}} directly,
-		// avoiding any dependency on bd.Show() or Dolt availability.
-		if doneTarget != "" {
-			target = doneTarget
-			explicitTarget = true
-			fmt.Printf("  Target branch: %s (from --target flag)\n", target)
-		}
-
-		// 2. Check for --base-branch override in formula vars (stored on bead at sling time).
-		// Fallback for polecats dispatched before --target flag existed, or when
-		// the formula doesn't pass --target explicitly.
-		if !explicitTarget && target == defaultBranch && sourceIssueForNoMerge != nil {
-			if af := beads.ParseAttachmentFields(sourceIssueForNoMerge); af != nil {
-				if bb := extractFormulaVar(af.FormulaVars, "base_branch"); bb != "" && bb != defaultBranch {
-					target = bb
-					fmt.Printf("  Target branch override: %s (from formula_vars)\n", target)
-				}
-			}
-		} else if !explicitTarget && target == defaultBranch && sourceIssueForNoMerge == nil && issueID != "" {
-			// sourceIssueForNoMerge is nil — bd.Show(issueID) failed earlier.
-			// This is the silent failure path that caused 150+ procedure beads to
-			// target main instead of feat/contract-review-procedure.
-			style.PrintWarning("could not load source issue %s for target branch detection (Dolt/beads lookup failed) — using default branch %s", issueID, defaultBranch)
-		}
-
-		// 3. Auto-detect integration branch from epic hierarchy (if enabled).
-		// Only overrides if no explicit target was set above.
-		if !explicitTarget && target == defaultBranch {
-			refineryEnabled := true
-			settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
-			if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
-				refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
-			}
-			if refineryEnabled {
-				autoTarget, err := beads.DetectIntegrationBranch(bd, g, issueID)
-				if err == nil && autoTarget != "" {
-					target = autoTarget
-				}
 			}
 		}
 

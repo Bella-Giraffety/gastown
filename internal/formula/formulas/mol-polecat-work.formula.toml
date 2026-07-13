@@ -343,10 +343,11 @@ bd show {{issue}}    # Check notes/design fields have your findings
 ```
 If the bead is `review_only: true`, also verify a fresh assignee-authored
 `PR-SHERIFF-EVIDENCE` comment exists for the current `HEAD`.
-If findings/evidence are persisted, proceed to review. Report-only tasks with
-findings persisted can skip commit verification.
+If the bead has nothing to implement, close it with an explicit no-changes
+reason before running `gt done`; otherwise defer or escalate instead of
+completing with zero commits.
 
-**Exit criteria:** Working tree clean AND either (a) at least 1 commit ahead of origin/{{base_branch}}, or (b) report-only task with findings persisted to bead."""
+**Exit criteria:** Working tree clean AND either (a) at least 1 commit ahead of origin/{{base_branch}}, or (b) review-only/no-code completion has durable evidence accepted by `gt done`."""
 
 [[steps]]
 id = "self-review"

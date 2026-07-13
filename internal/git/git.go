@@ -2746,6 +2746,60 @@ func (g *Git) BranchTargetStatus(localBranch, remote string, targets []string) (
 	return g.branchPreservationStatus(localBranch, remote, targets, false)
 }
 
+// RefTargetStatus checks whether an explicit ref is represented on target refs.
+// Unlike BranchTargetStatus, it never consults the current HEAD, exact source
+// branch custody, or @{u}; callers pass the submitted ref they intend to verify.
+func (g *Git) RefTargetStatus(ref, remote string, targets []string) (BranchPreservationStatus, error) {
+	if remote == "" {
+		remote = "origin"
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return BranchPreservationStatus{}, fmt.Errorf("missing ref")
+	}
+	targets = nonEmptyUnique(targets)
+	if len(targets) == 0 {
+		return BranchPreservationStatus{}, errNoComparisonRefs
+	}
+
+	var candidates []string
+	for _, target := range targets {
+		if resolved, ok := g.resolveComparisonRef(target, remote); ok {
+			candidates = append(candidates, resolved)
+		}
+	}
+	candidates = nonEmptyUnique(candidates)
+	if len(candidates) == 0 {
+		return BranchPreservationStatus{}, fmt.Errorf("no target/custody refs resolved")
+	}
+
+	var result BranchPreservationStatus
+	var lastErr error
+	for _, target := range candidates {
+		candidate, err := g.preservationOfRefAgainstRef(ref, target)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if candidate.Evidence == "" {
+			candidate.Evidence = "comparison_ref"
+		}
+		if candidate.Preserved {
+			return candidate, nil
+		}
+		if result.ComparisonBase == "" {
+			result = candidate
+		}
+	}
+	if result.ComparisonBase != "" {
+		return result, nil
+	}
+	if lastErr != nil {
+		return result, lastErr
+	}
+	return result, fmt.Errorf("no usable comparison refs")
+}
+
 func (g *Git) branchPreservationStatus(localBranch, remote string, targets []string, includeExactBranch bool) (BranchPreservationStatus, error) {
 	if remote == "" {
 		remote = "origin"

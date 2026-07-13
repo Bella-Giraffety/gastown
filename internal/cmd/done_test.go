@@ -314,6 +314,159 @@ func TestNonReviewOnlyReviewGateDoesNotChangeCriteriaHandling(t *testing.T) {
 	}
 }
 
+func TestCompletionEvidenceRejectsZeroDeliverableCompletedWork(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/zero")
+
+	issue := &beads.Issue{ID: "gt-zero", Status: "in_progress", Type: "task"}
+	_, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+	if err == nil {
+		t.Fatal("zero-deliverable implementation completion should reject")
+	}
+	if strings.Contains(err.Error(), "cleanup-status") || strings.Contains(err.Error(), "no_merge") {
+		t.Fatalf("error exposes bypass token: %v", err)
+	}
+}
+
+func TestCompletionEvidenceRejectsCleanupCleanStyleZeroBranchWithRemoteBranch(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/remote-zero")
+	runGitForMQSubmitTest(t, repo, "push", "origin", "feature/remote-zero")
+
+	issue := &beads.Issue{ID: "gt-zero", Status: "in_progress", Type: "task"}
+	_, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+	if err == nil {
+		t.Fatal("remote branch existence should not count as completion evidence")
+	}
+}
+
+func TestCompletionEvidencePreservesReviewOnlyNoBranchWork(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/review-only")
+
+	issue := &beads.Issue{ID: "gt-review", Status: "in_progress", Description: "review_only: true\n"}
+	got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, beads.ParseAttachmentFields(issue), completionEvidenceDone)
+	if err != nil {
+		t.Fatalf("review-only no-branch work should reach review evidence gate: %v", err)
+	}
+	if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "review-only" {
+		t.Fatalf("assessment = %+v, want review-only no-branch allowance", got)
+	}
+}
+
+func TestCompletionEvidencePreservesTerminalExplicitNoCode(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/terminal")
+
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", CloseReason: "no-changes: external evidence recorded"}
+	got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+	if err != nil {
+		t.Fatalf("terminal no-code evidence should be allowed: %v", err)
+	}
+	if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
+		t.Fatalf("assessment = %+v, want terminal no-branch allowance", got)
+	}
+}
+
+func TestCompletionEvidenceRejectsTerminalWithoutEvidenceAndOpenNotes(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/no-evidence")
+
+	for _, issue := range []*beads.Issue{
+		{ID: "gt-terminal", Status: "closed"},
+		{ID: "gt-open-notes", Status: "in_progress", Notes: "no-changes: not valid while open"},
+	} {
+		if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
+			t.Fatalf("%s should reject without valid terminal evidence", issue.ID)
+		}
+	}
+}
+
+func TestCompletionEvidenceRejectsNoMergeAndLocalZeroWork(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/no-mq-zero")
+
+	for _, issue := range []*beads.Issue{
+		{ID: "gt-nomerge", Status: "in_progress", Description: "no_merge: true\n"},
+		{ID: "gt-local", Status: "in_progress", Description: "merge_strategy: local\n"},
+	} {
+		if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, beads.ParseAttachmentFields(issue), completionEvidenceDone); err == nil {
+			t.Fatalf("%s should reject zero-work completion", issue.ID)
+		}
+	}
+}
+
+func TestCompletionEvidenceAllowsBranchRefWhenHeadDiffers(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	branch := "feature/submitted-work"
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", branch)
+	writeMQSubmitTestFile(t, repo, "feature.txt", "feature\n")
+	runGitForMQSubmitTest(t, repo, "add", "feature.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "feature work")
+	runGitForMQSubmitTest(t, repo, "checkout", "main")
+
+	issue := &beads.Issue{ID: "gt-branch", Status: "in_progress", Type: "task"}
+	got, err := assessSourceCompletionEvidence(g, "refs/heads/"+branch, targetRefs, issue.ID, issue, nil, completionEvidenceMQSubmit)
+	if err != nil {
+		t.Fatalf("branch ref with work should be submittable even when HEAD differs: %v", err)
+	}
+	if !got.HasSubmittableWork {
+		t.Fatalf("assessment = %+v, want submittable branch work", got)
+	}
+}
+
+func TestCompletionEvidenceRejectsMQIneligibleSources(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	branch := "feature/mq-ineligible"
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", branch)
+	writeMQSubmitTestFile(t, repo, "feature.txt", "feature\n")
+	runGitForMQSubmitTest(t, repo, "add", "feature.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "feature work")
+
+	for _, issue := range []*beads.Issue{
+		{ID: "gt-review", Status: "in_progress", Description: "review_only: true\n"},
+		{ID: "gt-nomerge", Status: "in_progress", Description: "no_merge: true\n"},
+		{ID: "gt-local", Status: "in_progress", Description: "merge_strategy: local\n"},
+	} {
+		if _, err := assessSourceCompletionEvidence(g, "refs/heads/"+branch, targetRefs, issue.ID, issue, beads.ParseAttachmentFields(issue), completionEvidenceMQSubmit); err == nil {
+			t.Fatalf("%s should be ineligible for MQ submit", issue.ID)
+		}
+	}
+}
+
+func TestCompletionEvidenceOnlyCompletedStatusUsesGate(t *testing.T) {
+	for _, exitType := range []string{ExitDeferred, ExitEscalated} {
+		if exitType == ExitCompleted {
+			t.Fatalf("%s should not be treated as completed work", exitType)
+		}
+	}
+}
+
+func setupCompletionEvidenceRepo(t *testing.T) (string, []string) {
+	t.Helper()
+	repo := t.TempDir()
+	remote := t.TempDir()
+	runGitForMQSubmitTest(t, remote, "init", "--bare")
+	runGitForMQSubmitTest(t, repo, "init")
+	runGitForMQSubmitTest(t, repo, "config", "user.email", "test@example.com")
+	runGitForMQSubmitTest(t, repo, "config", "user.name", "Test User")
+	runGitForMQSubmitTest(t, repo, "remote", "add", "origin", remote)
+	writeMQSubmitTestFile(t, repo, "README.md", "main\n")
+	runGitForMQSubmitTest(t, repo, "add", "README.md")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "main")
+	runGitForMQSubmitTest(t, repo, "branch", "-M", "main")
+	runGitForMQSubmitTest(t, repo, "push", "-u", "origin", "main")
+	return repo, completionTargetRefs("main", "origin/main")
+}
+
 // TestDoneBeadsInitWithoutRedirect verifies that beads initialization works
 // normally when no redirect file exists.
 func TestDoneBeadsInitWithoutRedirect(t *testing.T) {
