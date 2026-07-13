@@ -1335,27 +1335,8 @@ func NukePolecat(bd *BdCli, workDir, rigName, polecatName string) error {
 		return fmt.Errorf("refusing to nuke %s/%s: MR pending in refinery (gt-6a9d)", rigName, polecatName)
 	}
 
-	// CRITICAL: Kill the tmux session FIRST and unconditionally.
-	// We do this explicitly here because gt polecat nuke may fail to kill the
-	// session due to rig loading issues or race conditions with IsRunning checks.
-	// See: gt-g9ft5 - sessions were piling up because nuke wasn't killing them.
-	sessionName := session.PolecatSessionName(session.PrefixFor(rigName), polecatName)
-	t := tmux.NewTmux()
-
-	// Check if session exists and kill it
-	if running, _ := t.HasSession(sessionName); running {
-		// Try graceful shutdown first (Ctrl-C), then force kill
-		_ = t.SendKeysRaw(sessionName, "C-c")
-		// Brief delay for graceful handling
-		time.Sleep(100 * time.Millisecond)
-		// Force kill the session
-		if err := t.KillSession(sessionName); err != nil {
-			// Log but continue - session might already be dead
-			// The important thing is we tried
-		}
-	}
-
-	// Now run gt polecat nuke to clean up worktree, branch, and beads
+	// Delegate cleanup to gt polecat nuke; it validates the current identity and
+	// stops the session under the polecat lifecycle lock.
 	address := fmt.Sprintf("%s/%s", rigName, polecatName)
 
 	if err := util.ExecRun(workDir, "gt", "polecat", "nuke", address); err != nil {
@@ -1734,6 +1715,10 @@ func detectZombieLiveSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 	if snap != nil {
 		snapState, snapHook = snap.AgentState, snap.HookBead
 	}
+	directWork := activeAssignedWorkBead(bd, workDir, rigName, polecatName)
+	if snapHook == "" {
+		snapHook = directWork
+	}
 
 	// Heartbeat v2 check (gt-3vr5): if the agent reports its own state via heartbeat,
 	// trust the agent-reported state instead of inferring from timers.
@@ -1963,6 +1948,10 @@ func detectZombieDeadSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 	if snap != nil {
 		snapState, snapHook = snap.AgentState, snap.HookBead
 	}
+	directWork := activeAssignedWorkBead(bd, workDir, rigName, polecatName)
+	if snapHook == "" {
+		snapHook = directWork
+	}
 
 	// Heartbeat v2 check (gt-3vr5): for dead sessions, a fresh heartbeat means
 	// the session isn't actually dead (race condition). A stale heartbeat confirms death.
@@ -2024,6 +2013,9 @@ func detectZombieDeadSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 
 	// Standard zombie detection: active state or hooked bead with dead session.
 	typedState := beads.AgentState(snapState)
+	if typedState == beads.AgentStateRemoving {
+		return ZombieResult{}, false
+	}
 	if !isZombieState(typedState, snapHook) {
 		return ZombieResult{}, false
 	}
@@ -2033,7 +2025,7 @@ func detectZombieDeadSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 	// bead may not be "closed" yet (refinery queue, manual cleanup), but the
 	// polecat is not a zombie. Without this check, isZombieState returns true
 	// on every patrol cycle (hookBead != ""), flooding the mayor inbox.
-	if typedState == beads.AgentStateDone || typedState == beads.AgentStateNuked {
+	if directWork == "" && (typedState == beads.AgentStateDone || typedState == beads.AgentStateNuked) {
 		return ZombieResult{}, false
 	}
 
@@ -2093,6 +2085,36 @@ func isZombieState(agentState beads.AgentState, hookBead string) bool {
 		return true
 	}
 	return agentState.IsActive()
+}
+
+func activeAssignedWorkBead(bd *BdCli, workDir, rigName, polecatName string) string {
+	assignee := fmt.Sprintf("%s/polecats/%s", rigName, polecatName)
+	for _, status := range []string{"hooked", "in_progress"} {
+		output, err := bd.Exec(workDir, "list", "--status="+status, "--json", "--limit=0")
+		if err != nil || output == "" {
+			continue
+		}
+		var issues []struct {
+			ID       string   `json:"id"`
+			Assignee string   `json:"assignee"`
+			Type     string   `json:"issue_type"`
+			Labels   []string `json:"labels"`
+		}
+		if err := json.Unmarshal([]byte(output), &issues); err != nil {
+			continue
+		}
+		for _, issue := range issues {
+			if issue.Assignee != assignee {
+				continue
+			}
+			candidate := &beads.Issue{ID: issue.ID, Type: issue.Type, Labels: issue.Labels, Status: status, Assignee: issue.Assignee}
+			if beads.IsAgentBead(candidate) || beads.IsProtectedBead(candidate) {
+				continue
+			}
+			return issue.ID
+		}
+	}
+	return ""
 }
 
 // handleZombieRestart determines the restart action for a confirmed zombie (gt-dsgp).

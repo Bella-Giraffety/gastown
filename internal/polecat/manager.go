@@ -541,6 +541,16 @@ type AddOptions struct {
 	ResumeBranch string
 }
 
+// RemoveExpectation identifies the polecat generation a destructive cleanup was
+// scheduled for. Empty Issue is meaningful when Validate is true: it means the
+// cleanup was scheduled for a slot with no active work, so newly assigned work
+// must abort the stale cleanup.
+type RemoveExpectation struct {
+	Validate bool
+	Branch   string
+	Issue    string
+}
+
 // Add creates a new polecat as a git worktree from the repo base.
 // Uses the shared bare repo (.repo.git) if available, otherwise mayor/rig.
 // This is much faster than a full clone and shares objects with all worktrees.
@@ -717,6 +727,94 @@ func (m *Manager) AllocateAndAdd(opts AddOptions) (string, *Polecat, error) {
 		return "", nil, err
 	}
 	return name, p, nil
+}
+
+// AddExactWithOptions creates a polecat using the requested name only. It uses
+// the same pool+per-polecat lock ordering as AllocateAndAdd so explicit targets
+// cannot race generic allocation for the same slot.
+func (m *Manager) AddExactWithOptions(name string, opts AddOptions) (*Polecat, error) {
+	if err := validateExactPolecatName(name); err != nil {
+		return nil, err
+	}
+
+	poolLock, err := m.lockPool()
+	if err != nil {
+		return nil, err
+	}
+
+	m.reconcilePoolInternal()
+
+	polecatLock, err := m.lockPolecat(name)
+	if err != nil {
+		_ = poolLock.Unlock()
+		return nil, err
+	}
+
+	if m.exists(name) {
+		_ = polecatLock.Unlock()
+		_ = poolLock.Unlock()
+		return nil, ErrPolecatExists
+	}
+	if blocker := m.agentBeadReuseBlocker(name); blocker != "" {
+		_ = polecatLock.Unlock()
+		_ = poolLock.Unlock()
+		return nil, fmt.Errorf("%w: name %s is not reusable: %s", ErrPolecatNeedsRecovery, name, blocker)
+	}
+	if _, err := os.Stat(m.pendingPath(name)); err == nil {
+		_ = polecatLock.Unlock()
+		_ = poolLock.Unlock()
+		return nil, fmt.Errorf("%w: name %s has a pending lifecycle reservation", ErrPolecatNeedsRecovery, name)
+	} else if err != nil && !os.IsNotExist(err) {
+		_ = polecatLock.Unlock()
+		_ = poolLock.Unlock()
+		return nil, fmt.Errorf("checking pending reservation for %s: %w", name, err)
+	}
+	if active, err := m.activeWorkBeads(name); err != nil {
+		_ = polecatLock.Unlock()
+		_ = poolLock.Unlock()
+		return nil, fmt.Errorf("checking active work for %s: %w", name, err)
+	} else if len(active) > 0 {
+		_ = polecatLock.Unlock()
+		_ = poolLock.Unlock()
+		return nil, fmt.Errorf("%w: name %s has active work assigned to %s", ErrPolecatNeedsRecovery, name, m.assigneeID(name))
+	}
+	if m.tmux != nil {
+		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
+		if alive, _ := m.tmux.HasSession(sessionName); alive {
+			_ = polecatLock.Unlock()
+			_ = poolLock.Unlock()
+			return nil, fmt.Errorf("%w: name %s has a live session without a worktree", ErrPolecatNeedsRecovery, name)
+		}
+	}
+
+	polecatDir := m.polecatDir(name)
+	if err := os.MkdirAll(polecatDir, 0755); err != nil {
+		_ = polecatLock.Unlock()
+		_ = poolLock.Unlock()
+		return nil, fmt.Errorf("creating polecat dir: %w", err)
+	}
+
+	// Directory existence is now the allocation tombstone; generic allocation
+	// will see it during reconciliation.
+	_ = os.Remove(m.pendingPath(name))
+	_ = poolLock.Unlock()
+
+	p, err := m.addWithOptionsLocked(name, opts, polecatDir)
+	_ = polecatLock.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func validateExactPolecatName(name string) error {
+	if name == "" || name == "." || name == ".." {
+		return fmt.Errorf("invalid polecat name %q", name)
+	}
+	if strings.ContainsAny(name, `/\\`) {
+		return fmt.Errorf("invalid polecat name %q: must not contain path separators", name)
+	}
+	return nil
 }
 
 // addWithOptionsLocked performs the expensive parts of polecat creation
@@ -1123,7 +1221,11 @@ func (m *Manager) Remove(name string, force bool) error {
 //
 // ZFC #10: Uses cleanup_status from agent bead if available (polecat self-report),
 // falls back to git check for backward compatibility.
-func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) (retErr error) {
+func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) error {
+	return m.RemoveWithExpectation(name, force, nuclear, selfNuke, RemoveExpectation{})
+}
+
+func (m *Manager) RemoveWithExpectation(name string, force, nuclear, selfNuke bool, expectation RemoveExpectation) (retErr error) {
 	defer func() { telemetry.RecordPolecatRemove(context.Background(), name, retErr) }()
 	// Acquire per-polecat file lock to prevent concurrent Remove races
 	fl, err := m.lockPolecat(name)
@@ -1132,10 +1234,10 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 	}
 	defer func() { _ = fl.Unlock() }()
 
-	return m.removeWithOptionsLocked(name, force, nuclear, selfNuke)
+	return m.removeWithOptionsLocked(name, force, nuclear, selfNuke, expectation)
 }
 
-func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke bool) error {
+func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke bool, expectation RemoveExpectation) error {
 	if !m.exists(name) {
 		return ErrPolecatNotFound
 	}
@@ -1183,25 +1285,20 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 		}
 	}
 
-	// Reset agent bead FIRST, before any filesystem operations.
-	// This prevents a race where a concurrent sling allocates the same name,
-	// sets hook_bead, and then has it cleared by this cleanup. By resetting
-	// the agent bead first (clearing fields, setting agent_state="nuked"),
-	// concurrent slings see a clean bead and CreateOrReopenAgentBead can
-	// simply update it without needing close/reopen (which fails on Dolt).
-	// See gt-14b8o: close/reopen cycle breaks on Dolt backend.
 	agentID := m.agentBeadID(name)
-	if err := m.resetAgentBeadForReuse(agentID, "polecat removed"); err != nil {
-		// Only log if not "not found" - it's ok if it doesn't exist
-		if !errors.Is(err, beads.ErrNotFound) {
-			style.PrintWarning("could not reset agent bead %s: %v", agentID, err)
+	current, currentErr := m.loadFromBeads(name)
+	if expectation.Validate {
+		if currentErr != nil {
+			return fmt.Errorf("validating polecat identity for %s: %w", name, currentErr)
+		}
+		if current.Branch != expectation.Branch || current.Issue != expectation.Issue {
+			return fmt.Errorf("%w: %s changed from branch=%q issue=%q to branch=%q issue=%q", ErrPolecatNeedsRecovery, name, expectation.Branch, expectation.Issue, current.Branch, current.Issue)
 		}
 	}
-
-	// Unassign any work beads still pointing at this polecat (gt-e4u1).
-	// Without this, beads remain assigned to a ghost polecat (status in_progress,
-	// assignee set) after removal, permanently stuck with no one working on them.
-	m.unassignWorkBeads(name)
+	workToUnassign, workErr := m.activeWorkBeads(name)
+	if workErr != nil {
+		return fmt.Errorf("capturing active work for %s: %w", name, workErr)
+	}
 
 	// Check if user's shell is cd'd into the worktree (prevents broken shell)
 	// This check runs unless selfNuke=true (polecat deleting its own worktree).
@@ -1226,6 +1323,17 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 					ErrShellInWorktree, cwd, m.rig.Name, name)
 			}
 		}
+	}
+
+	removing := string(beads.AgentStateRemoving)
+	if err := m.agentBeads().UpdateAgentDescriptionFields(agentID, beads.AgentFieldUpdates{AgentState: &removing}); err != nil {
+		if !errors.Is(err, beads.ErrNotFound) {
+			return fmt.Errorf("marking %s removing: %w", agentID, err)
+		}
+	}
+
+	if err := m.killExistingPolecatSession(name, "remove"); err != nil {
+		return err
 	}
 
 	// Best-effort: Push the polecat's branch to remote before removing the worktree.
@@ -1261,8 +1369,20 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 			mayorGit := git.NewGit(mayorRigPath)
 			_ = mayorGit.WorktreePrune()
 		}
-		// Fall back to direct removal if repo base not found
-		return os.RemoveAll(polecatDir)
+		// Fall back to direct removal if repo base not found.
+		if removeErr := os.RemoveAll(polecatDir); removeErr != nil {
+			return removeErr
+		}
+		if verifyErr := verifyRemovalComplete(polecatDir, clonePath); verifyErr != nil {
+			return verifyErr
+		}
+		m.unassignCapturedWorkBeads(name, workToUnassign)
+		if resetErr := m.resetAgentBeadForReuse(agentID, "polecat removed"); resetErr != nil && !errors.Is(resetErr, beads.ErrNotFound) {
+			return fmt.Errorf("resetting agent bead %s after removal: %w", agentID, resetErr)
+		}
+		m.namePool.Release(name)
+		_ = m.namePool.Save()
+		return nil
 	}
 
 	// Try to remove as a worktree first (use force flag for worktree removal too)
@@ -1293,8 +1413,17 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 	// Verify removal succeeded (fixes #618)
 	// The above removal attempts may fail silently on permissions, symlinks, or busy files
 	if err := verifyRemovalComplete(polecatDir, clonePath); err != nil {
-		// Log warning but don't fail - the polecat is effectively "removed" from Gas Town's perspective
-		style.PrintWarning("incomplete removal for %s: %v", name, err)
+		return err
+	}
+
+	// Unassign work and reset the agent bead only after destructive cleanup has
+	// durably completed. Until this point agent_state=removing keeps the slot out
+	// of reuse and witness restart paths.
+	m.unassignCapturedWorkBeads(name, workToUnassign)
+	if err := m.resetAgentBeadForReuse(agentID, "polecat removed"); err != nil {
+		if !errors.Is(err, beads.ErrNotFound) {
+			return fmt.Errorf("resetting agent bead %s after removal: %w", agentID, err)
+		}
 	}
 
 	// Release name back to pool if it's a pooled name (non-fatal: state file update)
@@ -1399,7 +1528,7 @@ func (m *Manager) ReclaimBrokenIdlePolecat(name string) (retErr error) {
 		return fmt.Errorf("not safe to reclaim: %s", blocker)
 	}
 
-	return m.removeWithOptionsLocked(name, false, false, false)
+	return m.removeWithOptionsLocked(name, false, false, false, RemoveExpectation{})
 }
 
 // verifyRemovalComplete checks that polecat directories were actually removed.
@@ -2010,6 +2139,23 @@ func (m *Manager) reconcilePoolInternal() {
 			}
 		}
 	}
+	namesWithDirs = append(namesWithDirs, m.activeAssignedPolecatNames()...)
+	if agentIssues, err := m.agentBeads().ListAgentBeads(); err == nil {
+		for id, issue := range agentIssues {
+			beadRig, role, name, ok := beads.ParseAgentBeadID(id)
+			if !ok || beadRig != m.rig.Name || role != "polecat" || name == "" || issue == nil {
+				continue
+			}
+			fields := beads.ParseAgentFields(issue.Description)
+			state := beads.AgentState(beads.ResolveAgentState(issue.Description, issue.AgentState))
+			if fields != nil && fields.AgentState != "" {
+				state = beads.AgentState(fields.AgentState)
+			}
+			if state == beads.AgentStateRemoving {
+				namesWithDirs = append(namesWithDirs, name)
+			}
+		}
+	}
 
 	// Get names with tmux sessions
 	var namesWithSessions []string
@@ -2067,6 +2213,27 @@ func (m *Manager) ReconcilePoolWith(namesWithDirs, namesWithSessions []string) {
 
 	// Clean up orphaned polecat state (fixes #698)
 	m.cleanupOrphanPolecatState()
+}
+
+func (m *Manager) activeAssignedPolecatNames() []string {
+	seen := make(map[string]bool)
+	for _, status := range []string{"open", "in_progress", beads.StatusHooked} {
+		issues, err := m.beads.List(beads.ListOptions{Status: status, Priority: -1})
+		if err != nil {
+			continue
+		}
+		for _, issue := range activeWorkBeadsForCleanup(issues) {
+			parts := strings.Split(issue.Assignee, "/")
+			if len(parts) == 3 && parts[0] == m.rig.Name && parts[1] == "polecats" && parts[2] != "" {
+				seen[parts[2]] = true
+			}
+		}
+	}
+	var names []string
+	for name := range seen {
+		names = append(names, name)
+	}
+	return names
 }
 
 // isSessionProcessDead checks if a polecat session's agent has exited.
@@ -2669,20 +2836,57 @@ func (m *Manager) ClearIssue(name string) error {
 	return nil
 }
 
+func (m *Manager) activeWorkBeads(name string) ([]*beads.Issue, error) {
+	assignee := m.assigneeID(name)
+	issues, err := m.beads.ListByAssignee(assignee)
+	if err != nil {
+		return nil, err
+	}
+	return activeWorkBeadsForCleanup(issues), nil
+}
+
+func (m *Manager) agentBeadReuseBlocker(name string) string {
+	_, fields, err := m.agentBeads().GetAgentBead(m.agentBeadID(name))
+	if err != nil || fields == nil {
+		return ""
+	}
+	state := beads.AgentState(strings.TrimSpace(fields.AgentState))
+	switch {
+	case state == beads.AgentStateRemoving:
+		return "agent_state=removing"
+	case state.IsActive():
+		return "agent_state=" + string(state)
+	case strings.TrimSpace(fields.HookBead) != "":
+		return "hook_bead=" + strings.TrimSpace(fields.HookBead)
+	case strings.TrimSpace(fields.ActiveMR) != "":
+		return "active_mr=" + strings.TrimSpace(fields.ActiveMR)
+	default:
+		return ""
+	}
+}
+
 // unassignWorkBeads finds all active work beads assigned to a polecat and resets them
 // to status=open with an empty assignee, so they can be picked up by another polecat.
 // This must be called during polecat removal to prevent orphaned beads (gt-e4u1).
 // Agent beads are skipped (handled separately by ResetAgentBeadForReuse).
 // Errors are logged as warnings but do not block removal.
 func (m *Manager) unassignWorkBeads(name string) {
-	assignee := m.assigneeID(name)
-	issues, err := m.beads.ListByAssignee(assignee)
+	issues, err := m.activeWorkBeads(name)
 	if err != nil {
 		style.PrintWarning("could not list assigned beads for %s: %v", name, err)
 		return
 	}
 
-	for _, issue := range activeWorkBeadsForCleanup(issues) {
+	m.unassignCapturedWorkBeads(name, issues)
+}
+
+func (m *Manager) unassignCapturedWorkBeads(name string, issues []*beads.Issue) {
+	assignee := m.assigneeID(name)
+	for _, issue := range issues {
+		current, err := m.beads.Show(issue.ID)
+		if err == nil && (current.Assignee != assignee || !isActiveCleanupStatus(current.Status)) {
+			continue
+		}
 		openStatus := "open"
 		empty := ""
 		if err := m.beads.Update(issue.ID, beads.UpdateOptions{
@@ -2691,6 +2895,15 @@ func (m *Manager) unassignWorkBeads(name string) {
 		}); err != nil {
 			style.PrintWarning("could not unassign bead %s from %s: %v", issue.ID, name, err)
 		}
+	}
+}
+
+func isActiveCleanupStatus(status string) bool {
+	switch status {
+	case "open", "in_progress", beads.StatusHooked:
+		return true
+	default:
+		return false
 	}
 }
 

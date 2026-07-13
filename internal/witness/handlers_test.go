@@ -1400,6 +1400,31 @@ func TestDetectZombie_DoneOrNukedNotZombie(t *testing.T) {
 	}
 }
 
+func TestActiveAssignedWorkBeadFindsDirectHook(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 || args[0] != "list" {
+				return "[]", nil
+			}
+			joined := strings.Join(args, " ")
+			if strings.Contains(joined, "--status=hooked") {
+				return `[
+  {"id":"gt-agent","assignee":"testrig/polecats/alpha","issue_type":"task","labels":["gt:agent"]},
+  {"id":"gt-work","assignee":"testrig/polecats/alpha","issue_type":"bug","labels":[]},
+  {"id":"gt-other","assignee":"testrig/polecats/bravo","issue_type":"bug","labels":[]}
+]`, nil
+			}
+			return "[]", nil
+		},
+		func(args []string) error { return nil },
+	)
+
+	got := activeAssignedWorkBead(bd, t.TempDir(), "testrig", "alpha")
+	if got != "gt-work" {
+		t.Fatalf("activeAssignedWorkBead = %q, want gt-work", got)
+	}
+}
+
 func TestDetectZombie_AgentDeadInLiveSession(t *testing.T) {
 	t.Parallel()
 	// Verify the logic: live session + agent process dead → zombie

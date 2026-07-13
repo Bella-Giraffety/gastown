@@ -1868,65 +1868,19 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 		return err
 	}
 
-	t := tmux.NewTmux()
-
-	// Step 1: Kill tmux session unconditionally to prevent ghost sessions
-	// when IsRunning fails to detect the session.
-	sessMgr := polecat.NewSessionManager(t, r)
-	if err := sessMgr.Stop(polecatName, true); err != nil {
-		if !errors.Is(err, polecat.ErrSessionNotFound) {
-			fmt.Printf("  %s session kill failed: %v\n", style.Warning.Render("⚠"), err)
-		}
-	} else {
-		fmt.Printf("  %s killed session\n", style.Success.Render("✓"))
-	}
-
-	// Step 2: Get polecat info before deletion (for branch name + hooked work bead)
+	// Capture the intended generation before destructive cleanup. The manager
+	// revalidates this under the per-polecat lock before killing the session or
+	// deleting files, so a stale nuke cannot act on a successor with the same name.
 	polecatInfo, getErr := mgr.Get(polecatName)
 	var branchToDelete string
+	var issueToCleanup string
 	if getErr == nil && polecatInfo != nil {
 		branchToDelete = polecatInfo.Branch
+		issueToCleanup = polecatInfo.Issue
 	}
 
-	// Step 2.5: Burn any molecule attached to the polecat's hooked work bead.
-	// Without this, nuked polecats leave orphan molecule refs that block re-sling.
-	// The stale attached_molecule in the work bead's description causes sling to
-	// fail with "bead already has N attached molecule(s)" on re-dispatch (gt-npzy).
-	if getErr == nil && polecatInfo != nil && polecatInfo.Issue != "" {
-		nukeCleanupMolecules(polecatInfo.Issue, r)
-	}
-
-	// Step 2.75: Best-effort push before nuke (gt-4vr guardrail).
-	// Try to preserve any unpushed commits on the branch. Push failures are
-	// non-fatal because this cleanup path already passed its safety gates.
-	if branchToDelete != "" {
-		var pushGit *git.Git
-		// Try worktree first (may still exist), then bare repo fallback.
-		// Use ClonePath from the polecat record — the worktree lives at
-		// <rig>/polecats/<name>/<rigName>/, not <rig>/polecats/<name>/.
-		if polecatInfo != nil && polecatInfo.ClonePath != "" {
-			if _, statErr := os.Stat(polecatInfo.ClonePath); statErr == nil {
-				pushGit = git.NewGit(polecatInfo.ClonePath)
-			}
-		}
-		if pushGit == nil {
-			bareRepoPath := filepath.Join(r.Path, ".repo.git")
-			if info, statErr := os.Stat(bareRepoPath); statErr == nil && info.IsDir() {
-				pushGit = git.NewGitWithDir(bareRepoPath, "")
-			}
-		}
-		if pushGit != nil {
-			refspec := branchToDelete + ":" + branchToDelete
-			if err := pushGit.Push("origin", refspec, false); err != nil {
-				fmt.Printf("  %s best-effort push failed (proceeding): %v\n", style.Dim.Render("○"), err)
-			} else {
-				fmt.Printf("  %s pushed branch %s before nuke\n", style.Success.Render("✓"), branchToDelete)
-			}
-		}
-	}
-
-	// Step 3: Delete worktree (nuclear=true to bypass safety checks for stale polecats)
-	if err := mgr.RemoveWithOptions(polecatName, opts.Force, true, false); err != nil {
+	expectation := polecat.RemoveExpectation{Validate: getErr == nil && polecatInfo != nil, Branch: branchToDelete, Issue: issueToCleanup}
+	if err := mgr.RemoveWithExpectation(polecatName, opts.Force, true, false, expectation); err != nil {
 		if errors.Is(err, polecat.ErrPolecatNotFound) {
 			fmt.Printf("  %s worktree already gone\n", style.Dim.Render("○"))
 			resetPolecatAgentBeadForReuse(r, rigName, polecatName)
@@ -1935,6 +1889,9 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 		}
 	} else {
 		fmt.Printf("  %s deleted worktree\n", style.Success.Render("✓"))
+	}
+	if issueToCleanup != "" {
+		nukeCleanupMolecules(issueToCleanup, r)
 	}
 
 	// Step 4: Delete local branch (if we know it)

@@ -261,7 +261,7 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 	// resolve here, getting their pane for nudge delivery (gt-in7b).
 	agentID, pane, workDir, err := resolveTargetAgentFn(target)
 	if err != nil {
-		if rigName, ok := missingPolecatTargetRig(target, opts.Create, opts.TownRoot); ok {
+		if rigName, polecatName, ok := missingPolecatTargetRig(target, opts.Create, opts.TownRoot); ok {
 			if opts.BeadID != "" && !opts.Force {
 				if err := checkCrossRigGuard(opts.BeadID, rigName+"/polecats/_", opts.TownRoot); err != nil {
 					return nil, err
@@ -272,7 +272,7 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 					return nil, err
 				}
 			}
-			fmt.Printf("Target polecat has no active session, spawning fresh polecat in rig '%s'...\n", rigName)
+			fmt.Printf("Target polecat has no active session, spawning requested polecat '%s' in rig '%s'...\n", polecatName, rigName)
 			spawnOpts := SlingSpawnOptions{
 				TownRoot:      opts.TownRoot,
 				Force:         opts.Force,
@@ -283,10 +283,14 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 				BaseBranch:    opts.BaseBranch,
 				ResumeBranch:  opts.ResumeBranch,
 				SkipAdmission: opts.SkipPolecatAdmission,
+				RequestedName: polecatName,
 			}
 			spawnInfo, spawnErr := spawnPolecatForSling(rigName, spawnOpts)
 			if spawnErr != nil {
 				return nil, fmt.Errorf("spawning polecat to replace dead polecat: %w", spawnErr)
+			}
+			if spawnInfo.PolecatName != polecatName {
+				return nil, fmt.Errorf("explicit target requested %s/polecats/%s but spawn returned %s", rigName, polecatName, spawnInfo.AgentID())
 			}
 			result.Agent = spawnInfo.AgentID()
 			result.NewPolecatInfo = spawnInfo
@@ -320,25 +324,25 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 	return result, nil
 }
 
-func missingPolecatTargetRig(target string, allowShorthand bool, townRoot string) (string, bool) {
+func missingPolecatTargetRig(target string, allowCreate bool, townRoot string) (string, string, bool) {
+	if !allowCreate {
+		return "", "", false
+	}
 	if isPolecatTarget(target) {
 		parts := strings.Split(target, "/")
-		return parts[0], true
-	}
-	if !allowShorthand {
-		return "", false
+		return parts[0], parts[2], true
 	}
 	parts := strings.Split(target, "/")
 	if len(parts) != 2 || knownRoles[strings.ToLower(parts[1])] {
-		return "", false
+		return "", "", false
 	}
 	if townRoot == "" {
 		townRoot = detectTownRootFromCwd()
 	}
 	if townRoot != "" {
 		if info, err := os.Stat(filepath.Join(townRoot, parts[0], "crew", parts[1])); err == nil && info.IsDir() {
-			return "", false
+			return "", "", false
 		}
 	}
-	return parts[0], true
+	return parts[0], parts[1], true
 }

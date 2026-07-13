@@ -19,6 +19,7 @@ const (
 	AgentStateEscalated    AgentState = "escalated"
 	AgentStateIdle         AgentState = "idle"
 	AgentStateRunning      AgentState = "running"
+	AgentStateRemoving     AgentState = "removing"
 	AgentStateNuked        AgentState = "nuked"
 	AgentStateAwaitingGate AgentState = "awaiting-gate"
 	// Deacon lifecycle states (hq-sa8de Phase A).

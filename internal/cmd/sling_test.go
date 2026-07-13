@@ -995,7 +995,7 @@ exit /b 0
 		}
 	}
 
-	err = runSling(nil, []string{"gt-abc123", "gastown/polecats/toast"})
+	err = runSling(nil, []string{"gt-abc123", "gastown"})
 	if err == nil {
 		t.Fatalf("expected hook failure from runSling")
 	}
@@ -1494,6 +1494,9 @@ func TestResolveTargetCreateSpawnsPolecatShorthandWhenPaneMissing(t *testing.T) 
 		if !opts.Create {
 			t.Fatal("expected Create option to be preserved")
 		}
+		if opts.RequestedName != "toast" {
+			t.Fatalf("RequestedName = %q, want toast", opts.RequestedName)
+		}
 		return &SpawnedPolecatInfo{RigName: rigName, PolecatName: "toast", ClonePath: filepath.Join(townRoot, "fake-polecat")}, nil
 	}
 
@@ -1506,6 +1509,108 @@ func TestResolveTargetCreateSpawnsPolecatShorthandWhenPaneMissing(t *testing.T) 
 	}
 	if got.Agent != "gastown/polecats/toast" {
 		t.Fatalf("Agent = %q, want gastown/polecats/toast", got.Agent)
+	}
+}
+
+func TestResolveTargetCreateHonorsFullyQualifiedPolecat(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevResolve := resolveTargetAgentFn
+	prevSpawn := spawnPolecatForSling
+	t.Cleanup(func() {
+		resolveTargetAgentFn = prevResolve
+		spawnPolecatForSling = prevSpawn
+	})
+	resolveTargetAgentFn = func(target string) (string, string, string, error) {
+		return "", "", "", errors.New("getting pane for gt-toast: exit status 1")
+	}
+
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		if rigName != "gastown" {
+			t.Fatalf("rigName = %q, want gastown", rigName)
+		}
+		if opts.RequestedName != "toast" {
+			t.Fatalf("RequestedName = %q, want toast", opts.RequestedName)
+		}
+		return &SpawnedPolecatInfo{RigName: rigName, PolecatName: "toast", ClonePath: filepath.Join(townRoot, "fake-polecat")}, nil
+	}
+
+	got, err := resolveTarget("gastown/polecats/toast", ResolveTargetOptions{Create: true, NoBoot: true})
+	if err != nil {
+		t.Fatalf("resolveTarget: %v", err)
+	}
+	if got.Agent != "gastown/polecats/toast" {
+		t.Fatalf("Agent = %q, want gastown/polecats/toast", got.Agent)
+	}
+}
+
+func TestResolveTargetCreateRejectsMismatchedExplicitPolecat(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevResolve := resolveTargetAgentFn
+	prevSpawn := spawnPolecatForSling
+	t.Cleanup(func() {
+		resolveTargetAgentFn = prevResolve
+		spawnPolecatForSling = prevSpawn
+	})
+	resolveTargetAgentFn = func(target string) (string, string, string, error) {
+		return "", "", "", errors.New("getting pane for gt-toast: exit status 1")
+	}
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		return &SpawnedPolecatInfo{RigName: rigName, PolecatName: "other", ClonePath: filepath.Join(townRoot, "fake-polecat")}, nil
+	}
+
+	_, err = resolveTarget("gastown/polecats/toast", ResolveTargetOptions{Create: true, NoBoot: true})
+	if err == nil {
+		t.Fatal("expected explicit target mismatch error")
+	}
+	if !strings.Contains(err.Error(), "explicit target requested gastown/polecats/toast") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveTargetExplicitPolecatWithoutCreateFails(t *testing.T) {
+	prevResolve := resolveTargetAgentFn
+	prevSpawn := spawnPolecatForSling
+	t.Cleanup(func() {
+		resolveTargetAgentFn = prevResolve
+		spawnPolecatForSling = prevSpawn
+	})
+	resolveTargetAgentFn = func(target string) (string, string, string, error) {
+		return "", "", "", errors.New("getting pane for gt-toast: exit status 1")
+	}
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		t.Fatal("explicit target without --create must not spawn")
+		return nil, nil
+	}
+
+	_, err := resolveTarget("gastown/polecats/toast", ResolveTargetOptions{NoBoot: true})
+	if err == nil {
+		t.Fatal("expected missing explicit target to fail without --create")
 	}
 }
 

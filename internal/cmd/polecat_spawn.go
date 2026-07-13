@@ -60,6 +60,7 @@ type SlingSpawnOptions struct {
 	BaseBranch    string // Override base branch for polecat worktree (e.g., "develop", "release/v2")
 	ResumeBranch  string // Resume an existing branch (e.g. PR head) instead of creating polecat/<name>/<bead>+<ts>
 	SkipAdmission bool   // Caller already holds a polecat admission reservation
+	RequestedName string // Exact polecat name requested by an explicit target; empty means auto-select
 }
 
 func effectivePolecatDirCap(configured int) int {
@@ -94,6 +95,99 @@ func reclaimBrokenIdlePolecatForSling(polecatMgr *polecat.Manager) (bool, error)
 	}
 
 	return false, nil
+}
+
+func resolveSpawnBaseBranch(r *rig.Rig, opts SlingSpawnOptions) string {
+	baseBranch := opts.BaseBranch
+	if opts.ResumeBranch == "" {
+		if baseBranch == "" && opts.HookBead != "" {
+			settingsPath := filepath.Join(r.Path, "settings", "config.json")
+			polecatIntegrationEnabled := true
+			if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
+				polecatIntegrationEnabled = settings.MergeQueue.IsPolecatIntegrationEnabled()
+			}
+			if polecatIntegrationEnabled {
+				repoGit, repoErr := getRigGit(r.Path)
+				if repoErr == nil {
+					bd := beads.New(r.Path)
+					detected, detectErr := beads.DetectIntegrationBranch(bd, repoGit, opts.HookBead)
+					if detectErr == nil && detected != "" {
+						baseBranch = "origin/" + detected
+						fmt.Printf("  Auto-detected integration branch: %s\n", detected)
+					}
+				}
+			}
+		}
+		if baseBranch != "" && !strings.HasPrefix(baseBranch, "origin/") {
+			baseBranch = "origin/" + baseBranch
+		}
+	}
+	return baseBranch
+}
+
+func effectiveSpawnBaseBranch(r *rig.Rig, baseBranch string, opts SlingSpawnOptions) string {
+	effectiveBranch := strings.TrimPrefix(baseBranch, "origin/")
+	if effectiveBranch == "" {
+		effectiveBranch = r.DefaultBranch()
+	}
+	if opts.ResumeBranch != "" {
+		effectiveBranch = opts.ResumeBranch
+	}
+	return effectiveBranch
+}
+
+func spawnedPolecatInfo(rigName string, r *rig.Rig, t *tmux.Tmux, polecatName string, p *polecat.Polecat, baseBranch string, opts SlingSpawnOptions) *SpawnedPolecatInfo {
+	polecatSessMgr := polecat.NewSessionManager(t, r)
+	return &SpawnedPolecatInfo{
+		RigName:     rigName,
+		PolecatName: polecatName,
+		ClonePath:   p.ClonePath,
+		SessionName: polecatSessMgr.SessionName(polecatName),
+		Pane:        "",
+		BaseBranch:  effectiveSpawnBaseBranch(r, baseBranch, opts),
+		Branch:      p.Branch,
+		account:     opts.Account,
+		agent:       opts.Agent,
+	}
+}
+
+func spawnRequestedPolecatForSling(rigName string, r *rig.Rig, t *tmux.Tmux, polecatMgr *polecat.Manager, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+	polecatName := opts.RequestedName
+	baseBranch := resolveSpawnBaseBranch(r, opts)
+	addOpts := polecat.AddOptions{
+		HookBead:     opts.HookBead,
+		BaseBranch:   baseBranch,
+		ResumeBranch: opts.ResumeBranch,
+	}
+
+	if existing, err := polecatMgr.Get(polecatName); err == nil && existing != nil {
+		fmt.Printf("Reusing requested polecat: %s\n", polecatName)
+		p, err := polecatMgr.ReuseIdlePolecat(polecatName, addOpts)
+		if err != nil {
+			return nil, fmt.Errorf("requested polecat %s is not reusable: %w", polecatName, err)
+		}
+		if err := verifyWorktreeExists(p.ClonePath); err != nil {
+			return nil, fmt.Errorf("worktree verification failed for requested %s: %w", polecatName, err)
+		}
+		fmt.Printf("%s Polecat %s reused (requested target, session start deferred)\n", style.Bold.Render("✓"), polecatName)
+		_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
+		return spawnedPolecatInfo(rigName, r, t, polecatName, p, baseBranch, opts), nil
+	} else if err != nil && !errors.Is(err, polecat.ErrPolecatNotFound) {
+		return nil, fmt.Errorf("checking requested polecat %s: %w", polecatName, err)
+	}
+
+	p, err := polecatMgr.AddExactWithOptions(polecatName, addOpts)
+	if err != nil {
+		return nil, fmt.Errorf("creating requested polecat %s: %w", polecatName, err)
+	}
+	if err := verifyWorktreeExists(p.ClonePath); err != nil {
+		_ = polecatMgr.Remove(polecatName, true)
+		return nil, fmt.Errorf("worktree verification failed for %s: %w\nHint: try 'gt polecat nuke %s/%s --force' to clean up",
+			polecatName, err, rigName, polecatName)
+	}
+	fmt.Printf("Created requested polecat: %s\n", polecatName)
+	_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
+	return spawnedPolecatInfo(rigName, r, t, polecatName, p, baseBranch, opts), nil
 }
 
 // SpawnPolecatForSling creates a fresh polecat and optionally starts its session.
@@ -172,6 +266,10 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 				opts.HookBead, rigName, opts.HookBead)
 		}
 		witness.RecordBeadRespawn(townRoot, opts.HookBead)
+	}
+
+	if opts.RequestedName != "" {
+		return spawnRequestedPolecatForSling(rigName, r, t, polecatMgr, opts)
 	}
 
 	if reclaimed, err := reclaimBrokenIdlePolecatForSling(polecatMgr); err != nil {
