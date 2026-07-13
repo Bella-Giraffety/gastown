@@ -173,7 +173,7 @@ func (c *Client) ReplyToPRComment(ctx context.Context, workspace, repoSlug strin
 func (c *Client) MergePR(ctx context.Context, workspace, repoSlug string, prID int, strategy string) error {
 	reqBody := map[string]any{
 		"merge_strategy":       strategy,
-		"close_source_branch": true,
+		"close_source_branch": false,
 	}
 	path := fmt.Sprintf("/repositories/%s/%s/pullrequests/%d/merge", workspace, repoSlug, prID)
 	if err := c.restRequest(ctx, "POST", path, reqBody, nil); err != nil {

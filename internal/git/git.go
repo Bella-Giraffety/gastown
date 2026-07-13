@@ -1496,13 +1496,15 @@ func (g *Git) GhPrMerge(prNumber int, method string) (string, error) {
 
 	// After merge, pull the target branch to get the merge commit locally
 	if _, pullErr := g.run("pull", "origin"); pullErr != nil {
-		// Non-fatal: the merge succeeded on GitHub, we just can't get the SHA locally
-		return "", nil
+		return "", fmt.Errorf("gh pr merge proof failed: unable to pull target after merge: %w", pullErr)
 	}
 	// Get the latest commit on HEAD (should be the merge commit)
 	sha, revErr := g.Rev("HEAD")
 	if revErr != nil {
-		return "", nil // Merge succeeded, just can't determine SHA
+		return "", fmt.Errorf("gh pr merge proof failed: unable to read merge commit: %w", revErr)
+	}
+	if strings.TrimSpace(sha) == "" {
+		return "", fmt.Errorf("gh pr merge proof failed: empty merge commit")
 	}
 	return sha, nil
 }
@@ -1580,7 +1582,7 @@ func (g *Git) BitbucketPRMerge(workspace, repoSlug string, prID int, strategy st
 	url := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%d/merge",
 		workspace, repoSlug, prID)
 	body := fmt.Sprintf(`{"merge_strategy":"%s","close_source_branch":false}`, strategy)
-	cmd := exec.Command("curl", "-s", "-X", "POST",
+	cmd := exec.Command("curl", "-sf", "-X", "POST",
 		"-H", "Authorization: Bearer "+token,
 		"-H", "Content-Type: application/json",
 		"-d", body, url)
@@ -1596,24 +1598,17 @@ func (g *Git) BitbucketPRMerge(workspace, repoSlug string, prID int, strategy st
 		} `json:"merge_commit"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(out), &resp); err != nil {
-		// Merge may have succeeded but response parsing failed — pull to get SHA.
-		if _, pullErr := g.run("pull", "origin"); pullErr == nil {
-			if sha, revErr := g.Rev("HEAD"); revErr == nil {
-				return sha, nil
-			}
-		}
-		return "", nil
+		return "", fmt.Errorf("bitbucket merge proof failed: parse response: %w", err)
+	}
+	if strings.TrimSpace(resp.MergeCommit.Hash) == "" {
+		return "", fmt.Errorf("bitbucket merge proof failed: empty merge commit")
 	}
 
 	// Sync local state after remote merge.
 	if _, pullErr := g.run("pull", "origin"); pullErr != nil {
 		return resp.MergeCommit.Hash, nil
 	}
-	if resp.MergeCommit.Hash != "" {
-		return resp.MergeCommit.Hash, nil
-	}
-	sha, _ := g.Rev("HEAD")
-	return sha, nil
+	return resp.MergeCommit.Hash, nil
 }
 
 // RemoteRef is a ref observed through ls-remote.

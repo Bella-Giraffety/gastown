@@ -13,6 +13,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/refinery"
+	"github.com/steveyegge/gastown/internal/testutil"
 )
 
 // TestLandConflictError_ErrorsAs verifies that callers (notably the refinery
@@ -753,6 +754,86 @@ func TestPostMergeProof_UnlandedExpectedHeadFailsClosed(t *testing.T) {
 	}
 }
 
+func TestRunMQPostMerge_UnlandedHeadPreservesRecordsAndBranch(t *testing.T) {
+	testutil.RequireDoltContainer(t)
+	townRoot, rigPath, rigGit, mainBranch, branch, head := initPostMergeCommandTown(t)
+	port, _ := strconv.Atoi(testutil.DoltContainerPort())
+	b := beads.NewIsolatedWithPort(rigPath, port)
+	if err := b.Init("gt"); err != nil {
+		t.Skipf("bd init unavailable: %v", err)
+	}
+	srcIssue, err := b.Create(beads.CreateOptions{
+		Title:  "Source work",
+		Labels: []string{"gt:task"},
+	})
+	if err != nil {
+		t.Fatalf("create source issue: %v", err)
+	}
+	mrDesc := beads.FormatMRFields(&beads.MRFields{
+		Branch:      branch,
+		Target:      mainBranch,
+		SourceIssue: srcIssue.ID,
+		Worker:      "test",
+		Rig:         "testrig",
+		CommitSHA:   head,
+	})
+	mrIssue, err := b.Create(beads.CreateOptions{
+		Title:       "MR for source work",
+		Labels:      []string{"gt:merge-request"},
+		Description: mrDesc,
+	})
+	if err != nil {
+		t.Fatalf("create MR issue: %v", err)
+	}
+
+	oldExpectedHead := mqPostMergeExpectedHead
+	oldSkipBranchDelete := mqPostMergeSkipBranchDelete
+	mqPostMergeExpectedHead = ""
+	mqPostMergeSkipBranchDelete = false
+	t.Cleanup(func() {
+		mqPostMergeExpectedHead = oldExpectedHead
+		mqPostMergeSkipBranchDelete = oldSkipBranchDelete
+	})
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	if err := os.Chdir(townRoot); err != nil {
+		t.Fatalf("chdir town: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldCwd) })
+
+	err = runMQPostMerge(nil, []string{"testrig", mrIssue.ID})
+	if err == nil {
+		t.Fatal("runMQPostMerge should reject unlanded expected head")
+	}
+	if !strings.Contains(err.Error(), "post-merge proof") {
+		t.Fatalf("runMQPostMerge error = %v, want post-merge proof error", err)
+	}
+
+	mrAfter, err := b.Show(mrIssue.ID)
+	if err != nil {
+		t.Fatalf("show MR after failed post-merge: %v", err)
+	}
+	if mrAfter.Status != "open" {
+		t.Fatalf("MR status = %s, want open", mrAfter.Status)
+	}
+	srcAfter, err := b.Show(srcIssue.ID)
+	if err != nil {
+		t.Fatalf("show source after failed post-merge: %v", err)
+	}
+	if srcAfter.Status != "open" {
+		t.Fatalf("source status = %s, want open", srcAfter.Status)
+	}
+	exists, err := rigGit.RemoteBranchExists("origin", branch)
+	if err != nil {
+		t.Fatalf("RemoteBranchExists: %v", err)
+	}
+	if !exists {
+		t.Fatal("remote branch should be preserved after failed post-merge proof")
+	}
+}
+
 func initPostMergeProofRepo(t *testing.T) (string, string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -805,6 +886,96 @@ func initPostMergeProofRepo(t *testing.T) (string, string) {
 		t.Fatalf("push main: %v", err)
 	}
 	return localDir, mainBranch
+}
+
+func initPostMergeCommandTown(t *testing.T) (string, string, *git.Git, string, string, string) {
+	t.Helper()
+	tmp := t.TempDir()
+	townRoot := filepath.Join(tmp, "town")
+	rigPath := filepath.Join(townRoot, "testrig")
+	repoPath := filepath.Join(rigPath, "mayor", "rig")
+	for _, dir := range []string{filepath.Join(townRoot, "mayor"), repoPath} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"version":1}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	remoteDir := filepath.Join(tmp, "remote.git")
+	if err := exec.Command("git", "init", "--bare", remoteDir).Run(); err != nil {
+		t.Fatalf("git init --bare: %v", err)
+	}
+	rigsJSON := fmt.Sprintf(`{"version":1,"rigs":{"testrig":{"git_url":%q,"beads":{"repo":"local","prefix":"gt"}}}}`, remoteDir)
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "rigs.json"), []byte(rigsJSON), 0644); err != nil {
+		t.Fatalf("write rigs.json: %v", err)
+	}
+
+	for _, args := range [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test User"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = repoPath
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Test\n"), 0644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	for _, args := range [][]string{
+		{"git", "add", "."},
+		{"git", "commit", "-m", "initial"},
+		{"git", "remote", "add", "origin", remoteDir},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = repoPath
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = repoPath
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("branch --show-current: %v", err)
+	}
+	mainBranch := strings.TrimSpace(string(out))
+	cmd = exec.Command("git", "push", "-u", "origin", mainBranch)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("push main: %v", err)
+	}
+	rigGit := git.NewGit(repoPath)
+	branch := "polecat/test/gt-proof"
+	if err := rigGit.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := rigGit.Checkout(branch); err != nil {
+		t.Fatalf("Checkout branch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "proof.txt"), []byte("unlanded\n"), 0644); err != nil {
+		t.Fatalf("write proof: %v", err)
+	}
+	if err := rigGit.Add("proof.txt"); err != nil {
+		t.Fatalf("Add proof: %v", err)
+	}
+	if err := rigGit.Commit("unlanded proof"); err != nil {
+		t.Fatalf("Commit proof: %v", err)
+	}
+	head, err := rigGit.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev HEAD: %v", err)
+	}
+	if err := rigGit.Push("origin", branch, false); err != nil {
+		t.Fatalf("Push branch: %v", err)
+	}
+	if err := rigGit.Checkout(mainBranch); err != nil {
+		t.Fatalf("Checkout main: %v", err)
+	}
+	return townRoot, rigPath, rigGit, mainBranch, branch, head
 }
 
 func TestGetIntegrationBranchTemplate(t *testing.T) {
