@@ -9,13 +9,13 @@ import (
 func TestScheduledBeadInfoFromWorkSkipsNonConcreteWork(t *testing.T) {
 	fields := &capacity.SlingContextFields{WorkBeadID: "gt-wisp-abc", TargetRig: "gastown"}
 	info := beadStatusInfo{Status: "open", IssueType: "task", Labels: []string{"gt:sling-context"}}
-	if _, ok := scheduledBeadInfoFromWork("context", fields, info, true, nil); ok {
+	if _, ok := scheduledBeadInfoFromWork("context", fields, info, true, true); ok {
 		t.Fatalf("scheduledBeadInfoFromWork accepted non-concrete work")
 	}
 
 	fields.WorkBeadID = "gt-task"
 	info = beadStatusInfo{Status: "open", Title: "Concrete task", IssueType: "task"}
-	got, ok := scheduledBeadInfoFromWork("context", fields, info, true, nil)
+	got, ok := scheduledBeadInfoFromWork("context", fields, info, true, true)
 	if !ok {
 		t.Fatalf("scheduledBeadInfoFromWork rejected concrete work")
 	}
