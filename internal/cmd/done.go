@@ -141,6 +141,22 @@ func cleanupStatusAfterSuccessfulPush(status string) string {
 	return status
 }
 
+func cleanupStatusFromWorkState(workStatus *git.UncommittedWorkStatus, branchPushed bool, unpushedCount int, branchPushedErr error) string {
+	if workStatus == nil {
+		return "unknown"
+	}
+	if workStatus.HasUncommittedChanges && !workStatus.CleanExcludingRuntime() {
+		return "uncommitted"
+	}
+	if workStatus.StashCount > 0 {
+		return "stash"
+	}
+	if branchPushedErr != nil || !branchPushed || unpushedCount > 0 {
+		return "unpushed"
+	}
+	return "clean"
+}
+
 var reviewEvidencePrefixes = []string{
 	"report:",
 	"findings:",
@@ -545,25 +561,19 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if err != nil {
 				style.PrintWarning("could not auto-detect cleanup status: %v", err)
 			} else {
-				switch {
-				case workStatus.HasUncommittedChanges:
-					doneCleanupStatus = "uncommitted"
-				case workStatus.StashCount > 0:
-					doneCleanupStatus = "stash"
-				default:
+				branchPushed := true
+				unpushedCount := 0
+				var branchPushedErr error
+				if !workStatus.HasUncommittedChanges || workStatus.CleanExcludingRuntime() {
 					// CheckUncommittedWork.UnpushedCommits doesn't work for branches
 					// without upstream tracking (common for polecats). Use the more
 					// robust BranchPushedToRemote which compares against origin/main.
-					pushed, unpushedCount, err := g.BranchPushedToRemote(branch, "origin")
-					if err != nil {
-						style.PrintWarning("could not check if branch is pushed: %v", err)
-						doneCleanupStatus = "unpushed" // err on side of caution
-					} else if !pushed || unpushedCount > 0 {
-						doneCleanupStatus = "unpushed"
-					} else {
-						doneCleanupStatus = "clean"
+					branchPushed, unpushedCount, branchPushedErr = g.BranchPushedToRemote(branch, "origin")
+					if branchPushedErr != nil {
+						style.PrintWarning("could not check if branch is pushed: %v", branchPushedErr)
 					}
 				}
+				doneCleanupStatus = cleanupStatusFromWorkState(workStatus, branchPushed, unpushedCount, branchPushedErr)
 			}
 		}
 	}
@@ -1673,7 +1683,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			// GH#2599: Back-link source issue to MR bead for discoverability.
 			if issueID != "" {
 				comment := fmt.Sprintf("MR created: %s", mrID)
-				if _, err := bd.Run("comments", "add", issueID, comment); err != nil {
+				if err := bd.AddComment(issueID, comment); err != nil {
 					style.PrintWarning("could not back-link source issue %s to MR %s: %v", issueID, mrID, err)
 				}
 			}
@@ -1896,7 +1906,7 @@ func noteVerifiedPushFailure(cwd, issueID, branch, commit string, verifyErr erro
 	inProgress := "in_progress"
 	_ = bd.Update(issueID, beads.UpdateOptions{Status: &inProgress})
 	msg := fmt.Sprintf("verified_push_failed: commit %s not verified on origin/%s: %v", commit, branch, verifyErr)
-	_, _ = bd.Run("comments", "add", issueID, msg)
+	_ = bd.AddComment(issueID, msg)
 }
 
 func noteVerifiedPushSkipped(cwd, issueID, branch, commit, reason string) {
@@ -1904,7 +1914,7 @@ func noteVerifiedPushSkipped(cwd, issueID, branch, commit, reason string) {
 		return
 	}
 	msg := fmt.Sprintf("verified_push_skipped: commit %s branch origin/%s reason=%s", commit, branch, reason)
-	_, _ = beads.New(cwd).Run("comments", "add", issueID, msg)
+	_ = beads.New(cwd).AddComment(issueID, msg)
 }
 
 func verifyPushedCommitWithBareFallback(g *git.Git, townRoot, rigName, branch, commit string) error {

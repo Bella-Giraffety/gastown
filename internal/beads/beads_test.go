@@ -951,6 +951,143 @@ exit 0
 	}
 }
 
+type routedMutationFixture struct {
+	workerDir    string
+	townBeadsDir string
+	cmapBeadsDir string
+	logPath      string
+}
+
+func setupRoutedMutationFixture(t *testing.T) routedMutationFixture {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatalf("mkdir mayor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "town.json"), []byte(`{"name":"test"}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	cmapBeadsDir := filepath.Join(townRoot, "cmap", "mayor", "rig", ".beads")
+	for _, dir := range []string{townBeadsDir, cmapBeadsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := WriteRoutes(townBeadsDir, []Route{
+		{Prefix: "hq-", Path: "."},
+		{Prefix: "cmap-", Path: "cmap/mayor/rig"},
+	}); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	workerDir := filepath.Join(townRoot, "gastown", "polecats", "quartz", "gastown")
+	workerBeadsDir := filepath.Join(workerDir, ".beads")
+	if err := os.MkdirAll(workerBeadsDir, 0755); err != nil {
+		t.Fatalf("mkdir worker .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workerBeadsDir, "redirect"), []byte(townBeadsDir+"\n"), 0644); err != nil {
+		t.Fatalf("write worker redirect: %v", err)
+	}
+
+	stubDir := t.TempDir()
+	logPath := filepath.Join(stubDir, "bd.log")
+	stubScript := `#!/bin/sh
+printf 'BEADS_DIR=%s args=%s\n' "${BEADS_DIR:-}" "$*" >> "$MOCK_BD_LOG"
+exit 0
+`
+	stubPath := filepath.Join(stubDir, "bd")
+	if err := os.WriteFile(stubPath, []byte(stubScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MOCK_BD_LOG", logPath)
+	t.Setenv("BEADS_DIR", "/wrong")
+
+	return routedMutationFixture{
+		workerDir:    workerDir,
+		townBeadsDir: townBeadsDir,
+		cmapBeadsDir: cmapBeadsDir,
+		logPath:      logPath,
+	}
+}
+
+func assertBDLogHasMutation(t *testing.T, logOutput, beadsDir, args string) {
+	t.Helper()
+	for _, line := range strings.Split(logOutput, "\n") {
+		if strings.Contains(line, "BEADS_DIR="+beadsDir+" ") && strings.Contains(line, args) {
+			return
+		}
+	}
+	t.Fatalf("bd log missing BEADS_DIR=%q with args containing %q\nlog:\n%s", beadsDir, args, logOutput)
+}
+
+func TestMutationsRouteCmapIDByResolvedBeadsDir(t *testing.T) {
+	fx := setupRoutedMutationFixture(t)
+	bd := New(fx.workerDir)
+	status := "in_progress"
+
+	if err := bd.Update("cmap-83z", UpdateOptions{Status: &status}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if err := bd.Close("cmap-83z"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := bd.CloseWithReason("done", "cmap-83z"); err != nil {
+		t.Fatalf("CloseWithReason: %v", err)
+	}
+	if err := bd.ForceCloseWithReason("done", "cmap-83z"); err != nil {
+		t.Fatalf("ForceCloseWithReason: %v", err)
+	}
+	if err := bd.AddComment("cmap-83z", "MR created: gt-wisp-abc"); err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+
+	logOutput := readMockBDLog(t, fx.logPath)
+	assertBDLogHasMutation(t, logOutput, fx.cmapBeadsDir, "update cmap-83z --status=in_progress")
+	assertBDLogHasMutation(t, logOutput, fx.cmapBeadsDir, "close cmap-83z")
+	assertBDLogHasMutation(t, logOutput, fx.cmapBeadsDir, "close cmap-83z --reason=done")
+	assertBDLogHasMutation(t, logOutput, fx.cmapBeadsDir, "close cmap-83z --reason=done --force")
+	assertBDLogHasMutation(t, logOutput, fx.cmapBeadsDir, "comments add cmap-83z MR created: gt-wisp-abc")
+	if strings.Contains(logOutput, "BEADS_DIR=/wrong") {
+		t.Fatalf("mutation inherited poisoned BEADS_DIR:\n%s", logOutput)
+	}
+}
+
+func TestCloseRoutesMixedIDsByResolvedBeadsDir(t *testing.T) {
+	fx := setupRoutedMutationFixture(t)
+	if err := New(fx.workerDir).Close("cmap-83z", "hq-abc"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	logOutput := readMockBDLog(t, fx.logPath)
+	assertBDLogHasMutation(t, logOutput, fx.cmapBeadsDir, "close cmap-83z")
+	assertBDLogHasMutation(t, logOutput, fx.townBeadsDir, "close hq-abc")
+}
+
+func TestAddCommentNoRouteAndAgentModeStayOnCurrentBeadsDir(t *testing.T) {
+	fx := setupRoutedMutationFixture(t)
+	bd := New(fx.workerDir)
+	if err := bd.AddComment("local-83z", "no route"); err != nil {
+		t.Fatalf("AddComment no-route: %v", err)
+	}
+	if err := bd.ForAgentBead().AddComment("cmap-agent", "agent stays town-bound"); err != nil {
+		t.Fatalf("AddComment agent: %v", err)
+	}
+
+	logOutput := readMockBDLog(t, fx.logPath)
+	assertBDLogHasMutation(t, logOutput, fx.townBeadsDir, "comments add local-83z no route")
+	assertBDLogHasMutation(t, logOutput, fx.townBeadsDir, "comments add cmap-agent agent stays town-bound")
+	if strings.Contains(logOutput, "comments add cmap-agent") && strings.Contains(logOutput, "BEADS_DIR="+fx.cmapBeadsDir+" args=comments add cmap-agent") {
+		t.Fatalf("agent-mode comment routed to cmap DB:\n%s", logOutput)
+	}
+}
+
 func TestCreateWithRigRepairsTargetConfigPrefix(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses Unix shell script mock for bd")

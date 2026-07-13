@@ -1907,6 +1907,12 @@ func normalizeBugTitle(title string) string {
 
 // Update updates an existing issue.
 func (b *Beads) Update(id string, opts UpdateOptions) error {
+	if !b.noRoute {
+		if target := b.forIssueID(id); target != b {
+			return target.Update(id, opts)
+		}
+	}
+
 	if b.store != nil {
 		return b.storeUpdate(id, opts)
 	}
@@ -1951,72 +1957,93 @@ func (b *Beads) deleteBead(id string) error {
 	return err
 }
 
+func (b *Beads) AddComment(id, comment string) error {
+	if !b.noRoute {
+		if target := b.forIssueID(id); target != b {
+			return target.AddComment(id, comment)
+		}
+	}
+
+	_, err := b.run("comments", "add", id, comment)
+	return err
+}
+
+type closeOptions struct {
+	reason     string
+	withReason bool
+	force      bool
+}
+
 // Close closes one or more issues.
 // If a runtime session ID is set in the environment, it is passed to bd close
 // for work attribution tracking (see decision 009-session-events-architecture.md).
 func (b *Beads) Close(ids ...string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	if b.store != nil {
-		return b.storeClose("", runtime.SessionIDFromEnv(), ids...)
-	}
-
-	args := append([]string{"close"}, ids...)
-
-	// Pass session ID for work attribution if available
-	if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
-		args = append(args, "--session="+sessionID)
-	}
-
-	_, err := b.run(args...)
-	return err
+	return b.closeWithOptions(closeOptions{}, ids...)
 }
 
 // CloseWithReason closes one or more issues with a reason.
 // If a runtime session ID is set in the environment, it is passed to bd close
 // for work attribution tracking (see decision 009-session-events-architecture.md).
 func (b *Beads) CloseWithReason(reason string, ids ...string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	if b.store != nil {
-		return b.storeClose(reason, runtime.SessionIDFromEnv(), ids...)
-	}
-
-	args := append([]string{"close"}, ids...)
-	args = append(args, "--reason="+reason)
-
-	// Pass session ID for work attribution if available
-	if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
-		args = append(args, "--session="+sessionID)
-	}
-
-	_, err := b.run(args...)
-	return err
+	return b.closeWithOptions(closeOptions{reason: reason, withReason: true}, ids...)
 }
 
 // ForceCloseWithReason closes one or more issues with --force, bypassing
 // dependency checks. Used by gt done where the polecat is about to be nuked
 // and open molecule wisps should not block issue closure.
 func (b *Beads) ForceCloseWithReason(reason string, ids ...string) error {
+	return b.closeWithOptions(closeOptions{reason: reason, withReason: true, force: true}, ids...)
+}
+
+func (b *Beads) closeWithOptions(opts closeOptions, ids ...string) error {
 	if len(ids) == 0 {
 		return nil
 	}
 
+	if !b.noRoute {
+		targets := make(map[string]*Beads)
+		groups := make(map[string][]string)
+		order := make([]string, 0, len(ids))
+		for _, id := range ids {
+			target := b.forIssueID(id)
+			key := target.getResolvedBeadsDir()
+			if _, seen := groups[key]; !seen {
+				order = append(order, key)
+				targets[key] = target
+			}
+			groups[key] = append(groups[key], id)
+		}
+
+		if len(groups) > 1 || targets[order[0]] != b {
+			for _, key := range order {
+				if err := targets[key].closeInCurrentDB(opts, groups[key]...); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+
+	return b.closeInCurrentDB(opts, ids...)
+}
+
+func (b *Beads) closeInCurrentDB(opts closeOptions, ids ...string) error {
 	// In-process store close doesn't enforce dependency checks (no --force
 	// needed). Note: this means the store path bypasses the dependency
 	// validation that the CLI's --force flag overrides. Callers relying on
 	// ForceCloseWithReason (e.g., gt done nuking polecat wisps) are already
 	// accepting that deps may remain dangling, so this is intentional.
 	if b.store != nil {
-		return b.storeClose(reason, runtime.SessionIDFromEnv(), ids...)
+		return b.storeClose(opts.reason, runtime.SessionIDFromEnv(), ids...)
 	}
 
 	args := append([]string{"close"}, ids...)
-	args = append(args, "--reason="+reason, "--force")
+	if opts.withReason {
+		args = append(args, "--reason="+opts.reason)
+	}
+	if opts.force {
+		args = append(args, "--force")
+	}
 
 	// Pass session ID for work attribution if available
 	if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
