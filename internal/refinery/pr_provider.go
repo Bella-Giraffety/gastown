@@ -10,6 +10,6 @@ type PRProvider interface {
 	IsPRApproved(prNumber int) (bool, error)
 
 	// MergePR merges a PR using the specified method (e.g., "squash", "merge", "rebase").
-	// Returns the merge commit SHA on success (if available).
+	// Returns the forge merge commit SHA on success. Empty or ambiguous SHAs must be errors.
 	MergePR(prNumber int, method string) (string, error)
 }

@@ -824,9 +824,10 @@ func (e *Engineer) doMergePR(ctx context.Context, branch, target string) Process
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to pull %s after PR merge: %v\n", target, err)
 	}
 
-	if mergeCommit == "" {
-		if sha, err := e.git.Rev("HEAD"); err == nil {
-			mergeCommit = sha
+	if strings.TrimSpace(mergeCommit) == "" {
+		return ProcessResult{
+			Success: false,
+			Error:   fmt.Sprintf("PR merge failed for PR #%d: empty merge commit proof", prNumber),
 		}
 	}
 	if err := e.git.VerifyPushedCommit("origin", target, mergeCommit); err != nil {

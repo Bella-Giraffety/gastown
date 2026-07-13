@@ -51,9 +51,9 @@ func TestEngineer_LoadConfig_MergeStrategyDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := map[string]interface{}{
-		"type":    "rig",
-		"version": 1,
-		"name":    "test-rig",
+		"type":        "rig",
+		"version":     1,
+		"name":        "test-rig",
 		"merge_queue": map[string]interface{}{},
 	}
 
@@ -135,6 +135,38 @@ func TestDoMergePR_NoPR_ReturnsError(t *testing.T) {
 	// The error should mention finding a PR
 	if !strings.Contains(result.Error, "PR") && !strings.Contains(result.Error, "pr") {
 		t.Errorf("expected PR-related error, got: %s", result.Error)
+	}
+}
+
+type fakePRProvider struct {
+	number      int
+	mergeCommit string
+	approved    bool
+}
+
+func (p fakePRProvider) FindPRNumber(string) (int, error) {
+	return p.number, nil
+}
+
+func (p fakePRProvider) IsPRApproved(int) (bool, error) {
+	return p.approved, nil
+}
+
+func (p fakePRProvider) MergePR(int, string) (string, error) {
+	return p.mergeCommit, nil
+}
+
+func TestDoMergePR_EmptyMergeCommitFailsClosed(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	e := newTestEngineer(t, workDir, g)
+	e.prProvider = fakePRProvider{number: 42, mergeCommit: ""}
+
+	result := e.doMergePR(context.Background(), "feat/empty-merge-proof", "main")
+	if result.Success {
+		t.Fatal("doMergePR should fail when provider returns empty merge commit proof")
+	}
+	if !strings.Contains(result.Error, "empty merge commit proof") {
+		t.Fatalf("doMergePR error = %q, want empty merge commit proof", result.Error)
 	}
 }
 

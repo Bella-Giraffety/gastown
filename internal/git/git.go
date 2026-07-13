@@ -1494,17 +1494,41 @@ func (g *Git) GhPrMerge(prNumber int, method string) (string, error) {
 		return "", fmt.Errorf("gh pr merge failed: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
-	// After merge, pull the target branch to get the merge commit locally
+	mergeCommit, err := g.GhPRMergeCommit(prNumber)
+	if err != nil {
+		return "", err
+	}
+
+	// After merge, pull the target branch so later local operations observe it.
 	if _, pullErr := g.run("pull", "origin"); pullErr != nil {
 		return "", fmt.Errorf("gh pr merge proof failed: unable to pull target after merge: %w", pullErr)
 	}
-	// Get the latest commit on HEAD (should be the merge commit)
-	sha, revErr := g.Rev("HEAD")
-	if revErr != nil {
-		return "", fmt.Errorf("gh pr merge proof failed: unable to read merge commit: %w", revErr)
+	return mergeCommit, nil
+}
+
+// GhPRMergeCommit returns GitHub's authoritative merge commit for a merged PR.
+func (g *Git) GhPRMergeCommit(prNumber int) (string, error) {
+	cmd := exec.Command("gh", "pr", "view", fmt.Sprintf("%d", prNumber), "--json", "state,mergeCommit")
+	cmd.Dir = g.workDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("gh pr merge proof failed: gh pr view failed: %w", err)
 	}
-	if strings.TrimSpace(sha) == "" {
-		return "", fmt.Errorf("gh pr merge proof failed: empty merge commit")
+	var result struct {
+		State       string `json:"state"`
+		MergeCommit struct {
+			OID string `json:"oid"`
+		} `json:"mergeCommit"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out), &result); err != nil {
+		return "", fmt.Errorf("gh pr merge proof failed: parse PR state: %w", err)
+	}
+	if result.State != "MERGED" {
+		return "", fmt.Errorf("gh pr merge proof failed: PR #%d state is %s", prNumber, result.State)
+	}
+	sha := strings.TrimSpace(result.MergeCommit.OID)
+	if sha == "" {
+		return "", fmt.Errorf("gh pr merge proof failed: empty forge merge commit for PR #%d", prNumber)
 	}
 	return sha, nil
 }
