@@ -10,11 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/deacon"
 	"github.com/steveyegge/gastown/internal/testutil"
 )
 
@@ -76,9 +79,9 @@ func TestBuildRefineryPatrolVars_MissingSettings(t *testing.T) {
 		Rig:      "testrig",
 	}
 	vars := buildRefineryPatrolVars(ctx)
-	// target_branch should always be present (falls back to "main" without rig config)
-	if len(vars) != 1 {
-		t.Errorf("expected 1 var (target_branch) when settings file missing, got %v", vars)
+	// target_branch and rig should always be present.
+	if len(vars) != 2 {
+		t.Errorf("expected 2 vars (rig, target_branch) when settings file missing, got %v", vars)
 	}
 	varMap := make(map[string]string)
 	for _, v := range vars {
@@ -89,6 +92,9 @@ func TestBuildRefineryPatrolVars_MissingSettings(t *testing.T) {
 	}
 	if got := varMap["target_branch"]; got != "main" {
 		t.Errorf("target_branch = %q, want %q", got, "main")
+	}
+	if got := varMap["rig"]; got != "testrig" {
+		t.Errorf("rig = %q, want %q", got, "testrig")
 	}
 }
 
@@ -115,9 +121,9 @@ func TestBuildRefineryPatrolVars_NilMergeQueue(t *testing.T) {
 		Rig:      "testrig",
 	}
 	vars := buildRefineryPatrolVars(ctx)
-	// target_branch should always be present (falls back to "main" without rig config)
-	if len(vars) != 1 {
-		t.Errorf("expected 1 var (target_branch) when merge_queue is nil, got %v", vars)
+	// target_branch and rig should always be present.
+	if len(vars) != 2 {
+		t.Errorf("expected 2 vars (rig, target_branch) when merge_queue is nil, got %v", vars)
 	}
 	varMap := make(map[string]string)
 	for _, v := range vars {
@@ -128,6 +134,9 @@ func TestBuildRefineryPatrolVars_NilMergeQueue(t *testing.T) {
 	}
 	if got := varMap["target_branch"]; got != "main" {
 		t.Errorf("target_branch = %q, want %q", got, "main")
+	}
+	if got := varMap["rig"]; got != "testrig" {
+		t.Errorf("rig = %q, want %q", got, "testrig")
 	}
 }
 
@@ -170,6 +179,7 @@ func TestBuildRefineryPatrolVars_FullConfig(t *testing.T) {
 	// New commands (setup, typecheck, lint, build) default to empty = omitted
 	// judgment_enabled defaults to false, review_depth defaults to "standard"
 	expected := map[string]string{
+		"rig":                                 "testrig",
 		"integration_branch_refinery_enabled": "true",
 		"integration_branch_auto_land":        "false",
 		"run_tests":                           "true",
@@ -428,9 +438,9 @@ func TestBuildRefineryPatrolVars_DefaultBranchWithoutMQ(t *testing.T) {
 	}
 	vars := buildRefineryPatrolVars(ctx)
 
-	// target_branch must be "gastown" even without merge_queue settings
-	if len(vars) != 1 {
-		t.Errorf("expected 1 var (target_branch), got %d: %v", len(vars), vars)
+	// target_branch and rig must be present even without merge_queue settings.
+	if len(vars) != 2 {
+		t.Errorf("expected 2 vars (rig, target_branch), got %d: %v", len(vars), vars)
 	}
 	varMap := make(map[string]string)
 	for _, v := range vars {
@@ -441,6 +451,9 @@ func TestBuildRefineryPatrolVars_DefaultBranchWithoutMQ(t *testing.T) {
 	}
 	if got := varMap["target_branch"]; got != "gastown" {
 		t.Errorf("target_branch = %q, want %q (should read rig config even without MQ settings)", got, "gastown")
+	}
+	if got := varMap["rig"]; got != "testrig" {
+		t.Errorf("rig = %q, want %q", got, "testrig")
 	}
 }
 
@@ -726,6 +739,185 @@ func TestRunPatrolReportNoActivePatrolStartsReplacement(t *testing.T) {
 	}
 	if called != 1 {
 		t.Fatalf("autoSpawnPatrolForReport calls = %d, want 1", called)
+	}
+}
+
+func TestPatrolReportConfigForRole_DeaconAlias(t *testing.T) {
+	t.Setenv(EnvGTRole, "deacon/")
+	townRoot := t.TempDir()
+	roleInfo, err := GetRoleWithContext(townRoot, townRoot)
+	if err != nil {
+		t.Fatalf("GetRoleWithContext: %v", err)
+	}
+	cfg, err := patrolReportConfigForRole(roleInfo)
+	if err != nil {
+		t.Fatalf("patrolReportConfigForRole: %v", err)
+	}
+	if cfg.RoleName != "deacon" || cfg.PatrolMolName != constants.MolDeaconPatrol || cfg.BeadsDir != townRoot || cfg.Assignee != "deacon" {
+		t.Fatalf("unexpected Deacon patrol config: %+v", cfg)
+	}
+}
+
+func TestRunPatrolReportWithConfig_DeaconStampsHeartbeatAfterClose(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	oldSummary, oldSteps := patrolReportSummary, patrolReportSteps
+	patrolReportSummary = "all clear"
+	patrolReportSteps = ""
+	t.Cleanup(func() {
+		patrolReportSummary = oldSummary
+		patrolReportSteps = oldSteps
+	})
+
+	oldSpawner := autoSpawnPatrolForReport
+	autoSpawnPatrolForReport = func(cfg PatrolConfig) (string, error) {
+		if cfg.RoleName != "deacon" || cfg.Assignee != "deacon" {
+			t.Fatalf("unexpected patrol config: %+v", cfg)
+		}
+		return "pt-wisp-next", nil
+	}
+	t.Cleanup(func() { autoSpawnPatrolForReport = oldSpawner })
+
+	createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon", true)
+	if err := runPatrolReportWithConfig(PatrolConfig{
+		RoleName:      "deacon",
+		PatrolMolName: constants.MolDeaconPatrol,
+		BeadsDir:      tmpDir,
+		Assignee:      "deacon",
+		Beads:         b,
+	}); err != nil {
+		t.Fatalf("runPatrolReportWithConfig: %v", err)
+	}
+
+	hb := deacon.ReadHeartbeat(tmpDir)
+	if hb == nil {
+		t.Fatal("expected Deacon heartbeat to be written")
+	}
+	if got, want := hb.LastAction, "patrol report: all clear"; got != want {
+		t.Fatalf("LastAction = %q, want %q", got, want)
+	}
+}
+
+func TestRunPatrolReportWithConfig_DeaconCorruptPauseSkipsHeartbeat(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	oldSummary, oldSteps := patrolReportSummary, patrolReportSteps
+	patrolReportSummary = "all clear"
+	patrolReportSteps = ""
+	t.Cleanup(func() {
+		patrolReportSummary = oldSummary
+		patrolReportSteps = oldSteps
+	})
+
+	oldSpawner := autoSpawnPatrolForReport
+	autoSpawnPatrolForReport = func(cfg PatrolConfig) (string, error) { return "pt-wisp-next", nil }
+	t.Cleanup(func() { autoSpawnPatrolForReport = oldSpawner })
+
+	pauseFile := deacon.GetPauseFile(tmpDir)
+	if err := os.MkdirAll(filepath.Dir(pauseFile), 0o755); err != nil {
+		t.Fatalf("mkdir pause dir: %v", err)
+	}
+	if err := os.WriteFile(pauseFile, []byte("not-json"), 0o600); err != nil {
+		t.Fatalf("write corrupt pause state: %v", err)
+	}
+
+	createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon", true)
+	if err := runPatrolReportWithConfig(PatrolConfig{
+		RoleName:      "deacon",
+		PatrolMolName: constants.MolDeaconPatrol,
+		BeadsDir:      tmpDir,
+		Assignee:      "deacon",
+		Beads:         b,
+	}); err != nil {
+		t.Fatalf("runPatrolReportWithConfig: %v", err)
+	}
+
+	if hb := deacon.ReadHeartbeat(tmpDir); hb != nil {
+		t.Fatalf("expected corrupt pause state to skip heartbeat, got %#v", hb)
+	}
+}
+
+func TestAutoSpawnPatrolCreatesRootOnlyAndHooksSeparately(t *testing.T) {
+	stubDir := t.TempDir()
+	logPath := filepath.Join(stubDir, "commands.log")
+
+	gtScript := `#!/bin/sh
+printf 'gt' >> "` + logPath + `"
+for a in "$@"; do printf '\t%s' "$a" >> "` + logPath + `"; done
+printf '\n' >> "` + logPath + `"
+if [ "$1" = "formula" ] && [ "$2" = "list" ]; then
+  printf 'proto-deacon %s\n' "` + constants.MolDeaconPatrol + `"
+  exit 0
+fi
+exit 1
+`
+	bdScript := `#!/bin/sh
+printf 'bd' >> "` + logPath + `"
+for a in "$@"; do printf '\t%s' "$a" >> "` + logPath + `"; done
+printf '\n' >> "` + logPath + `"
+for a in "$@"; do
+  if [ "$a" = "list" ]; then
+    printf '[]\n'
+    exit 0
+  fi
+done
+case "$*" in
+  *"mol wisp create"*) printf 'Root issue: gt-wisp-root\n'; exit 0 ;;
+  *"update gt-wisp-root"*) exit 0 ;;
+esac
+exit 0
+`
+	for name, script := range map[string]string{"gt": gtScript, "bd": bdScript} {
+		path := filepath.Join(stubDir, name)
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatalf("write %s stub: %v", name, err)
+		}
+	}
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	beads.ResetBdAllowStaleCacheForTest()
+
+	id, err := autoSpawnPatrol(PatrolConfig{
+		RoleName:      "deacon",
+		PatrolMolName: constants.MolDeaconPatrol,
+		BeadsDir:      t.TempDir(),
+		Assignee:      "deacon",
+	})
+	if err != nil {
+		t.Fatalf("autoSpawnPatrol: %v", err)
+	}
+	if id != "gt-wisp-root" {
+		t.Fatalf("patrol ID = %q, want gt-wisp-root", id)
+	}
+
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read command log: %v", err)
+	}
+	log := string(logData)
+	if !strings.Contains(log, "bd\tmol\twisp\tcreate\tproto-deacon\t--root-only\t--actor\tdeacon") {
+		t.Fatalf("expected root-only create command, got:\n%s", log)
+	}
+	var hookLine string
+	for _, line := range strings.Split(log, "\n") {
+		if strings.Contains(line, "bd\tupdate\tgt-wisp-root") {
+			hookLine = line
+			break
+		}
+	}
+	if hookLine == "" {
+		t.Fatalf("expected hook update command, got:\n%s", log)
+	}
+	for _, want := range []string{"--status=hooked", "--assignee=deacon"} {
+		if !strings.Contains(hookLine, want) {
+			t.Fatalf("expected %s in hook command %q", want, hookLine)
+		}
+	}
+	for _, forbidden := range []string{"--description=", "--body-file=-"} {
+		if strings.Contains(hookLine, forbidden) {
+			t.Fatalf("hook update must not carry description/body flag, got %q", hookLine)
+		}
 	}
 }
 

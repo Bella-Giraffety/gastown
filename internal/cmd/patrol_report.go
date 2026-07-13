@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/deacon"
 	"github.com/steveyegge/gastown/internal/formula"
 	"github.com/steveyegge/gastown/internal/style"
 )
@@ -53,35 +54,40 @@ func runPatrolReport(cmd *cobra.Command, args []string) error {
 
 	roleName := string(roleInfo.Role)
 
-	// Build config based on role
-	var cfg PatrolConfig
+	cfg, err := patrolReportConfigForRole(roleInfo)
+	if err != nil {
+		return fmt.Errorf("unsupported role for patrol report: %q", roleName)
+	}
+	return runPatrolReportWithConfig(cfg)
+}
+
+func patrolReportConfigForRole(roleInfo RoleInfo) (PatrolConfig, error) {
 	switch roleInfo.Role {
 	case RoleDeacon:
-		cfg = PatrolConfig{
+		return PatrolConfig{
 			RoleName:      "deacon",
 			PatrolMolName: constants.MolDeaconPatrol,
 			BeadsDir:      roleInfo.TownRoot,
 			Assignee:      "deacon",
-		}
+		}, nil
 	case RoleWitness:
-		cfg = PatrolConfig{
+		return PatrolConfig{
 			RoleName:      "witness",
 			PatrolMolName: constants.MolWitnessPatrol,
 			BeadsDir:      roleInfo.TownRoot,
 			Assignee:      roleInfo.Rig + "/witness",
-		}
+		}, nil
 	case RoleRefinery:
-		cfg = PatrolConfig{
+		return PatrolConfig{
 			RoleName:      "refinery",
 			PatrolMolName: constants.MolRefineryPatrol,
 			BeadsDir:      roleInfo.TownRoot,
 			Assignee:      roleInfo.Rig + "/refinery",
 			ExtraVars:     buildRefineryPatrolVars(roleInfo),
-		}
+		}, nil
 	default:
-		return fmt.Errorf("unsupported role for patrol report: %q", roleName)
+		return PatrolConfig{}, fmt.Errorf("unsupported role: %s", roleInfo.Role)
 	}
-	return runPatrolReportWithConfig(cfg)
 }
 
 func runPatrolReportWithConfig(cfg PatrolConfig) error {
@@ -135,6 +141,9 @@ func runPatrolReportWithConfig(cfg PatrolConfig) error {
 	}
 
 	fmt.Printf("%s Closed patrol %s\n", style.Success.Render("✓"), patrolID)
+	if cfg.RoleName == "deacon" {
+		stampDeaconHeartbeatOnPatrolReport(cfg.BeadsDir, patrolReportSummary)
+	}
 
 	// Start next cycle
 	newPatrolID, err := autoSpawnPatrolForReport(cfg)
@@ -149,6 +158,21 @@ func runPatrolReportWithConfig(cfg PatrolConfig) error {
 
 	fmt.Printf("%s Started new patrol: %s\n", style.Success.Render("✓"), newPatrolID)
 	return nil
+}
+
+func stampDeaconHeartbeatOnPatrolReport(townRoot, summary string) {
+	paused, _, err := deacon.IsPaused(townRoot)
+	if err != nil {
+		style.PrintWarning("could not check Deacon pause state; heartbeat not updated: %v", err)
+		return
+	}
+	if paused {
+		style.PrintWarning("Deacon is paused; heartbeat not updated")
+		return
+	}
+	if err := syncDeaconHeartbeatStores(townRoot, "patrol report: "+summary); err != nil {
+		style.PrintWarning("could not update Deacon heartbeat: %v", err)
+	}
 }
 
 // buildStepAudit builds a step checklist from the formula's steps and the

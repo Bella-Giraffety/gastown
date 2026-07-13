@@ -379,7 +379,11 @@ func outputMoleculeContext(ctx RoleContext) {
 func outputDeaconPatrolContext(ctx RoleContext) {
 	// Check if Deacon is paused - if so, output PAUSED message and skip patrol context
 	paused, state, err := deacon.IsPaused(ctx.TownRoot)
-	if err == nil && paused {
+	if err != nil {
+		style.PrintWarning("could not check Deacon pause state; skipping patrol context: %v", err)
+		return
+	}
+	if paused {
 		outputDeaconPausedMessage(state)
 		return
 	}
@@ -397,7 +401,7 @@ func outputDeaconPatrolContext(ctx RoleContext) {
 		},
 	}
 	outputPatrolContext(cfg)
-	showFormulaSteps(constants.MolDeaconPatrol, "Patrol Steps", ctx.TownRoot, ctx.Rig)
+	showFormulaStepsFull(constants.MolDeaconPatrol, ctx.TownRoot, ctx.Rig)
 }
 
 // outputWitnessPatrolContext shows patrol molecule status for the Witness.
@@ -470,6 +474,7 @@ func buildRefineryPatrolVars(ctx RoleContext) []string {
 	if ctx.TownRoot == "" || ctx.Rig == "" {
 		return vars
 	}
+	vars = append(vars, fmt.Sprintf("rig=%s", ctx.Rig))
 	rigPath := filepath.Join(ctx.TownRoot, ctx.Rig)
 
 	// Always inject target_branch from rig config — this is independent of

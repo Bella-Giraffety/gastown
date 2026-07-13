@@ -1737,8 +1737,13 @@ func (b *Beads) Update(id string, opts UpdateOptions) error {
 	if opts.Priority != nil {
 		args = append(args, fmt.Sprintf("--priority=%d", *opts.Priority))
 	}
+	var stdinData []byte
 	if opts.Description != nil {
-		args = append(args, "--description="+*opts.Description)
+		args = append(args, "--body-file=-")
+		if *opts.Description == "" {
+			args = append(args, "--allow-empty-description")
+		}
+		stdinData = []byte(*opts.Description)
 	}
 	if opts.Assignee != nil {
 		args = append(args, "--assignee="+*opts.Assignee)
@@ -1757,7 +1762,11 @@ func (b *Beads) Update(id string, opts UpdateOptions) error {
 		}
 	}
 
-	_, err = b.run(args...)
+	if opts.Description != nil {
+		_, err = b.runWithStdin(stdinData, args...)
+	} else {
+		_, err = b.run(args...)
+	}
 	return err
 }
 

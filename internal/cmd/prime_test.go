@@ -16,6 +16,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/checkpoint"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/deacon"
 )
 
 // captureStdout redirects os.Stdout to a pipe, calls fn, then returns whatever
@@ -1046,6 +1047,61 @@ func TestCheckSlungWork_RefineryPatrolWispUsesPatrolWorkflowOutput(t *testing.T)
 		if strings.Contains(output, forbidden) {
 			t.Fatalf("did not expect %q in refinery patrol output, got:\n%s", forbidden, output)
 		}
+	}
+}
+
+func TestRenderFormulaStepsFull_DeaconIncludesHeartbeatBody(t *testing.T) {
+	rendered, err := renderFormulaStepsFull(constants.MolDeaconPatrol, "", "")
+	if err != nil {
+		t.Fatalf("renderFormulaStepsFull: %v", err)
+	}
+	if !strings.Contains(rendered, "gt deacon heartbeat") {
+		t.Fatalf("expected full Deacon patrol body to include heartbeat command, got:\n%s", rendered)
+	}
+}
+
+func TestRenderFormulaStepsFull_AppliesRigOverlayAndVars(t *testing.T) {
+	townRoot := t.TempDir()
+	overlayDir := filepath.Join(townRoot, "testrig", "formula-overlays")
+	if err := os.MkdirAll(overlayDir, 0o755); err != nil {
+		t.Fatalf("mkdir overlay dir: %v", err)
+	}
+	overlay := `[[step-overrides]]
+step_id = "burn-or-loop"
+mode = "replace"
+description = "Overlay resolved rig {{rig}}"
+`
+	if err := os.WriteFile(filepath.Join(overlayDir, constants.MolRefineryPatrol+".toml"), []byte(overlay), 0o644); err != nil {
+		t.Fatalf("write overlay: %v", err)
+	}
+
+	rendered, err := renderFormulaStepsFull(constants.MolRefineryPatrol, townRoot, "testrig", []string{"rig=testrig"})
+	if err != nil {
+		t.Fatalf("renderFormulaStepsFull: %v", err)
+	}
+	if !strings.Contains(rendered, "Overlay resolved rig testrig") {
+		t.Fatalf("expected overlay and rig var substitution, got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "UNSET_RIG") {
+		t.Fatalf("expected rig var to override UNSET_RIG, got:\n%s", rendered)
+	}
+}
+
+func TestOutputDeaconPatrolContext_CorruptPauseSkipsPatrolContext(t *testing.T) {
+	townRoot := t.TempDir()
+	pauseFile := deacon.GetPauseFile(townRoot)
+	if err := os.MkdirAll(filepath.Dir(pauseFile), 0o755); err != nil {
+		t.Fatalf("mkdir pause dir: %v", err)
+	}
+	if err := os.WriteFile(pauseFile, []byte("not-json"), 0o600); err != nil {
+		t.Fatalf("write corrupt pause state: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		outputDeaconPatrolContext(RoleContext{TownRoot: townRoot})
+	})
+	if strings.Contains(output, "Patrol Status") || strings.Contains(output, "creating "+constants.MolDeaconPatrol) {
+		t.Fatalf("expected corrupt pause state to skip patrol context, got:\n%s", output)
 	}
 }
 
