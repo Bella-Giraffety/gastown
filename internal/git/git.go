@@ -1425,17 +1425,16 @@ func (g *Git) DeleteRemoteBranchIfAt(remote, branch, expectedHash string) error 
 
 // HasOpenPR checks whether the given branch has an open pull request on GitHub.
 // Uses the gh CLI to query for open PRs with the branch as head ref.
-// Returns false on any error (fail-open: branch deletion proceeds if gh is unavailable).
-func (g *Git) HasOpenPR(branch string) bool {
+func (g *Git) HasOpenPR(branch string) (bool, error) {
 	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number", "--limit", "1")
 	cmd.Dir = g.workDir
 	out, err := cmd.Output()
 	if err != nil {
-		return false // fail-open: can't determine PR state, allow deletion
+		return false, fmt.Errorf("gh pr list failed: %w", err)
 	}
 	out = bytes.TrimSpace(out)
 	// Empty array "[]" means no open PRs
-	return len(out) > 2
+	return len(out) > 2, nil
 }
 
 // FindPRNumber returns the GitHub PR number for the given branch, or 0 if none exists.
@@ -1487,7 +1486,7 @@ func (g *Git) IsPRApproved(prNumber int) (bool, error) {
 // The method parameter should be "merge", "squash", or "rebase".
 // Returns the merge commit SHA on success.
 func (g *Git) GhPrMerge(prNumber int, method string) (string, error) {
-	args := []string{"pr", "merge", fmt.Sprintf("%d", prNumber), "--" + method, "--delete-branch"}
+	args := []string{"pr", "merge", fmt.Sprintf("%d", prNumber), "--" + method}
 	cmd := exec.Command("gh", args...)
 	cmd.Dir = g.workDir
 	out, err := cmd.CombinedOutput()
@@ -1580,7 +1579,7 @@ func (g *Git) BitbucketPRMerge(workspace, repoSlug string, prID int, strategy st
 	}
 	url := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%d/merge",
 		workspace, repoSlug, prID)
-	body := fmt.Sprintf(`{"merge_strategy":"%s","close_source_branch":true}`, strategy)
+	body := fmt.Sprintf(`{"merge_strategy":"%s","close_source_branch":false}`, strategy)
 	cmd := exec.Command("curl", "-s", "-X", "POST",
 		"-H", "Authorization: Bearer "+token,
 		"-H", "Content-Type: application/json",
@@ -1947,6 +1946,56 @@ func (g *Git) VerifyPushedCommit(remote, branch, commit string) error {
 		return fmt.Errorf("verified_push_failed: commit %s not on %s/%s (remote tip %s)", shortSHA(commit), remote, branch, shortSHA(tip))
 	}
 	return nil
+}
+
+// VerifyRemoteContainsCommit verifies that commit is equal to or an ancestor of
+// the push target's branch tip. It fetches the remote branch into a temporary
+// local ref so ancestry is checked against the same remote endpoint writes use.
+func (g *Git) VerifyRemoteContainsCommit(remote, branch, commit string) error {
+	commit = strings.TrimSpace(commit)
+	if commit == "" {
+		return fmt.Errorf("landing_proof_failed: empty commit for %s/%s", remote, branch)
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return fmt.Errorf("landing_proof_failed: empty target branch")
+	}
+
+	fetchSource := remote
+	fetchURL, fetchErr := g.RemoteURL(remote)
+	pushURL, pushErr := g.GetPushURL(remote)
+	if fetchErr == nil && pushErr == nil && pushURL != "" && pushURL != fetchURL {
+		fetchSource = pushURL
+	}
+
+	tmpRef := "refs/gt/verify/" + sanitizeTempRef(branch)
+	_, err := g.run("fetch", "--no-tags", fetchSource, "+refs/heads/"+branch+":"+tmpRef)
+	if err != nil {
+		return fmt.Errorf("landing_proof_failed: unable to fetch %s/%s: %w", remote, branch, err)
+	}
+	defer func() { _, _ = g.run("update-ref", "-d", tmpRef) }()
+
+	tip, err := g.Rev(tmpRef)
+	if err != nil {
+		return fmt.Errorf("landing_proof_failed: unable to read %s/%s: %w", remote, branch, err)
+	}
+	if strings.TrimSpace(tip) == commit {
+		return nil
+	}
+
+	merged, err := g.IsAncestor(commit, tmpRef)
+	if err != nil {
+		return fmt.Errorf("landing_proof_failed: unable to prove %s is on %s/%s: %w", shortSHA(commit), remote, branch, err)
+	}
+	if !merged {
+		return fmt.Errorf("landing_proof_failed: commit %s is not on %s/%s (remote tip %s)", shortSHA(commit), remote, branch, shortSHA(tip))
+	}
+	return nil
+}
+
+func sanitizeTempRef(ref string) string {
+	replacer := strings.NewReplacer("/", "-", " ", "-", "\t", "-", "\n", "-")
+	return replacer.Replace(strings.Trim(ref, "/"))
 }
 
 func parseLSRemoteTip(out, branch string) string {

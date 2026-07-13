@@ -35,12 +35,12 @@ var (
 	mqRejectStdin  bool // Read reason from stdin
 
 	// List command flags
-	mqListReady   bool
-	mqListStatus  string
-	mqListWorker  string
-	mqListEpic    string
-	mqListJSON    bool
-	mqListVerify  bool
+	mqListReady  bool
+	mqListStatus string
+	mqListWorker string
+	mqListEpic   string
+	mqListJSON   bool
+	mqListVerify bool
 
 	// Status command flags
 	mqStatusJSON bool
@@ -167,6 +167,7 @@ Examples:
 
 // Post-merge flags
 var mqPostMergeSkipBranchDelete bool
+var mqPostMergeExpectedHead string
 
 var mqPostMergeCmd = &cobra.Command{
 	Use:   "post-merge <rig> <mr-id>",
@@ -174,16 +175,17 @@ var mqPostMergeCmd = &cobra.Command{
 	Long: `Perform post-merge cleanup after a successful merge.
 
 This command consolidates post-merge steps into a single atomic operation:
-  1. Close the MR bead (status: merged)
-  2. Close the source issue
-  3. Delete the remote polecat branch (unless --skip-branch-delete)
+  1. Verify the expected MR head has landed on the target branch
+  2. Close the MR bead (status: merged)
+  3. Close the source issue
+  4. Delete the remote polecat branch (unless --skip-branch-delete)
 
 Designed for use by the refinery formula after a successful merge to main.
 The branch name is read from the MR bead, so no manual branch argument is needed.
 
 Examples:
-  gt mq post-merge gastown gt-mr-abc123
-  gt mq post-merge gastown gt-mr-abc123 --skip-branch-delete`,
+  gt mq post-merge gastown gt-mr-abc123 --expected-head abc1234
+  gt mq post-merge gastown gt-mr-abc123 --expected-head abc1234 --skip-branch-delete`,
 	Args: cobra.ExactArgs(2),
 	RunE: runMQPostMerge,
 }
@@ -334,6 +336,7 @@ func init() {
 
 	// Post-merge flags
 	mqPostMergeCmd.Flags().BoolVar(&mqPostMergeSkipBranchDelete, "skip-branch-delete", false, "Skip remote branch deletion")
+	mqPostMergeCmd.Flags().StringVar(&mqPostMergeExpectedHead, "expected-head", "", "Expected landed source head SHA (defaults to MR commit_sha)")
 
 	// Add subcommands
 	mqCmd.AddCommand(mqSubmitCmd)
@@ -510,13 +513,29 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Run beads-level cleanup (close MR bead + source issue)
-	result, err := mgr.PostMerge(mrID)
+	mr, err := mgr.FindMR(mrID)
+	if err != nil {
+		return fmt.Errorf("finding merge request: %w", err)
+	}
+
+	rigGit, err := getRigGit(r.Path)
+	if err != nil {
+		return fmt.Errorf("post-merge proof: %w", err)
+	}
+
+	verifiedCommit, err := verifyMQPostMergeProof(rigGit, mr)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s Landing verified: %s is on origin/%s\n", style.Success.Render("✓"), shortCommit(verifiedCommit), mr.TargetBranch)
+
+	// Run beads-level cleanup (close MR bead + source issue) only after proof.
+	result, err := mgr.PostMerge(mrID, verifiedCommit)
 	if err != nil {
 		return fmt.Errorf("post-merge cleanup: %w", err)
 	}
 
-	mr := result.MR
+	mr = result.MR
 	fmt.Printf("%s Post-merge: %s\n", style.Bold.Render("✓"), mr.ID)
 	fmt.Printf("  Branch: %s\n", mr.Branch)
 	fmt.Printf("  Worker: %s\n", mr.Worker)
@@ -555,18 +574,18 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get git client for the rig
-	rigGit, err := getRigGit(r.Path)
-	if err != nil {
-		return fmt.Errorf("remote branch delete: %w", err)
-	}
-
 	// Delete remote branch — but skip if there's an open PR on it.
 	// Deleting a branch with an open PR causes GitHub to auto-close the PR
 	// as "closed" (not "merged"), destroying the PR audit trail. (gas-fk4)
-	if rigGit.HasOpenPR(mr.Branch) {
+	deleteExpected := strings.TrimSpace(mr.CommitSHA)
+	if deleteExpected == "" {
+		deleteExpected = verifiedCommit
+	}
+	if hasOpenPR, err := rigGit.HasOpenPR(mr.Branch); err != nil {
+		fmt.Printf("  %s Skipping remote branch delete for %s: PR state uncertain (%v)\n", style.Dim.Render("○"), mr.Branch, err)
+	} else if hasOpenPR {
 		fmt.Printf("  %s Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", style.Dim.Render("○"), mr.Branch)
-	} else if err := rigGit.DeleteRemoteBranch("origin", mr.Branch); err != nil {
+	} else if err := rigGit.DeleteRemoteBranchIfAt("origin", mr.Branch, deleteExpected); err != nil {
 		return fmt.Errorf("remote branch delete %s: %w", mr.Branch, err)
 	} else {
 		fmt.Printf("  %s Deleted remote branch: %s\n", style.Success.Render("✓"), mr.Branch)
@@ -581,4 +600,33 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func verifyMQPostMergeProof(rigGit *git.Git, mr *refinery.MergeRequest) (string, error) {
+	if mr == nil {
+		return "", fmt.Errorf("post-merge proof: merge request is nil")
+	}
+	target := strings.TrimSpace(mr.TargetBranch)
+	if target == "" {
+		return "", fmt.Errorf("post-merge proof: target branch missing for %s", mr.ID)
+	}
+	commit := strings.TrimSpace(mqPostMergeExpectedHead)
+	if commit == "" {
+		commit = strings.TrimSpace(mr.CommitSHA)
+	}
+	if commit == "" {
+		return "", fmt.Errorf("post-merge proof: expected head missing for %s (pass --expected-head or record commit_sha)", mr.ID)
+	}
+	if err := rigGit.VerifyRemoteContainsCommit("origin", target, commit); err != nil {
+		return "", fmt.Errorf("post-merge proof: %w", err)
+	}
+	return commit, nil
+}
+
+func shortCommit(commit string) string {
+	commit = strings.TrimSpace(commit)
+	if len(commit) > 8 {
+		return commit[:8]
+	}
+	return commit
 }

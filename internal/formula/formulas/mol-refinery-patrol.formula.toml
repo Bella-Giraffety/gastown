@@ -596,6 +596,11 @@ echo "Remote: $REMOTE_SHA"
 
 **If SHAs match**: Push succeeded.
 
+Set the verified landed head for post-merge cleanup:
+```bash
+EXPECTED_HEAD=$(git rev-parse temp)
+```
+
 **Step 1.6 (direct only): CHECK FOR OPEN PR ON BRANCH (gas-fk4)**
 
 Before proceeding to post-merge cleanup (which deletes the remote branch),
@@ -734,16 +739,39 @@ Clean up temp branch and skip to loop-check.
 **If APPROVED:**
 Merge the PR:
 ```bash
-gh pr merge <polecat-branch> --repo "$REPO_URL" --merge --delete-branch
+EXPECTED_HEAD=$(git rev-parse temp)
+gh pr merge <polecat-branch> --repo "$REPO_URL" --merge
 ```
 
 If merge fails (conflict, branch protection), debug and retry.
 
 ⚠️ **STOP HERE - DO NOT PROCEED UNTIL THE PR IS ACTUALLY MERGED ON GITHUB**
 
-**Step 2: Send MERGED Notification (REQUIRED - DO THIS IMMEDIATELY)**
+**Step 2: Post-merge cleanup (REQUIRED — single proofed command)**
 
-RIGHT NOW, before any cleanup, send MERGED mail to Witness.
+Run this before any MERGED notification. `gt mq post-merge` independently
+verifies `EXPECTED_HEAD` is on `origin/<merge-target>` before closing beads or
+deleting a branch. If proof fails, it exits non-zero and preserves MR/source
+beads and the remote branch.
+
+```bash
+# If an open PR was detected in Step 1.6 (direct) or merge_strategy=pr,
+# pass --skip-branch-delete to avoid auto-closing the PR via head_ref_delete.
+# Otherwise, omit the flag.
+gt mq post-merge <rig> <mr-bead-id> --expected-head "$EXPECTED_HEAD"            # normal (no open PR)
+gt mq post-merge <rig> <mr-bead-id> --expected-head "$EXPECTED_HEAD" --skip-branch-delete  # open PR exists
+```
+
+The MR bead ID was in the MERGE_READY message or find via:
+```bash
+bd list --type=merge-request --status=open | grep <polecat-name>
+```
+
+Verify the command output shows landing proof and cleanup succeeded (✓ for each).
+
+**Step 3: Send MERGED Notification (REQUIRED - AFTER PROOFED CLEANUP)**
+
+After `gt mq post-merge` succeeds, send MERGED mail to Witness.
 
 **If merge_strategy = "direct":**
 ```bash
@@ -766,30 +794,11 @@ is actually merged on GitHub before the witness is notified.
 This signals the Witness to nuke the polecat worktree. WITHOUT THIS NOTIFICATION,
 POLECAT WORKTREES ACCUMULATE INDEFINITELY AND THE LIFECYCLE BREAKS.
 
-**Step 3: Post-merge cleanup (REQUIRED — single command)**
-
-This single command handles closing the MR bead, closing the source issue, and
-deleting the remote polecat branch (respects delete_merged_branches config):
-
-```bash
-# If an open PR was detected in Step 1.6 (direct) or merge_strategy=pr,
-# pass --skip-branch-delete to avoid auto-closing the PR via head_ref_delete.
-# Otherwise, omit the flag.
-gt mq post-merge <rig> <mr-bead-id>            # normal (no open PR)
-gt mq post-merge <rig> <mr-bead-id> --skip-branch-delete  # open PR exists
-```
-
-The MR bead ID was in the MERGE_READY message or find via:
-```bash
-bd list --type=merge-request --status=open | grep <polecat-name>
-```
-
-Verify the command output shows all steps succeeded (✓ for each).
-
-**Note**: In PR mode, the source branch is NOT deleted (it's the PR head branch).
-`delete_merged_branches` is ignored when merge_strategy=pr — the branch is cleaned
-up when the PR is merged on GitHub. The `--skip-branch-delete` flag (gas-fk4) also
-prevents branch deletion when an open PR is detected in direct merge mode.
+**Note**: In PR mode, the source branch is NOT deleted by `gt mq post-merge`
+(it's the PR head branch). Merge the PR without `--delete-branch`; the branch
+can be cleaned later only after the proofed post-merge path has preserved the
+audit trail. The `--skip-branch-delete` flag (gas-fk4) also prevents branch
+deletion when an open PR is detected in direct merge mode.
 
 **Step 4: Archive the MERGE_READY mail (REQUIRED)**
 ```bash

@@ -256,8 +256,8 @@ func TestManager_PostMerge_ClosesMRAndSourceIssue(t *testing.T) {
 		t.Fatalf("create MR issue: %v", err)
 	}
 
-	// Run PostMerge
-	result, err := mgr.PostMerge(mrIssue.ID)
+	// Run PostMerge with a previously verified landing proof.
+	result, err := mgr.PostMerge(mrIssue.ID, "abc123")
 	if err != nil {
 		t.Fatalf("PostMerge() error: %v", err)
 	}
@@ -274,6 +274,18 @@ func TestManager_PostMerge_ClosesMRAndSourceIssue(t *testing.T) {
 	}
 	if result.MR.Branch != "polecat/test/gt-xyz" {
 		t.Errorf("PostMerge() MR.Branch = %s, want polecat/test/gt-xyz", result.MR.Branch)
+	}
+}
+
+func TestManager_PostMerge_RequiresProof(t *testing.T) {
+	mgr, _ := setupTestManager(t)
+
+	_, err := mgr.PostMerge("gt-mr-proof", "")
+	if err == nil {
+		t.Fatal("PostMerge() expected error for empty proof")
+	}
+	if !strings.Contains(err.Error(), "post-merge proof required") {
+		t.Fatalf("PostMerge() error = %v, want proof-required error", err)
 	}
 }
 
@@ -300,7 +312,7 @@ func TestManager_PostMerge_AlreadyClosedMR(t *testing.T) {
 	}
 
 	// PostMerge should fail since MR is already closed and won't be in queue
-	_, err = mgr.PostMerge(mrIssue.ID)
+	_, err = mgr.PostMerge(mrIssue.ID, "abc123")
 	if err == nil {
 		t.Error("PostMerge() expected error for already-closed MR")
 	}
@@ -309,7 +321,7 @@ func TestManager_PostMerge_AlreadyClosedMR(t *testing.T) {
 func TestManager_PostMerge_NotFound(t *testing.T) {
 	mgr, _ := setupTestManager(t)
 
-	_, err := mgr.PostMerge("nonexistent-mr-id")
+	_, err := mgr.PostMerge("nonexistent-mr-id", "abc123")
 	if err == nil {
 		t.Error("PostMerge() expected error for nonexistent MR")
 	}

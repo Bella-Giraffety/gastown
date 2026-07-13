@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/refinery"
 )
 
 // TestLandConflictError_ErrorsAs verifies that callers (notably the refinery
@@ -691,6 +693,118 @@ func TestPostMerge_DeleteRemoteBranchErrorPropagated(t *testing.T) {
 	if err == nil {
 		t.Error("expected error from DeleteRemoteBranch with no remote, got nil")
 	}
+}
+
+func TestPostMergeProof_UnlandedExpectedHeadFailsClosed(t *testing.T) {
+	localDir, mainBranch := initPostMergeProofRepo(t)
+	rigGit := git.NewGit(localDir)
+
+	branch := "polecat/test/gt-proof"
+	if err := rigGit.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := rigGit.Checkout(branch); err != nil {
+		t.Fatalf("Checkout branch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "proof.txt"), []byte("unlanded\n"), 0644); err != nil {
+		t.Fatalf("write proof: %v", err)
+	}
+	if err := rigGit.Add("proof.txt"); err != nil {
+		t.Fatalf("Add proof: %v", err)
+	}
+	if err := rigGit.Commit("unlanded proof"); err != nil {
+		t.Fatalf("Commit proof: %v", err)
+	}
+	head, err := rigGit.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev HEAD: %v", err)
+	}
+	if err := rigGit.Push("origin", branch, false); err != nil {
+		t.Fatalf("Push branch: %v", err)
+	}
+
+	oldExpectedHead := mqPostMergeExpectedHead
+	mqPostMergeExpectedHead = ""
+	t.Cleanup(func() { mqPostMergeExpectedHead = oldExpectedHead })
+
+	mr := &refinery.MergeRequest{
+		ID:           "gt-mr-proof",
+		Branch:       branch,
+		TargetBranch: mainBranch,
+		CommitSHA:    head,
+	}
+	if _, err := verifyMQPostMergeProof(rigGit, mr); err == nil {
+		t.Fatal("verifyMQPostMergeProof should reject an unlanded expected head")
+	}
+
+	if err := rigGit.Checkout(mainBranch); err != nil {
+		t.Fatalf("Checkout main: %v", err)
+	}
+	if err := rigGit.MergeFFOnly(branch); err != nil {
+		t.Fatalf("MergeFFOnly: %v", err)
+	}
+	if err := rigGit.Push("origin", mainBranch, false); err != nil {
+		t.Fatalf("Push main: %v", err)
+	}
+	if got, err := verifyMQPostMergeProof(rigGit, mr); err != nil {
+		t.Fatalf("verifyMQPostMergeProof landed head: %v", err)
+	} else if got != head {
+		t.Fatalf("verifyMQPostMergeProof = %s, want %s", got, head)
+	}
+}
+
+func initPostMergeProofRepo(t *testing.T) (string, string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	tmp := t.TempDir()
+	remoteDir := filepath.Join(tmp, "remote.git")
+	if err := exec.Command("git", "init", "--bare", remoteDir).Run(); err != nil {
+		t.Fatalf("git init --bare: %v", err)
+	}
+	localDir := filepath.Join(tmp, "local")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("mkdir local: %v", err)
+	}
+	for _, args := range [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test User"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = localDir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "README.md"), []byte("# Test\n"), 0644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	for _, args := range [][]string{
+		{"git", "add", "."},
+		{"git", "commit", "-m", "initial"},
+		{"git", "remote", "add", "origin", remoteDir},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = localDir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = localDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("branch --show-current: %v", err)
+	}
+	mainBranch := strings.TrimSpace(string(out))
+	cmd = exec.Command("git", "push", "-u", "origin", mainBranch)
+	cmd.Dir = localDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("push main: %v", err)
+	}
+	return localDir, mainBranch
 }
 
 func TestGetIntegrationBranchTemplate(t *testing.T) {

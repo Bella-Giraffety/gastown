@@ -33,6 +33,9 @@ type MergeRequest struct {
 	// MergeCommit is the SHA that was pushed to the target branch after merge.
 	MergeCommit string `json:"merge_commit,omitempty"`
 
+	// CommitSHA is the submitted source branch head recorded on the MR.
+	CommitSHA string `json:"commit_sha,omitempty"`
+
 	// CreatedAt is when the MR was queued.
 	CreatedAt time.Time `json:"created_at"`
 

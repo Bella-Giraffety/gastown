@@ -464,6 +464,7 @@ func (m *Manager) issueToMR(issue *beads.Issue) *MergeRequest {
 		IssueID:      fields.SourceIssue,
 		TargetBranch: target,
 		MergeCommit:  fields.MergeCommit,
+		CommitSHA:    fields.CommitSHA,
 		Status:       MROpen,
 		CreatedAt:    parseTime(issue.CreatedAt),
 	}
@@ -596,14 +597,20 @@ type PostMergeResult struct {
 	SourceIssueNotFound bool // true if source issue doesn't exist (already closed or invalid)
 }
 
-// PostMerge performs post-merge cleanup for a successfully merged MR.
+// PostMerge performs post-merge cleanup for a proven merged MR.
 // It closes the MR bead and its source issue. Branch deletion is handled
 // by the caller since the Manager doesn't have git access.
-func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
+func (m *Manager) PostMerge(idOrBranch, verifiedCommit string) (*PostMergeResult, error) {
+	verifiedCommit = strings.TrimSpace(verifiedCommit)
+	if verifiedCommit == "" {
+		return nil, fmt.Errorf("post-merge proof required: empty verified commit")
+	}
+
 	mr, err := m.FindMR(idOrBranch)
 	if err != nil {
 		return nil, err
 	}
+	mr.MergeCommit = verifiedCommit
 
 	result := &PostMergeResult{
 		MR:            mr,
@@ -632,9 +639,7 @@ func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
 	// matching how gt done handles closures for the no-MR path.
 	if mr.IssueID != "" {
 		closeReason := fmt.Sprintf("Merged in %s", mr.ID)
-		if mr.MergeCommit != "" {
-			closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, mr.TargetBranch, mr.MergeCommit)
-		}
+		closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, mr.TargetBranch, verifiedCommit)
 		if err := b.ForceCloseWithReason(closeReason, mr.IssueID); err != nil {
 			// Check if already closed (by polecat's gt done) — that's fine
 			if issue, showErr := b.Show(mr.IssueID); showErr == nil && beads.IssueStatus(issue.Status).IsTerminal() {

@@ -3047,6 +3047,78 @@ func TestVerifyPushedCommit(t *testing.T) {
 	}
 }
 
+func TestVerifyRemoteContainsCommit(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+
+	branch := "polecat/landing-proof"
+	if err := g.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout branch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "proof.txt"), []byte("v1\n"), 0644); err != nil {
+		t.Fatalf("write v1: %v", err)
+	}
+	if err := g.Add("proof.txt"); err != nil {
+		t.Fatalf("Add v1: %v", err)
+	}
+	if err := g.Commit("landing proof v1"); err != nil {
+		t.Fatalf("Commit v1: %v", err)
+	}
+	landedHead, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev landed head: %v", err)
+	}
+	if err := g.Push("origin", branch, false); err != nil {
+		t.Fatalf("Push branch: %v", err)
+	}
+
+	if err := g.VerifyRemoteContainsCommit("origin", mainBranch, landedHead); err == nil {
+		t.Fatal("VerifyRemoteContainsCommit should fail before the commit lands on target")
+	}
+
+	if err := g.Checkout(mainBranch); err != nil {
+		t.Fatalf("Checkout main: %v", err)
+	}
+	if err := g.MergeFFOnly(branch); err != nil {
+		t.Fatalf("MergeFFOnly: %v", err)
+	}
+	if err := g.Push("origin", mainBranch, false); err != nil {
+		t.Fatalf("Push main: %v", err)
+	}
+	if err := g.VerifyRemoteContainsCommit("origin", mainBranch, landedHead); err != nil {
+		t.Fatalf("VerifyRemoteContainsCommit landed head: %v", err)
+	}
+
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout branch again: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "proof.txt"), []byte("v2\n"), 0644); err != nil {
+		t.Fatalf("write v2: %v", err)
+	}
+	if err := g.Add("proof.txt"); err != nil {
+		t.Fatalf("Add v2: %v", err)
+	}
+	if err := g.Commit("landing proof v2"); err != nil {
+		t.Fatalf("Commit v2: %v", err)
+	}
+	unlandedHead, err := g.Rev("HEAD")
+	if err != nil {
+		t.Fatalf("Rev unlanded head: %v", err)
+	}
+	if err := g.VerifyRemoteContainsCommit("origin", mainBranch, unlandedHead); err == nil {
+		t.Fatal("VerifyRemoteContainsCommit should fail when commit is not on target")
+	}
+	if err := g.VerifyRemoteContainsCommit("origin", mainBranch, ""); err == nil {
+		t.Fatal("VerifyRemoteContainsCommit should fail for empty commit")
+	}
+	if err := g.VerifyRemoteContainsCommit("origin", "missing-target", landedHead); err == nil {
+		t.Fatal("VerifyRemoteContainsCommit should fail for missing target")
+	}
+}
+
 func TestVerifyPushedCommitSplitURL(t *testing.T) {
 	localDir, _, _, _ := initTestRepoWithSplitRemote(t)
 	g := NewGit(localDir)
