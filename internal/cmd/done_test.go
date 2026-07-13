@@ -940,6 +940,107 @@ func TestCleanupStatusAfterSuccessfulPush(t *testing.T) {
 	}
 }
 
+func TestCleanupStatusFromWorkState(t *testing.T) {
+	pushErr := errors.New("remote unavailable")
+	tests := []struct {
+		name             string
+		workStatus       *gitpkg.UncommittedWorkStatus
+		branchPushed     bool
+		unpushedCount    int
+		branchPushedErr  error
+		want             string
+	}{
+		{
+			name:         "nil status unknown",
+			workStatus:   nil,
+			branchPushed: true,
+			want:         "unknown",
+		},
+		{
+			name: "runtime-only opencode dirt is clean after push",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UntrackedFiles:        []string{".opencode/plugins/gastown.js"},
+			},
+			branchPushed: true,
+			want:         "clean",
+		},
+		{
+			name: "runtime and source dirt blocks",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				ModifiedFiles:         []string{"main.go", ".opencode/plugins/gastown.js"},
+			},
+			branchPushed: true,
+			want:         "uncommitted",
+		},
+		{
+			name: "source dirt blocks",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				ModifiedFiles:         []string{"main.go"},
+			},
+			branchPushed: true,
+			want:         "uncommitted",
+		},
+		{
+			name: "runtime-only conflict blocks",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UnmergedFiles:         []string{".opencode/plugins/gastown.js"},
+			},
+			branchPushed: true,
+			want:         "uncommitted",
+		},
+		{
+			name: "stash blocks runtime dirt",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UntrackedFiles:        []string{".opencode/plugins/gastown.js"},
+				StashCount:            1,
+			},
+			branchPushed: true,
+			want:         "stash",
+		},
+		{
+			name: "unpushed branch blocks runtime dirt",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UntrackedFiles:        []string{".opencode/plugins/gastown.js"},
+			},
+			branchPushed: false,
+			want:         "unpushed",
+		},
+		{
+			name: "unpushed count blocks",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: false,
+			},
+			branchPushed:  true,
+			unpushedCount: 1,
+			want:          "unpushed",
+		},
+		{
+			name: "push check error blocks",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: false,
+			},
+			branchPushed:    true,
+			branchPushedErr: pushErr,
+			want:            "unpushed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanupStatusFromWorkState(tt.workStatus, tt.branchPushed, tt.unpushedCount, tt.branchPushedErr)
+			if got != tt.want {
+				t.Fatalf("cleanupStatusFromWorkState() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestClearDoneIntentLabel verifies that clearDoneIntentLabel removes
 // only done-intent labels while preserving other labels.
 func TestClearDoneIntentLabel(t *testing.T) {
