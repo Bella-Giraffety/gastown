@@ -47,6 +47,9 @@ func assessSourceCompletionEvidence(g *git.Git, submittedRef string, targetRefs 
 	}
 	result.Status = status
 	result.HasSubmittableWork = status.UnpreservedPatchCount > 0
+	if mode == completionEvidenceDone && beads.IssueStatus(strings.TrimSpace(issue.Status)).IsTerminal() && result.HasSubmittableWork {
+		return result, fmt.Errorf("cannot complete %s: source issue is already terminal", issueID)
+	}
 	if result.HasSubmittableWork {
 		return result, nil
 	}

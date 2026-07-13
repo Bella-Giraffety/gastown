@@ -372,6 +372,20 @@ func TestCompletionEvidencePreservesTerminalExplicitNoCode(t *testing.T) {
 	}
 }
 
+func TestCompletionEvidenceRejectsTerminalSourceWithBranchWork(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/terminal-with-work")
+	writeMQSubmitTestFile(t, repo, "work.txt", "work\n")
+	runGitForMQSubmitTest(t, repo, "add", "work.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "work after terminal")
+
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", CloseReason: "no-changes: external evidence recorded"}
+	if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
+		t.Fatal("terminal source with branch work should reject before MR creation")
+	}
+}
+
 func TestCompletionEvidenceRejectsTerminalWithoutEvidenceAndOpenNotes(t *testing.T) {
 	repo, targetRefs := setupCompletionEvidenceRepo(t)
 	g := gitpkg.NewGit(repo)
