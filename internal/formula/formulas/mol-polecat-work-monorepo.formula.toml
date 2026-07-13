@@ -23,10 +23,9 @@ nuke your sandbox, and exit. There is no idle state. Done means gone.
 when you run `gt prime` — there are no separate step beads to close. Work through
 the checklist, then run `gt done`.
 
-**Speed principle:** You run the full gate suite AFTER rebasing onto the target
-branch (pre-verify step). This enables the refinery to fast-path merge your MR
-in ~5 seconds instead of re-running gates. If pre-verification is skipped or
-stale, the refinery falls through to normal gate execution.
+**Verification principle:** You run the full gate suite AFTER rebasing onto the
+target branch to catch problems before submission. Refinery still owns merge
+authorization and must prove executable gate evidence before landing.
 
 **Monorepo extras:** After implementation, you push a PR, wait for GitHub Actions
 CI to pass (fixing any failures), then wait for AI reviewers (CodeRabbit, Greptile)
@@ -46,7 +45,7 @@ to post comments and address them all before submitting to the merge queue.
 | base_branch | sling vars | The base branch to rebase on (default: main) |
 | setup_command | rig config | Setup/install command (e.g., `pnpm install`). Empty = skip. |
 | typecheck_command | rig config | Type check command (e.g., `tsc --noEmit`). Empty = skip. |
-| test_command | rig config | Test command. Empty = skip. Rig must configure for its language. |
+| test_command | rig config | Test command. Empty means test verification is unproven unless another code-owned gate is configured. |
 | lint_command | rig config | Lint command (e.g., `eslint .`). Empty = skip. |
 | build_command | rig config | Build command (e.g., `go build ./...`). Empty = skip. |
 
@@ -441,7 +440,7 @@ This will:
 - Wait for all CI checks to complete
 - Diagnose any failures
 - If failures are in your code: fix them, commit, push, and re-check
-- If failures are pre-existing on main: note them and proceed
+- If failures are pre-existing on main: note them and hold; pre-existing red is not merge evidence
 
 **2. If CI fails due to your changes:**
 - Read the failure logs
@@ -452,9 +451,9 @@ This will:
 
 **3. If CI fails due to pre-existing issues on main:**
 - Note this in your PR description
-- Proceed — Refinery owns main health, not you
+- Hold for human/refinery resolution. Do not treat target red as approval to merge.
 
-**Exit criteria:** All CI checks pass (or only pre-existing failures remain)."""
+**Exit criteria:** All required CI checks pass with trustworthy evidence."""
 
 [[steps]]
 id = "handle-ai-reviews"
@@ -542,18 +541,18 @@ git rebase origin/{{base_branch}}
 
 If rebase conflicts: resolve carefully. If stuck, mail Witness.
 
-**2. Run the full gate suite on the rebased result (pre-verify):**
+**2. Run the full gate suite on the rebased result:**
 
 If build_command is set: run {{build_command}}
 If typecheck_command is set: run {{typecheck_command}}
 If lint_command is set: run {{lint_command}}
 If test_command is set: run {{test_command}}
 
-Skip any empty/unconfigured commands silently.
+Skip empty setup/typecheck/lint/build commands. Empty or unproven test verification is not merge evidence; the refinery will hold if required gates are unproven.
 
 **3. If all gates pass, submit to merge queue:**
 ```bash
-gt done --pre-verified --target {{base_branch}}
+gt done --target {{base_branch}}
 ```
 
 **4. If gates fail:** fix, commit, re-rebase, re-run gates. Do NOT submit broken code.
@@ -566,7 +565,7 @@ gt done --pre-verified --target {{base_branch}}
 
 Check your base_branch variable:
 - If `{{base_branch}}` is `main` (or `master`) → **Mode A** (PR-only, `--no-merge`)
-- If `{{base_branch}}` is anything else → **Mode B** (merge queue, `--pre-verified`)
+- If `{{base_branch}}` is anything else → **Mode B** (merge queue, refinery-verified)
 
 You are GONE after `gt done`. Done means gone.
 
@@ -590,7 +589,7 @@ description = "Type check command (e.g., tsc --noEmit). Empty = skip."
 default = ""
 
 [vars.test_command]
-description = "Command to run tests (auto-detected from rig settings)"
+description = "Command to run tests (auto-detected from rig settings). Empty means test verification is unproven unless another code-owned gate is configured."
 default = ""
 
 [vars.lint_command]

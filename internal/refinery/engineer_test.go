@@ -832,6 +832,92 @@ func TestRunGate_Failure(t *testing.T) {
 	if result.Name != "fail-test" {
 		t.Errorf("expected name 'fail-test', got %q", result.Name)
 	}
+	if result.Outcome != GateOutcomeCheckFailed {
+		t.Errorf("outcome = %q, want %q", result.Outcome, GateOutcomeCheckFailed)
+	}
+}
+
+func TestRunGate_MissingToolIsConfigFailure(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+	e.workDir = t.TempDir()
+
+	result := e.runGate(context.Background(), "missing-tool", &GateConfig{
+		Cmd: "__gt_missing_tool_4469__ --version",
+	})
+
+	if result.Success {
+		t.Fatal("expected missing tool to fail")
+	}
+	if result.Outcome != GateOutcomeConfigFailure {
+		t.Fatalf("outcome = %q, want %q; error=%s", result.Outcome, GateOutcomeConfigFailure, result.Error)
+	}
+	if !result.HasExit || result.ExitCode != 127 {
+		t.Fatalf("exit = (%v,%d), want (true,127)", result.HasExit, result.ExitCode)
+	}
+}
+
+func TestRunGate_TestGateRequiresEvidence(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+	e.workDir = t.TempDir()
+
+	result := e.runGate(context.Background(), "test", &GateConfig{Cmd: "true", Kind: gateKindTest})
+	if result.Success {
+		t.Fatal("expected exit-zero test gate without evidence to fail closed")
+	}
+	if result.Outcome != GateOutcomeNoEvidence {
+		t.Fatalf("outcome = %q, want %q", result.Outcome, GateOutcomeNoEvidence)
+	}
+}
+
+func TestRunGate_TestEvidenceOutcomes(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+	e.workDir = t.TempDir()
+
+	tests := []struct {
+		name        string
+		json        string
+		wantSuccess bool
+		wantOutcome GateOutcome
+	}{
+		{"executed true", `{"executed":true}`, true, GateOutcomePassed},
+		{"positive count", `{"tests_executed":1}`, true, GateOutcomePassed},
+		{"zero count", `{"tests_executed":0}`, false, GateOutcomeZeroTests},
+		{"failed evidence", `{"executed":true,"passed":false}`, false, GateOutcomeCheckFailed},
+		{"pre-existing", `{"outcome":"pre_existing_failure"}`, false, GateOutcomePreExistingFailure},
+		{"unknown", `{"outcome":"unknown"}`, false, GateOutcomeUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := fmt.Sprintf("printf '%s' > \"$GT_GATE_EVIDENCE\"", tt.json)
+			result := e.runGate(context.Background(), "test", &GateConfig{Cmd: cmd, Kind: gateKindTest})
+			if result.Success != tt.wantSuccess {
+				t.Fatalf("success = %v, want %v; error=%s", result.Success, tt.wantSuccess, result.Error)
+			}
+			if result.Outcome != tt.wantOutcome {
+				t.Fatalf("outcome = %q, want %q; error=%s", result.Outcome, tt.wantOutcome, result.Error)
+			}
+		})
+	}
+}
+
+func TestRunGate_TestEvidenceMalformed(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+	e.workDir = t.TempDir()
+
+	result := e.runGate(context.Background(), "test", &GateConfig{
+		Cmd:  "printf 'not-json' > \"$GT_GATE_EVIDENCE\"",
+		Kind: gateKindTest,
+	})
+	if result.Success {
+		t.Fatal("expected malformed evidence to fail closed")
+	}
+	if result.Outcome != GateOutcomeNoEvidence {
+		t.Fatalf("outcome = %q, want %q", result.Outcome, GateOutcomeNoEvidence)
+	}
 }
 
 func TestRunGate_EmptyCmd(t *testing.T) {
@@ -967,8 +1053,11 @@ func TestRunGates_Empty(t *testing.T) {
 	e.config.Gates = nil
 
 	result := e.runGates(context.Background())
-	if !result.Success {
-		t.Error("expected success with no gates configured")
+	if result.Success {
+		t.Fatal("expected no configured gates to fail closed")
+	}
+	if !result.GateUnproven || result.GateOutcome != GateOutcomeNoEvidence {
+		t.Fatalf("result = %+v, want GateUnproven no_evidence", result)
 	}
 }
 

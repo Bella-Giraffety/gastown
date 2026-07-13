@@ -95,6 +95,7 @@ func newTestEngineer(t *testing.T, workDir string, g *gitpkg.Git) *Engineer {
 	e.workDir = workDir
 	e.output = &bytes.Buffer{}
 	e.testAllowSyntheticMRs = true
+	e.config.Gates = map[string]*GateConfig{"check": {Cmd: "true"}}
 	// No-op merge slot functions for tests
 	e.mergeSlotEnsureExists = func() (string, error) { return "test-slot", nil }
 	e.mergeSlotAcquire = func(holder string, addWaiter bool) (*beads.MergeSlotStatus, error) {
@@ -145,11 +146,31 @@ func TestFastForwardBatch_BlocksForkBackedDefaultPush(t *testing.T) {
 	run(t, workDir, "git", "add", ".")
 	run(t, workDir, "git", "commit", "-m", "batch result")
 
-	result := e.fastForwardBatch(context.Background(), nil, "main", &BatchResult{})
+	result := e.fastForwardBatch(context.Background(), nil, "main", &BatchResult{}, mergeGateAuthorization{verified: true})
 	if result.Error == nil || !strings.Contains(result.Error.Error(), "refusing direct push") {
 		t.Fatalf("expected fork-backed default push refusal, got: %+v", result)
 	}
 	assertOriginMainUnchangedAndReset(t, workDir, before)
+}
+
+func TestFastForwardBatchRequiresGateAuthorization(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+	e := newTestEngineer(t, workDir, g)
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+	writeFile(t, workDir, "batched.txt", "batched\n")
+	run(t, workDir, "git", "add", ".")
+	run(t, workDir, "git", "commit", "-m", "batch result")
+
+	result := e.fastForwardBatch(context.Background(), nil, "main", &BatchResult{}, mergeGateAuthorization{})
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "gate authorization") {
+		t.Fatalf("expected missing gate authorization failure, got: %+v", result)
+	}
+	after := run(t, workDir, "git", "rev-parse", "origin/main")
+	if after != before {
+		t.Fatalf("origin/main changed without gate authorization: before %s after %s", before, after)
+	}
 }
 
 // --- AssembleBatch tests ---
@@ -402,7 +423,7 @@ func TestProcessBatch_SingleMR_Success(t *testing.T) {
 	createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
 
 	e := newTestEngineer(t, workDir, g)
-	// No gates configured → auto-pass
+	// Success now requires an explicitly configured gate.
 	batch := []*MRInfo{makeMR("mr-a", "feature-a", "main")}
 
 	result := e.ProcessBatch(context.Background(), batch, "main", DefaultBatchConfig())
@@ -414,6 +435,59 @@ func TestProcessBatch_SingleMR_Success(t *testing.T) {
 	}
 	if result.MergeCommit == "" {
 		t.Error("expected merge commit SHA")
+	}
+}
+
+func TestProcessBatch_NoConfiguredVerificationFailsClosed(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.Gates = nil
+	e.config.RunTests = true
+	e.config.TestCommand = ""
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+	result := e.ProcessBatch(context.Background(), []*MRInfo{makeMR("mr-a", "feature-a", "main")}, "main", DefaultBatchConfig())
+	if result.Error == nil {
+		t.Fatalf("expected no configured verification to fail closed")
+	}
+	if len(result.Merged) != 0 {
+		t.Fatalf("expected no merged MRs, got %d", len(result.Merged))
+	}
+	after := run(t, workDir, "git", "rev-parse", "origin/main")
+	if after != before {
+		t.Fatalf("origin/main changed despite unproven verification: before %s after %s", before, after)
+	}
+}
+
+func TestProcessMRInfo_PreVerifiedDoesNotSkipUnprovenGates(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.Gates = nil
+	e.config.RunTests = true
+	e.config.TestCommand = ""
+	base := run(t, workDir, "git", "rev-parse", "origin/main")
+	mr := makeMR("mr-a", "feature-a", "main")
+	mr.PreVerified = true
+	mr.PreVerifiedBase = base
+
+	result := e.ProcessMRInfo(context.Background(), mr)
+	if result.Success {
+		t.Fatal("expected pre_verified metadata not to authorize merge")
+	}
+	if !result.GateUnproven {
+		t.Fatalf("result = %+v, want GateUnproven", result)
+	}
+	after := run(t, workDir, "git", "rev-parse", "origin/main")
+	if after != base {
+		t.Fatalf("origin/main changed despite unproven pre_verified gates: before %s after %s", base, after)
 	}
 }
 
@@ -520,6 +594,36 @@ func TestProcessBatch_GateFailure_BisectsToFindCulprit(t *testing.T) {
 	// mr-a and mr-c should be merged
 	if len(result.Merged) != 2 {
 		t.Errorf("expected 2 merged (a and c), got %d: %v", len(result.Merged), stackedIDs(result.Merged))
+	}
+}
+
+func TestProcessBatch_UnprovenTestGateDoesNotBisectOrMergeGoodSubset(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
+	createFeatureBranch(t, workDir, "feature-b", "b.txt", "hello b\n")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.Gates = map[string]*GateConfig{
+		"test": {Cmd: "true", Kind: gateKindTest},
+	}
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+	result := e.ProcessBatch(context.Background(), []*MRInfo{
+		makeMR("mr-a", "feature-a", "main"),
+		makeMR("mr-b", "feature-b", "main"),
+	}, "main", &BatchConfig{MaxBatchSize: 5, RetryBatchOnFlaky: true})
+
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "unproven") {
+		t.Fatalf("expected unproven verification error, got: %v", result.Error)
+	}
+	if len(result.Merged) != 0 || len(result.Culprits) != 0 {
+		t.Fatalf("expected no merges or culprits for unproven gate, got merged=%v culprits=%v", stackedIDs(result.Merged), stackedIDs(result.Culprits))
+	}
+	after := run(t, workDir, "git", "rev-parse", "origin/main")
+	if after != before {
+		t.Fatalf("origin/main changed despite unproven gate: before %s after %s", before, after)
 	}
 }
 
@@ -631,7 +735,10 @@ func TestBisectBatch_SingleMR(t *testing.T) {
 
 	batch := []*MRInfo{makeMR("mr-a", "feature-a", "main")}
 
-	good, culprits := e.bisectBatch(context.Background(), batch, "main")
+	good, culprits, err := e.bisectBatch(context.Background(), batch, "main")
+	if err != nil {
+		t.Fatalf("unexpected bisection error: %v", err)
+	}
 	if len(good) != 0 {
 		t.Errorf("expected 0 good, got %d", len(good))
 	}
@@ -657,7 +764,10 @@ func TestBisectBatch_TwoMRs_SecondBad(t *testing.T) {
 		makeMR("mr-b", "feature-b", "main"),
 	}
 
-	good, culprits := e.bisectBatch(context.Background(), batch, "main")
+	good, culprits, err := e.bisectBatch(context.Background(), batch, "main")
+	if err != nil {
+		t.Fatalf("unexpected bisection error: %v", err)
+	}
 	if len(good) != 1 || good[0].ID != "mr-a" {
 		t.Errorf("expected good=[mr-a], got %v", stackedIDs(good))
 	}
@@ -683,7 +793,10 @@ func TestBisectBatch_TwoMRs_FirstBad(t *testing.T) {
 		makeMR("mr-b", "feature-b", "main"),
 	}
 
-	good, culprits := e.bisectBatch(context.Background(), batch, "main")
+	good, culprits, err := e.bisectBatch(context.Background(), batch, "main")
+	if err != nil {
+		t.Fatalf("unexpected bisection error: %v", err)
+	}
 	if len(culprits) != 1 || culprits[0].ID != "mr-a" {
 		t.Errorf("expected culprits=[mr-a], got %v", stackedIDs(culprits))
 	}
@@ -714,7 +827,10 @@ func TestBisectBatch_FourMRs_ThirdBad(t *testing.T) {
 		makeMR("mr-d", "feature-d", "main"),
 	}
 
-	good, culprits := e.bisectBatch(context.Background(), batch, "main")
+	good, culprits, err := e.bisectBatch(context.Background(), batch, "main")
+	if err != nil {
+		t.Fatalf("unexpected bisection error: %v", err)
+	}
 	if len(culprits) != 1 || culprits[0].ID != "mr-c" {
 		t.Errorf("expected culprits=[mr-c], got %v", stackedIDs(culprits))
 	}

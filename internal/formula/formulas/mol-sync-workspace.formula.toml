@@ -32,7 +32,7 @@ Polecats can file a bead and delegate. Refinery must resolve inline.
 | setup_command | config | Setup/install command (empty = skip) |
 | typecheck_command | config | Type check command (empty = skip) |
 | lint_command | config | Lint command (empty = skip) |
-| test_command | rig config | Test command. Empty = skip. Rig must configure for its language. |
+| test_command | rig config | Test command. Empty means test verification is unproven unless another code-owned gate is configured. |
 | build_command | config | Build command (empty = skip) |
 
 ## Failure Modes

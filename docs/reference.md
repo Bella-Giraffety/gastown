@@ -138,7 +138,7 @@ Town-level role defaults live in `mayor/config.json` under:
 | `setup_command` | `string` | `""` | Setup/install command (e.g., `pnpm install`) |
 | `typecheck_command` | `string` | `""` | Type check command (e.g., `tsc --noEmit`) |
 | `lint_command` | `string` | `""` | Lint command (e.g., `eslint .`) |
-| `test_command` | `string` | `""` | Test command to run. Empty = skip. |
+| `test_command` | `string` | `""` | Test command to run. Empty means merge verification is unproven unless another code-owned gate is configured. |
 | `build_command` | `string` | `""` | Build command (e.g., `go build ./...`) |
 | `on_conflict` | `string` | `"assign_back"` | Conflict strategy: `assign_back` or `auto_rebase` |
 | `delete_merged_branches` | `bool` | `true` | Delete source branches after merging |

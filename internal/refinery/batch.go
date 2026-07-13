@@ -243,7 +243,11 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 
 	// Step 3: Happy path — all green
 	if gateResult.Success {
-		return e.fastForwardBatch(ctx, stacked, target, result)
+		return e.fastForwardBatch(ctx, stacked, target, result, mergeGateAuthorized(gateResult))
+	}
+	if !gateResult.TestsFailed || gateResult.GateUnproven {
+		result.Error = fmt.Errorf("batch verification unproven: %s", gateResult.Error)
+		return result
 	}
 
 	// Step 4: Retry if flaky test handling is enabled
@@ -259,14 +263,22 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 		retryResult := e.runBatchGates(ctx)
 		if retryResult.Success {
 			_, _ = fmt.Fprintln(e.output, "[Batch] Retry succeeded (was flaky)")
-			return e.fastForwardBatch(ctx, stacked, target, result)
+			return e.fastForwardBatch(ctx, stacked, target, result, mergeGateAuthorized(retryResult))
+		}
+		if !retryResult.TestsFailed || retryResult.GateUnproven {
+			result.Error = fmt.Errorf("batch verification unproven after retry: %s", retryResult.Error)
+			return result
 		}
 		_, _ = fmt.Fprintln(e.output, "[Batch] Retry also failed, proceeding to bisection")
 	}
 
 	// Step 5: Bisect to find the culprit
 	_, _ = fmt.Fprintf(e.output, "[Batch] Bisecting %d MRs to isolate failure...\n", len(stacked))
-	good, culprits := e.bisectBatch(ctx, stacked, target)
+	good, culprits, bisectErr := e.bisectBatch(ctx, stacked, target)
+	if bisectErr != nil {
+		result.Error = bisectErr
+		return result
+	}
 
 	result.Culprits = culprits
 
@@ -280,7 +292,11 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 		// Verify the good subset actually passes
 		verifyResult := e.runBatchGates(ctx)
 		if verifyResult.Success {
-			return e.fastForwardBatch(ctx, good, target, result)
+			return e.fastForwardBatch(ctx, good, target, result, mergeGateAuthorized(verifyResult))
+		}
+		if !verifyResult.TestsFailed || verifyResult.GateUnproven {
+			result.Error = fmt.Errorf("good subset verification unproven after bisection: %s", verifyResult.Error)
+			return result
 		}
 		// If the good subset also fails, something is wrong — don't merge anything
 		_, _ = fmt.Fprintln(e.output, "[Batch] Warning: good subset also failed gates, aborting batch")
@@ -341,21 +357,9 @@ func (e *Engineer) processSingleMR(ctx context.Context, mr *MRInfo, target strin
 // runBatchGates runs quality gates (or legacy tests) on the current working tree.
 func (e *Engineer) runBatchGates(ctx context.Context) ProcessResult {
 	if len(e.config.Gates) > 0 {
-		return e.runGates(ctx)
+		return e.runAllGates(ctx)
 	}
-	if e.config.RunTests && e.config.TestCommand != "" {
-		result := e.runTests(ctx)
-		if !result.Success {
-			return ProcessResult{
-				Success:     false,
-				TestsFailed: true,
-				Error:       result.Error,
-			}
-		}
-		return ProcessResult{Success: true}
-	}
-	// No gates configured — pass by default
-	return ProcessResult{Success: true}
+	return e.runTests(ctx)
 }
 
 // verifyAndPush runs gates and pushes the current state for a set of stacked MRs.
@@ -364,20 +368,25 @@ func (e *Engineer) verifyAndPush(ctx context.Context, stacked []*MRInfo, target 
 
 	gateResult := e.runBatchGates(ctx)
 	if !gateResult.Success {
-		if gateResult.TestsFailed {
+		if gateResult.TestsFailed && !gateResult.GateUnproven {
 			result.Culprits = stacked
 		} else {
-			result.Error = fmt.Errorf("gates failed: %s", gateResult.Error)
+			result.Error = fmt.Errorf("gates did not prove execution: %s", gateResult.Error)
 		}
 		return result
 	}
 
-	return e.fastForwardBatch(ctx, stacked, target, result)
+	return e.fastForwardBatch(ctx, stacked, target, result, mergeGateAuthorized(gateResult))
 }
 
 // fastForwardBatch pushes the current state to the target branch.
 // The working tree must already be on the target branch with all squash-merges applied.
-func (e *Engineer) fastForwardBatch(ctx context.Context, stacked []*MRInfo, target string, result *BatchResult) *BatchResult {
+func (e *Engineer) fastForwardBatch(ctx context.Context, stacked []*MRInfo, target string, result *BatchResult, gateAuth mergeGateAuthorization) *BatchResult {
+	if !gateAuth.ok() {
+		result.Error = fmt.Errorf("merge gate authorization missing")
+		return result
+	}
+
 	// Get the tip SHA
 	tipSHA, err := e.git.Rev("HEAD")
 	if err != nil {
@@ -461,10 +470,10 @@ func (e *Engineer) fastForwardBatch(ctx context.Context, stacked []*MRInfo, targ
 
 // bisectBatch performs binary search to find which MR(s) caused a test failure.
 // Returns the good MRs and the culprit MRs.
-func (e *Engineer) bisectBatch(ctx context.Context, batch []*MRInfo, target string) (good []*MRInfo, culprits []*MRInfo) {
+func (e *Engineer) bisectBatch(ctx context.Context, batch []*MRInfo, target string) (good []*MRInfo, culprits []*MRInfo, err error) {
 	if len(batch) <= 1 {
 		// Base case: single MR is the culprit
-		return nil, append([]*MRInfo{}, batch...)
+		return nil, append([]*MRInfo{}, batch...), nil
 	}
 
 	mid := len(batch) / 2
@@ -477,10 +486,13 @@ func (e *Engineer) bisectBatch(ctx context.Context, batch []*MRInfo, target stri
 	// Test the left half
 	if resetErr := e.resetAndRebuildStack(left, target); resetErr != nil {
 		_, _ = fmt.Fprintf(e.output, "[Bisect] Error rebuilding left half: %v, treating all as culprits\n", resetErr)
-		return nil, batch
+		return nil, batch, nil
 	}
 
 	leftResult := e.runBatchGates(ctx)
+	if !leftResult.Success && (!leftResult.TestsFailed || leftResult.GateUnproven) {
+		return nil, nil, fmt.Errorf("left-half verification unproven during bisection: %s", leftResult.Error)
+	}
 
 	if leftResult.Success {
 		// Left half is green — culprit is in right half
@@ -488,13 +500,19 @@ func (e *Engineer) bisectBatch(ctx context.Context, batch []*MRInfo, target stri
 
 		// bisectRight handles its own stack construction (knownGood + sub-batches),
 		// so no need to rebuild the full batch stack here first.
-		rightGood, rightCulprits := e.bisectRight(ctx, left, right, target)
-		return append(left, rightGood...), rightCulprits
+		rightGood, rightCulprits, rightErr := e.bisectRight(ctx, left, right, target)
+		if rightErr != nil {
+			return nil, nil, rightErr
+		}
+		return append(left, rightGood...), rightCulprits, nil
 	}
 
 	// Left half failed — culprit is in left half
 	_, _ = fmt.Fprintf(e.output, "[Bisect] Left half failed, bisecting left half...\n")
-	leftGood, leftCulprits := e.bisectBatch(ctx, left, target)
+	leftGood, leftCulprits, leftErr := e.bisectBatch(ctx, left, target)
+	if leftErr != nil {
+		return nil, nil, leftErr
+	}
 
 	// Right half hasn't been tested in isolation — it might be fine
 	// Test right half in context of leftGood
@@ -502,34 +520,46 @@ func (e *Engineer) bisectBatch(ctx context.Context, batch []*MRInfo, target stri
 		combined := append(leftGood, right...)
 		if resetErr := e.resetAndRebuildStack(combined, target); resetErr != nil {
 			_, _ = fmt.Fprintf(e.output, "[Bisect] Error testing right with good left: %v\n", resetErr)
-			return leftGood, append(leftCulprits, right...)
+			return leftGood, append(leftCulprits, right...), nil
 		}
 		combinedResult := e.runBatchGates(ctx)
+		if !combinedResult.Success && (!combinedResult.TestsFailed || combinedResult.GateUnproven) {
+			return nil, nil, fmt.Errorf("combined verification unproven during bisection: %s", combinedResult.Error)
+		}
 		if combinedResult.Success {
-			return append(leftGood, right...), leftCulprits
+			return append(leftGood, right...), leftCulprits, nil
 		}
 		// Right half also has issues — recursively bisect it too
-		rightGood, rightCulprits := e.bisectRight(ctx, leftGood, right, target)
-		return append(leftGood, rightGood...), append(leftCulprits, rightCulprits...)
+		rightGood, rightCulprits, rightErr := e.bisectRight(ctx, leftGood, right, target)
+		if rightErr != nil {
+			return nil, nil, rightErr
+		}
+		return append(leftGood, rightGood...), append(leftCulprits, rightCulprits...), nil
 	}
 
 	// No good MRs in left half, test right half alone
 	if resetErr := e.resetAndRebuildStack(right, target); resetErr != nil {
-		return nil, batch
+		return nil, batch, nil
 	}
 	rightResult := e.runBatchGates(ctx)
-	if rightResult.Success {
-		return right, leftCulprits
+	if !rightResult.Success && (!rightResult.TestsFailed || rightResult.GateUnproven) {
+		return nil, nil, fmt.Errorf("right-half verification unproven during bisection: %s", rightResult.Error)
 	}
-	rightGood, rightCulprits := e.bisectBatch(ctx, right, target)
-	return rightGood, append(leftCulprits, rightCulprits...)
+	if rightResult.Success {
+		return right, leftCulprits, nil
+	}
+	rightGood, rightCulprits, rightErr := e.bisectBatch(ctx, right, target)
+	if rightErr != nil {
+		return nil, nil, rightErr
+	}
+	return rightGood, append(leftCulprits, rightCulprits...), nil
 }
 
 // bisectRight bisects the right half of a batch, testing each sub-batch
 // in the context of the known-good left half (cumulative merge).
-func (e *Engineer) bisectRight(ctx context.Context, knownGood []*MRInfo, right []*MRInfo, target string) (good []*MRInfo, culprits []*MRInfo) {
+func (e *Engineer) bisectRight(ctx context.Context, knownGood []*MRInfo, right []*MRInfo, target string) (good []*MRInfo, culprits []*MRInfo, err error) {
 	if len(right) <= 1 {
-		return nil, append([]*MRInfo{}, right...)
+		return nil, append([]*MRInfo{}, right...), nil
 	}
 
 	mid := len(right) / 2
@@ -541,36 +571,51 @@ func (e *Engineer) bisectRight(ctx context.Context, knownGood []*MRInfo, right [
 	testBatch := append(append([]*MRInfo{}, knownGood...), rLeft...)
 	if resetErr := e.resetAndRebuildStack(testBatch, target); resetErr != nil {
 		_, _ = fmt.Fprintf(e.output, "[Bisect] Error rebuilding for right bisection: %v\n", resetErr)
-		return nil, right
+		return nil, right, nil
 	}
 
 	result := e.runBatchGates(ctx)
+	if !result.Success && (!result.TestsFailed || result.GateUnproven) {
+		return nil, nil, fmt.Errorf("right-bisection verification unproven: %s", result.Error)
+	}
 	if result.Success {
 		// rLeft is fine in context of knownGood — culprit is in rRight
 		_, _ = fmt.Fprintf(e.output, "[Bisect-R] knownGood+rLeft passed → culprit in rRight=%v\n", mrIDs(rRight))
 		newGood := append(append([]*MRInfo{}, knownGood...), rLeft...)
-		rRightGood, rRightCulprits := e.bisectRight(ctx, newGood, rRight, target)
+		rRightGood, rRightCulprits, rRightErr := e.bisectRight(ctx, newGood, rRight, target)
+		if rRightErr != nil {
+			return nil, nil, rRightErr
+		}
 		_, _ = fmt.Fprintf(e.output, "[Bisect-R] Returning good=%v, culprits=%v\n", mrIDs(append(rLeft, rRightGood...)), mrIDs(rRightCulprits))
-		return append(rLeft, rRightGood...), rRightCulprits
+		return append(rLeft, rRightGood...), rRightCulprits, nil
 	}
 
 	// rLeft has the culprit
 	_, _ = fmt.Fprintf(e.output, "[Bisect-R] knownGood+rLeft failed → culprit in rLeft=%v\n", mrIDs(rLeft))
-	rLeftGood, rLeftCulprits := e.bisectRight(ctx, knownGood, rLeft, target)
+	rLeftGood, rLeftCulprits, rLeftErr := e.bisectRight(ctx, knownGood, rLeft, target)
+	if rLeftErr != nil {
+		return nil, nil, rLeftErr
+	}
 
 	// Test rRight with knownGood + rLeftGood
 	_, _ = fmt.Fprintf(e.output, "[Bisect-R] Testing rRight=%v with knownGood+rLeftGood=%v\n", mrIDs(rRight), mrIDs(append(append([]*MRInfo{}, knownGood...), rLeftGood...)))
 	testBatch2 := append(append(append([]*MRInfo{}, knownGood...), rLeftGood...), rRight...)
 	if resetErr := e.resetAndRebuildStack(testBatch2, target); resetErr != nil {
-		return rLeftGood, append(rLeftCulprits, rRight...)
+		return rLeftGood, append(rLeftCulprits, rRight...), nil
 	}
 	result2 := e.runBatchGates(ctx)
+	if !result2.Success && (!result2.TestsFailed || result2.GateUnproven) {
+		return nil, nil, fmt.Errorf("right-side verification unproven during bisection: %s", result2.Error)
+	}
 	if result2.Success {
 		_, _ = fmt.Fprintf(e.output, "[Bisect-R] rRight passed → good=%v, culprits=%v\n", mrIDs(append(rLeftGood, rRight...)), mrIDs(rLeftCulprits))
-		return append(rLeftGood, rRight...), rLeftCulprits
+		return append(rLeftGood, rRight...), rLeftCulprits, nil
 	}
-	rRightGood, rRightCulprits := e.bisectRight(ctx, append(append([]*MRInfo{}, knownGood...), rLeftGood...), rRight, target)
-	return append(rLeftGood, rRightGood...), append(rLeftCulprits, rRightCulprits...)
+	rRightGood, rRightCulprits, rRightErr := e.bisectRight(ctx, append(append([]*MRInfo{}, knownGood...), rLeftGood...), rRight, target)
+	if rRightErr != nil {
+		return nil, nil, rRightErr
+	}
+	return append(rLeftGood, rRightGood...), append(rLeftCulprits, rRightCulprits...), nil
 }
 
 // mrIDs returns the IDs of a slice of MRInfo for logging.

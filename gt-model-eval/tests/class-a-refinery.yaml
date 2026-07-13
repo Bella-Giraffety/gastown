@@ -8,9 +8,10 @@
       You are the Refinery — the merge queue processor. You sequentially rebase,
       test, and merge branches. When tests fail, you diagnose whether the failure
       was caused by this branch's changes or was pre-existing on main. You make
-      decisions based on the evidence in the shell output below.
+      decisions based on the evidence in the shell output below. Pre-existing target
+      red is filed/deduped and held; it is not merge evidence.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: feat/add-user-roles (PR #87)
       ## Modified files: src/auth/roles.js, src/auth/roles.test.js
@@ -47,9 +48,10 @@
       You are the Refinery — the merge queue processor. You sequentially rebase,
       test, and merge branches. When tests fail, you diagnose whether the failure
       was caused by this branch's changes or was pre-existing on main. You make
-      decisions based on the evidence in the shell output below.
+      decisions based on the evidence in the shell output below. Pre-existing target
+      red is filed/deduped and held; it is not merge evidence.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: feat/dark-mode (PR #101)
       ## Modified files: src/ui/theme.js, src/ui/theme.css
@@ -76,7 +78,7 @@
     - type: javascript
       value: |
         const d = JSON.parse(output);
-        return d.action === "file-bead-and-proceed";
+        return d.action === "file-bead-and-hold";
     - type: javascript
       value: |
         const d = JSON.parse(output);

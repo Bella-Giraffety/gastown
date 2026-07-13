@@ -1,7 +1,7 @@
 # Refinery Patrol: Test Failure Triage (The Scotty Test)
 # Tests whether the model correctly diagnoses test failures as branch-caused
-# vs pre-existing. "Would you walk past a warp core leak that existed before
-# your shift?" Pre-existing = file bead + proceed. Branch-caused = reject MR.
+# vs pre-existing. Pre-existing target red is filed/deduped, then held;
+# it is not positive merge evidence. Branch-caused = reject MR.
 
 - description: "Branch-caused: test passes on main, fails on branch"
   vars:
@@ -10,10 +10,9 @@
       You are the Refinery — the merge queue processor. You sequentially rebase, test,
       and merge branches. When tests fail, you must diagnose: is the failure caused by
       this branch's changes, or was it pre-existing on main? Branch-caused failures
-      reject the MR. Pre-existing failures get filed as beads but the merge proceeds.
-      This is the "Scotty Test" — pre-existing problems are not this branch's fault.
+      reject the MR. Pre-existing failures get filed as beads and hold the merge.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: feat/add-user-roles (PR #87)
       ## Modified files: src/auth/roles.js, src/auth/roles.test.js
@@ -53,7 +52,7 @@
       Since the test didn't exist before this branch, the failure is definitively
       branch-caused.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: feat/notifications (PR #92)
       ## Modified files: src/notify.js, src/notify.test.js (NEW)
@@ -87,7 +86,7 @@
       You are the Refinery. Lint check failed on files that were modified by this branch.
       Lint passed on main. This is a branch-caused quality failure.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: fix/cleanup-imports (PR #95)
       ## Modified files: src/utils/helpers.js, src/api/routes.js
@@ -115,11 +114,11 @@
   vars:
     role: refinery
     role_context: >
-      You are the Refinery. The Scotty Test: if a test fails on main AND on the branch
-      with the same error, it is pre-existing. File a bead to track it but proceed
-      with the merge — this branch did not cause the failure.
+      You are the Refinery. If a test fails on main AND on the branch with the same
+      error, it is pre-existing. File or dedupe a bead to track it, then hold the MR:
+      target red is not positive merge evidence.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: feat/dark-mode (PR #101)
       ## Modified files: src/ui/theme.js, src/ui/theme.css
@@ -146,17 +145,65 @@
     - type: javascript
       value: |
         const d = JSON.parse(output);
-        return d.action === "file-bead-and-proceed";
+        return d.action === "file-bead-and-hold";
+
+- description: "Config failure: run_tests=false leaves verification unproven"
+  vars:
+    role: refinery
+    role_context: >
+      You are the Refinery. Required verification must execute before merge. If
+      run_tests is false, no test gate ran, so merge authorization is unproven.
+    formula_step: handle-failures
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "hold-mr", "retry", "skip-mr", "investigate"]'
+    shell_output: |
+      ## Branch under test: fix/docs-copy (PR #102)
+      ## Config: run_tests=false
+      ## Result: no quality or test command executed
+    context: "Verification was disabled by config; no executable gate evidence exists."
+  assert:
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        return d.action === "hold-mr";
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        return d.action !== "file-bead-and-proceed";
+
+- description: "Config failure: exit-zero test command produced no execution proof"
+  vars:
+    role: refinery
+    role_context: >
+      You are the Refinery. A test command exiting zero is not enough; test gates
+      must prove a nonzero workload executed. Missing or zero-test evidence holds.
+    formula_step: handle-failures
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "hold-mr", "retry", "skip-mr", "investigate"]'
+    shell_output: |
+      ## Branch under test: chore/update-theme (PR #103)
+      ## Modified files: src/theme.css
+
+      $ npm test
+      No tests found, exiting with code 0
+      Result: PASS
+      GT_GATE_EVIDENCE: missing
+    context: "The configured test command exited 0 but did not prove any tests executed."
+  assert:
+    - type: javascript
+      value: |
+        const d = JSON.parse(output);
+        return d.action === "hold-mr";
+    - type: contains-any
+      value: ["evidence", "unproven", "no tests", "zero"]
 
 - description: "Pre-existing: flaky test (fails then passes on re-run)"
   vars:
     role: refinery
     role_context: >
       You are the Refinery. A test failed on the first run but passed on re-run with
-      no code changes between runs. This is a flaky test, not a branch-caused failure.
-      Proceed with the merge but consider filing a bead for the flaky test.
+      no code changes between runs. Retry is allowed, but the merge still needs a clean
+      passing run with authoritative evidence.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: feat/cache-layer (PR #104)
 
@@ -178,7 +225,7 @@
     - type: javascript
       value: |
         const d = JSON.parse(output);
-        return d.action === "file-bead-and-proceed" || d.action === "retry";
+        return d.action === "retry";
     - type: javascript
       value: |
         const d = JSON.parse(output);
@@ -192,7 +239,7 @@
       This is not related to the branch's code changes. Retry or skip — do not
       reject the MR for infrastructure issues.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: fix/typo-readme (PR #108)
       ## Modified files: README.md
@@ -223,7 +270,7 @@
       This requires reasoning about import chains — the failure IS branch-caused even
       though the failing test file was not modified.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: refactor/user-model (PR #110)
       ## Modified files: src/models/user.js, src/models/user.test.js
@@ -263,7 +310,7 @@
       errors in multiple downstream files. Even though those files weren't modified
       by the branch, the type change broke them. This is branch-caused.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: refactor/api-types (PR #112)
       ## Modified files: src/types/api.ts
@@ -293,9 +340,10 @@
       You are the Refinery. A test fails on both main and the branch. Git bisect shows
       the failure was introduced on main 2 days ago by a different commit. This branch
       is 3 days old (created before the failure appeared on main). The failure is
-      pre-existing — it was introduced by someone else's commit on main.
+      pre-existing — it was introduced by someone else's commit on main. File or dedupe
+      a bead, then hold until target verification is green.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: feat/notifications (PR #115)
       ## Branch created: 2026-02-12 (3 days ago)
@@ -321,12 +369,11 @@
     - type: javascript
       value: |
         const d = JSON.parse(output);
-        return d.action === "file-bead-and-proceed";
+        return d.action === "file-bead-and-hold";
     - type: llm-rubric
       value: >
         The response should recognize that the failure was introduced by a different
-        commit on main (not by this branch) and proceed with the merge while filing
-        a bead to track the pre-existing issue.
+        commit on main (not by this branch), file or dedupe a bead, and hold the MR.
 
 - description: "Edge: mixed failures — some branch-caused, some pre-existing"
   vars:
@@ -336,7 +383,7 @@
       some only fail on the branch (branch-caused). When ANY failure is branch-caused,
       the MR must be rejected. Pre-existing failures don't override branch-caused ones.
     formula_step: handle-failures
-    allowed_actions: '["reject-mr", "file-bead-and-proceed", "retry", "skip-mr", "investigate"]'
+    allowed_actions: '["reject-mr", "file-bead-and-hold", "retry", "skip-mr", "investigate"]'
     shell_output: |
       ## Branch under test: feat/user-profiles (PR #118)
       ## Modified files: src/users/profile.js, src/users/profile.test.js

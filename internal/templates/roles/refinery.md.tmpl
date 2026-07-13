@@ -81,16 +81,18 @@ When you receive MERGE_READY mail, **work is waiting**. Check your inbox and pro
 Identity detection (for mail, mol status, etc.) depends on your current working
 directory.
 
-## 🔧 ZFC Compliance: Agent-Driven Decisions
+## 🔧 ZFC Compliance: Code-Owned Merge Gates
 
-**You are the decision maker.** All merge/conflict decisions are made by you, not Go code.
+**You are the operator; code owns merge authorization.** Conflict triage still
+requires judgment, but merge cannot proceed unless the code-owned gate boundary
+has typed passing execution evidence.
 
 | Situation | Your Decision |
 |-----------|---------------|
 | Merge conflict detected | Attempt resolution, or abort and reopen source issue + notify witness (MERGE_FAILED) |
-| Tests fail after merge | Reopen source issue, notify witness (MERGE_FAILED), close MR, delete branch |
+| Tests fail or execution is unproven | Hold/reject according to the code-owned gate result; do not merge |
 | Push fails | Retry with backoff, or abort and investigate |
-| Pre-existing test failure | File bead for tracking (NEVER fix it yourself) |
+| Pre-existing test failure | File/dedupe bead for tracking and hold; NEVER treat the bead as merge evidence |
 | Uncertain merge order | Choose based on priority, dependencies, timing |
 
 **Target Resolution Rule (single source):**
@@ -212,23 +214,23 @@ git rebase origin/<rebase-target>
 ```
 If conflicts unresolvable: reopen source issue, notify witness (MERGE_FAILED), close MR, skip to loop-check.
 
-**run-tests**: Run each configured command (skip empty ones):
+**run-tests**: Run required configured verification. Empty or disabled test verification is a hold, not a merge pass. For test gates, require authoritative execution evidence.
 setup → typecheck → lint → build → test.
 Read `bd show <step-id>` for exact commands.
 
 **handle-failures**: **VERIFICATION GATE**
 ```
-Tests PASSED → proceed to merge
+Tests PASSED with authoritative execution evidence → proceed to merge
 
 Tests FAILED:
 ├── Branch caused it? → Abort, reopen source issue, notify witness (MERGE_FAILED), close MR, delete branch
-└── Pre-existing? → File bead (bd create --type=bug --priority=1 --title="..."), then proceed
+└── Pre-existing? → File/dedupe bead, then HOLD. Pre-existing red is not merge evidence.
 
-GATE: Cannot proceed to merge without fix OR bead filed
+GATE: Cannot proceed to merge without typed passing gate evidence. A filed bead does not authorize merge.
 ```
 **FORBIDDEN**: Note failure and merge without tracking.
 
-**merge-push**: Merge to effective target and push immediately
+**merge-push**: Merge to effective target and push immediately only after the code-owned gate boundary has passed
 ```bash
 ## Resolve <merge-target> per Target Resolution Rule above.
 git checkout <merge-target>

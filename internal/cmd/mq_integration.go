@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/git"
+	refinerypkg "github.com/steveyegge/gastown/internal/refinery"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/workspace"
 )
@@ -686,23 +688,18 @@ func runMqIntegrationLand(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("  %s Merged successfully\n", style.Bold.Render("✓"))
 
-	// 5. Run tests (if configured and not skipped)
-	if !mqIntegrationLandSkipTests {
-		testCmd := getTestCommand(r.Path)
-		if testCmd != "" {
-			fmt.Printf("Running tests: %s\n", testCmd)
-			if err := runTestCommand(landGit.WorkDir(), testCmd); err != nil {
-				// Tests failed - no need to reset, worktree is temporary
-				fmt.Printf("  %s Tests failed\n", style.Bold.Render("✗"))
-				return fmt.Errorf("tests failed: %w", err)
-			}
-			fmt.Printf("  %s Tests passed\n", style.Bold.Render("✓"))
-		} else {
-			fmt.Printf("  %s\n", style.Dim.Render("(no test command configured)"))
-		}
-	} else {
-		fmt.Printf("  %s\n", style.Dim.Render("(tests skipped)"))
+	// 5. Run tests and require authoritative execution evidence before push.
+	if mqIntegrationLandSkipTests {
+		return fmt.Errorf("tests skipped: integration landing requires executable test evidence")
 	}
+	testCmd := getTestCommand(r.Path)
+	fmt.Printf("Running tests: %s\n", testCmd)
+	if err := runTestCommand(landGit.WorkDir(), testCmd); err != nil {
+		// Tests failed - no need to reset, worktree is temporary
+		fmt.Printf("  %s Tests failed\n", style.Bold.Render("✗"))
+		return fmt.Errorf("tests failed: %w", err)
+	}
+	fmt.Printf("  %s Tests passed\n", style.Bold.Render("✓"))
 
 	// Verify the merge actually brought changes (guard against empty merges).
 	// An empty merge means conflict resolution discarded all integration branch work,
@@ -840,16 +837,15 @@ func getTestCommand(rigPath string) string {
 // infrastructure config), not from PR branches or user input. Shell execution
 // is intentional for flexibility (pipes, env vars, quoted args, etc).
 func runTestCommand(workDir, testCmd string) error {
-	if testCmd == "" {
+	result := refinerypkg.RunTestCommandWithEvidence(context.Background(), workDir, testCmd)
+	if result.Success {
 		return nil
 	}
-
-	cmd := exec.Command("sh", "-c", testCmd) //nolint:gosec // G204: TestCommand is from trusted rig config
-	cmd.Dir = workDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
+	msg := result.Error
+	if msg == "" {
+		msg = string(result.Outcome)
+	}
+	return fmt.Errorf("%s: %s", result.Outcome, msg)
 }
 
 // runMqIntegrationStatus shows the status of an integration branch for an epic.

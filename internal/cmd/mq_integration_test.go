@@ -757,6 +757,23 @@ func TestGetIntegrationBranchTemplate(t *testing.T) {
 	})
 }
 
+func TestRunTestCommandRequiresExecutableEvidence(t *testing.T) {
+	workDir := t.TempDir()
+
+	if err := runTestCommand(workDir, ""); err == nil || !strings.Contains(err.Error(), "config_failure") {
+		t.Fatalf("empty test command error = %v, want config_failure", err)
+	}
+	if err := runTestCommand(workDir, "true"); err == nil || !strings.Contains(err.Error(), "no_evidence") {
+		t.Fatalf("exit-zero without evidence error = %v, want no_evidence", err)
+	}
+	if err := runTestCommand(workDir, `printf '{"tests_executed":0}' > "$GT_GATE_EVIDENCE"`); err == nil || !strings.Contains(err.Error(), "zero_tests") {
+		t.Fatalf("zero-test evidence error = %v, want zero_tests", err)
+	}
+	if err := runTestCommand(workDir, `printf '{"executed":true}' > "$GT_GATE_EVIDENCE"`); err != nil {
+		t.Fatalf("valid execution evidence returned error: %v", err)
+	}
+}
+
 func TestIsReadyToLand(t *testing.T) {
 	tests := []struct {
 		name           string

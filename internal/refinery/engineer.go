@@ -75,6 +75,10 @@ type GateConfig struct {
 	// Cmd is the shell command to execute.
 	Cmd string `json:"cmd"`
 
+	// Kind identifies gates that require execution evidence. Only "test" gates
+	// need GT_GATE_EVIDENCE proof; other checks are the command itself.
+	Kind string `json:"kind"`
+
 	// Timeout is the maximum time the gate command may run.
 	// Zero means no timeout (inherits context deadline).
 	Timeout time.Duration `json:"timeout"`
@@ -86,12 +90,33 @@ type GateConfig struct {
 	Phase GatePhase `json:"phase"`
 }
 
+type GateOutcome string
+
+const (
+	GateOutcomePassed             GateOutcome = "passed"
+	GateOutcomeCheckFailed        GateOutcome = "check_failed"
+	GateOutcomeConfigFailure      GateOutcome = "config_failure"
+	GateOutcomeInfraFailure       GateOutcome = "infra_failure"
+	GateOutcomeNoEvidence         GateOutcome = "no_evidence"
+	GateOutcomeZeroTests          GateOutcome = "zero_tests"
+	GateOutcomeUnknown            GateOutcome = "unknown"
+	GateOutcomePreExistingFailure GateOutcome = "pre_existing_failure"
+)
+
+const gateKindTest = "test"
+
 // GateResult holds the outcome of a single gate execution.
 type GateResult struct {
-	Name    string
-	Success bool
-	Error   string
-	Elapsed time.Duration
+	Name     string
+	Kind     string
+	Success  bool
+	Outcome  GateOutcome
+	Error    string
+	Elapsed  time.Duration
+	Started  bool
+	ExitCode int
+	HasExit  bool
+	Evidence string
 }
 
 // MergeQueueConfig holds configuration for the merge queue processor.
@@ -211,9 +236,6 @@ type MRInfo struct {
 	Title           string     // MR title
 	Priority        int        // Priority (lower = higher priority)
 	AgentBead       string     // Agent bead ID that created this MR
-	CommitSHA       string     // Source branch tip submitted to the queue
-	PRURL           string     // Recorded pull request URL, if available
-	PRNumber        int        // Recorded pull request number, if available
 	RetryCount      int        // Conflict retry count
 	ConflictTaskID  string     // Open conflict-resolution task for this MR (if any)
 	ConvoyID        string     // Parent convoy ID if part of a convoy
@@ -221,9 +243,9 @@ type MRInfo struct {
 	CreatedAt       time.Time  // MR creation time
 	BlockedBy       string     // Task ID blocking this MR
 
-	// Pre-verification fields (Phase 3: polecat-owned rebasing)
-	// When set, the refinery can skip gates if VerifiedBase matches target HEAD.
-	PreVerified     bool      // Polecat ran full gates after rebasing onto target
+	// Pre-verification fields are retained as historical metadata only. They do
+	// not authorize the refinery to skip executable gate evidence.
+	PreVerified     bool      // Polecat claimed it ran gates after rebasing onto target
 	PreVerifiedAt   time.Time // When verification completed
 	PreVerifiedBase string    // Target branch SHA at verification time
 
@@ -408,7 +430,7 @@ func (e *Engineer) LoadConfig() error {
 	if mqRaw.Gates != nil {
 		e.config.Gates = make(map[string]*GateConfig, len(mqRaw.Gates))
 		for name, raw := range mqRaw.Gates {
-			gc := &GateConfig{Cmd: raw.Cmd}
+			gc := &GateConfig{Cmd: raw.Cmd, Kind: strings.ToLower(strings.TrimSpace(raw.Kind))}
 			if raw.Timeout != "" {
 				dur, err := time.ParseDuration(raw.Timeout)
 				if err != nil {
@@ -478,6 +500,7 @@ func (e *Engineer) initPRProvider() error {
 // with timeout as a string duration.
 type gateConfigRaw struct {
 	Cmd     string `json:"cmd"`
+	Kind    string `json:"kind"`
 	Timeout string `json:"timeout"`
 	Phase   string `json:"phase"`
 }
@@ -494,14 +517,28 @@ type ProcessResult struct {
 	Error          string
 	Conflict       bool
 	TestsFailed    bool
+	GateUnproven   bool // Verification did not produce authoritative merge evidence.
+	GateOutcome    GateOutcome
 	SlotTimeout    bool // Merge slot contention timeout (distinct from build/test failure)
 	BranchNotFound bool // Source branch no longer exists (e.g. cleaned up after cherry-pick)
 	NoMerge        bool // MR/source is intentionally not merge-eligible, not a build failure
 	NeedsApproval  bool // PR exists but lacks required approving review (merge_strategy=pr)
 }
 
+type mergeGateAuthorization struct {
+	verified bool
+}
+
+func mergeGateAuthorized(result ProcessResult) mergeGateAuthorization {
+	return mergeGateAuthorization{verified: result.Success}
+}
+
+func (a mergeGateAuthorization) ok() bool {
+	return a.verified
+}
+
 // doMerge performs the actual git merge operation.
-func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) ProcessResult {
+func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 	if mr == nil {
 		return ProcessResult{Success: false, Error: "merge request is missing"}
 	}
@@ -599,29 +636,28 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) P
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Pushed %d submodule(s)\n", len(subChanges))
 	}
 
-	// Step 4: Run quality gates (or legacy tests) if configured.
-	// Phase 3 fast-path: if skipGates is true (pre-verified MR with matching base),
-	// skip all gate execution — the polecat already ran gates after rebasing.
-	shouldSkipGates := len(skipGates) > 0 && skipGates[0]
-	if shouldSkipGates {
-		_, _ = fmt.Fprintln(e.output, "[Engineer] Skipping gates (pre-verified by polecat)")
-	} else if len(e.config.Gates) > 0 {
-		// New gates system: run configured quality gates
-		gateResult := e.runGates(ctx)
-		if !gateResult.Success {
-			return gateResult
+	// Step 4: Run a required verification gate. Missing or unproven execution is
+	// not a pass; only typed successful gate evidence can authorize landing.
+	gateAuth := mergeGateAuthorization{}
+	if len(e.config.Gates) > 0 {
+		preGateCount := e.countGatesForPhase(GatePhasePreMerge)
+		postGateCount := e.countGatesForPhase(GatePhasePostSquash)
+		if preGateCount > 0 {
+			gateResult := e.runGatesForPhaseRequired(ctx, GatePhasePreMerge, true)
+			if !gateResult.Success {
+				return gateResult
+			}
+			gateAuth = mergeGateAuthorized(gateResult)
+		} else if e.config.MergeStrategy == "pr" || postGateCount == 0 {
+			return gateNotProven(GateOutcomeNoEvidence, "no executable pre-merge gate configured")
 		}
-	} else if e.config.RunTests && e.config.TestCommand != "" {
-		// Legacy test command path (backward compatible)
+	} else {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Running tests: %s\n", e.config.TestCommand)
 		result := e.runTests(ctx)
 		if !result.Success {
-			return ProcessResult{
-				Success:     false,
-				TestsFailed: true,
-				Error:       result.Error,
-			}
+			return result
 		}
+		gateAuth = mergeGateAuthorized(result)
 		_, _ = fmt.Fprintln(e.output, "[Engineer] Tests passed")
 	}
 
@@ -630,6 +666,9 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) P
 	// protection/restriction rules and preserves the PR audit trail.
 	// The VCS provider (GitHub, Bitbucket) is selected via vcs_provider config.
 	if e.config.MergeStrategy == "pr" {
+		if !gateAuth.ok() {
+			return gateNotProven(GateOutcomeNoEvidence, "pre-merge gate authorization missing for PR merge")
+		}
 		return e.doMergePR(ctx, mr)
 	}
 
@@ -669,14 +708,23 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) P
 	// Step 5.5: Run post-squash gates on the merged result.
 	// These validate the actual combined code before it goes anywhere.
 	// On failure, reset the merge to undo the local squash commit.
-	if !shouldSkipGates {
-		postResult := e.runGatesForPhase(ctx, GatePhasePostSquash)
+	if len(e.config.Gates) > 0 {
+		postResult := e.runGatesForPhaseRequired(ctx, GatePhasePostSquash, false)
 		if !postResult.Success {
 			if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after post-squash gate failure: %v\n", target, resetErr)
 			}
 			return postResult
 		}
+		if e.countGatesForPhase(GatePhasePostSquash) > 0 {
+			gateAuth = mergeGateAuthorized(postResult)
+		}
+	}
+	if !gateAuth.ok() {
+		if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after missing gate authorization: %v\n", target, resetErr)
+		}
+		return gateNotProven(GateOutcomeNoEvidence, "merge gate authorization missing")
 	}
 
 	// Step 6: Get the merge commit SHA
@@ -788,40 +836,40 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 	}
 
 	// Step PR.1: Find the PR for this branch
-	pr, err := e.prProvider.FindPullRequest(branch, mr.PRURL, mr.PRNumber, mr.CommitSHA)
+	prNumber, err := e.prProvider.FindPRNumber(branch)
 	if err != nil {
 		return ProcessResult{
 			Success: false,
 			Error:   fmt.Sprintf("failed to find PR for branch %s: %v", branch, err),
 		}
 	}
-	if pr == nil {
+	if prNumber == 0 {
 		return ProcessResult{
 			Success: false,
 			Error:   fmt.Sprintf("no open PR found for branch %s — merge_strategy=pr requires a PR", branch),
 		}
 	}
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Found PR #%d for branch %s\n", pr.Number, branch)
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Found PR #%d for branch %s\n", prNumber, branch)
 
 	// Step PR.2: Check approval status if require_review is enabled
 	requireReview := e.config.RequireReview != nil && *e.config.RequireReview
 	if requireReview {
-		approved, err := e.prProvider.IsPRApproved(pr)
+		approved, err := e.prProvider.IsPRApproved(prNumber)
 		if err != nil {
 			return ProcessResult{
 				Success: false,
-				Error:   fmt.Sprintf("failed to check PR #%d approval status: %v", pr.Number, err),
+				Error:   fmt.Sprintf("failed to check PR #%d approval status: %v", prNumber, err),
 			}
 		}
 		if !approved {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d awaiting human approval — deferring merge\n", pr.Number)
+			_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d awaiting human approval — deferring merge\n", prNumber)
 			return ProcessResult{
 				Success:       false,
 				NeedsApproval: true,
-				Error:         fmt.Sprintf("PR #%d requires approving review before merge", pr.Number),
+				Error:         fmt.Sprintf("PR #%d requires approving review before merge", prNumber),
 			}
 		}
-		_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d has approving review\n", pr.Number)
+		_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d has approving review\n", prNumber)
 	}
 
 	if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
@@ -829,12 +877,12 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 	}
 
 	// Step PR.3: Merge via VCS provider API using squash merge
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Merging PR #%d via %s API (squash)...\n", pr.Number, provider)
-	mergeCommit, err := e.prProvider.MergePR(pr, "squash")
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Merging PR #%d via %s API (squash)...\n", prNumber, provider)
+	mergeCommit, err := e.prProvider.MergePR(prNumber, "squash")
 	if err != nil {
 		return ProcessResult{
 			Success: false,
-			Error:   fmt.Sprintf("PR merge failed for PR #%d: %v", pr.Number, err),
+			Error:   fmt.Sprintf("PR merge failed for PR #%d: %v", prNumber, err),
 		}
 	}
 
@@ -857,7 +905,7 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 		}
 	}
 
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Successfully merged PR #%d: %s\n", pr.Number, shortSHA(mergeCommit))
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Successfully merged PR #%d: %s\n", prNumber, shortSHA(mergeCommit))
 	return ProcessResult{
 		Success:     true,
 		MergeCommit: mergeCommit,
@@ -1091,11 +1139,11 @@ func ValidateTestCommand(cmd string) error {
 
 // runTests runs the configured test command and returns the result.
 func (e *Engineer) runTests(ctx context.Context) ProcessResult {
+	if !e.config.RunTests {
+		return gateNotProven(GateOutcomeNoEvidence, "run_tests=false; required verification did not execute")
+	}
 	if err := ValidateTestCommand(e.config.TestCommand); err != nil {
-		return ProcessResult{
-			Success: false,
-			Error:   fmt.Sprintf("invalid test command: %v", err),
-		}
+		return gateNotProven(GateOutcomeConfigFailure, fmt.Sprintf("invalid test command: %v", err))
 	}
 
 	// Run the test command with retries for flaky tests
@@ -1104,57 +1152,53 @@ func (e *Engineer) runTests(ctx context.Context) ProcessResult {
 		maxRetries = 1
 	}
 
-	var lastErr error
+	var lastResult GateResult
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Retrying tests (attempt %d/%d)...\n", attempt, maxRetries)
 		}
 
-		// Trust boundary: TestCommand comes from rig's config.json (operator-controlled
-		// infrastructure config), not from PR branches or user input. Shell execution
-		// is intentional for flexibility (pipes, env vars, etc).
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Executing test command: %s\n", e.config.TestCommand)
-		cmd := exec.CommandContext(ctx, "sh", "-c", e.config.TestCommand) //nolint:gosec // G204: TestCommand is from trusted rig config
-		util.SetDetachedProcessGroup(cmd)
-		cmd.Dir = e.workDir
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-
-		err := cmd.Run()
-		if err == nil {
+		lastResult = e.runGate(ctx, "test", &GateConfig{Cmd: e.config.TestCommand, Kind: gateKindTest})
+		if lastResult.Success {
 			return ProcessResult{Success: true}
 		}
-		lastErr = err
-
-		// Check if context was canceled
-		if ctx.Err() != nil {
-			return ProcessResult{
-				Success: false,
-				Error:   "test run canceled",
-			}
+		if lastResult.Outcome != GateOutcomeCheckFailed {
+			break
 		}
 	}
 
-	return ProcessResult{
-		Success:     false,
-		TestsFailed: true,
-		Error:       fmt.Sprintf("tests failed after %d attempts: %v", maxRetries, lastErr),
-	}
+	return processGateFailures([]GateResult{lastResult}, "tests")
 }
 
 // runGate executes a single quality gate command and returns the result.
 func (e *Engineer) runGate(ctx context.Context, name string, gate *GateConfig) GateResult {
 	start := time.Now()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	kind := normalizedGateKind(name, gate)
 
 	if strings.TrimSpace(gate.Cmd) == "" {
 		return GateResult{
 			Name:    name,
-			Success: false,
+			Kind:    kind,
+			Outcome: GateOutcomeConfigFailure,
 			Error:   "gate command is empty",
 			Elapsed: time.Since(start),
 		}
 	}
+	evidencePath, evidenceErr := prepareGateEvidencePath()
+	if evidenceErr != nil {
+		return GateResult{
+			Name:    name,
+			Kind:    kind,
+			Outcome: GateOutcomeInfraFailure,
+			Error:   fmt.Sprintf("could not prepare gate evidence path: %v", evidenceErr),
+			Elapsed: time.Since(start),
+		}
+	}
+	defer os.Remove(evidencePath)
 
 	// Apply per-gate timeout if configured
 	gateCtx := ctx
@@ -1167,50 +1211,97 @@ func (e *Engineer) runGate(ctx context.Context, name string, gate *GateConfig) G
 	cmd := exec.CommandContext(gateCtx, "sh", "-c", gate.Cmd) //nolint:gosec // G204: Gate commands are from trusted rig config
 	util.SetDetachedProcessGroup(cmd)
 	cmd.Dir = e.workDir
+	cmd.Env = append(os.Environ(), "GT_GATE_EVIDENCE="+evidencePath)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
-	elapsed := time.Since(start)
-
-	if err == nil {
+	if err := cmd.Start(); err != nil {
 		return GateResult{
 			Name:    name,
-			Success: true,
-			Elapsed: elapsed,
+			Kind:    kind,
+			Outcome: GateOutcomeInfraFailure,
+			Error:   fmt.Sprintf("gate command did not start: %v", err),
+			Elapsed: time.Since(start),
 		}
 	}
+	err := cmd.Wait()
+	elapsed := time.Since(start)
+	exitCode, hasExit := commandExitCode(err)
 
-	errMsg := fmt.Sprintf("%v", err)
+	base := GateResult{
+		Name:     name,
+		Kind:     kind,
+		Elapsed:  elapsed,
+		Started:  true,
+		ExitCode: exitCode,
+		HasExit:  hasExit,
+		Evidence: evidencePath,
+	}
+
 	if gateCtx.Err() == context.DeadlineExceeded {
-		errMsg = fmt.Sprintf("timed out after %v", gate.Timeout)
+		base.Outcome = GateOutcomeInfraFailure
+		base.Error = fmt.Sprintf("timed out after %v", gate.Timeout)
+		return base
 	}
-	if stderrStr := strings.TrimSpace(stderr.String()); stderrStr != "" {
-		// Cap stderr to avoid huge error messages
-		if len(stderrStr) > 500 {
-			stderrStr = stderrStr[:500] + "..."
-		}
-		errMsg = fmt.Sprintf("%s: %s", errMsg, stderrStr)
+	if gateCtx.Err() == context.Canceled {
+		base.Outcome = GateOutcomeInfraFailure
+		base.Error = "gate command canceled"
+		return base
+	}
+	if hasExit && (exitCode == 126 || exitCode == 127) {
+		base.Outcome = GateOutcomeConfigFailure
+		base.Error = gateCommandError(err, stderr.String())
+		return base
 	}
 
-	return GateResult{
-		Name:    name,
-		Success: false,
-		Error:   errMsg,
-		Elapsed: elapsed,
+	if kind == gateKindTest {
+		outcome, evidenceMsg := validateGateEvidence(evidencePath)
+		if outcome != GateOutcomePassed {
+			base.Outcome = outcome
+			base.Error = evidenceMsg
+			return base
+		}
+		if err != nil {
+			base.Outcome = GateOutcomeCheckFailed
+			base.Error = gateCommandError(err, stderr.String())
+			return base
+		}
+		base.Success = true
+		base.Outcome = GateOutcomePassed
+		return base
 	}
+
+	if err == nil {
+		base.Success = true
+		base.Outcome = GateOutcomePassed
+		return base
+	}
+	base.Outcome = GateOutcomeCheckFailed
+	base.Error = gateCommandError(err, stderr.String())
+	return base
+}
+
+// RunTestCommandWithEvidence executes a test gate in workDir using the same
+// fail-closed evidence contract as refinery merge gates.
+func RunTestCommandWithEvidence(ctx context.Context, workDir, testCmd string) GateResult {
+	e := &Engineer{workDir: workDir}
+	return e.runGate(ctx, "test", &GateConfig{Cmd: testCmd, Kind: gateKindTest})
 }
 
 // runGates executes all pre-merge gates (backward-compatible entry point).
 func (e *Engineer) runGates(ctx context.Context) ProcessResult {
-	return e.runGatesForPhase(ctx, GatePhasePreMerge)
+	return e.runGatesForPhaseRequired(ctx, GatePhasePreMerge, true)
 }
 
 // runGatesForPhase executes gates matching the given phase.
 // Gates run in parallel if GatesParallel is true; otherwise sequentially.
 // Any single gate failure means overall failure.
 func (e *Engineer) runGatesForPhase(ctx context.Context, phase GatePhase) ProcessResult {
+	return e.runGatesForPhaseRequired(ctx, phase, true)
+}
+
+func (e *Engineer) runGatesForPhaseRequired(ctx context.Context, phase GatePhase, required bool) ProcessResult {
 	// Filter gates for this phase. Empty phase is treated as pre-merge (default).
 	gates := make(map[string]*GateConfig)
 	for name, gc := range e.config.Gates {
@@ -1223,6 +1314,23 @@ func (e *Engineer) runGatesForPhase(ctx context.Context, phase GatePhase) Proces
 		}
 	}
 	if len(gates) == 0 {
+		if required {
+			return gateNotProven(GateOutcomeNoEvidence, fmt.Sprintf("no executable %s gate configured", phase))
+		}
+		return ProcessResult{Success: true}
+	}
+	return e.runGateSet(ctx, gates, string(phase), required, e.config.GatesParallel && phase == GatePhasePreMerge)
+}
+
+func (e *Engineer) runAllGates(ctx context.Context) ProcessResult {
+	return e.runGateSet(ctx, e.config.Gates, "batch", true, e.config.GatesParallel)
+}
+
+func (e *Engineer) runGateSet(ctx context.Context, gates map[string]*GateConfig, label string, required bool, parallel bool) ProcessResult {
+	if len(gates) == 0 {
+		if required {
+			return gateNotProven(GateOutcomeNoEvidence, fmt.Sprintf("no executable %s gate configured", label))
+		}
 		return ProcessResult{Success: true}
 	}
 
@@ -1233,8 +1341,7 @@ func (e *Engineer) runGatesForPhase(ctx context.Context, phase GatePhase) Proces
 	}
 	sort.Strings(names)
 
-	parallel := e.config.GatesParallel && phase == GatePhasePreMerge // post-squash always sequential
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Running %d %s gate(s) (parallel=%v)\n", len(names), phase, parallel)
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Running %d %s gate(s) (parallel=%v)\n", len(names), label, parallel)
 
 	var results []GateResult
 
@@ -1274,15 +1381,215 @@ func (e *Engineer) runGatesForPhase(ctx context.Context, phase GatePhase) Proces
 	}
 
 	if len(failures) > 0 {
-		return ProcessResult{
-			Success:     false,
-			TestsFailed: true,
-			Error:       fmt.Sprintf("quality gates failed: %s", strings.Join(failures, "; ")),
-		}
+		return processGateFailures(results, "quality gates")
 	}
 
 	_, _ = fmt.Fprintln(e.output, "[Engineer] All quality gates passed")
 	return ProcessResult{Success: true}
+}
+
+func (e *Engineer) countGatesForPhase(phase GatePhase) int {
+	count := 0
+	for _, gc := range e.config.Gates {
+		gatePhase := gc.Phase
+		if gatePhase == "" {
+			gatePhase = GatePhasePreMerge
+		}
+		if gatePhase == phase {
+			count++
+		}
+	}
+	return count
+}
+
+func normalizedGateKind(name string, gate *GateConfig) string {
+	kind := ""
+	if gate != nil {
+		kind = strings.ToLower(strings.TrimSpace(gate.Kind))
+	}
+	if kind == "" && name == gateKindTest {
+		return gateKindTest
+	}
+	return kind
+}
+
+func gateNotProven(outcome GateOutcome, message string) ProcessResult {
+	if outcome == "" {
+		outcome = GateOutcomeUnknown
+	}
+	return ProcessResult{
+		Success:      false,
+		GateUnproven: true,
+		GateOutcome:  outcome,
+		Error:        message,
+	}
+}
+
+func processGateFailures(results []GateResult, label string) ProcessResult {
+	var failures []string
+	outcome := GateOutcomeCheckFailed
+	unproven := false
+	for _, r := range results {
+		if r.Success {
+			continue
+		}
+		if r.Outcome == "" {
+			r.Outcome = GateOutcomeUnknown
+		}
+		if r.Error == "" {
+			r.Error = string(r.Outcome)
+		}
+		failures = append(failures, fmt.Sprintf("%s: %s", r.Name, r.Error))
+		if r.Outcome != GateOutcomeCheckFailed {
+			if !unproven {
+				outcome = r.Outcome
+			}
+			unproven = true
+		}
+	}
+	if len(failures) == 0 {
+		return ProcessResult{Success: true}
+	}
+	result := ProcessResult{
+		Success:     false,
+		GateOutcome: outcome,
+		Error:       fmt.Sprintf("%s failed: %s", label, strings.Join(failures, "; ")),
+	}
+	if unproven {
+		result.GateUnproven = true
+	} else {
+		result.TestsFailed = true
+	}
+	return result
+}
+
+func prepareGateEvidencePath() (string, error) {
+	f, err := os.CreateTemp("", "gt-gate-evidence-*.json")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	if closeErr := f.Close(); closeErr != nil {
+		_ = os.Remove(path)
+		return "", closeErr
+	}
+	if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+		return "", removeErr
+	}
+	return path, nil
+}
+
+func commandExitCode(err error) (int, bool) {
+	if err == nil {
+		return 0, true
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		code := exitErr.ExitCode()
+		if code >= 0 {
+			return code, true
+		}
+	}
+	return 0, false
+}
+
+func gateCommandError(err error, stderr string) string {
+	msg := fmt.Sprintf("%v", err)
+	stderr = strings.TrimSpace(stderr)
+	if stderr != "" {
+		if len(stderr) > 500 {
+			stderr = stderr[:500] + "..."
+		}
+		msg = fmt.Sprintf("%s: %s", msg, stderr)
+	}
+	return msg
+}
+
+type gateEvidence struct {
+	Version       int    `json:"version,omitempty"`
+	Outcome       string `json:"outcome,omitempty"`
+	Executed      *bool  `json:"executed,omitempty"`
+	TestsExecuted *int   `json:"tests_executed,omitempty"`
+	Passed        *bool  `json:"passed,omitempty"`
+}
+
+func validateGateEvidence(path string) (GateOutcome, string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return GateOutcomeNoEvidence, "test gate did not write GT_GATE_EVIDENCE"
+		}
+		return GateOutcomeNoEvidence, fmt.Sprintf("could not read GT_GATE_EVIDENCE: %v", err)
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return GateOutcomeNoEvidence, "GT_GATE_EVIDENCE is empty"
+	}
+	var ev gateEvidence
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return GateOutcomeNoEvidence, fmt.Sprintf("GT_GATE_EVIDENCE is not valid JSON: %v", err)
+	}
+	declared := normalizeEvidenceOutcome(ev.Outcome)
+	switch declared {
+	case GateOutcomePreExistingFailure:
+		return declared, "test gate reported pre-existing failure; merge held"
+	case GateOutcomeUnknown:
+		return declared, "test gate reported unknown verification outcome"
+	case GateOutcomeNoEvidence:
+		return declared, "test gate reported missing or unparsable evidence"
+	case GateOutcomeZeroTests:
+		return declared, "test gate reported zero executed tests"
+	case GateOutcomeConfigFailure:
+		return declared, "test gate reported configuration failure"
+	case GateOutcomeInfraFailure:
+		return declared, "test gate reported infrastructure failure"
+	}
+
+	executed := false
+	if ev.Executed != nil && *ev.Executed {
+		executed = true
+	}
+	if ev.TestsExecuted != nil {
+		if *ev.TestsExecuted <= 0 {
+			return GateOutcomeZeroTests, "test gate reported zero executed tests"
+		}
+		executed = true
+	}
+	if !executed {
+		return GateOutcomeNoEvidence, "GT_GATE_EVIDENCE does not prove any test execution"
+	}
+	if ev.Passed != nil && !*ev.Passed {
+		return GateOutcomeCheckFailed, "test gate evidence reports failed tests"
+	}
+	if declared == GateOutcomeCheckFailed {
+		return GateOutcomeCheckFailed, "test gate evidence reports failed tests"
+	}
+	return GateOutcomePassed, ""
+}
+
+func normalizeEvidenceOutcome(outcome string) GateOutcome {
+	s := strings.ToLower(strings.TrimSpace(outcome))
+	s = strings.ReplaceAll(s, "-", "_")
+	s = strings.ReplaceAll(s, " ", "_")
+	switch s {
+	case "", "pass", "passed", "success", "ok":
+		return GateOutcomePassed
+	case "check_failed", "failed", "failure", "test_failed", "tests_failed":
+		return GateOutcomeCheckFailed
+	case "config_failure", "configuration_failure", "missing_tool":
+		return GateOutcomeConfigFailure
+	case "infra_failure", "infrastructure_failure", "timeout", "canceled", "cancelled":
+		return GateOutcomeInfraFailure
+	case "no_evidence", "unparseable", "unparsable", "malformed", "missing_evidence":
+		return GateOutcomeNoEvidence
+	case "zero_tests", "no_tests":
+		return GateOutcomeZeroTests
+	case "pre_existing_failure", "preexisting_failure", "pre_existing", "baseline_red":
+		return GateOutcomePreExistingFailure
+	case "unknown", "uncertain":
+		return GateOutcomeUnknown
+	default:
+		return GateOutcomeUnknown
+	}
 }
 
 // syncCrewWorkspaces pulls latest changes to all crew workspaces.
@@ -1326,27 +1633,13 @@ func (e *Engineer) ProcessMRInfo(ctx context.Context, mr *MRInfo) ProcessResult 
 	_, _ = fmt.Fprintf(e.output, "  Worker: %s\n", mr.Worker)
 	_, _ = fmt.Fprintf(e.output, "  Source: %s\n", mr.SourceIssue)
 
-	// Phase 3: Check pre-verification fast-path.
-	// If the polecat already rebased onto the target and ran gates, and the target
-	// hasn't moved since, we can skip running gates entirely (~5s merge).
-	skipGates := false
 	if mr.PreVerified && mr.PreVerifiedBase != "" {
 		_, _ = fmt.Fprintf(e.output, "  Pre-verified: yes (base=%s)\n", mr.PreVerifiedBase[:min(8, len(mr.PreVerifiedBase))])
-		// Check if target HEAD still matches the verified base
-		targetHead, err := e.git.Rev("origin/" + mr.Target)
-		if err != nil {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not resolve origin/%s HEAD: %v (falling through to normal gates)\n", mr.Target, err)
-		} else if targetHead == mr.PreVerifiedBase {
-			_, _ = fmt.Fprintln(e.output, "[Engineer] Pre-verification valid — target unchanged, skipping gates (fast-path)")
-			skipGates = true
-		} else {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Pre-verification stale — target moved (%s → %s), running gates normally\n",
-				mr.PreVerifiedBase[:min(8, len(mr.PreVerifiedBase))], targetHead[:min(8, len(targetHead))])
-		}
+		_, _ = fmt.Fprintln(e.output, "[Engineer] Pre-verification metadata is not executable gate evidence; running refinery gates")
 	}
 
 	// Use the shared merge logic
-	return e.doMerge(ctx, mr, skipGates)
+	return e.doMerge(ctx, mr)
 }
 
 // HandleMRInfoSuccess handles a successful merge from MRInfo.
@@ -1409,7 +1702,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 		// be closed via gh pr merge (showing "merged"), not via branch deletion
 		// (which shows "closed" and destroys the PR audit trail).
 		if isPolecat {
-			if e.git.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: mr.Branch, HeadSHA: mr.CommitSHA}) {
+			if e.git.HasOpenPR(mr.Branch) {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", mr.Branch)
 			} else if err := e.git.DeleteRemoteBranch("origin", mr.Branch); err != nil {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to delete remote branch %s: %v\n", mr.Branch, err)
@@ -1898,9 +2191,6 @@ func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
 		Title:           issue.Title,
 		Priority:        issue.Priority,
 		AgentBead:       fields.AgentBead,
-		CommitSHA:       fields.CommitSHA,
-		PRURL:           fields.PRURL,
-		PRNumber:        fields.PRNumber,
 		RetryCount:      fields.RetryCount,
 		ConflictTaskID:  fields.ConflictTaskID,
 		ConvoyID:        fields.ConvoyID,

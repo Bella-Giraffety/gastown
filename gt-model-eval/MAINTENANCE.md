@@ -14,7 +14,7 @@ Each role has hardcoded `allowed_actions` in every test case. If an action is re
 | Deacon (plugin-run) | `execute-plugin`, `skip` | `deacon-plugin-gate.yaml` |
 | Deacon (dog-health) | `no-op`, `log-and-watch`, `file-warrant`, `force-clear`, `spawn-dog`, `retire-dog` | `deacon-dog-health.yaml`, `class-a-deacon.yaml` |
 | Witness | `no-op`, `nudge`, `escalate`, `nuke`, `mark-zombie`, `create-cleanup-wisp` | `witness-stuck.yaml`, `witness-cleanup.yaml`, `class-a-witness.yaml` |
-| Refinery | `reject-mr`, `file-bead-and-proceed`, `retry`, `skip-mr`, `investigate` | `refinery-triage.yaml`, `refinery-conflict.yaml`, `class-a-refinery.yaml` |
+| Refinery | `reject-mr`, `file-bead-and-hold`, `hold-mr`, `retry`, `skip-mr`, `investigate` | `refinery-triage.yaml`, `refinery-conflict.yaml`, `class-a-refinery.yaml` |
 | Dog | `reset`, `reassign`, `recover`, `escalate`, `burn` | `dog-orphan.yaml`, `class-a-dog.yaml` |
 
 Each test case repeats the full `allowed_actions` array in `vars`. Search for the old action name across all YAML files:

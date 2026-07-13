@@ -57,6 +57,7 @@ func TestRunTests_EmptyCommand(t *testing.T) {
 	// rather than silently succeeding or executing a blank shell command.
 	e := &Engineer{
 		config: &MergeQueueConfig{
+			RunTests:    true,
 			TestCommand: "",
 		},
 	}
@@ -68,11 +69,15 @@ func TestRunTests_EmptyCommand(t *testing.T) {
 	if result.Error == "" {
 		t.Error("expected error message for empty test command")
 	}
+	if !result.GateUnproven || result.GateOutcome != GateOutcomeConfigFailure {
+		t.Fatalf("result = %+v, want config-failure GateUnproven", result)
+	}
 }
 
 func TestRunTests_WhitespaceCommand(t *testing.T) {
 	e := &Engineer{
 		config: &MergeQueueConfig{
+			RunTests:    true,
 			TestCommand: "   ",
 		},
 	}
@@ -80,5 +85,25 @@ func TestRunTests_WhitespaceCommand(t *testing.T) {
 	result := e.runTests(nil)
 	if result.Success {
 		t.Error("expected failure for whitespace-only test command, got success")
+	}
+	if !result.GateUnproven || result.GateOutcome != GateOutcomeConfigFailure {
+		t.Fatalf("result = %+v, want config-failure GateUnproven", result)
+	}
+}
+
+func TestRunTests_DisabledFailsClosed(t *testing.T) {
+	e := &Engineer{
+		config: &MergeQueueConfig{
+			RunTests:    false,
+			TestCommand: "true",
+		},
+	}
+
+	result := e.runTests(nil)
+	if result.Success {
+		t.Fatal("expected run_tests=false to fail closed")
+	}
+	if !result.GateUnproven || result.GateOutcome != GateOutcomeNoEvidence {
+		t.Fatalf("result = %+v, want no-evidence GateUnproven", result)
 	}
 }

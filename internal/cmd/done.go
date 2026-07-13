@@ -49,9 +49,7 @@ Exit statuses:
 
 Examples:
   gt done                              # Submit branch, notify COMPLETED, exit session
-  gt done --pre-verified               # Submit with pre-verification fast-path
   gt done --target feat/my-branch      # Explicit MR target branch
-  gt done --pre-verified --target feat/contract-review  # Pre-verified with explicit target
   gt done --issue gt-abc               # Explicit issue ID
   gt done --skip-verify                # Audit-only escape hatch for non-code closes
   gt done --status ESCALATED           # Signal blocker, skip MR
@@ -379,7 +377,7 @@ func init() {
 	doneCmd.Flags().StringVar(&doneStatus, "status", ExitCompleted, "Exit status: COMPLETED, ESCALATED, or DEFERRED")
 	doneCmd.Flags().StringVar(&doneCleanupStatus, "cleanup-status", "", "Git cleanup status: clean, uncommitted, unpushed, stash, unknown (ZFC: agent-observed)")
 	doneCmd.Flags().BoolVar(&doneResume, "resume", false, "Resume from last checkpoint (auto-detected, for Witness recovery)")
-	doneCmd.Flags().BoolVar(&donePreVerified, "pre-verified", false, "Mark MR as pre-verified (polecat ran gates after rebasing onto target)")
+	doneCmd.Flags().BoolVar(&donePreVerified, "pre-verified", false, "Record pre-verification metadata (refinery still validates gates)")
 	doneCmd.Flags().StringVar(&doneTarget, "target", "", "Explicit MR target branch (overrides formula_vars and auto-detection)")
 	doneCmd.Flags().BoolVar(&doneSkipVerify, "skip-verify", false, "Skip verified-push checks for audit/test-only completion (recorded on bead)")
 
@@ -1575,8 +1573,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			description += "\nlast_conflict_sha: null"
 			description += "\nconflict_task_id: null"
 
-			// Phase 3: Add pre-verification metadata if polecat ran gates after rebasing.
-			// The refinery uses these fields to fast-path merge without re-running gates.
+			// Add pre-verification metadata if polecat ran gates after rebasing.
+			// This is audit context only; refinery still requires executable gate evidence.
 			if donePreVerified {
 				description += "\npre_verified: true"
 				description += fmt.Sprintf("\npre_verified_at: %s", time.Now().UTC().Format(time.RFC3339))

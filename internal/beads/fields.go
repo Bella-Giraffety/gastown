@@ -624,8 +624,6 @@ type MRFields struct {
 	Worker      string // Who did the work
 	Rig         string // Which rig
 	CommitSHA   string // HEAD commit SHA at submission time (GH#3032: dedup key)
-	PRURL       string // Recorded pull request URL, if one exists for this MR
-	PRNumber    int    // Recorded pull request number, scoped to the target repo
 	MergeCommit string // SHA of merge commit (set on close)
 	CloseReason string // Reason for closing: merged, rejected, conflict, superseded
 	AgentBead   string // Agent bead ID that created this MR (for traceability)
@@ -639,10 +637,9 @@ type MRFields struct {
 	ConvoyID        string // Parent convoy ID if part of a convoy
 	ConvoyCreatedAt string // Convoy creation time (ISO 8601) for starvation prevention
 
-	// Pre-verification fields (Phase 3: polecat-owned rebasing)
-	// When a polecat rebases onto the target and runs gates before submission,
-	// these fields allow the refinery to fast-path merge without re-running gates.
-	PreVerified     bool   // Polecat ran full gates after rebasing onto target
+	// Pre-verification fields are retained as audit metadata only. Refinery merge
+	// authorization still requires executable gate evidence.
+	PreVerified     bool   // Polecat claimed it ran full gates after rebasing onto target
 	PreVerifiedAt   string // ISO 8601 timestamp when verification completed
 	PreVerifiedBase string // Target branch SHA at verification time
 }
@@ -696,14 +693,6 @@ func ParseMRFields(issue *Issue) *MRFields {
 		case "commit_sha", "commit-sha", "commitsha":
 			fields.CommitSHA = value
 			hasFields = true
-		case "pr_url", "pr-url", "prurl":
-			fields.PRURL = value
-			hasFields = true
-		case "pr_number", "pr-number", "prnumber":
-			if n, err := parseIntField(value); err == nil {
-				fields.PRNumber = n
-				hasFields = true
-			}
 		case "merge_commit", "merge-commit", "mergecommit":
 			fields.MergeCommit = value
 			hasFields = true
@@ -782,12 +771,6 @@ func FormatMRFields(fields *MRFields) string {
 	if fields.CommitSHA != "" {
 		lines = append(lines, "commit_sha: "+fields.CommitSHA)
 	}
-	if fields.PRURL != "" {
-		lines = append(lines, "pr_url: "+fields.PRURL)
-	}
-	if fields.PRNumber > 0 {
-		lines = append(lines, fmt.Sprintf("pr_number: %d", fields.PRNumber))
-	}
 	if fields.MergeCommit != "" {
 		lines = append(lines, "merge_commit: "+fields.MergeCommit)
 	}
@@ -845,12 +828,6 @@ func SetMRFields(issue *Issue, fields *MRFields) string {
 		"commit_sha":        true,
 		"commit-sha":        true,
 		"commitsha":         true,
-		"pr_url":            true,
-		"pr-url":            true,
-		"prurl":             true,
-		"pr_number":         true,
-		"pr-number":         true,
-		"prnumber":          true,
 		"merge_commit":      true,
 		"merge-commit":      true,
 		"mergecommit":       true,

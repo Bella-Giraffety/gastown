@@ -63,11 +63,11 @@ func TestAutoRebaseOnTarget_GatingDecisions(t *testing.T) {
 			wantCalls:   1,
 		},
 		{
-			name:        "pre-verified: skip even when behind",
+			name:        "pre-verification metadata: skip even when behind",
 			behind:      3,
 			preVerified: true,
 			wantRebased: false,
-			wantSkip:    "--pre-verified is set",
+			wantSkip:    "pre-verification metadata requested",
 			wantCalls:   0,
 		},
 		{
@@ -79,12 +79,12 @@ func TestAutoRebaseOnTarget_GatingDecisions(t *testing.T) {
 			wantCalls:     0,
 		},
 		{
-			name:          "pre-verified takes precedence over already-pushed",
+			name:          "pre-verification metadata takes precedence over already-pushed",
 			behind:        3,
 			preVerified:   true,
 			alreadyPushed: true,
 			wantRebased:   false,
-			wantSkip:      "--pre-verified is set",
+			wantSkip:      "pre-verification metadata requested",
 			wantCalls:     0,
 		},
 	}
