@@ -943,12 +943,12 @@ func TestCleanupStatusAfterSuccessfulPush(t *testing.T) {
 func TestCleanupStatusFromWorkState(t *testing.T) {
 	pushErr := errors.New("remote unavailable")
 	tests := []struct {
-		name             string
-		workStatus       *gitpkg.UncommittedWorkStatus
-		branchPushed     bool
-		unpushedCount    int
-		branchPushedErr  error
-		want             string
+		name            string
+		workStatus      *gitpkg.UncommittedWorkStatus
+		branchPushed    bool
+		unpushedCount   int
+		branchPushedErr error
+		want            string
 	}{
 		{
 			name:         "nil status unknown",
