@@ -507,6 +507,115 @@ func TestForceCloseWithReasonNoRouteStaysOnCurrentBeadsDir(t *testing.T) {
 	}
 }
 
+func TestCloseRoutesIDsByResolvedBeadsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+	ResetBdAllowStaleCacheForTest()
+	t.Cleanup(ResetBdAllowStaleCacheForTest)
+	t.Setenv("GT_SESSION_ID_ENV", "")
+	t.Setenv("GT_AGENT", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+
+	workDir, townBeadsDir, rigBeadsDir := setupForceCloseRoutingTown(t)
+	logPath := installMockBDCloseRecorder(t)
+
+	b := NewWithBeadsDir(workDir, townBeadsDir)
+	if err := b.Close("gt-src", "hq-src", "gt-other"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	lines := closeRecorderLines(readMockBDLog(t, logPath))
+	want := []string{
+		fmt.Sprintf("beads_dir=%s args=close gt-src gt-other", rigBeadsDir),
+		fmt.Sprintf("beads_dir=%s args=close hq-src", townBeadsDir),
+	}
+	if !reflect.DeepEqual(lines, want) {
+		t.Fatalf("close routing log mismatch\ngot:  %#v\nwant: %#v", lines, want)
+	}
+}
+
+func TestCloseWithReasonRoutesIDsByResolvedBeadsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+	ResetBdAllowStaleCacheForTest()
+	t.Cleanup(ResetBdAllowStaleCacheForTest)
+	t.Setenv("GT_SESSION_ID_ENV", "")
+	t.Setenv("GT_AGENT", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+
+	workDir, townBeadsDir, rigBeadsDir := setupForceCloseRoutingTown(t)
+	logPath := installMockBDCloseRecorder(t)
+
+	b := NewWithBeadsDir(workDir, townBeadsDir)
+	if err := b.CloseWithReason("done", "gt-src", "hq-src", "gt-other"); err != nil {
+		t.Fatalf("CloseWithReason: %v", err)
+	}
+
+	lines := closeRecorderLines(readMockBDLog(t, logPath))
+	want := []string{
+		fmt.Sprintf("beads_dir=%s args=close gt-src gt-other --reason=done", rigBeadsDir),
+		fmt.Sprintf("beads_dir=%s args=close hq-src --reason=done", townBeadsDir),
+	}
+	if !reflect.DeepEqual(lines, want) {
+		t.Fatalf("close-with-reason routing log mismatch\ngot:  %#v\nwant: %#v", lines, want)
+	}
+}
+
+func TestAddCommentRoutesIDByResolvedBeadsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+	ResetBdAllowStaleCacheForTest()
+	t.Cleanup(ResetBdAllowStaleCacheForTest)
+
+	workDir, townBeadsDir, rigBeadsDir := setupForceCloseRoutingTown(t)
+	logPath := installMockBDCloseRecorder(t)
+
+	b := NewWithBeadsDir(workDir, townBeadsDir)
+	if err := b.AddComment("gt-src", "linked"); err != nil {
+		t.Fatalf("AddComment gt-src: %v", err)
+	}
+	if err := b.AddComment("hq-src", "linked"); err != nil {
+		t.Fatalf("AddComment hq-src: %v", err)
+	}
+
+	lines := recorderLinesContaining(readMockBDLog(t, logPath), "args=comments add")
+	want := []string{
+		fmt.Sprintf("beads_dir=%s args=comments add gt-src linked", rigBeadsDir),
+		fmt.Sprintf("beads_dir=%s args=comments add hq-src linked", townBeadsDir),
+	}
+	if !reflect.DeepEqual(lines, want) {
+		t.Fatalf("comment routing log mismatch\ngot:  %#v\nwant: %#v", lines, want)
+	}
+}
+
+func TestAddCommentNoRouteStaysOnCurrentBeadsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+	ResetBdAllowStaleCacheForTest()
+	t.Cleanup(ResetBdAllowStaleCacheForTest)
+
+	workDir, townBeadsDir, rigBeadsDir := setupForceCloseRoutingTown(t)
+	logPath := installMockBDCloseRecorder(t)
+
+	b := NewWithBeadsDir(workDir, townBeadsDir).ForAgentBead()
+	if err := b.AddComment("gt-agent", "linked"); err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+
+	lines := recorderLinesContaining(readMockBDLog(t, logPath), "args=comments add")
+	want := []string{fmt.Sprintf("beads_dir=%s args=comments add gt-agent linked", townBeadsDir)}
+	if !reflect.DeepEqual(lines, want) {
+		t.Fatalf("comment noRoute log mismatch\ngot:  %#v\nwant: %#v", lines, want)
+	}
+	if strings.Contains(strings.Join(lines, "\n"), "beads_dir="+rigBeadsDir) {
+		t.Fatalf("noRoute comment unexpectedly used routed rig beads dir: %#v", lines)
+	}
+}
+
 func setupForceCloseRoutingTown(t *testing.T) (workDir, townBeadsDir, rigBeadsDir string) {
 	t.Helper()
 
@@ -561,9 +670,13 @@ exit 0
 }
 
 func closeRecorderLines(log string) []string {
+	return recorderLinesContaining(log, "args=close")
+}
+
+func recorderLinesContaining(log, substr string) []string {
 	var lines []string
 	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
-		if strings.Contains(line, "args=close") {
+		if strings.Contains(line, substr) {
 			lines = append(lines, line)
 		}
 	}

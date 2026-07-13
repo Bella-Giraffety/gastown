@@ -33,6 +33,18 @@ func TestParseBranchName(t *testing.T) {
 			wantWorker: "furiosa",
 		},
 		{
+			name:       "polecat branch with issue and plus suffix",
+			branch:     "polecat/thunder/cmap-83z+e1a229",
+			wantIssue:  "cmap-83z",
+			wantWorker: "thunder",
+		},
+		{
+			name:       "polecat branch with slug issue and plus suffix",
+			branch:     "polecat/thunder/gt-done-routed-beads-opencode-dirt+e1a229",
+			wantIssue:  "gt-done-routed-beads-opencode-dirt",
+			wantWorker: "thunder",
+		},
+		{
 			name:       "modern polecat branch (timestamp format)",
 			branch:     "polecat/furiosa-mkc36bb9",
 			wantIssue:  "", // Should NOT extract fake issue from worker-timestamp
@@ -378,7 +390,7 @@ func TestMRFilteringByLabel(t *testing.T) {
 			issue: &beads.Issue{
 				ID:     "mr-1",
 				Title:  "Merge: test-branch",
-				Type:   "task", // Wrong type (default from bd create)
+				Type:   "task",                       // Wrong type (default from bd create)
 				Labels: []string{"gt:merge-request"}, // Correct label
 			},
 			wantIsMR: true,

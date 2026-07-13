@@ -727,6 +727,91 @@ func TestCleanupStatusAfterSuccessfulPush(t *testing.T) {
 	}
 }
 
+func TestCleanupStatusFromWorkState(t *testing.T) {
+	pushErr := errors.New("origin unavailable")
+	tests := []struct {
+		name          string
+		workStatus    *gitpkg.UncommittedWorkStatus
+		branchPushed  bool
+		unpushedCount int
+		pushErr       error
+		want          string
+	}{
+		{
+			name: "runtime-only opencode dirt is clean",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UntrackedFiles:        []string{".opencode/plugins/gastown.js"},
+			},
+			branchPushed: true,
+			want:         "clean",
+		},
+		{
+			name: "runtime and source dirt is uncommitted",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UntrackedFiles:        []string{".opencode/plugins/gastown.js", "main.go"},
+			},
+			branchPushed: true,
+			want:         "uncommitted",
+		},
+		{
+			name: "runtime dirt with stash remains stash",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				StashCount:            1,
+				UntrackedFiles:        []string{".opencode/plugins/gastown.js"},
+			},
+			branchPushed: false,
+			want:         "stash",
+		},
+		{
+			name: "runtime dirt with unpushed branch remains unpushed",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UntrackedFiles:        []string{".opencode/plugins/gastown.js"},
+			},
+			branchPushed: false,
+			want:         "unpushed",
+		},
+		{
+			name: "runtime dirt with unpushed count remains unpushed",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UntrackedFiles:        []string{".opencode/plugins/gastown.js"},
+			},
+			branchPushed:  true,
+			unpushedCount: 1,
+			want:          "unpushed",
+		},
+		{
+			name: "opencode conflict is uncommitted",
+			workStatus: &gitpkg.UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UnmergedFiles:         []string{".opencode/plugins/gastown.js"},
+			},
+			branchPushed: true,
+			want:         "uncommitted",
+		},
+		{
+			name:         "push check error is unpushed",
+			workStatus:   &gitpkg.UncommittedWorkStatus{},
+			branchPushed: true,
+			pushErr:      pushErr,
+			want:         "unpushed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanupStatusFromWorkState(tt.workStatus, tt.branchPushed, tt.unpushedCount, tt.pushErr)
+			if got != tt.want {
+				t.Errorf("cleanupStatusFromWorkState() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldRejectZeroCommitPolecat(t *testing.T) {
 	tests := []struct {
 		name                 string

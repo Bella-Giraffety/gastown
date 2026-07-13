@@ -37,15 +37,15 @@ var issuePattern = regexp.MustCompile(`([a-z]+-[a-z0-9]+(?:\.[0-9]+)?)`)
 func parseBranchName(branch string) branchInfo {
 	info := branchInfo{Branch: branch}
 
-	// Try polecat/<worker>/<issue> or polecat/<worker>/<issue>@<timestamp> format
+	// Try polecat/<worker>/<issue> with optional @ or + suffix.
 	if strings.HasPrefix(branch, constants.BranchPolecatPrefix) {
 		parts := strings.SplitN(branch, "/", 3)
 		if len(parts) == 3 {
 			info.Worker = parts[1]
-			// Strip @timestamp suffix if present (e.g., "gt-abc@mk123" -> "gt-abc")
+			// Strip unique branch suffixes after the issue component.
 			issue := parts[2]
-			if atIdx := strings.Index(issue, "@"); atIdx > 0 {
-				issue = issue[:atIdx]
+			if suffixIdx := strings.IndexAny(issue, "@+"); suffixIdx > 0 {
+				issue = issue[:suffixIdx]
 			}
 			info.Issue = issue
 			return info
@@ -303,7 +303,7 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		// GH#2599: Back-link source issue to MR bead for discoverability.
 		if issueID != "" {
 			comment := fmt.Sprintf("MR created: %s", mrIssue.ID)
-			if _, err := bd.Run("comments", "add", issueID, comment); err != nil {
+			if err := bd.AddComment(issueID, comment); err != nil {
 				style.PrintWarning("could not back-link source issue %s to MR %s: %v", issueID, mrIssue.ID, err)
 			}
 		}

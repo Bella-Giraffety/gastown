@@ -1765,64 +1765,22 @@ func (b *Beads) Update(id string, opts UpdateOptions) error {
 // If a runtime session ID is set in the environment, it is passed to bd close
 // for work attribution tracking (see decision 009-session-events-architecture.md).
 func (b *Beads) Close(ids ...string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	if b.store != nil {
-		return b.storeClose("", runtime.SessionIDFromEnv(), ids...)
-	}
-
-	args := append([]string{"close"}, ids...)
-
-	// Pass session ID for work attribution if available
-	if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
-		args = append(args, "--session="+sessionID)
-	}
-
-	_, err := b.run(args...)
-	return err
+	return b.closeWithOptions(closeOptions{}, ids...)
 }
 
-// CloseWithReason closes one or more issues with a reason.
-// If a runtime session ID is set in the environment, it is passed to bd close
-// for work attribution tracking (see decision 009-session-events-architecture.md).
-func (b *Beads) CloseWithReason(reason string, ids ...string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	if b.store != nil {
-		return b.storeClose(reason, runtime.SessionIDFromEnv(), ids...)
-	}
-
-	args := append([]string{"close"}, ids...)
-	args = append(args, "--reason="+reason)
-
-	// Pass session ID for work attribution if available
-	if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
-		args = append(args, "--session="+sessionID)
-	}
-
-	_, err := b.run(args...)
-	return err
+type closeOptions struct {
+	reason     string
+	withReason bool
+	force      bool
 }
 
-// ForceCloseWithReason closes one or more issues with --force, bypassing
-// dependency checks. Used by gt done where the polecat is about to be nuked
-// and open molecule wisps should not block issue closure.
-func (b *Beads) ForceCloseWithReason(reason string, ids ...string) error {
+func (b *Beads) closeWithOptions(opts closeOptions, ids ...string) error {
 	if len(ids) == 0 {
 		return nil
 	}
 
-	// In-process store close doesn't enforce dependency checks (no --force
-	// needed). Note: this means the store path bypasses the dependency
-	// validation that the CLI's --force flag overrides. Callers relying on
-	// ForceCloseWithReason (e.g., gt done nuking polecat wisps) are already
-	// accepting that deps may remain dangling, so this is intentional.
 	if b.store != nil {
-		return b.storeClose(reason, runtime.SessionIDFromEnv(), ids...)
+		return b.storeClose(opts.reason, runtime.SessionIDFromEnv(), ids...)
 	}
 
 	type closeGroup struct {
@@ -1834,7 +1792,7 @@ func (b *Beads) ForceCloseWithReason(reason string, ids ...string) error {
 	for _, id := range ids {
 		target, err := b.forIssueID(id)
 		if err != nil {
-			return fmt.Errorf("resolving force-close target for %s: %w", id, err)
+			return fmt.Errorf("resolving close target for %s: %w", id, err)
 		}
 		targetDir := target.getResolvedBeadsDir()
 		if idx, ok := groupByDir[targetDir]; ok {
@@ -1846,16 +1804,44 @@ func (b *Beads) ForceCloseWithReason(reason string, ids ...string) error {
 	}
 
 	for _, group := range groups {
-		if err := group.target.forceCloseWithReasonInCurrentDB(reason, group.ids...); err != nil {
-			return fmt.Errorf("force closing %s in %s: %w", strings.Join(group.ids, ","), group.target.getResolvedBeadsDir(), err)
+		if err := group.target.closeInCurrentDB(opts, group.ids...); err != nil {
+			action := "closing"
+			if opts.force {
+				action = "force closing"
+			}
+			return fmt.Errorf("%s %s in %s: %w", action, strings.Join(group.ids, ","), group.target.getResolvedBeadsDir(), err)
 		}
 	}
 	return nil
 }
 
-func (b *Beads) forceCloseWithReasonInCurrentDB(reason string, ids ...string) error {
+// CloseWithReason closes one or more issues with a reason.
+// If a runtime session ID is set in the environment, it is passed to bd close
+// for work attribution tracking (see decision 009-session-events-architecture.md).
+func (b *Beads) CloseWithReason(reason string, ids ...string) error {
+	return b.closeWithOptions(closeOptions{reason: reason, withReason: true}, ids...)
+}
+
+// ForceCloseWithReason closes one or more issues with --force, bypassing
+// dependency checks. Used by gt done where the polecat is about to be nuked
+// and open molecule wisps should not block issue closure.
+func (b *Beads) ForceCloseWithReason(reason string, ids ...string) error {
+	// In-process store close doesn't enforce dependency checks (no --force
+	// needed). Note: this means the store path bypasses the dependency
+	// validation that the CLI's --force flag overrides. Callers relying on
+	// ForceCloseWithReason (e.g., gt done nuking polecat wisps) are already
+	// accepting that deps may remain dangling, so this is intentional.
+	return b.closeWithOptions(closeOptions{reason: reason, withReason: true, force: true}, ids...)
+}
+
+func (b *Beads) closeInCurrentDB(opts closeOptions, ids ...string) error {
 	args := append([]string{"close"}, ids...)
-	args = append(args, "--reason="+reason, "--force")
+	if opts.withReason {
+		args = append(args, "--reason="+opts.reason)
+	}
+	if opts.force {
+		args = append(args, "--force")
+	}
 
 	// Pass session ID for work attribution if available
 	if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
@@ -1863,6 +1849,19 @@ func (b *Beads) forceCloseWithReasonInCurrentDB(reason string, ids ...string) er
 	}
 
 	_, err := b.run(args...)
+	return err
+}
+
+// AddComment adds a comment to an issue, routing by issue ID like Show and Update.
+func (b *Beads) AddComment(id, comment string) error {
+	target, err := b.forIssueID(id)
+	if err != nil {
+		return err
+	}
+	if target != b {
+		return target.AddComment(id, comment)
+	}
+	_, err = b.run("comments", "add", id, comment)
 	return err
 }
 
