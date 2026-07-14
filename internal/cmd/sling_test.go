@@ -561,6 +561,8 @@ exit /b 0
 		case strings.Contains(args, "show "+newBeadID) && strings.Contains(args, "--json"):
 			gotTargetDBCheck = true
 			assertTargetRig("target DB check", dir, beadsDir, database, beadsDB, bdDB, dataDir, gtData, args)
+		case strings.Contains(args, "show gt-gastown-polecat-toast") && strings.Contains(args, "--json"):
+			assertTargetRig("polecat lifecycle check", dir, beadsDir, database, beadsDB, bdDB, dataDir, gtData, args)
 		case strings.Contains(args, "sql SELECT DISTINCT wisp_dependencies.issue_id"):
 			assertTargetRig("molecule dep check", dir, beadsDir, database, beadsDB, bdDB, dataDir, gtData, args)
 		case strings.Contains(args, "formula show "):
@@ -1598,7 +1600,7 @@ func TestVerifyPolecatTargetAcceptsHookRejectsRemoving(t *testing.T) {
 		t.Skip("test uses POSIX bd stub")
 	}
 	townRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(townRoot, "gastown"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "mayor", "rig"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	binDir := filepath.Join(townRoot, "bin")

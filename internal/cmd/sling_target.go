@@ -345,10 +345,11 @@ func verifyPolecatTargetAcceptsHook(agentID, townRoot string) error {
 	rigName, polecatName := parts[0], parts[2]
 	prefix := beads.GetPrefixForRig(townRoot, rigName)
 	agentBeadID := beads.PolecatBeadIDWithPrefix(prefix, rigName, polecatName)
-	_, fields, err := beads.New(filepath.Join(townRoot, rigName)).ForAgentBead().GetAgentBead(agentBeadID)
-	if err != nil {
-		return fmt.Errorf("checking lifecycle state for %s: %w", agentID, err)
+	issue, err := beads.New(filepath.Join(townRoot, rigName, "mayor", "rig")).ForAgentBead().Show(agentBeadID)
+	if err != nil || issue == nil {
+		return nil
 	}
+	fields := beads.ParseAgentFields(issue.Description)
 	if fields != nil && beads.AgentState(strings.TrimSpace(fields.AgentState)) == beads.AgentStateRemoving {
 		return fmt.Errorf("target polecat %s is being removed; wait for cleanup to complete", agentID)
 	}
