@@ -182,6 +182,17 @@ func TestDoMergePR_RequiresGateAuthorization(t *testing.T) {
 	}
 }
 
+func TestBitbucketPRProviderMergeFailsClosedWithoutAtomicHeadMatch(t *testing.T) {
+	provider := &bitbucketPRProvider{}
+	_, err := provider.MergePR(&gitpkg.PullRequestInfo{Number: 42, HeadSHA: "abc123"}, "squash")
+	if err == nil {
+		t.Fatal("expected Bitbucket PR merge to fail closed")
+	}
+	if !strings.Contains(err.Error(), "cannot enforce exact submitted-head matching") {
+		t.Fatalf("error = %q, want submitted-head enforcement failure", err.Error())
+	}
+}
+
 func TestProcessResult_NeedsApproval(t *testing.T) {
 	// Verify NeedsApproval field works on ProcessResult.
 	r := ProcessResult{

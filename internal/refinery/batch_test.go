@@ -681,6 +681,34 @@ func TestProcessBatch_UnprovenTestGateDoesNotBisectOrMergeGoodSubset(t *testing.
 	assertOriginMainUnchangedAndReset(t, workDir, before)
 }
 
+func TestProcessBatch_AllCulpritsResetsTarget(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	createFeatureBranch(t, workDir, "feature-a", "FAIL_A", "this causes test failure\n")
+	createFeatureBranch(t, workDir, "feature-b", "FAIL_B", "this also causes test failure\n")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.Gates = map[string]*GateConfig{
+		"check": {Cmd: `test ! -e FAIL_A && test ! -e FAIL_B`},
+	}
+	e.config.GatesParallel = false
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+	result := e.ProcessBatch(context.Background(), []*MRInfo{
+		makeMR("mr-a", "feature-a", "main"),
+		makeMR("mr-b", "feature-b", "main"),
+	}, "main", &BatchConfig{MaxBatchSize: 5, RetryBatchOnFlaky: false})
+
+	if result.Error != nil {
+		t.Fatalf("unexpected infrastructure error: %v", result.Error)
+	}
+	if len(result.Merged) != 0 || len(result.Culprits) != 2 {
+		t.Fatalf("expected two culprits and no merges, got merged=%v culprits=%v", stackedIDs(result.Merged), stackedIDs(result.Culprits))
+	}
+	assertOriginMainUnchangedAndReset(t, workDir, before)
+}
+
 func TestProcessBatch_RetryOnFlaky(t *testing.T) {
 	workDir, g, cleanup := testGitRepo(t)
 	defer cleanup()
