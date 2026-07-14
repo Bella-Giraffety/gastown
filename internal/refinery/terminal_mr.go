@@ -78,7 +78,15 @@ func closeTerminalMR(b *beads.Beads, mrID string, opts terminalMRCloseOptions) (
 	}
 
 	if result.AgentBead != "" {
-		cleared, clearErr := b.ForAgentBead().ClearAgentActiveMRIfMatches(result.AgentBead, mrID)
+		agentBeads := b.ForAgentBead()
+		merged := normalizedMRCloseReason(opts.Reason) == string(CloseReasonMerged)
+		var cleared bool
+		var clearErr error
+		if merged {
+			cleared, clearErr = agentBeads.ClearAgentActiveMRForMergeIfMatches(result.AgentBead, mrID)
+		} else {
+			cleared, clearErr = agentBeads.ClearAgentActiveMRIfMatches(result.AgentBead, mrID)
+		}
 		result.AgentActiveMRCleared = cleared
 		result.AgentActiveMRClearErr = clearErr
 	}

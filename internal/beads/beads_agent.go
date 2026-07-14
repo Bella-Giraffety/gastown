@@ -568,8 +568,19 @@ func (b *Beads) UpdateAgentActiveMR(id string, activeMR string) error {
 // ClearAgentActiveMRIfMatches clears active_mr only when it still references
 // expectedMR. It returns true when a clear was written.
 func (b *Beads) ClearAgentActiveMRIfMatches(id string, expectedMR string) (bool, error) {
+	return b.clearAgentActiveMRIfMatches(id, expectedMR, false)
+}
+
+// ClearAgentActiveMRForMergeIfMatches clears active_mr for a merged MR and, if
+// the agent was waiting in done state, marks it idle so reuse/capacity converge
+// after durable post-merge cleanup.
+func (b *Beads) ClearAgentActiveMRForMergeIfMatches(id string, expectedMR string) (bool, error) {
+	return b.clearAgentActiveMRIfMatches(id, expectedMR, true)
+}
+
+func (b *Beads) clearAgentActiveMRIfMatches(id string, expectedMR string, markDoneIdle bool) (bool, error) {
 	if target := b.agentBeadTarget(); target != b {
-		return target.ClearAgentActiveMRIfMatches(id, expectedMR)
+		return target.clearAgentActiveMRIfMatches(id, expectedMR, markDoneIdle)
 	}
 
 	id = strings.TrimSpace(id)
@@ -601,6 +612,9 @@ func (b *Beads) ClearAgentActiveMRIfMatches(id string, expectedMR string) (bool,
 	}
 
 	fields.ActiveMR = ""
+	if markDoneIdle && AgentState(strings.TrimSpace(fields.AgentState)) == AgentStateDone {
+		fields.AgentState = string(AgentStateIdle)
+	}
 	description := FormatAgentDescription(issue.Title, fields)
 	if err := b.Update(id, UpdateOptions{Description: &description}); err != nil {
 		return false, err

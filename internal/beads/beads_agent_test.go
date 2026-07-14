@@ -262,6 +262,35 @@ func TestClearAgentActiveMRIfMatchesClearsExactMatch(t *testing.T) {
 	}
 }
 
+func TestClearAgentActiveMRForMergeIfMatchesMarksDoneIdle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mocks for bd")
+	}
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	logPath := installMockBDShowRecorder(t, `[{"id":"gt-gastown-polecat-nux","title":"Polecat nux","issue_type":"agent","labels":["gt:agent"],"description":"role_type: polecat\nrig: gastown\nagent_state: done\nactive_mr: gt-wisp-old\ncleanup_status: clean"}]`)
+	bd := NewIsolated(tmpDir)
+
+	cleared, err := bd.ClearAgentActiveMRForMergeIfMatches("gt-gastown-polecat-nux", "gt-wisp-old")
+	if err != nil {
+		t.Fatalf("ClearAgentActiveMRForMergeIfMatches: %v", err)
+	}
+	if !cleared {
+		t.Fatal("ClearAgentActiveMRForMergeIfMatches cleared = false, want true")
+	}
+
+	logOutput := readMockBDLog(t, logPath)
+	if !strings.Contains(logOutput, "agent_state: idle") {
+		t.Fatalf("mock bd log %q missing merged idle state update", logOutput)
+	}
+	if strings.Contains(logOutput, "active_mr: gt-wisp-old") {
+		t.Fatalf("mock bd log %q retained active_mr", logOutput)
+	}
+}
+
 func TestClearAgentActiveMRIfMatchesNoopsWhenDifferent(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses Unix shell script mocks for bd")

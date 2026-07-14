@@ -1108,6 +1108,11 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 			return fmt.Errorf("%w: %s changed from branch=%q issue=%q to branch=%q issue=%q", ErrPolecatNeedsRecovery, name, expectation.Branch, expectation.Issue, current.Branch, current.Issue)
 		}
 	}
+	if !force {
+		if blocker := m.agentBeadRemovalBlocker(name); blocker != "" {
+			return fmt.Errorf("%w: %s is not safe to remove: %s", ErrPolecatNeedsRecovery, name, blocker)
+		}
+	}
 	workToUnassign, workErr := m.activeWorkBeads(name)
 	if workErr != nil {
 		return fmt.Errorf("capturing active work for %s: %w", name, workErr)
@@ -2647,6 +2652,21 @@ func (m *Manager) agentBeadReuseBlocker(name string) string {
 		return "agent_lookup_error: " + err.Error()
 	}
 	return agentIssueFieldsReuseBlocker(issue, fields)
+}
+
+func (m *Manager) agentBeadRemovalBlocker(name string) string {
+	_, fields, err := m.agentBeads().GetAgentBead(m.agentBeadID(name))
+	if err != nil || fields == nil {
+		return ""
+	}
+	state := beads.AgentState(strings.TrimSpace(fields.AgentState))
+	if state == beads.AgentStateRemoving || state.IsActive() {
+		return "agent_state=" + string(state)
+	}
+	if hook := strings.TrimSpace(fields.HookBead); hook != "" {
+		return "hook_bead=" + hook
+	}
+	return ""
 }
 
 func (m *Manager) agentBlockedPolecatNames(agentIssues map[string]*beads.Issue) []string {
