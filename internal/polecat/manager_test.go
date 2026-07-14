@@ -175,16 +175,16 @@ func TestCheckPendingReservationAllowsOnlyOwnPendingForLegacyAdd(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := mgr.checkPendingReservation("toast", false); !errors.Is(err, ErrPolecatNeedsRecovery) {
+	if _, err := mgr.checkPendingReservation("toast", false); !errors.Is(err, ErrPolecatNeedsRecovery) {
 		t.Fatalf("exact create pending error = %v, want ErrPolecatNeedsRecovery", err)
 	}
-	if err := mgr.checkPendingReservation("toast", true); err != nil {
+	if own, err := mgr.checkPendingReservation("toast", true); err != nil || !own {
 		t.Fatalf("legacy AddWithOptions should accept own pending marker: %v", err)
 	}
 	if err := os.WriteFile(path, []byte("999999"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := mgr.checkPendingReservation("toast", true); !errors.Is(err, ErrPolecatNeedsRecovery) {
+	if _, err := mgr.checkPendingReservation("toast", true); !errors.Is(err, ErrPolecatNeedsRecovery) {
 		t.Fatalf("foreign pending error = %v, want ErrPolecatNeedsRecovery", err)
 	}
 }
@@ -2726,7 +2726,7 @@ func TestAllocateAndAdd_NoDuplicateNames(t *testing.T) {
 // This is the regression test for the sling-reuse-stale-session bug: idle polecats
 // with a live Claude session at a dead ❯ prompt must have their session killed so
 // StartSession can create a fresh session with a proper gt prime --hook cycle.
-func TestReuseIdlePolecat_KillsLiveSession(t *testing.T) {
+func TestReuseIdlePolecat_PreservesLiveSessionBeforeLifecycleProof(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("tmux not supported on Windows")
 	}
@@ -2778,36 +2778,25 @@ func TestReuseIdlePolecat_KillsLiveSession(t *testing.T) {
 		t.Fatal("precondition: heartbeat should exist")
 	}
 
-	// Call ReuseIdlePolecat — it will kill the session, then fail on worktree
-	// operations (no real git repo). The important thing is it does NOT return
-	// ErrSessionRunning.
+	// Call ReuseIdlePolecat. With no real git/beads proof that the slot is clean,
+	// the lifecycle gate must fail before killing the session.
 	_, reuseErr := mgr.ReuseIdlePolecat(polecatName, AddOptions{})
 
-	// Verify it did NOT return ErrSessionRunning (the old buggy behavior)
-	if errors.Is(reuseErr, ErrSessionRunning) {
-		t.Fatalf("ReuseIdlePolecat returned ErrSessionRunning for live session — " +
-			"this is the sling-reuse-stale-session bug: idle polecats with live " +
-			"sessions must have their session killed, not rejected")
+	if !errors.Is(reuseErr, ErrPolecatNeedsRecovery) {
+		t.Fatalf("ReuseIdlePolecat error = %v, want ErrPolecatNeedsRecovery", reuseErr)
 	}
 
-	// We expect an error from later steps (worktree not found), but not from session handling
-	if reuseErr == nil {
-		t.Fatal("expected error from worktree operations (test has no real git repo)")
-	}
-	if !strings.Contains(reuseErr.Error(), "worktree") {
-		t.Logf("ReuseIdlePolecat error (expected worktree-related): %v", reuseErr)
-	}
-
-	// Verify the session was killed
+	// Verify the session was preserved until recovery proves the slot reusable.
 	running, _ = tm.HasSession(sessionName)
-	if running {
-		t.Error("session should have been killed by ReuseIdlePolecat")
+	if !running {
+		t.Error("session should not have been killed before lifecycle proof")
 	}
 
-	// Verify heartbeat was cleaned up
+	// Verify heartbeat was preserved with the session.
 	if hb := ReadSessionHeartbeat(townRoot, sessionName); hb != nil {
-		t.Error("heartbeat should have been removed after session kill")
+		return
 	}
+	t.Error("heartbeat should not have been removed before lifecycle proof")
 }
 
 func TestRepairWorktreeWithOptions_KillsLiveSession(t *testing.T) {
@@ -2896,10 +2885,10 @@ func TestRepairWorktreeWithOptions_KillsLiveSession(t *testing.T) {
 	}
 }
 
-// TestReuseIdlePolecat_KillsStaleSession verifies that ReuseIdlePolecat also
-// handles the stale-session case correctly (regression: the original code path
-// that worked before the fix should still work after).
-func TestReuseIdlePolecat_KillsStaleSession(t *testing.T) {
+// TestReuseIdlePolecat_PreservesStaleSessionBeforeLifecycleProof verifies that
+// stale sessions are not killed until the shared lifecycle gate proves the slot
+// is reusable.
+func TestReuseIdlePolecat_PreservesStaleSessionBeforeLifecycleProof(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("tmux not supported on Windows")
 	}
@@ -2929,6 +2918,7 @@ func TestReuseIdlePolecat_KillsStaleSession(t *testing.T) {
 
 	sessMgr := NewSessionManager(tm, r)
 	sessionName := sessMgr.SessionName(polecatName)
+	_ = tm.KillSessionWithProcesses(sessionName)
 	if err := tm.NewSessionWithCommand(sessionName, townRoot, "sleep 300"); err != nil {
 		t.Fatalf("create tmux session: %v", err)
 	}
@@ -2947,21 +2937,21 @@ func TestReuseIdlePolecat_KillsStaleSession(t *testing.T) {
 
 	_, reuseErr := mgr.ReuseIdlePolecat(polecatName, AddOptions{})
 
-	// Should not return ErrSessionRunning
-	if errors.Is(reuseErr, ErrSessionRunning) {
-		t.Fatal("ReuseIdlePolecat should not return ErrSessionRunning for stale session")
+	if !errors.Is(reuseErr, ErrPolecatNeedsRecovery) {
+		t.Fatalf("ReuseIdlePolecat error = %v, want ErrPolecatNeedsRecovery", reuseErr)
 	}
 
-	// Session should be killed
+	// Session should be preserved until recovery proves the slot reusable.
 	running, _ := tm.HasSession(sessionName)
-	if running {
-		t.Error("stale session should have been killed")
+	if !running {
+		t.Error("stale session should not have been killed before lifecycle proof")
 	}
 
-	// Heartbeat should be cleaned up
+	// Heartbeat should be preserved with the session.
 	if hb := ReadSessionHeartbeat(townRoot, sessionName); hb != nil {
-		t.Error("heartbeat should have been removed after stale session kill")
+		return
 	}
+	t.Error("heartbeat should not have been removed before lifecycle proof")
 }
 
 // TestReuseIdlePolecat_NoSessionNoop verifies that ReuseIdlePolecat proceeds

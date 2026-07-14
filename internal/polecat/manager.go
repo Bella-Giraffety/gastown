@@ -768,26 +768,38 @@ func (m *Manager) addExactWithOptions(name string, opts AddOptions, allowOwnPend
 		return nil, err
 	}
 
+	ownPending, err := m.checkPendingReservation(name, allowOwnPending)
+	if err != nil {
+		_ = polecatLock.Unlock()
+		_ = poolLock.Unlock()
+		return nil, err
+	}
+	cleanupOwnPending := func() {
+		if ownPending {
+			_ = os.Remove(m.pendingPath(name))
+			m.namePool.Release(name)
+			_ = m.namePool.Save()
+		}
+	}
 	if m.exists(name) {
+		cleanupOwnPending()
 		_ = polecatLock.Unlock()
 		_ = poolLock.Unlock()
 		return nil, ErrPolecatExists
 	}
 	if blocker := m.agentBeadReuseBlocker(name); blocker != "" {
+		cleanupOwnPending()
 		_ = polecatLock.Unlock()
 		_ = poolLock.Unlock()
 		return nil, fmt.Errorf("%w: name %s is not reusable: %s", ErrPolecatNeedsRecovery, name, blocker)
 	}
-	if err := m.checkPendingReservation(name, allowOwnPending); err != nil {
-		_ = polecatLock.Unlock()
-		_ = poolLock.Unlock()
-		return nil, err
-	}
 	if active, err := m.activeWorkBeads(name); err != nil {
+		cleanupOwnPending()
 		_ = polecatLock.Unlock()
 		_ = poolLock.Unlock()
 		return nil, fmt.Errorf("checking active work for %s: %w", name, err)
 	} else if len(active) > 0 {
+		cleanupOwnPending()
 		_ = polecatLock.Unlock()
 		_ = poolLock.Unlock()
 		return nil, fmt.Errorf("%w: name %s has active work assigned to %s", ErrPolecatNeedsRecovery, name, m.assigneeID(name))
@@ -795,6 +807,7 @@ func (m *Manager) addExactWithOptions(name string, opts AddOptions, allowOwnPend
 	if m.tmux != nil {
 		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
 		if alive, _ := m.tmux.HasSession(sessionName); alive {
+			cleanupOwnPending()
 			_ = polecatLock.Unlock()
 			_ = poolLock.Unlock()
 			return nil, fmt.Errorf("%w: name %s has a live session without a worktree", ErrPolecatNeedsRecovery, name)
@@ -803,6 +816,7 @@ func (m *Manager) addExactWithOptions(name string, opts AddOptions, allowOwnPend
 
 	polecatDir := m.polecatDir(name)
 	if err := os.MkdirAll(polecatDir, 0755); err != nil {
+		cleanupOwnPending()
 		_ = polecatLock.Unlock()
 		_ = poolLock.Unlock()
 		return nil, fmt.Errorf("creating polecat dir: %w", err)
@@ -821,19 +835,19 @@ func (m *Manager) addExactWithOptions(name string, opts AddOptions, allowOwnPend
 	return p, nil
 }
 
-func (m *Manager) checkPendingReservation(name string, allowOwnPending bool) error {
+func (m *Manager) checkPendingReservation(name string, allowOwnPending bool) (bool, error) {
 	pendingPath := m.pendingPath(name)
 	data, err := os.ReadFile(pendingPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("checking pending reservation for %s: %w", name, err)
+		return false, fmt.Errorf("checking pending reservation for %s: %w", name, err)
 	}
 	if allowOwnPending && strings.TrimSpace(string(data)) == strconv.Itoa(os.Getpid()) {
-		return nil
+		return true, nil
 	}
-	return fmt.Errorf("%w: name %s has a pending lifecycle reservation", ErrPolecatNeedsRecovery, name)
+	return false, fmt.Errorf("%w: name %s has a pending lifecycle reservation", ErrPolecatNeedsRecovery, name)
 }
 
 func validateExactPolecatName(name string) error {
