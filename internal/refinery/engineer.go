@@ -236,6 +236,9 @@ type MRInfo struct {
 	Title           string     // MR title
 	Priority        int        // Priority (lower = higher priority)
 	AgentBead       string     // Agent bead ID that created this MR
+	CommitSHA       string     // Source branch tip submitted to the queue
+	PRURL           string     // Recorded pull request URL, if available
+	PRNumber        int        // Recorded pull request number, if available
 	RetryCount      int        // Conflict retry count
 	ConflictTaskID  string     // Open conflict-resolution task for this MR (if any)
 	ConvoyID        string     // Parent convoy ID if part of a convoy
@@ -601,78 +604,15 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 		}
 	}
 
-	// Step 3.5: Push submodule commits if the branch changes submodule pointers.
-	// The refinery owns all remote pushes — submodule commits must land before the
-	// parent pointer is merged, otherwise main gets dangling submodule references.
+	// Step 3.5: Detect submodule commits if the branch changes submodule pointers.
+	// Remote submodule pushes are delayed until candidate gates authorize the merge.
 	subChanges, err := e.git.SubmoduleChanges(target, branch)
 	if err != nil {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not check submodule changes: %v\n", err)
 	}
-	if len(subChanges) > 0 {
-		// Ensure submodules are initialized in the refinery worktree
-		// Use mayor/rig as reference to avoid re-fetching from remote
-		mayorRig := filepath.Join(e.rig.Path, "mayor", "rig")
-		if initErr := git.InitSubmodules(e.git.WorkDir(), mayorRig); initErr != nil {
-			return ProcessResult{
-				Success: false,
-				Error:   fmt.Sprintf("failed to init submodules in refinery worktree: %v", initErr),
-			}
-		}
-		for _, sc := range subChanges {
-			if sc.NewSHA == "" {
-				continue // Submodule removed, nothing to push
-			}
-			if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
-				return eligibility
-			}
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Pushing submodule %s (commit %s)...\n", sc.Path, shortSHA(sc.NewSHA))
-			if pushErr := e.git.PushSubmoduleCommit(sc.Path, sc.NewSHA, "origin"); pushErr != nil {
-				return ProcessResult{
-					Success: false,
-					Error:   fmt.Sprintf("failed to push submodule %s: %v", sc.Path, pushErr),
-				}
-			}
-		}
-		_, _ = fmt.Fprintf(e.output, "[Engineer] Pushed %d submodule(s)\n", len(subChanges))
-	}
 
-	// Step 4: Run a required verification gate. Missing or unproven execution is
-	// not a pass; only typed successful gate evidence can authorize landing.
-	gateAuth := mergeGateAuthorization{}
-	if len(e.config.Gates) > 0 {
-		preGateCount := e.countGatesForPhase(GatePhasePreMerge)
-		postGateCount := e.countGatesForPhase(GatePhasePostSquash)
-		if preGateCount > 0 {
-			gateResult := e.runGatesForPhaseRequired(ctx, GatePhasePreMerge, true)
-			if !gateResult.Success {
-				return gateResult
-			}
-			gateAuth = mergeGateAuthorized(gateResult)
-		} else if e.config.MergeStrategy == "pr" || postGateCount == 0 {
-			return gateNotProven(GateOutcomeNoEvidence, "no executable pre-merge gate configured")
-		}
-	} else {
-		_, _ = fmt.Fprintf(e.output, "[Engineer] Running tests: %s\n", e.config.TestCommand)
-		result := e.runTests(ctx)
-		if !result.Success {
-			return result
-		}
-		gateAuth = mergeGateAuthorized(result)
-		_, _ = fmt.Fprintln(e.output, "[Engineer] Tests passed")
-	}
-
-	// PR merge path: when merge_strategy=pr, use the VCS provider's merge API
-	// instead of local squash merge + direct push. This respects branch
-	// protection/restriction rules and preserves the PR audit trail.
-	// The VCS provider (GitHub, Bitbucket) is selected via vcs_provider config.
-	if e.config.MergeStrategy == "pr" {
-		if !gateAuth.ok() {
-			return gateNotProven(GateOutcomeNoEvidence, "pre-merge gate authorization missing for PR merge")
-		}
-		return e.doMergePR(ctx, mr)
-	}
-
-	// Step 5: Perform the actual merge using squash merge
+	// Step 4: Build the local candidate merge. Merge authorization is scoped to
+	// this candidate tree; target-only tests never authorize landing source changes.
 	// Get the original commit message from the polecat branch to preserve the
 	// conventional commit format (feat:/fix:) instead of creating redundant merge commits
 	originalMsg, err := e.git.GetBranchCommitMessage(branch)
@@ -705,26 +645,39 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 		}
 	}
 
-	// Step 5.5: Run post-squash gates on the merged result.
-	// These validate the actual combined code before it goes anywhere.
-	// On failure, reset the merge to undo the local squash commit.
-	if len(e.config.Gates) > 0 {
-		postResult := e.runGatesForPhaseRequired(ctx, GatePhasePostSquash, false)
-		if !postResult.Success {
-			if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after post-squash gate failure: %v\n", target, resetErr)
-			}
-			return postResult
+	// Step 5: Run required verification on the candidate merge before any remote side effect.
+	gateResult := e.runMergeCandidateGates(ctx)
+	if !gateResult.Success {
+		if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after candidate gate failure: %v\n", target, resetErr)
 		}
-		if e.countGatesForPhase(GatePhasePostSquash) > 0 {
-			gateAuth = mergeGateAuthorized(postResult)
-		}
+		return gateResult
 	}
+	gateAuth := mergeGateAuthorized(gateResult)
 	if !gateAuth.ok() {
 		if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after missing gate authorization: %v\n", target, resetErr)
 		}
 		return gateNotProven(GateOutcomeNoEvidence, "merge gate authorization missing")
+	}
+
+	if submoduleResult := e.pushSubmoduleChanges(mr, target, subChanges); !submoduleResult.Success {
+		if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after submodule push failure: %v\n", target, resetErr)
+		}
+		return submoduleResult
+	}
+
+	// PR merge path: use the VCS provider's merge API after local candidate gates
+	// have proven the source changes. Reset failure blocks the API merge.
+	if e.config.MergeStrategy == "pr" {
+		if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
+			return ProcessResult{
+				Success: false,
+				Error:   fmt.Sprintf("failed to reset %s after candidate verification: %v", target, resetErr),
+			}
+		}
+		return e.doMergePR(ctx, mr, gateAuth)
 	}
 
 	// Step 6: Get the merge commit SHA
@@ -810,16 +763,63 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 	}
 }
 
+func (e *Engineer) runMergeCandidateGates(ctx context.Context) ProcessResult {
+	if len(e.config.Gates) > 0 {
+		return e.runGateSet(ctx, e.config.Gates, "merge-candidate", true, e.config.GatesParallel)
+	}
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Running tests: %s\n", e.config.TestCommand)
+	result := e.runTests(ctx)
+	if result.Success {
+		_, _ = fmt.Fprintln(e.output, "[Engineer] Tests passed")
+	}
+	return result
+}
+
+func (e *Engineer) pushSubmoduleChanges(mr *MRInfo, target string, subChanges []git.SubmoduleChange) ProcessResult {
+	if len(subChanges) == 0 {
+		return ProcessResult{Success: true}
+	}
+	// The refinery owns all remote pushes. Submodule commits land only after the
+	// parent candidate has produced executable gate evidence.
+	mayorRig := filepath.Join(e.rig.Path, "mayor", "rig")
+	if initErr := git.InitSubmodules(e.git.WorkDir(), mayorRig); initErr != nil {
+		return ProcessResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to init submodules in refinery worktree: %v", initErr),
+		}
+	}
+	for _, sc := range subChanges {
+		if sc.NewSHA == "" {
+			continue // Submodule removed, nothing to push.
+		}
+		if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
+			return eligibility
+		}
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Pushing submodule %s (commit %s)...\n", sc.Path, shortSHA(sc.NewSHA))
+		if pushErr := e.git.PushSubmoduleCommit(sc.Path, sc.NewSHA, "origin"); pushErr != nil {
+			return ProcessResult{
+				Success: false,
+				Error:   fmt.Sprintf("failed to push submodule %s: %v", sc.Path, pushErr),
+			}
+		}
+	}
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Pushed %d submodule(s)\n", len(subChanges))
+	return ProcessResult{Success: true}
+}
+
 // doMergePR handles merging via the VCS provider's PR merge API (merge_strategy=pr).
 // This respects branch protection/restriction rules including required reviews.
 // The VCS provider (GitHub, Bitbucket) is selected via vcs_provider config.
-// Called from doMerge after quality gates have passed.
+// Called from doMerge after local candidate gates have passed.
 //
 //nolint:unparam // ctx is reserved for future use when git methods accept context
-func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
+func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo, gateAuth mergeGateAuthorization) ProcessResult {
 	_ = ctx
 	if mr == nil {
 		return ProcessResult{Success: false, Error: "merge request is missing"}
+	}
+	if !gateAuth.ok() {
+		return gateNotProven(GateOutcomeNoEvidence, "candidate gate authorization missing for PR merge")
 	}
 	branch, target := mr.Branch, mr.Target
 	provider := e.config.VCSProvider
@@ -835,41 +835,41 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 		}
 	}
 
-	// Step PR.1: Find the PR for this branch
-	prNumber, err := e.prProvider.FindPRNumber(branch)
+	// Step PR.1: Find the PR for this branch/ref
+	pr, err := e.prProvider.FindPullRequest(branch, mr.PRURL, mr.PRNumber, mr.CommitSHA)
 	if err != nil {
 		return ProcessResult{
 			Success: false,
 			Error:   fmt.Sprintf("failed to find PR for branch %s: %v", branch, err),
 		}
 	}
-	if prNumber == 0 {
+	if pr == nil {
 		return ProcessResult{
 			Success: false,
 			Error:   fmt.Sprintf("no open PR found for branch %s — merge_strategy=pr requires a PR", branch),
 		}
 	}
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Found PR #%d for branch %s\n", prNumber, branch)
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Found PR #%d for branch %s\n", pr.Number, branch)
 
 	// Step PR.2: Check approval status if require_review is enabled
 	requireReview := e.config.RequireReview != nil && *e.config.RequireReview
 	if requireReview {
-		approved, err := e.prProvider.IsPRApproved(prNumber)
+		approved, err := e.prProvider.IsPRApproved(pr)
 		if err != nil {
 			return ProcessResult{
 				Success: false,
-				Error:   fmt.Sprintf("failed to check PR #%d approval status: %v", prNumber, err),
+				Error:   fmt.Sprintf("failed to check PR #%d approval status: %v", pr.Number, err),
 			}
 		}
 		if !approved {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d awaiting human approval — deferring merge\n", prNumber)
+			_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d awaiting human approval — deferring merge\n", pr.Number)
 			return ProcessResult{
 				Success:       false,
 				NeedsApproval: true,
-				Error:         fmt.Sprintf("PR #%d requires approving review before merge", prNumber),
+				Error:         fmt.Sprintf("PR #%d requires approving review before merge", pr.Number),
 			}
 		}
-		_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d has approving review\n", prNumber)
+		_, _ = fmt.Fprintf(e.output, "[Engineer] PR #%d has approving review\n", pr.Number)
 	}
 
 	if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
@@ -877,12 +877,12 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 	}
 
 	// Step PR.3: Merge via VCS provider API using squash merge
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Merging PR #%d via %s API (squash)...\n", prNumber, provider)
-	mergeCommit, err := e.prProvider.MergePR(prNumber, "squash")
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Merging PR #%d via %s API (squash)...\n", pr.Number, provider)
+	mergeCommit, err := e.prProvider.MergePR(pr, "squash")
 	if err != nil {
 		return ProcessResult{
 			Success: false,
-			Error:   fmt.Sprintf("PR merge failed for PR #%d: %v", prNumber, err),
+			Error:   fmt.Sprintf("PR merge failed for PR #%d: %v", pr.Number, err),
 		}
 	}
 
@@ -905,7 +905,7 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 		}
 	}
 
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Successfully merged PR #%d: %s\n", prNumber, shortSHA(mergeCommit))
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Successfully merged PR #%d: %s\n", pr.Number, shortSHA(mergeCommit))
 	return ProcessResult{
 		Success:     true,
 		MergeCommit: mergeCommit,
@@ -1702,7 +1702,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 		// be closed via gh pr merge (showing "merged"), not via branch deletion
 		// (which shows "closed" and destroys the PR audit trail).
 		if isPolecat {
-			if e.git.HasOpenPR(mr.Branch) {
+			if e.git.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: mr.Branch, HeadSHA: mr.CommitSHA}) {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", mr.Branch)
 			} else if err := e.git.DeleteRemoteBranch("origin", mr.Branch); err != nil {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to delete remote branch %s: %v\n", mr.Branch, err)
@@ -2191,6 +2191,9 @@ func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
 		Title:           issue.Title,
 		Priority:        issue.Priority,
 		AgentBead:       fields.AgentBead,
+		CommitSHA:       fields.CommitSHA,
+		PRURL:           fields.PRURL,
+		PRNumber:        fields.PRNumber,
 		RetryCount:      fields.RetryCount,
 		ConflictTaskID:  fields.ConflictTaskID,
 		ConvoyID:        fields.ConvoyID,

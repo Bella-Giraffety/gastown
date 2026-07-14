@@ -155,7 +155,7 @@ func TestDoMergePR_NoPR_ReturnsError(t *testing.T) {
 
 	createFeatureBranch(t, workDir, "feat/no-pr", "test.txt", "hello")
 
-	result := e.doMergePR(context.Background(), &MRInfo{ID: "mr-no-pr", Branch: "feat/no-pr", Target: "main"})
+	result := e.doMergePR(context.Background(), &MRInfo{ID: "mr-no-pr", Branch: "feat/no-pr", Target: "main"}, mergeGateAuthorization{verified: true})
 
 	if result.Success {
 		t.Error("expected failure when no PR exists")
