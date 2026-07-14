@@ -119,9 +119,6 @@ func doneHasTerminalNoBranchEvidence(issue *beads.Issue) bool {
 		doneTextHasAlreadyLandedEvidence(issue.Design) {
 		return true
 	}
-	if !doneIssueAllowsGenericNoCode(issue) {
-		return false
-	}
 	return doneTextHasGenericNoCodeEvidence(issue.CloseReason) ||
 		doneTextHasGenericNoCodeEvidence(issue.Notes) ||
 		doneTextHasGenericNoCodeEvidence(issue.Design)
@@ -132,16 +129,13 @@ func doneTextHasAlreadyLandedEvidence(text string) bool {
 	if text == "" {
 		return false
 	}
-	if text == "merged" {
-		return true
-	}
 	for _, phrase := range []string{
 		"already fixed",
 		"already landed",
 		"already merged",
 		"merged in ",
 	} {
-		if strings.Contains(text, phrase) {
+		if strings.Contains(text, phrase) && doneTextHasLandingArtifact(text) {
 			return true
 		}
 	}
@@ -153,13 +147,10 @@ func doneTextHasGenericNoCodeEvidence(text string) bool {
 	if text == "" {
 		return false
 	}
-	for _, phrase := range []string{
-		"no-changes",
-		"no changes",
-		"not applicable",
-		"cannot reproduce",
-		"can't reproduce",
-	} {
+	if !strings.HasPrefix(text, "no-changes:") && !strings.HasPrefix(text, "no changes:") {
+		return false
+	}
+	for _, phrase := range []string{"not applicable", "cannot reproduce", "can't reproduce", "nothing to implement", "already done"} {
 		if strings.Contains(text, phrase) {
 			return true
 		}
@@ -167,13 +158,21 @@ func doneTextHasGenericNoCodeEvidence(text string) bool {
 	return false
 }
 
-func doneIssueAllowsGenericNoCode(issue *beads.Issue) bool {
-	switch strings.ToLower(strings.TrimSpace(issue.Type)) {
-	case "task", "bug", "feature":
-		return false
-	default:
+func doneTextHasLandingArtifact(text string) bool {
+	if strings.Contains(text, "#") || strings.Contains(text, "http://") || strings.Contains(text, "https://") {
 		return true
 	}
+	for _, token := range []string{"commit", "sha", "pr", "mr", "upstream/", "origin/", "refs/", "merged in "} {
+		if strings.Contains(text, token) {
+			return true
+		}
+	}
+	for _, field := range strings.FieldsFunc(text, func(r rune) bool { return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') }) {
+		if len(field) >= 7 {
+			return true
+		}
+	}
+	return false
 }
 
 func doneZeroDeliverableError(issueID, target string) error {
@@ -195,5 +194,8 @@ func firstCompletionTargetRef(values ...string) string {
 }
 
 func completionTargetRefs(target, baseRef string) []string {
-	return uniqueStrings([]string{baseRef, target})
+	if strings.TrimSpace(baseRef) != "" {
+		return []string{strings.TrimSpace(baseRef)}
+	}
+	return uniqueStrings([]string{target})
 }

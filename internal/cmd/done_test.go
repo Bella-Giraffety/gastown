@@ -403,7 +403,7 @@ func TestCompletionEvidencePreservesTerminalExplicitNoCode(t *testing.T) {
 	g := gitpkg.NewGit(repo)
 	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/terminal")
 
-	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", CloseReason: "no-changes: external evidence recorded"}
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", CloseReason: "no-changes: cannot reproduce after verification"}
 	got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
 	if err != nil {
 		t.Fatalf("terminal no-code evidence should be allowed: %v", err)
@@ -436,6 +436,17 @@ func TestCompletionEvidenceAllowsAlreadyLandedForImplementationSource(t *testing
 	}
 	if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
 		t.Fatalf("assessment = %+v, want terminal already-landed allowance", got)
+	}
+}
+
+func TestCompletionEvidenceRejectsVagueAlreadyFixedForImplementationSource(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/vague-already-fixed")
+
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "bug", CloseReason: "already fixed"}
+	if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
+		t.Fatal("vague already-fixed evidence should not bypass implementation work")
 	}
 }
 

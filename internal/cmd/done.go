@@ -190,6 +190,11 @@ func doneSourceCloseSkipReason(bd *beads.Beads, issueID string, issue *beads.Iss
 	return doneSourceCloseSkipReasonForHead(bd, issueID, issue, currentHead)
 }
 
+func doneSourceCloseSkipReasonForGit(bd *beads.Beads, issueID string, issue *beads.Issue, g *git.Git) (string, bool) {
+	currentHead, _ := currentReviewEvidenceHeadForGit(g)
+	return doneSourceCloseSkipReasonForHead(bd, issueID, issue, currentHead)
+}
+
 func doneSourceCloseSkipReasonForHead(bd *beads.Beads, issueID string, issue *beads.Issue, currentHead string) (string, bool) {
 	issue, skipReason, fatal := loadDoneSourceIssue(bd, issueID, issue)
 	if skipReason != "" {
@@ -214,6 +219,22 @@ func doneReviewOnlyCloseSkipReason(bd *beads.Beads, issueID string, issue *beads
 		return "", false
 	}
 	currentHead, err := currentReviewEvidenceHead()
+	if err != nil {
+		return fmt.Sprintf("could not verify review evidence for %s: %v", issueID, err), true
+	}
+	return doneReviewOnlyCloseSkipReasonForHead(bd, issueID, issue, currentHead)
+}
+
+func doneReviewOnlyCloseSkipReasonForGit(bd *beads.Beads, issueID string, issue *beads.Issue, g *git.Git) (string, bool) {
+	issue, skipReason, fatal := loadDoneSourceIssue(bd, issueID, issue)
+	if skipReason != "" {
+		return skipReason, fatal
+	}
+	attachment := beads.ParseAttachmentFields(issue)
+	if attachment == nil || !attachment.ReviewOnly {
+		return "", false
+	}
+	currentHead, err := currentReviewEvidenceHeadForGit(g)
 	if err != nil {
 		return fmt.Sprintf("could not verify review evidence for %s: %v", issueID, err), true
 	}
@@ -274,6 +295,13 @@ func currentReviewEvidenceHead() (string, error) {
 		return "", fmt.Errorf("resolving current HEAD: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func currentReviewEvidenceHeadForGit(g *git.Git) (string, error) {
+	if g == nil {
+		return currentReviewEvidenceHead()
+	}
+	return g.Rev("HEAD")
 }
 
 func hasFreshReviewReportEvidence(bd *beads.Beads, issueID string, issue *beads.Issue, assignmentAt time.Time, assignee, currentHead string) (bool, error) {
@@ -958,7 +986,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if issueID != "" {
 				bd := completionBd
 				skipClose := false
-				if skipReason, fatal := doneSourceCloseSkipReason(bd, issueID, sourceIssue); skipReason != "" {
+				if skipReason, fatal := doneSourceCloseSkipReasonForGit(bd, issueID, sourceIssue, g); skipReason != "" {
 					style.PrintWarning("%s", skipReason)
 					fmt.Printf("  The bead will remain open for witness/mayor review.\n")
 					notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
@@ -1064,7 +1092,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			// Close the base issue — no MR/refinery will close it
 			if issueID != "" {
 				directBd := beads.New(cwd)
-				if skipReason, fatal := doneReviewOnlyCloseSkipReason(directBd, issueID, nil); skipReason != "" {
+				if skipReason, fatal := doneReviewOnlyCloseSkipReasonForGit(directBd, issueID, nil, g); skipReason != "" {
 					style.PrintWarning("%s", skipReason)
 					notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
 					if fatal {
@@ -1251,9 +1279,11 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				// When merge_strategy=pr, create a GitHub PR for human review
 				// instead of just leaving the branch on origin (gas-rfi).
 				var prURL string
+				prRequired := false
 				noMergeSettingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
 				if noMergeSettings, noMergeSettingsErr := config.LoadRigSettings(noMergeSettingsPath); noMergeSettingsErr == nil &&
 					noMergeSettings.MergeQueue != nil && noMergeSettings.MergeQueue.MergeStrategy == "pr" {
+					prRequired = true
 					issueTitle := sourceIssueForNoMerge.Title
 					prTitle := fmt.Sprintf("%s (%s)", issueTitle, issueID)
 					if issueTitle == "" {
@@ -1297,7 +1327,11 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					ghCmd.Dir = cwd
 					prOutput, prErr := ghCmd.Output()
 					if prErr != nil {
-						style.PrintWarning("could not create GitHub PR: %v", prErr)
+						mrFailed = true
+						errMsg := fmt.Sprintf("could not create GitHub PR for no-merge issue %s: %v", issueID, prErr)
+						doneErrors = append(doneErrors, errMsg)
+						style.PrintWarning("%s\nSource bead will remain in progress.", errMsg)
+						goto notifyWitness
 					} else {
 						prURL = strings.TrimSpace(string(prOutput))
 						fmt.Printf("%s GitHub PR created: %s\n", style.Bold.Render("✓"), prURL)
@@ -1311,7 +1345,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					townRouter := mail.NewRouter(townRoot)
 					defer townRouter.WaitPendingNotifications()
 					reviewBody := fmt.Sprintf("Branch: %s\nIssue: %s\nReady for review.", branch, issueID)
-					if prURL != "" {
+					if prRequired || prURL != "" {
 						reviewBody = fmt.Sprintf("Branch: %s\nIssue: %s\nPR: %s\nReady for review.", branch, issueID, prURL)
 					}
 					reviewMsg := &mail.Message{
@@ -1331,7 +1365,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				// here after notifying the dispatcher. Otherwise hooked work remains open.
 				if issueID != "" {
 					canCloseIssue := true
-					if skipReason, fatal := doneReviewOnlyCloseSkipReason(bd, issueID, sourceIssueForNoMerge); skipReason != "" {
+					if skipReason, fatal := doneReviewOnlyCloseSkipReasonForGit(bd, issueID, sourceIssueForNoMerge, g); skipReason != "" {
 						style.PrintWarning("%s", skipReason)
 						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
 						if fatal {
@@ -1411,7 +1445,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 				// Close the issue directly — refinery won't process it.
 				if issueID != "" {
-					if skipReason, fatal := doneReviewOnlyCloseSkipReason(bd, issueID, nil); skipReason != "" {
+					if skipReason, fatal := doneReviewOnlyCloseSkipReasonForGit(bd, issueID, nil, g); skipReason != "" {
 						style.PrintWarning("%s", skipReason)
 						notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
 						if fatal {

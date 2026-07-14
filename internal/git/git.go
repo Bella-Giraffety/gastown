@@ -1190,16 +1190,31 @@ func (g *Git) DiffNameOnly(base, head string) ([]string, error) {
 // DiffHasNonRuntimeChanges reports whether the ref diff includes at least one
 // path outside Gas Town's runtime-artifact policy.
 func (g *Git) DiffHasNonRuntimeChanges(base, head string) (bool, error) {
-	paths, err := g.DiffNameOnly(base, head)
+	mergedTree, err := g.run("merge-tree", "--write-tree", base, head)
+	if err != nil {
+		paths, diffErr := g.DiffNameOnly(base, head)
+		if diffErr != nil {
+			return false, diffErr
+		}
+		return pathsHaveNonRuntimeChanges(paths), nil
+	}
+	out, err := g.run("diff", "--name-only", base, strings.TrimSpace(mergedTree))
 	if err != nil {
 		return false, err
 	}
+	if out == "" {
+		return false, nil
+	}
+	return pathsHaveNonRuntimeChanges(strings.Split(strings.TrimSpace(out), "\n")), nil
+}
+
+func pathsHaveNonRuntimeChanges(paths []string) bool {
 	for _, path := range paths {
 		if !isGasTownRuntimePath(path) {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 // GitStatus represents the status of the working directory.
@@ -2946,6 +2961,7 @@ func (g *Git) preservationOfRefAgainstRef(head, ref string) (BranchPreservationS
 		return status, nil
 	}
 	mergeTreeChecked := false
+	mergeTreeErr := false
 	if preserved, err := g.mergeTreeNoopBetweenRefs(head, ref); err == nil {
 		mergeTreeChecked = true
 		if preserved {
@@ -2953,15 +2969,17 @@ func (g *Git) preservationOfRefAgainstRef(head, ref string) (BranchPreservationS
 			status.Evidence = "merge_tree_noop"
 			return status, nil
 		}
+	} else {
+		mergeTreeErr = true
 	}
 	out, err := g.Cherry(ref, head)
 	if err != nil {
 		return status, err
 	}
 	status.UnpreservedPatchCount = CountCherryUnmergedCommits(out)
-	if status.UnpreservedPatchCount == 0 && mergeTreeChecked {
+	if status.UnpreservedPatchCount == 0 && (mergeTreeChecked || mergeTreeErr) {
 		// A historical patch-id match is not enough after the target tree proves the
-		// submitted ref is not a no-op (for example, target applied and reverted it).
+		// submitted ref is not a no-op, or cannot prove that it is one.
 		status.UnpreservedPatchCount = 1
 		status.Evidence = "merge_tree_non_noop"
 		return status, nil
@@ -3146,7 +3164,12 @@ func runtimeArtifactRoot(path string) (string, bool) {
 	parts := strings.Split(bare, "/")
 	for i, part := range parts {
 		switch part {
-		case ".beads", ".claude", ".opencode", ".runtime", ".logs", "__pycache__", "node_modules", ".vite", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache", "coverage", "htmlcov":
+		case ".claude":
+			if len(parts) > i+1 && (parts[i+1] == "commands" || parts[i+1] == "skills") {
+				return "", false
+			}
+			return strings.Join(parts[:i+1], "/") + "/", true
+		case ".beads", ".opencode", ".runtime", ".logs", "__pycache__", "node_modules", ".vite", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache", "coverage", "htmlcov":
 			return strings.Join(parts[:i+1], "/") + "/", true
 		}
 	}
