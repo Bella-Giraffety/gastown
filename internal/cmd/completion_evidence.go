@@ -69,7 +69,7 @@ func assessSourceCompletionEvidence(g *git.Git, submittedRef string, targetRefs 
 		return result, nil
 	}
 
-	return result, doneZeroDeliverableError(issueID, firstNonEmpty(targetRefs...))
+	return result, doneZeroDeliverableError(issueID, firstCompletionTargetRef(targetRefs...))
 }
 
 func mqSubmitSourceIneligibleReason(issue *beads.Issue, attachment *beads.AttachmentFields) string {
@@ -138,7 +138,7 @@ func doneZeroDeliverableError(issueID, target string) error {
 		"Finish the work with a commit, use DEFERRED or ESCALATED for incomplete work, or record explicit closure evidence before completing.", issueID, target)
 }
 
-func firstNonEmpty(values ...string) string {
+func firstCompletionTargetRef(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
