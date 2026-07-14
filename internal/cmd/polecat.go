@@ -1883,7 +1883,6 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 	if err := mgr.RemoveWithExpectation(polecatName, opts.Force, true, false, expectation); err != nil {
 		if errors.Is(err, polecat.ErrPolecatNotFound) {
 			fmt.Printf("  %s worktree already gone\n", style.Dim.Render("○"))
-			resetPolecatAgentBeadForReuse(r, rigName, polecatName)
 		} else {
 			return fmt.Errorf("worktree removal failed: %w", err)
 		}
@@ -1932,16 +1931,6 @@ func checkNukeActiveMRSafety(checker activeMRRemovalChecker, polecatName, rigNam
 		return fmt.Errorf("cannot nuke %s/%s: MR %s is still pending in merge queue (%s)\nRefinery will process the MR and clean up after merge\nUse --force to override (risks data loss)", rigName, polecatName, activeMR, blocker)
 	}
 	return nil
-}
-
-func resetPolecatAgentBeadForReuse(r *rig.Rig, rigName, polecatName string) {
-	agentBeadID := polecatBeadIDForRig(r, rigName, polecatName)
-	bd := beads.New(r.Path)
-	if err := bd.ForAgentBead().ResetAgentBeadForReuse(agentBeadID, "nuked"); err != nil {
-		fmt.Printf("  %s agent bead not found or already cleaned\n", style.Dim.Render("○"))
-	} else {
-		fmt.Printf("  %s reset agent bead %s\n", style.Success.Render("✓"), agentBeadID)
-	}
 }
 
 // nukeCleanupMolecules burns any molecule attached to a work bead during polecat nuke.
