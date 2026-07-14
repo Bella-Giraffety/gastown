@@ -1593,6 +1593,39 @@ func TestResolveTargetCreateRejectsMismatchedExplicitPolecat(t *testing.T) {
 	}
 }
 
+func TestVerifyPolecatTargetAcceptsHookRejectsRemoving(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX bd stub")
+	}
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeBDStub(t, binDir, `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+  show)
+    printf '[{"id":"gt-gastown-polecat-toast","title":"Polecat toast","issue_type":"agent","status":"open","labels":["gt:agent"],"description":"role_type: polecat\\nrig: gastown\\nagent_state: removing\\nhook_bead: null\\ncleanup_status: clean\\nactive_mr: null"}]\n'
+    ;;
+  version) ;;
+esac
+exit 0
+`, "")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := verifyPolecatTargetAcceptsHook("gastown/polecats/toast", townRoot)
+	if err == nil || !strings.Contains(err.Error(), "being removed") {
+		t.Fatalf("verifyPolecatTargetAcceptsHook error = %v, want removing blocker", err)
+	}
+}
+
 func TestResolveTargetExplicitPolecatWithoutCreateFails(t *testing.T) {
 	prevResolve := resolveTargetAgentFn
 	prevSpawn := spawnPolecatForSling
