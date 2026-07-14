@@ -1704,7 +1704,9 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 		if isPolecat {
 			if e.git.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: mr.Branch, HeadSHA: mr.CommitSHA}) {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", mr.Branch)
-			} else if err := e.git.DeleteRemoteBranch("origin", mr.Branch); err != nil {
+			} else if mr.CommitSHA == "" {
+				_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: missing submitted commit_sha\n", mr.Branch)
+			} else if err := e.git.DeleteRemoteBranchIfAt("origin", mr.Branch, mr.CommitSHA); err != nil {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to delete remote branch %s: %v\n", mr.Branch, err)
 			} else {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Deleted remote branch: %s\n", mr.Branch)

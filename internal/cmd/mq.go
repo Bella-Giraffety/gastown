@@ -35,12 +35,12 @@ var (
 	mqRejectStdin  bool // Read reason from stdin
 
 	// List command flags
-	mqListReady   bool
-	mqListStatus  string
-	mqListWorker  string
-	mqListEpic    string
-	mqListJSON    bool
-	mqListVerify  bool
+	mqListReady  bool
+	mqListStatus string
+	mqListWorker string
+	mqListEpic   string
+	mqListJSON   bool
+	mqListVerify bool
 
 	// Status command flags
 	mqStatusJSON bool
@@ -566,7 +566,9 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 	// as "closed" (not "merged"), destroying the PR audit trail. (gas-fk4)
 	if rigGit.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: mr.Branch, HeadSHA: mr.CommitSHA}) {
 		fmt.Printf("  %s Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", style.Dim.Render("○"), mr.Branch)
-	} else if err := rigGit.DeleteRemoteBranch("origin", mr.Branch); err != nil {
+	} else if mr.CommitSHA == "" {
+		fmt.Printf("  %s Skipping remote branch delete for %s: missing submitted commit_sha\n", style.Dim.Render("○"), mr.Branch)
+	} else if err := rigGit.DeleteRemoteBranchIfAt("origin", mr.Branch, mr.CommitSHA); err != nil {
 		return fmt.Errorf("remote branch delete %s: %w", mr.Branch, err)
 	} else {
 		fmt.Printf("  %s Deleted remote branch: %s\n", style.Success.Render("✓"), mr.Branch)
