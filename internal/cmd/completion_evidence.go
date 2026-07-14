@@ -159,11 +159,11 @@ func doneTextHasGenericNoCodeEvidence(text string) bool {
 }
 
 func doneTextHasLandingArtifact(text string) bool {
-	if strings.Contains(text, "#") || strings.Contains(text, "http://") || strings.Contains(text, "https://") {
+	if strings.Contains(text, "http://") || strings.Contains(text, "https://") {
 		return true
 	}
-	for _, token := range []string{"commit", "sha", "upstream/", "origin/", "refs/", "pr ", "pr:", "pr/", "mr ", "mr:", "mr/"} {
-		if strings.Contains(text, token) {
+	for _, marker := range []string{"pr", "mr", "pull request", "merge request"} {
+		if doneTextHasNumberAfterMarker(text, marker) {
 			return true
 		}
 	}
@@ -173,6 +173,31 @@ func doneTextHasLandingArtifact(text string) bool {
 		}
 	}
 	return false
+}
+
+func doneTextHasNumberAfterMarker(text, marker string) bool {
+	for start := 0; ; {
+		idx := strings.Index(text[start:], marker)
+		if idx < 0 {
+			return false
+		}
+		idx += start
+		beforeOK := idx == 0 || !isAlphaNum(text[idx-1])
+		after := idx + len(marker)
+		if beforeOK && (after == len(text) || !isAlphaNum(text[after])) {
+			for after < len(text) && (text[after] == ' ' || text[after] == ':' || text[after] == '#') {
+				after++
+			}
+			if after < len(text) && text[after] >= '0' && text[after] <= '9' {
+				return true
+			}
+		}
+		start = idx + len(marker)
+	}
+}
+
+func isAlphaNum(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
 }
 
 func doneZeroDeliverableError(issueID, target string) error {

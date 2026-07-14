@@ -480,7 +480,7 @@ func TestCompletionEvidenceAllowsAlreadyLandedForImplementationSource(t *testing
 	g := gitpkg.NewGit(repo)
 	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/already-landed")
 
-	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "task", CloseReason: "already landed in upstream/main"}
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "task", CloseReason: "already landed in commit abcdef1"}
 	got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
 	if err != nil {
 		t.Fatalf("already-landed implementation evidence should be allowed: %v", err)
@@ -495,10 +495,27 @@ func TestCompletionEvidenceRejectsVagueAlreadyFixedForImplementationSource(t *te
 	g := gitpkg.NewGit(repo)
 	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/vague-already-fixed")
 
-	for _, reason := range []string{"already fixed", "no-changes: already done", "already merged in previous run", "merged in prior attempt"} {
+	for _, reason := range []string{"already fixed", "no-changes: already done", "already fixed #4469", "already landed in a commit", "already merged sha", "already merged in previous run", "merged in prior attempt", "already landed in upstream/main"} {
 		issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "bug", CloseReason: reason}
 		if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
 			t.Fatalf("vague terminal evidence %q should not bypass implementation work", reason)
+		}
+	}
+}
+
+func TestCompletionEvidenceAllowsConcreteAlreadyLandedArtifacts(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/concrete-artifacts")
+
+	for _, reason := range []string{"already fixed in PR #123", "already merged in MR: 456", "already landed https://github.com/gastownhall/gastown/pull/123", "already landed commit abcdef1"} {
+		issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "bug", CloseReason: reason}
+		got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+		if err != nil {
+			t.Fatalf("concrete terminal evidence %q should be allowed: %v", reason, err)
+		}
+		if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
+			t.Fatalf("assessment = %+v, want terminal artifact allowance for %q", got, reason)
 		}
 	}
 }
