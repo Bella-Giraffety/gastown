@@ -40,7 +40,7 @@ func (b *Beads) lockAgentBead(id string) (*flock.Flock, error) {
 type AgentFields struct {
 	RoleType          string // polecat, witness, refinery, deacon, mayor
 	Rig               string // Rig name (empty for global agents like mayor/deacon)
-	AgentState        string // spawning, working, done, stuck, escalated, idle, running, nuked
+	AgentState        string // spawning, working, done, stuck, escalated, idle, running, removing, nuked
 	HookBead          string // Currently pinned work bead ID
 	CleanupStatus     string // ZFC: polecat self-reports git state (clean, has_uncommitted, has_stash, has_unpushed)
 	ActiveMR          string // Currently active merge request bead ID (for traceability)

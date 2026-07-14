@@ -95,6 +95,100 @@ func runManagerGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func TestAgentIssueFieldsReuseBlocker(t *testing.T) {
+	agentIssue := func(status string) *beads.Issue {
+		return &beads.Issue{ID: "gt-gastown-polecat-toast", Type: "agent", Status: status}
+	}
+	agentFields := func(mutators ...func(*beads.AgentFields)) *beads.AgentFields {
+		fields := &beads.AgentFields{AgentState: string(beads.AgentStateIdle)}
+		for _, mutate := range mutators {
+			mutate(fields)
+		}
+		return fields
+	}
+
+	tests := []struct {
+		name   string
+		issue  *beads.Issue
+		fields *beads.AgentFields
+		want   string
+	}{
+		{name: "missing bead allowed"},
+		{name: "idle clean allowed", issue: agentIssue("open"), fields: agentFields()},
+		{name: "nuked empty cleanup allowed", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.AgentState = string(beads.AgentStateNuked) })},
+		{name: "closed agent blocks", issue: agentIssue("closed"), fields: agentFields(), want: "agent_status=closed"},
+		{name: "removing blocks", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.AgentState = string(beads.AgentStateRemoving) }), want: "agent_state=removing"},
+		{name: "working blocks", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.AgentState = string(beads.AgentStateWorking) }), want: "agent_state=working"},
+		{name: "done blocks", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.AgentState = string(beads.AgentStateDone) }), want: "agent_state=done"},
+		{name: "hook blocks", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.HookBead = "gt-work" }), want: "hook_bead=gt-work"},
+		{name: "active mr blocks", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.ActiveMR = "gt-mr" }), want: "active_mr=gt-mr"},
+		{name: "push failure blocks", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.PushFailed = true }), want: "push_failed=true"},
+		{name: "mr failure blocks", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.MRFailed = true }), want: "mr_failed=true"},
+		{name: "dirty cleanup blocks", issue: agentIssue("open"), fields: agentFields(func(f *beads.AgentFields) { f.CleanupStatus = string(CleanupUnpushed) }), want: "cleanup_status=has_unpushed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := agentIssueFieldsReuseBlocker(tt.issue, tt.fields); got != tt.want {
+				t.Fatalf("agentIssueFieldsReuseBlocker() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAgentBlockedPolecatNamesUsesSharedBlocker(t *testing.T) {
+	mgr := &Manager{rig: &rig.Rig{Name: "gastown"}}
+	issues := map[string]*beads.Issue{
+		"gt-gastown-polecat-toast": {
+			ID:          "gt-gastown-polecat-toast",
+			Type:        "agent",
+			Status:      "open",
+			Description: beads.FormatAgentDescription("Polecat toast", &beads.AgentFields{RoleType: "polecat", Rig: "gastown", AgentState: string(beads.AgentStateRemoving)}),
+		},
+		"gt-gastown-polecat-capable": {
+			ID:          "gt-gastown-polecat-capable",
+			Type:        "agent",
+			Status:      "open",
+			Description: beads.FormatAgentDescription("Polecat capable", &beads.AgentFields{RoleType: "polecat", Rig: "gastown", AgentState: string(beads.AgentStateIdle)}),
+		},
+		"gt-other-polecat-toast": {
+			ID:          "gt-other-polecat-toast",
+			Type:        "agent",
+			Status:      "open",
+			Description: beads.FormatAgentDescription("Polecat toast", &beads.AgentFields{RoleType: "polecat", Rig: "other", AgentState: string(beads.AgentStateRemoving)}),
+		},
+	}
+
+	got := mgr.agentBlockedPolecatNames(issues)
+	sort.Strings(got)
+	if len(got) != 1 || got[0] != "toast" {
+		t.Fatalf("agentBlockedPolecatNames() = %v, want [toast]", got)
+	}
+}
+
+func TestCheckPendingReservationAllowsOnlyOwnPendingForLegacyAdd(t *testing.T) {
+	mgr := &Manager{rig: &rig.Rig{Name: "gastown", Path: t.TempDir()}}
+	path := mgr.pendingPath("toast")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.checkPendingReservation("toast", false); !errors.Is(err, ErrPolecatNeedsRecovery) {
+		t.Fatalf("exact create pending error = %v, want ErrPolecatNeedsRecovery", err)
+	}
+	if err := mgr.checkPendingReservation("toast", true); err != nil {
+		t.Fatalf("legacy AddWithOptions should accept own pending marker: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("999999"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.checkPendingReservation("toast", true); !errors.Is(err, ErrPolecatNeedsRecovery) {
+		t.Fatalf("foreign pending error = %v, want ErrPolecatNeedsRecovery", err)
+	}
+}
+
 // installMockBd places a fake bd binary in PATH that handles the commands
 // needed by AddWithOptions (init, create, show, config, update, slot, etc.).
 // This allows polecat tests to run without a real bd installation.
@@ -176,7 +270,7 @@ case "$cmd" in
       id="$arg"
       break
     done
-    printf '[{"id":"%s","title":"agent","issue_type":"agent","description":"agent\\n\\nrole_type: polecat\\nagent_state: idle\\nhook_bead: null\\ncleanup_status: clean\\nactive_mr: null\\nbranch: polecat/toast/gt-work@abc123"}]\n' "$id"
+		printf '[{"id":"%s","title":"agent","issue_type":"agent","status":"open","description":"agent\\n\\nrole_type: polecat\\nagent_state: idle\\nhook_bead: null\\ncleanup_status: clean\\nactive_mr: null\\nbranch: polecat/toast/gt-work@abc123"}]\n' "$id"
     exit 0
     ;;
   *)
