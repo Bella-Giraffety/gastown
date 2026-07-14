@@ -367,7 +367,7 @@ func TestDoMergePR_RechecksSourceBeforeMergeAPI(t *testing.T) {
 	e.prProvider = provider
 
 	mr := &MRInfo{ID: "gt-mr-pr", Branch: "feature-pr", Target: "main", SourceIssue: "gt-src"}
-	result := e.doMergePR(context.Background(), mr)
+	result := e.doMergePR(context.Background(), mr, mergeGateAuthorization{verified: true})
 	if result.Success || !result.NoMerge {
 		t.Fatalf("expected clean policy rejection before PR merge API, got: %+v", result)
 	}

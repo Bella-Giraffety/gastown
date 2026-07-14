@@ -221,12 +221,14 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 	stacked, conflicts, err := e.BuildRebaseStack(ctx, batch, target)
 	if err != nil {
 		result.Error = fmt.Errorf("build rebase stack: %w", err)
+		e.resetBatchTarget(target, "stack build failure")
 		return result
 	}
 	result.Conflicts = conflicts
 
 	if len(stacked) == 0 {
 		_, _ = fmt.Fprintln(e.output, "[Batch] No MRs could be stacked (all conflicted)")
+		e.resetBatchTarget(target, "empty stack")
 		return result
 	}
 
@@ -247,6 +249,7 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 	}
 	if !gateResult.TestsFailed || gateResult.GateUnproven {
 		result.Error = fmt.Errorf("batch verification unproven: %s", gateResult.Error)
+		e.resetBatchTarget(target, "unproven batch verification")
 		return result
 	}
 
@@ -257,6 +260,7 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 		// Rebuild the stack from scratch for a clean retry
 		if resetErr := e.resetAndRebuildStack(stacked, target); resetErr != nil {
 			result.Error = fmt.Errorf("rebuild for retry: %w", resetErr)
+			e.resetBatchTarget(target, "retry rebuild failure")
 			return result
 		}
 
@@ -267,6 +271,7 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 		}
 		if !retryResult.TestsFailed || retryResult.GateUnproven {
 			result.Error = fmt.Errorf("batch verification unproven after retry: %s", retryResult.Error)
+			e.resetBatchTarget(target, "unproven retry verification")
 			return result
 		}
 		_, _ = fmt.Fprintln(e.output, "[Batch] Retry also failed, proceeding to bisection")
@@ -277,6 +282,7 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 	good, culprits, bisectErr := e.bisectBatch(ctx, stacked, target)
 	if bisectErr != nil {
 		result.Error = bisectErr
+		e.resetBatchTarget(target, "bisection failure")
 		return result
 	}
 
@@ -287,6 +293,7 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 		_, _ = fmt.Fprintf(e.output, "[Batch] Merging %d good MRs after bisection\n", len(good))
 		if resetErr := e.resetAndRebuildStack(good, target); resetErr != nil {
 			result.Error = fmt.Errorf("rebuild good MRs: %w", resetErr)
+			e.resetBatchTarget(target, "good subset rebuild failure")
 			return result
 		}
 		// Verify the good subset actually passes
@@ -296,11 +303,13 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 		}
 		if !verifyResult.TestsFailed || verifyResult.GateUnproven {
 			result.Error = fmt.Errorf("good subset verification unproven after bisection: %s", verifyResult.Error)
+			e.resetBatchTarget(target, "unproven good subset verification")
 			return result
 		}
 		// If the good subset also fails, something is wrong — don't merge anything
 		_, _ = fmt.Fprintln(e.output, "[Batch] Warning: good subset also failed gates, aborting batch")
 		result.Error = fmt.Errorf("good subset failed verification after bisection")
+		e.resetBatchTarget(target, "good subset failed verification")
 	}
 
 	return result
@@ -373,6 +382,7 @@ func (e *Engineer) verifyAndPush(ctx context.Context, stacked []*MRInfo, target 
 		} else {
 			result.Error = fmt.Errorf("gates did not prove execution: %s", gateResult.Error)
 		}
+		e.resetBatchTarget(target, "single-survivor verification failure")
 		return result
 	}
 
@@ -645,4 +655,14 @@ func (e *Engineer) resetAndRebuildStack(mrs []*MRInfo, target string) error {
 		}
 	}
 	return nil
+}
+
+func (e *Engineer) resetBatchTarget(target, reason string) {
+	if err := e.git.Checkout(target); err != nil {
+		_, _ = fmt.Fprintf(e.output, "[Batch] Warning: failed to checkout %s after %s: %v\n", target, reason, err)
+		return
+	}
+	if err := e.git.ResetHard("origin/" + target); err != nil {
+		_, _ = fmt.Fprintf(e.output, "[Batch] Warning: failed to reset %s after %s: %v\n", target, reason, err)
+	}
 }
