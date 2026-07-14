@@ -1425,6 +1425,52 @@ func TestActiveAssignedWorkBeadFindsDirectHook(t *testing.T) {
 	}
 }
 
+func TestDetectZombieDeadSessionUsesDirectAssignedWorkWhenAgentHookEmpty(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "list":
+				joined := strings.Join(args, " ")
+				if strings.Contains(joined, "--status=hooked") || strings.Contains(joined, "--status hooked") {
+					return `[{"id":"gt-work","assignee":"testrig/polecats/alpha","issue_type":"task","labels":[]}]`, nil
+				}
+				return "[]", nil
+			case "show":
+				return `[{"id":"gt-work","status":"open"}]`, nil
+			default:
+				return "{}", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+
+	zombie, ok := detectZombieDeadSession(
+		bd,
+		t.TempDir(),
+		t.TempDir(),
+		"testrig",
+		"alpha",
+		"gt-testrig-alpha",
+		tmux.NewTmux(),
+		nil,
+		time.Now(),
+		&config.WitnessThresholds{},
+		&agentBeadSnapshot{AgentState: string(beads.AgentStateDone), Fields: &beads.AgentFields{CleanupStatus: "clean"}},
+	)
+	if !ok {
+		t.Fatal("dead done-state session with directly assigned work should be treated as zombie")
+	}
+	if zombie.HookBead != "gt-work" {
+		t.Fatalf("HookBead = %q, want direct assigned gt-work", zombie.HookBead)
+	}
+	if zombie.Classification != ZombieSessionDeadActive {
+		t.Fatalf("Classification = %q, want %q", zombie.Classification, ZombieSessionDeadActive)
+	}
+}
+
 func TestDetectZombie_AgentDeadInLiveSession(t *testing.T) {
 	t.Parallel()
 	// Verify the logic: live session + agent process dead → zombie

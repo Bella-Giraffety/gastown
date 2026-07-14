@@ -189,6 +189,53 @@ func TestCheckPendingReservationAllowsOnlyOwnPendingForLegacyAdd(t *testing.T) {
 	}
 }
 
+func TestRemoveWithExpectationRefusesChangedGenerationBeforeDelete(t *testing.T) {
+	rigPath := t.TempDir()
+	mgr := NewManager(&rig.Rig{Name: "gastown", Path: rigPath}, git.NewGit(rigPath), nil)
+	name := "toast"
+	clonePath := mgr.clonePath(name)
+	if err := os.MkdirAll(clonePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(mgr.polecatDir(name), "successor.txt")
+	if err := os.WriteFile(sentinel, []byte("fresh worktree"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := mgr.RemoveWithExpectation(name, true, true, false, RemoveExpectation{Validate: true, Branch: "old-branch", Issue: "old-issue"})
+	if !errors.Is(err, ErrPolecatNeedsRecovery) {
+		t.Fatalf("RemoveWithExpectation error = %v, want ErrPolecatNeedsRecovery", err)
+	}
+	if _, statErr := os.Stat(sentinel); statErr != nil {
+		t.Fatalf("successor worktree marker was deleted: %v", statErr)
+	}
+}
+
+func TestAgentStateRemovingReservesPoolAfterFailedRemoval(t *testing.T) {
+	rigPath := t.TempDir()
+	mgr := &Manager{
+		rig:      &rig.Rig{Name: "gastown", Path: rigPath},
+		namePool: NewNamePoolWithConfig(rigPath, "gastown", "", []string{"toast"}, 1),
+	}
+	issues := map[string]*beads.Issue{
+		"gt-gastown-polecat-toast": {
+			ID:          "gt-gastown-polecat-toast",
+			Type:        "agent",
+			Status:      "open",
+			Description: beads.FormatAgentDescription("Polecat toast", &beads.AgentFields{RoleType: "polecat", Rig: "gastown", AgentState: string(beads.AgentStateRemoving)}),
+		},
+	}
+
+	mgr.ReconcilePoolWith(mgr.agentBlockedPolecatNames(issues), nil)
+	name, err := mgr.namePool.Allocate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name == "toast" {
+		t.Fatal("agent_state=removing should reserve toast until cleanup reset completes")
+	}
+}
+
 // installMockBd places a fake bd binary in PATH that handles the commands
 // needed by AddWithOptions (init, create, show, config, update, slot, etc.).
 // This allows polecat tests to run without a real bd installation.

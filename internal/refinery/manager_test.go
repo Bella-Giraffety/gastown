@@ -641,7 +641,7 @@ func TestManager_PostMerge_ClearsMatchingActiveMRAndClosesSource(t *testing.T) {
 	agentIssue, err := b.Create(beads.CreateOptions{
 		Title:       "Polecat nux",
 		Labels:      []string{"gt:agent"},
-		Description: "role_type: polecat\nrig: testrig\nagent_state: working\nactive_mr: null",
+		Description: "role_type: polecat\nrig: testrig\nagent_state: done\nactive_mr: null",
 	})
 	if err != nil {
 		t.Fatalf("create agent issue: %v", err)
@@ -667,6 +667,7 @@ func TestManager_PostMerge_ClearsMatchingActiveMRAndClosesSource(t *testing.T) {
 	}
 
 	assertAgentActiveMR(t, b, agentIssue.ID, "")
+	assertAgentState(t, b, agentIssue.ID, string(beads.AgentStateIdle))
 	assertIssueStatus(t, b, srcIssue.ID, string(beads.StatusClosed))
 	assertMRCloseReason(t, b, mrIssue.ID, string(CloseReasonMerged))
 }
@@ -858,6 +859,18 @@ func assertAgentActiveMR(t *testing.T, b *beads.Beads, agentID string, want stri
 	fields := beads.ParseAgentFields(issue.Description)
 	if fields.ActiveMR != want {
 		t.Fatalf("agent active_mr = %q, want %q", fields.ActiveMR, want)
+	}
+}
+
+func assertAgentState(t *testing.T, b *beads.Beads, agentID string, want string) {
+	t.Helper()
+	issue, err := b.Show(agentID)
+	if err != nil {
+		t.Fatalf("show agent %s: %v", agentID, err)
+	}
+	fields := beads.ParseAgentFields(issue.Description)
+	if fields.AgentState != want {
+		t.Fatalf("agent state = %q, want %q", fields.AgentState, want)
 	}
 }
 
