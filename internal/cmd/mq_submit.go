@@ -223,8 +223,10 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot submit %s to merge queue: source issue unavailable", issueID)
 	}
 	baseRef := g.CleanBaseRef("origin", defaultBranch, target)
-	if _, err := assessMQSubmitCompletionEvidence(g, branch, completionTargetRefs(target, baseRef), issueID, sourceIssue); err != nil {
+	if _, evidenceSHA, err := assessMQSubmitCompletionEvidence(g, branch, completionTargetRefs(target, baseRef), issueID, sourceIssue); err != nil {
 		return err
+	} else if commitSHA == "" {
+		commitSHA = evidenceSHA
 	}
 
 	// Build MR bead title and description
@@ -356,19 +358,21 @@ func resolveMQSubmitCommitSHA(g *git.Git, branch string) (string, error) {
 	return g.Rev(fmt.Sprintf("refs/heads/%s^{commit}", branch))
 }
 
-func assessMQSubmitCompletionEvidence(g *git.Git, branch string, targetRefs []string, issueID string, sourceIssue *beads.Issue) (completionEvidenceResult, error) {
+func assessMQSubmitCompletionEvidence(g *git.Git, branch string, targetRefs []string, issueID string, sourceIssue *beads.Issue) (completionEvidenceResult, string, error) {
 	attachment := beads.ParseAttachmentFields(sourceIssue)
 	localRef := "refs/heads/" + branch
 	if _, err := g.Rev(localRef + "^{commit}"); err == nil {
-		return assessSourceCompletionEvidence(g, localRef, targetRefs, issueID, sourceIssue, attachment, completionEvidenceMQSubmit)
+		result, assessErr := assessSourceCompletionEvidence(g, localRef, targetRefs, issueID, sourceIssue, attachment, completionEvidenceMQSubmit)
+		return result, "", assessErr
 	}
 
 	remoteRef, err := pushRemoteRefForBranch(g, "origin", branch)
 	if err != nil {
-		return completionEvidenceResult{}, err
+		return completionEvidenceResult{}, "", err
 	}
 	status, statusErr := g.PushRemoteRefTargetsStatus("origin", remoteRef, targetRefs)
-	return assessSourceCompletionEvidenceWithStatus(g, "FETCH_HEAD", targetRefs, issueID, sourceIssue, attachment, completionEvidenceMQSubmit, status, statusErr)
+	result, assessErr := assessSourceCompletionEvidenceWithStatus(g, "FETCH_HEAD", targetRefs, issueID, sourceIssue, attachment, completionEvidenceMQSubmit, status, statusErr)
+	return result, remoteRef.Hash, assessErr
 }
 
 func pushRemoteRefForBranch(g *git.Git, remote, branch string) (git.RemoteRef, error) {

@@ -89,17 +89,21 @@ func TestAssessMQSubmitCompletionEvidenceAllowsRemoteOnlyBranch(t *testing.T) {
 	writeMQSubmitTestFile(t, repo, "remote-submit.txt", "remote work\n")
 	runGitForMQSubmitTest(t, repo, "add", "remote-submit.txt")
 	runGitForMQSubmitTest(t, repo, "commit", "-m", "remote submit work")
+	wantSHA := runGitForMQSubmitTest(t, repo, "rev-parse", "HEAD")
 	runGitForMQSubmitTest(t, repo, "push", "origin", branch)
 	runGitForMQSubmitTest(t, repo, "checkout", "main")
 	runGitForMQSubmitTest(t, repo, "branch", "-D", branch)
 
 	issue := &beads.Issue{ID: "gt-remote", Status: "in_progress", Type: "task"}
-	got, err := assessMQSubmitCompletionEvidence(g, branch, targetRefs, issue.ID, issue)
+	got, gotSHA, err := assessMQSubmitCompletionEvidence(g, branch, targetRefs, issue.ID, issue)
 	if err != nil {
 		t.Fatalf("remote-only branch should be assessed from origin: %v", err)
 	}
 	if !got.HasSubmittableWork {
 		t.Fatalf("assessment = %+v, want submittable remote branch work", got)
+	}
+	if gotSHA != wantSHA {
+		t.Fatalf("evidence SHA = %s, want remote branch SHA %s", gotSHA, wantSHA)
 	}
 }
 

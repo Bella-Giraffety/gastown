@@ -842,38 +842,45 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 		target = resolveDoneTargetBranch(townRoot, rigName, defaultBranch, doneTarget, completionBd, g, issueID, sourceIssue)
 		baseRef = g.CleanBaseRef("origin", defaultBranch, target)
-		var evidenceErr error
-		completionEvidence, evidenceErr = assessSourceCompletionEvidence(g, "HEAD", completionTargetRefs(target, baseRef), issueID, sourceIssue, sourceAttachment, completionEvidenceDone)
-		if evidenceErr != nil {
-			return evidenceErr
+		if doneHasTerminalNoBranchEvidence(sourceIssue) {
+			completionEvidence = completionEvidenceResult{AllowsNoBranchWork: true, NoBranchWorkReason: "source-terminal"}
+		} else {
+			var evidenceErr error
+			completionEvidence, evidenceErr = assessSourceCompletionEvidence(g, "HEAD", completionTargetRefs(target, baseRef), issueID, sourceIssue, sourceAttachment, completionEvidenceDone)
+			if evidenceErr != nil {
+				return evidenceErr
+			}
 		}
 	}
 
-	// Write done-intent label EARLY, before push/MR operations.
-	// If gt done crashes after this point, the Witness can detect the intent
-	// and auto-nuke the zombie polecat.
-	//
-	// Also read existing checkpoints for resume capability (gt-aufru).
-	// If gt done was interrupted (SIGTERM, context exhaustion, SIGKILL),
-	// checkpoints indicate which stages completed. On re-invocation, we
-	// skip those stages to avoid repeating work or hitting errors.
+	// Read existing checkpoints for resume capability (gt-aufru). If gt done was
+	// interrupted, checkpoints indicate which stages completed. The done-intent
+	// label and exiting heartbeat are written later, after fatal completion gates
+	// pass, so validation failures do not leave stale completion state behind.
 	checkpoints := map[DoneCheckpoint]string{}
+	var doneIntentBd *beads.Beads
 	if agentBeadID != "" {
 		// Agent bead lives in town DB despite rig prefix — bypass routing.
-		bd := beads.New(cwd).ForAgentBead()
-		setDoneIntentLabel(bd, agentBeadID, exitType)
-		checkpoints = readDoneCheckpoints(bd, agentBeadID)
+		doneIntentBd = beads.New(cwd).ForAgentBead()
+		checkpoints = readDoneCheckpoints(doneIntentBd, agentBeadID)
 		if len(checkpoints) > 0 {
 			fmt.Printf("%s Resuming gt done from checkpoint (previous run was interrupted)\n", style.Bold.Render("→"))
 		}
 	}
-
-	// Write heartbeat state="exiting" (gt-3vr5: heartbeat v2).
-	// Tells the witness we're in the gt done flow — trust the agent until
-	// heartbeat goes stale. No timer-based inference needed.
-	// Parallel to done-intent label for backwards compat during migration.
-	if sessionName := os.Getenv("GT_SESSION"); sessionName != "" && townRoot != "" {
-		polecat.TouchSessionHeartbeatWithState(townRoot, sessionName, polecat.HeartbeatExiting, "gt done", issueID)
+	markedDoneIntent := false
+	markDoneExiting := func() {
+		if markedDoneIntent {
+			return
+		}
+		markedDoneIntent = true
+		if doneIntentBd != nil && agentBeadID != "" {
+			setDoneIntentLabel(doneIntentBd, agentBeadID, exitType)
+		}
+		// Write heartbeat state="exiting" (gt-3vr5: heartbeat v2). This begins
+		// the trusted gt done flow only after validation gates have passed.
+		if sessionName := os.Getenv("GT_SESSION"); sessionName != "" && townRoot != "" {
+			polecat.TouchSessionHeartbeatWithState(townRoot, sessionName, polecat.HeartbeatExiting, "gt done", issueID)
+		}
 	}
 
 	// For COMPLETED, we need an issue ID and branch must not be the default branch
@@ -940,6 +947,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		}
 		if !completionEvidence.HasSubmittableWork {
 			if completionEvidence.NoBranchWorkReason == "source-terminal" {
+				markDoneExiting()
 				fmt.Printf("%s Source issue %s is already terminal with completion evidence; skipping MR creation.\n", style.Bold.Render("→"), issueID)
 				goto notifyWitness
 			}
@@ -959,6 +967,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					}
 					skipClose = true
 				}
+				markDoneExiting()
 
 				if !skipClose {
 					closeReason := "Review-only work completed; merge queue skipped"
@@ -989,6 +998,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		if reviewOnlySource {
 			return fmt.Errorf("cannot complete review-only issue %s with branch changes; add a fresh review evidence comment and complete without code changes", issueID)
 		}
+		markDoneExiting()
 
 		// Determine merge strategy from convoy (gt-myofa.3)
 		// Convoys can override the default MR-based workflow:
@@ -1006,8 +1016,13 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			convoyInfo = getConvoyInfoForIssue(issueID)
 		}
 
-		// Handle "local" strategy: skip push and MR entirely
-		if convoyInfo != nil && convoyInfo.MergeStrategy == "local" {
+		// Handle "local" strategy: skip push and MR entirely. Attachment fields
+		// are authoritative for mq eligibility, so honor them even without convoy id.
+		localMergeStrategy := convoyInfo != nil && convoyInfo.MergeStrategy == "local"
+		if !localMergeStrategy && sourceAttachment != nil {
+			localMergeStrategy = strings.EqualFold(strings.TrimSpace(sourceAttachment.MergeStrategy), "local")
+		}
+		if localMergeStrategy {
 			fmt.Printf("%s Local merge strategy: skipping push and merge queue\n", style.Bold.Render("→"))
 			fmt.Printf("  Branch: %s\n", branch)
 			if issueID != "" {
@@ -1084,6 +1099,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		var refspec string
 		var pushErr error
 		var pushedCommitSHA string
+		var pushedVerified bool
 
 		// Resume: skip push if already completed in a previous run (gt-aufru).
 		// Validate checkpoint branch matches current branch (ge-sbo: stale checkpoint
@@ -1165,6 +1181,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		}
 		if doneSkipVerify {
 			noteVerifiedPushSkipped(cwd, issueID, branch, pushedCommitSHA, "--skip-verify on branch push")
+			pushedVerified = true
 		} else if verifyErr := verifyPushedCommitWithBareFallback(g, townRoot, rigName, branch, pushedCommitSHA); verifyErr != nil {
 			pushFailed = true
 			errMsg := verifyErr.Error()
@@ -1172,6 +1189,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			noteVerifiedPushFailure(cwd, issueID, branch, pushedCommitSHA, verifyErr)
 			style.PrintWarning("%s\nCommits exist locally but verified push failed. Witness will be notified.", errMsg)
 			goto notifyWitness
+		} else {
+			pushedVerified = true
 		}
 		fmt.Printf("%s Branch pushed to origin\n", style.Bold.Render("✓"))
 
@@ -1187,6 +1206,24 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		}
 
 	afterPush:
+		if !pushedVerified {
+			if pushedCommitSHA == "" {
+				pushedCommitSHA, _ = g.Rev("HEAD")
+			}
+			if doneSkipVerify {
+				noteVerifiedPushSkipped(cwd, issueID, branch, pushedCommitSHA, "--skip-verify on resumed branch push")
+				pushedVerified = true
+			} else if verifyErr := verifyPushedCommitWithBareFallback(g, townRoot, rigName, branch, pushedCommitSHA); verifyErr != nil {
+				pushFailed = true
+				errMsg := verifyErr.Error()
+				doneErrors = append(doneErrors, errMsg)
+				noteVerifiedPushFailure(cwd, issueID, branch, pushedCommitSHA, verifyErr)
+				style.PrintWarning("%s\nResumed push checkpoint is stale. Source bead will remain in progress.", errMsg)
+				goto notifyWitness
+			} else {
+				pushedVerified = true
+			}
+		}
 
 		if issueID == "" {
 			return fmt.Errorf("cannot determine source issue from branch '%s'; use --issue to specify", branch)
@@ -1618,6 +1655,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		fmt.Printf("%s\n", style.Dim.Render("The Refinery will process your merge request."))
 	} else {
 		// For ESCALATED or DEFERRED, just print status
+		markDoneExiting()
 		fmt.Printf("%s Signaling %s\n", style.Bold.Render("→"), exitType)
 		if issueID != "" {
 			fmt.Printf("  Issue: %s\n", issueID)
