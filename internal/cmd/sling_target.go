@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/workspace"
@@ -310,6 +311,9 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 			if err := verifyBeadExistsInTargetRigDatabase(opts.BeadID, rigName, opts.TownRoot); err != nil {
 				return nil, err
 			}
+			if err := verifyPolecatTargetAcceptsHook(agentID, opts.TownRoot); err != nil {
+				return nil, err
+			}
 		}
 	}
 	result.Agent = agentID
@@ -322,6 +326,33 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 		result.IsSelfSling = true
 	}
 	return result, nil
+}
+
+func verifyPolecatTargetAcceptsHook(agentID, townRoot string) error {
+	if !isPolecatTarget(agentID) {
+		return nil
+	}
+	parts := strings.Split(agentID, "/")
+	if len(parts) != 3 || parts[1] != "polecats" {
+		return nil
+	}
+	if townRoot == "" {
+		townRoot = detectTownRootFromCwd()
+	}
+	if townRoot == "" {
+		return fmt.Errorf("cannot verify lifecycle state for %s: town root not found", agentID)
+	}
+	rigName, polecatName := parts[0], parts[2]
+	prefix := beads.GetPrefixForRig(townRoot, rigName)
+	agentBeadID := beads.PolecatBeadIDWithPrefix(prefix, rigName, polecatName)
+	_, fields, err := beads.New(filepath.Join(townRoot, rigName)).ForAgentBead().GetAgentBead(agentBeadID)
+	if err != nil {
+		return fmt.Errorf("checking lifecycle state for %s: %w", agentID, err)
+	}
+	if fields != nil && beads.AgentState(strings.TrimSpace(fields.AgentState)) == beads.AgentStateRemoving {
+		return fmt.Errorf("target polecat %s is being removed; wait for cleanup to complete", agentID)
+	}
+	return nil
 }
 
 func missingPolecatTargetRig(target string, allowCreate bool, townRoot string) (string, string, bool) {

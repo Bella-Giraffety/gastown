@@ -1113,11 +1113,6 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 			return fmt.Errorf("%w: %s is not safe to remove: %s", ErrPolecatNeedsRecovery, name, blocker)
 		}
 	}
-	workToUnassign, workErr := m.activeWorkBeads(name)
-	if workErr != nil {
-		return fmt.Errorf("capturing active work for %s: %w", name, workErr)
-	}
-
 	// Check if user's shell is cd'd into the worktree (prevents broken shell)
 	// This check runs unless selfNuke=true (polecat deleting its own worktree).
 	// When a polecat calls `gt done`, it's inside its worktree by design - the session
@@ -1148,6 +1143,10 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 		if !errors.Is(err, beads.ErrNotFound) {
 			return fmt.Errorf("marking %s removing: %w", agentID, err)
 		}
+	}
+	workToUnassign, workErr := m.activeWorkBeads(name)
+	if workErr != nil {
+		return fmt.Errorf("capturing active work for %s: %w", name, workErr)
 	}
 
 	if err := m.killExistingPolecatSession(name, "remove"); err != nil {
