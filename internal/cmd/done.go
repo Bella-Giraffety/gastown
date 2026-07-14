@@ -363,7 +363,7 @@ func reviewEvidenceHeadSHA(text string) string {
 	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		lower := strings.ToLower(trimmed)
-		for _, key := range []string{"head_sha", "target_head_sha", "head"} {
+		for _, key := range []string{"head_sha", "target_head_sha", "final_head_sha", "head"} {
 			for _, sep := range []string{":", "="} {
 				prefix := key + sep
 				if strings.HasPrefix(lower, prefix) {
@@ -1182,7 +1182,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		if doneSkipVerify {
 			noteVerifiedPushSkipped(cwd, issueID, branch, pushedCommitSHA, "--skip-verify on branch push")
 			pushedVerified = true
-		} else if verifyErr := verifyPushedCommitWithBareFallback(g, townRoot, rigName, branch, pushedCommitSHA); verifyErr != nil {
+		} else if verifyErr := verifyPushedCommitOnRemote(g, branch, pushedCommitSHA); verifyErr != nil {
 			pushFailed = true
 			errMsg := verifyErr.Error()
 			doneErrors = append(doneErrors, errMsg)
@@ -1213,7 +1213,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			if doneSkipVerify {
 				noteVerifiedPushSkipped(cwd, issueID, branch, pushedCommitSHA, "--skip-verify on resumed branch push")
 				pushedVerified = true
-			} else if verifyErr := verifyPushedCommitWithBareFallback(g, townRoot, rigName, branch, pushedCommitSHA); verifyErr != nil {
+			} else if verifyErr := verifyPushedCommitOnRemote(g, branch, pushedCommitSHA); verifyErr != nil {
 				pushFailed = true
 				errMsg := verifyErr.Error()
 				doneErrors = append(doneErrors, errMsg)
@@ -1738,6 +1738,9 @@ notifyWitness:
 		if convoyInfo != nil {
 			mergeStrategy = convoyInfo.MergeStrategy
 		}
+		if mergeStrategy == "" && sourceAttachment != nil {
+			mergeStrategy = sourceAttachment.MergeStrategy
+		}
 		retirePolecat = shouldRetirePolecatSessionAfterDone(exitType, mergeStrategy, pushFailed, mrFailed)
 		if retirePolecat {
 			fmt.Printf("%s Polecat session retiring after durable handoff\n", style.Bold.Render("✓"))
@@ -1856,22 +1859,8 @@ func noteVerifiedPushSkipped(cwd, issueID, branch, commit, reason string) {
 	_, _ = beads.New(cwd).Run("comments", "add", issueID, msg)
 }
 
-func verifyPushedCommitWithBareFallback(g *git.Git, townRoot, rigName, branch, commit string) error {
-	verifyErr := g.VerifyPushedCommit("origin", branch, commit)
-	if verifyErr == nil {
-		return nil
-	}
-
-	bareRepoPath := filepath.Join(townRoot, rigName, ".repo.git")
-	if _, statErr := os.Stat(bareRepoPath); statErr != nil {
-		return verifyErr
-	}
-	bareGit := git.NewGitWithDir(bareRepoPath, "")
-	tip, tipErr := bareGit.Rev("refs/heads/" + branch)
-	if tipErr == nil && strings.TrimSpace(tip) == strings.TrimSpace(commit) {
-		return nil
-	}
-	return verifyErr
+func verifyPushedCommitOnRemote(g *git.Git, branch, commit string) error {
+	return g.VerifyPushedCommit("origin", branch, commit)
 }
 
 // shouldNudgeRefinery reports whether a gt done invocation may wake the

@@ -176,6 +176,26 @@ func TestReviewOnlyCloseAllowsFreshEvidenceComment(t *testing.T) {
 	}
 }
 
+func TestReviewOnlyCloseAllowsFinalHeadSHAEvidenceComment(t *testing.T) {
+	issue := &beads.Issue{
+		ID:          "gt-review",
+		Description: "review_only: true\nattached_at: 2026-07-01T12:00:00Z\n",
+		Assignee:    "gastown/polecats/toast",
+		Comments: []beads.Comment{
+			{
+				Author:    "gastown/polecats/toast",
+				CreatedAt: "2026-07-01T12:05:00Z",
+				Text:      "PR-SHERIFF-EVIDENCE: pass\nfinal_head_sha: abc123",
+			},
+		},
+	}
+
+	reason, fatal := doneReviewOnlyCloseSkipReasonForHead(nil, issue.ID, issue, "abc123")
+	if reason != "" || fatal {
+		t.Fatalf("doneReviewOnlyCloseSkipReason = %q, %v; want allowed", reason, fatal)
+	}
+}
+
 func TestReviewOnlyGeneratedCommentsDoNotCountAsEvidence(t *testing.T) {
 	issue := &beads.Issue{
 		ID:          "gt-review",
@@ -390,6 +410,32 @@ func TestCompletionEvidencePreservesTerminalExplicitNoCode(t *testing.T) {
 	}
 	if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
 		t.Fatalf("assessment = %+v, want terminal no-branch allowance", got)
+	}
+}
+
+func TestCompletionEvidenceRejectsGenericNoCodeForImplementationSource(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/terminal-task")
+
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "task", CloseReason: "no-changes: skipped implementation"}
+	if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
+		t.Fatal("generic no-code evidence should not bypass implementation work")
+	}
+}
+
+func TestCompletionEvidenceAllowsAlreadyLandedForImplementationSource(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/already-landed")
+
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "task", CloseReason: "already landed in upstream/main"}
+	got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+	if err != nil {
+		t.Fatalf("already-landed implementation evidence should be allowed: %v", err)
+	}
+	if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
+		t.Fatalf("assessment = %+v, want terminal already-landed allowance", got)
 	}
 }
 

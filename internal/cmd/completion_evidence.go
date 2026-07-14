@@ -114,12 +114,20 @@ func doneHasTerminalNoBranchEvidence(issue *beads.Issue) bool {
 	if issue == nil || !beads.IssueStatus(strings.TrimSpace(issue.Status)).IsTerminal() {
 		return false
 	}
-	return doneTextHasNoBranchEvidence(issue.CloseReason) ||
-		doneTextHasNoBranchEvidence(issue.Notes) ||
-		doneTextHasNoBranchEvidence(issue.Design)
+	if doneTextHasAlreadyLandedEvidence(issue.CloseReason) ||
+		doneTextHasAlreadyLandedEvidence(issue.Notes) ||
+		doneTextHasAlreadyLandedEvidence(issue.Design) {
+		return true
+	}
+	if !doneIssueAllowsGenericNoCode(issue) {
+		return false
+	}
+	return doneTextHasGenericNoCodeEvidence(issue.CloseReason) ||
+		doneTextHasGenericNoCodeEvidence(issue.Notes) ||
+		doneTextHasGenericNoCodeEvidence(issue.Design)
 }
 
-func doneTextHasNoBranchEvidence(text string) bool {
+func doneTextHasAlreadyLandedEvidence(text string) bool {
 	text = strings.ToLower(strings.TrimSpace(text))
 	if text == "" {
 		return false
@@ -128,12 +136,26 @@ func doneTextHasNoBranchEvidence(text string) bool {
 		return true
 	}
 	for _, phrase := range []string{
-		"no-changes",
-		"no changes",
 		"already fixed",
 		"already landed",
 		"already merged",
 		"merged in ",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func doneTextHasGenericNoCodeEvidence(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return false
+	}
+	for _, phrase := range []string{
+		"no-changes",
+		"no changes",
 		"not applicable",
 		"cannot reproduce",
 		"can't reproduce",
@@ -143,6 +165,15 @@ func doneTextHasNoBranchEvidence(text string) bool {
 		}
 	}
 	return false
+}
+
+func doneIssueAllowsGenericNoCode(issue *beads.Issue) bool {
+	switch strings.ToLower(strings.TrimSpace(issue.Type)) {
+	case "task", "bug", "feature":
+		return false
+	default:
+		return true
+	}
 }
 
 func doneZeroDeliverableError(issueID, target string) error {
