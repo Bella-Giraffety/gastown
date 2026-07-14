@@ -310,6 +310,8 @@ func (e *Engineer) ProcessBatch(ctx context.Context, batch []*MRInfo, target str
 		_, _ = fmt.Fprintln(e.output, "[Batch] Warning: good subset also failed gates, aborting batch")
 		result.Error = fmt.Errorf("good subset failed verification after bisection")
 		e.resetBatchTarget(target, "good subset failed verification")
+	} else {
+		e.resetBatchTarget(target, "all MRs failed verification after bisection")
 	}
 
 	return result

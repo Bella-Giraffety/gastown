@@ -305,9 +305,13 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 					oldFields := beads.ParseMRFields(old)
 					if oldFields != nil && strings.HasPrefix(oldFields.Branch, "polecat/") {
 						g := git.NewGit(cwd)
-						if g.HasOpenPullRequest(git.PullRequestRef{URL: oldFields.PRURL, Number: oldFields.PRNumber, Branch: oldFields.Branch, HeadSHA: oldFields.CommitSHA}) {
+						if oldFields.Branch == branch {
+							fmt.Printf("  %s Skipped remote branch delete for superseded MR %s: same branch as current submission\n", style.Dim.Render("○"), old.ID)
+						} else if oldFields.CommitSHA == "" {
+							style.PrintWarning("could not delete superseded branch %s: old MR has no commit_sha", oldFields.Branch)
+						} else if g.HasOpenPullRequest(git.PullRequestRef{URL: oldFields.PRURL, Number: oldFields.PRNumber, Branch: oldFields.Branch, HeadSHA: oldFields.CommitSHA}) {
 							fmt.Printf("  %s Skipped remote branch delete for superseded MR %s: open PR exists\n", style.Dim.Render("○"), old.ID)
-						} else if err := g.DeleteRemoteBranch("origin", oldFields.Branch); err != nil {
+						} else if err := g.DeleteRemoteBranchIfAt("origin", oldFields.Branch, oldFields.CommitSHA); err != nil {
 							style.PrintWarning("could not delete superseded branch %s: %v", oldFields.Branch, err)
 						} else {
 							fmt.Printf("  %s Deleted remote branch: %s\n", style.Dim.Render("○"), oldFields.Branch)

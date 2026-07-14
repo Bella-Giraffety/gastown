@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1642,32 +1643,130 @@ func pullRequestSelector(pr *PullRequestInfo) string {
 // FindBitbucketPRNumber returns the Bitbucket PR ID for the given branch, or 0 if none exists.
 // It queries the Bitbucket REST API for open PRs with the branch as source.
 func (g *Git) FindBitbucketPRNumber(workspace, repoSlug, branch string) (int, error) {
+	pr, err := g.FindBitbucketPullRequest(workspace, repoSlug, branch, "")
+	if err != nil || pr == nil {
+		return 0, err
+	}
+	return pr.Number, nil
+}
+
+// FindBitbucketPullRequest returns the open Bitbucket PR for branch, validating
+// headSHA when supplied. Ambiguous source-branch matches fail closed.
+func (g *Git) FindBitbucketPullRequest(workspace, repoSlug, branch, headSHA string) (*PullRequestInfo, error) {
 	// Use curl since there is no official Bitbucket CLI equivalent to gh.
 	// The BITBUCKET_TOKEN env var provides authentication.
 	token := os.Getenv("BITBUCKET_TOKEN")
 	if token == "" {
-		return 0, fmt.Errorf("BITBUCKET_TOKEN is required for Bitbucket PR operations")
+		return nil, fmt.Errorf("BITBUCKET_TOKEN is required for Bitbucket PR operations")
 	}
-	url := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests?q=source.branch.name%%3D%%22%s%%22+AND+state%%3D%%22OPEN%%22&pagelen=1",
-		workspace, repoSlug, branch)
-	cmd := exec.Command("curl", "-s", "-H", "Authorization: Bearer "+token, url)
+	query := fmt.Sprintf(`source.branch.name="%s" AND state="OPEN"`, branch)
+	endpoint := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests?q=%s&pagelen=100",
+		workspace, repoSlug, url.QueryEscape(query))
+	cmd := exec.Command("curl", "-s", "-H", "Authorization: Bearer "+token, endpoint)
 	cmd.Dir = g.workDir
 	out, err := cmd.Output()
 	if err != nil {
-		return 0, fmt.Errorf("bitbucket API request failed: %w", err)
+		return nil, fmt.Errorf("bitbucket API request failed: %w", err)
 	}
-	var resp struct {
-		Values []struct {
-			ID int `json:"id"`
-		} `json:"values"`
-	}
+	var resp bitbucketPullRequestList
 	if err := json.Unmarshal(bytes.TrimSpace(out), &resp); err != nil {
-		return 0, fmt.Errorf("failed to parse Bitbucket response: %w", err)
+		return nil, fmt.Errorf("failed to parse Bitbucket response: %w", err)
 	}
-	if len(resp.Values) == 0 {
-		return 0, nil
+	return selectBitbucketPullRequest(resp.Values, workspace+"/"+repoSlug, branch, headSHA)
+}
+
+func (g *Git) GetBitbucketPullRequest(workspace, repoSlug string, prID int, headSHA string) (*PullRequestInfo, error) {
+	token := os.Getenv("BITBUCKET_TOKEN")
+	if token == "" {
+		return nil, fmt.Errorf("BITBUCKET_TOKEN is required for Bitbucket PR operations")
 	}
-	return resp.Values[0].ID, nil
+	endpoint := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%d", workspace, repoSlug, prID)
+	cmd := exec.Command("curl", "-s", "-H", "Authorization: Bearer "+token, endpoint)
+	cmd.Dir = g.workDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("bitbucket API request failed: %w", err)
+	}
+	var raw bitbucketPullRequest
+	if err := json.Unmarshal(bytes.TrimSpace(out), &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse Bitbucket response: %w", err)
+	}
+	pr := raw.toPullRequestInfo(workspace + "/" + repoSlug)
+	if err := validatePullRequestHead(pr, headSHA); err != nil {
+		return nil, err
+	}
+	return pr, nil
+}
+
+type bitbucketPullRequestList struct {
+	Values []bitbucketPullRequest `json:"values"`
+}
+
+type bitbucketPullRequest struct {
+	ID    int    `json:"id"`
+	State string `json:"state"`
+	Links struct {
+		HTML struct {
+			Href string `json:"href"`
+		} `json:"html"`
+	} `json:"links"`
+	Source struct {
+		Branch struct {
+			Name string `json:"name"`
+		} `json:"branch"`
+		Commit struct {
+			Hash string `json:"hash"`
+		} `json:"commit"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	} `json:"source"`
+	Destination struct {
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	} `json:"destination"`
+}
+
+func (p bitbucketPullRequest) toPullRequestInfo(defaultBaseRepo string) *PullRequestInfo {
+	baseRepo := p.Destination.Repository.FullName
+	if baseRepo == "" {
+		baseRepo = defaultBaseRepo
+	}
+	return &PullRequestInfo{
+		Number:      p.ID,
+		URL:         p.Links.HTML.Href,
+		State:       strings.ToUpper(p.State),
+		HeadRefName: p.Source.Branch.Name,
+		HeadRepo:    p.Source.Repository.FullName,
+		HeadSHA:     p.Source.Commit.Hash,
+		BaseRepo:    baseRepo,
+	}
+}
+
+func selectBitbucketPullRequest(raw []bitbucketPullRequest, targetRepo, branch, headSHA string) (*PullRequestInfo, error) {
+	matches := make([]*PullRequestInfo, 0, len(raw))
+	for _, candidate := range raw {
+		pr := candidate.toPullRequestInfo(targetRepo)
+		if pr.HeadRefName != "" && pr.HeadRefName != branch {
+			continue
+		}
+		if pr.BaseRepo != "" && !strings.EqualFold(pr.BaseRepo, targetRepo) {
+			continue
+		}
+		if err := validatePullRequestHead(pr, headSHA); err != nil {
+			return nil, err
+		}
+		pr.LookupSource = "bitbucket-head"
+		matches = append(matches, pr)
+	}
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("%w: head %s in %s matched %d Bitbucket PRs", ErrPullRequestAmbiguous, branch, targetRepo, len(matches))
+	}
+	return matches[0], nil
 }
 
 // IsBitbucketPRApproved checks whether a Bitbucket PR has at least one approving reviewer.
