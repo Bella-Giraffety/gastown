@@ -65,12 +65,18 @@ func (g *Git) LookupPullRequest(ref PullRequestRef) (*PullRequestInfo, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := validatePullRequestHead(pr, ref.HeadSHA); err != nil {
+			return nil, err
+		}
 		pr.LookupSource = "recorded-url"
 		return pr, nil
 	}
 	if ref.Number > 0 {
 		pr, err := g.viewPullRequest(strconv.Itoa(ref.Number), targetRepo)
 		if err != nil {
+			return nil, err
+		}
+		if err := validatePullRequestHead(pr, ref.HeadSHA); err != nil {
 			return nil, err
 		}
 		pr.LookupSource = "recorded-number"
@@ -95,6 +101,23 @@ func (g *Git) HasOpenPullRequest(ref PullRequestRef) bool {
 		return !errors.Is(err, ErrPullRequestNotFound)
 	}
 	return pr.Open()
+}
+
+func validatePullRequestHead(pr *PullRequestInfo, expected string) error {
+	expected = strings.TrimSpace(expected)
+	if expected == "" {
+		return nil
+	}
+	if pr == nil {
+		return fmt.Errorf("pull request head is unavailable")
+	}
+	if strings.TrimSpace(pr.HeadSHA) == "" {
+		return fmt.Errorf("pull request #%d head SHA is unavailable", pr.Number)
+	}
+	if pr.HeadSHA != expected {
+		return fmt.Errorf("pull request #%d head SHA %s does not match submitted head %s", pr.Number, pr.HeadSHA, expected)
+	}
+	return nil
 }
 
 func (g *Git) pullRequestTargetRepo(explicit string) (string, error) {
