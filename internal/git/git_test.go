@@ -2210,7 +2210,8 @@ func TestIsGasTownRuntimePath(t *testing.T) {
 	}{
 		{".claude/", true},
 		{".claude/settings.json", true},
-		{".claude/commands/foo.md", true},
+		{".claude/commands/foo.md", false},
+		{".claude/skills/review/SKILL.md", false},
 		{".claude", true},
 		{".runtime/", true},
 		{".runtime/state.json", true},
@@ -2323,9 +2324,17 @@ func TestCleanExcludingRuntime(t *testing.T) {
 			s: UncommittedWorkStatus{
 				HasUncommittedChanges: true,
 				UnpushedCommits:       1,
-				UntrackedFiles:        []string{".beads/", ".claude/commands/done.md", ".runtime/state.json"},
+				UntrackedFiles:        []string{".beads/", ".claude/settings.json", ".runtime/state.json"},
 			},
 			want: true,
+		},
+		{
+			name: "claude command artifacts are real work",
+			s: UncommittedWorkStatus{
+				HasUncommittedChanges: true,
+				UntrackedFiles:        []string{".claude/commands/done.md"},
+			},
+			want: false,
 		},
 		{
 			name: "pycache untracked",

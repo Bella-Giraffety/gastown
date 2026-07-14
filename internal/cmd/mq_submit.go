@@ -223,6 +223,9 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot submit %s to merge queue: source issue unavailable", issueID)
 	}
 	baseRef := g.CleanBaseRef("origin", defaultBranch, target)
+	if err := refreshMQSubmitTarget(g, baseRef); err != nil {
+		return fmt.Errorf("cannot refresh target ref %s before merge queue submit: %w", baseRef, err)
+	}
 	if _, evidenceSHA, err := assessMQSubmitCompletionEvidence(g, branch, completionTargetRefs(target, baseRef), issueID, sourceIssue); err != nil {
 		return err
 	} else if commitSHA == "" {
@@ -356,6 +359,14 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 
 func resolveMQSubmitCommitSHA(g *git.Git, branch string) (string, error) {
 	return g.Rev(fmt.Sprintf("refs/heads/%s^{commit}", branch))
+}
+
+func refreshMQSubmitTarget(g *git.Git, baseRef string) error {
+	fetchRemote := git.RemoteForRef(baseRef)
+	if fetchRemote == "" {
+		fetchRemote = "origin"
+	}
+	return g.Fetch(fetchRemote)
 }
 
 func assessMQSubmitCompletionEvidence(g *git.Git, branch string, targetRefs []string, issueID string, sourceIssue *beads.Issue) (completionEvidenceResult, string, error) {

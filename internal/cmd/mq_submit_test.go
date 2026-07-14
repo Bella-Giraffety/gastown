@@ -107,6 +107,35 @@ func TestAssessMQSubmitCompletionEvidenceAllowsRemoteOnlyBranch(t *testing.T) {
 	}
 }
 
+func TestRefreshMQSubmitTargetPreventsStaleTargetEvidence(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	staleOriginMain := runGitForMQSubmitTest(t, repo, "rev-parse", "origin/main")
+	branch := "feature/already-on-remote-target"
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", branch)
+	writeMQSubmitTestFile(t, repo, "already.txt", "already merged\n")
+	runGitForMQSubmitTest(t, repo, "add", "already.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "already merged work")
+	runGitForMQSubmitTest(t, repo, "checkout", "main")
+	writeMQSubmitTestFile(t, repo, "already.txt", "already merged\n")
+	runGitForMQSubmitTest(t, repo, "add", "already.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "target has work")
+	runGitForMQSubmitTest(t, repo, "push", "origin", "main")
+	runGitForMQSubmitTest(t, repo, "update-ref", "refs/remotes/origin/main", staleOriginMain)
+
+	issue := &beads.Issue{ID: "gt-stale-target", Status: "in_progress", Type: "task"}
+	stale, _, err := assessMQSubmitCompletionEvidence(g, branch, targetRefs, issue.ID, issue)
+	if err != nil || !stale.HasSubmittableWork {
+		t.Fatalf("stale target should misclassify before refresh for test setup: assessment=%+v err=%v", stale, err)
+	}
+	if err := refreshMQSubmitTarget(g, "origin/main"); err != nil {
+		t.Fatalf("refreshMQSubmitTarget: %v", err)
+	}
+	if _, _, err := assessMQSubmitCompletionEvidence(g, branch, targetRefs, issue.ID, issue); err == nil {
+		t.Fatal("refreshed target should reject already-landed branch as no MQ work")
+	}
+}
+
 func runGitForMQSubmitTest(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
