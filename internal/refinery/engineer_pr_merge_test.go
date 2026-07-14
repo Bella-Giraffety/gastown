@@ -166,6 +166,22 @@ func TestDoMergePR_NoPR_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestDoMergePR_RequiresGateAuthorization(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	e := newTestEngineer(t, workDir, g)
+
+	result := e.doMergePR(context.Background(), &MRInfo{ID: "mr-no-auth", Branch: "feat/no-auth", Target: "main"}, mergeGateAuthorization{})
+	if result.Success {
+		t.Fatal("expected PR merge without gate authorization to fail")
+	}
+	if !result.GateUnproven {
+		t.Fatalf("result = %+v, want GateUnproven", result)
+	}
+	if !strings.Contains(result.Error, "authorization missing") {
+		t.Fatalf("error = %q, want authorization missing", result.Error)
+	}
+}
+
 func TestProcessResult_NeedsApproval(t *testing.T) {
 	// Verify NeedsApproval field works on ProcessResult.
 	r := ProcessResult{

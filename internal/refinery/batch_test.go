@@ -457,9 +457,69 @@ func TestProcessBatch_NoConfiguredVerificationFailsClosed(t *testing.T) {
 	if len(result.Merged) != 0 {
 		t.Fatalf("expected no merged MRs, got %d", len(result.Merged))
 	}
-	after := run(t, workDir, "git", "rev-parse", "origin/main")
-	if after != before {
-		t.Fatalf("origin/main changed despite unproven verification: before %s after %s", before, after)
+	assertOriginMainUnchangedAndReset(t, workDir, before)
+}
+
+func TestProcessMRInfo_LegacyTestsRunOnCandidate(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	createFeatureBranch(t, workDir, "feature-fails-on-candidate", "FAIL_MARKER", "candidate-only failure\n")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.Gates = nil
+	e.config.RunTests = true
+	e.config.TestCommand = `if test -f FAIL_MARKER; then printf '{"executed":true,"passed":false}' > "$GT_GATE_EVIDENCE"; exit 1; fi; printf '{"executed":true}' > "$GT_GATE_EVIDENCE"`
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+	result := e.ProcessMRInfo(context.Background(), makeMR("mr-candidate-fails", "feature-fails-on-candidate", "main"))
+	if result.Success {
+		t.Fatal("expected candidate-only legacy test failure to block merge")
+	}
+	if !result.TestsFailed || result.GateUnproven {
+		t.Fatalf("result = %+v, want proven test failure", result)
+	}
+	assertOriginMainUnchangedAndReset(t, workDir, before)
+}
+
+func TestProcessMRInfo_TestGateUnprovenOutcomesBlockMerge(t *testing.T) {
+	tests := []struct {
+		name        string
+		cmd         string
+		wantOutcome GateOutcome
+	}{
+		{"missing tool", "__gt_missing_tool_4469__ --version", GateOutcomeConfigFailure},
+		{"malformed evidence", "printf 'not-json' > \"$GT_GATE_EVIDENCE\"", GateOutcomeNoEvidence},
+		{"unknown evidence", "printf '{\"outcome\":\"unknown\"}' > \"$GT_GATE_EVIDENCE\"", GateOutcomeUnknown},
+		{"zero tests", "printf '{\"tests_executed\":0}' > \"$GT_GATE_EVIDENCE\"", GateOutcomeZeroTests},
+		{"pre-existing red", "printf '{\"outcome\":\"pre_existing_failure\"}' > \"$GT_GATE_EVIDENCE\"", GateOutcomePreExistingFailure},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workDir, g, cleanup := testGitRepo(t)
+			defer cleanup()
+
+			createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
+
+			e := newTestEngineer(t, workDir, g)
+			e.config.Gates = map[string]*GateConfig{
+				"test": {Cmd: tt.cmd, Kind: gateKindTest},
+			}
+			before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+			result := e.ProcessMRInfo(context.Background(), makeMR("mr-a", "feature-a", "main"))
+			if result.Success {
+				t.Fatal("expected unproven gate outcome to block merge")
+			}
+			if !result.GateUnproven {
+				t.Fatalf("result = %+v, want GateUnproven", result)
+			}
+			if result.GateOutcome != tt.wantOutcome {
+				t.Fatalf("GateOutcome = %q, want %q; error=%s", result.GateOutcome, tt.wantOutcome, result.Error)
+			}
+			assertOriginMainUnchangedAndReset(t, workDir, before)
+		})
 	}
 }
 
@@ -485,10 +545,7 @@ func TestProcessMRInfo_PreVerifiedDoesNotSkipUnprovenGates(t *testing.T) {
 	if !result.GateUnproven {
 		t.Fatalf("result = %+v, want GateUnproven", result)
 	}
-	after := run(t, workDir, "git", "rev-parse", "origin/main")
-	if after != base {
-		t.Fatalf("origin/main changed despite unproven pre_verified gates: before %s after %s", base, after)
-	}
+	assertOriginMainUnchangedAndReset(t, workDir, base)
 }
 
 func TestProcessBatch_MultipleMRs_AllPass(t *testing.T) {
@@ -621,10 +678,7 @@ func TestProcessBatch_UnprovenTestGateDoesNotBisectOrMergeGoodSubset(t *testing.
 	if len(result.Merged) != 0 || len(result.Culprits) != 0 {
 		t.Fatalf("expected no merges or culprits for unproven gate, got merged=%v culprits=%v", stackedIDs(result.Merged), stackedIDs(result.Culprits))
 	}
-	after := run(t, workDir, "git", "rev-parse", "origin/main")
-	if after != before {
-		t.Fatalf("origin/main changed despite unproven gate: before %s after %s", before, after)
-	}
+	assertOriginMainUnchangedAndReset(t, workDir, before)
 }
 
 func TestProcessBatch_RetryOnFlaky(t *testing.T) {
