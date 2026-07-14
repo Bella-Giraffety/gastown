@@ -495,9 +495,11 @@ func TestCompletionEvidenceRejectsVagueAlreadyFixedForImplementationSource(t *te
 	g := gitpkg.NewGit(repo)
 	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/vague-already-fixed")
 
-	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "bug", CloseReason: "already fixed"}
-	if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
-		t.Fatal("vague already-fixed evidence should not bypass implementation work")
+	for _, reason := range []string{"already fixed", "no-changes: already done", "already merged in previous run", "merged in prior attempt"} {
+		issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "bug", CloseReason: reason}
+		if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
+			t.Fatalf("vague terminal evidence %q should not bypass implementation work", reason)
+		}
 	}
 }
 

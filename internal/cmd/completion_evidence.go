@@ -150,7 +150,7 @@ func doneTextHasGenericNoCodeEvidence(text string) bool {
 	if !strings.HasPrefix(text, "no-changes:") && !strings.HasPrefix(text, "no changes:") {
 		return false
 	}
-	for _, phrase := range []string{"not applicable", "cannot reproduce", "can't reproduce", "nothing to implement", "already done"} {
+	for _, phrase := range []string{"not applicable", "cannot reproduce", "can't reproduce", "nothing to implement"} {
 		if strings.Contains(text, phrase) {
 			return true
 		}
@@ -162,7 +162,7 @@ func doneTextHasLandingArtifact(text string) bool {
 	if strings.Contains(text, "#") || strings.Contains(text, "http://") || strings.Contains(text, "https://") {
 		return true
 	}
-	for _, token := range []string{"commit", "sha", "pr", "mr", "upstream/", "origin/", "refs/", "merged in "} {
+	for _, token := range []string{"commit", "sha", "upstream/", "origin/", "refs/", "pr ", "pr:", "pr/", "mr ", "mr:", "mr/"} {
 		if strings.Contains(text, token) {
 			return true
 		}
