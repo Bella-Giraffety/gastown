@@ -1702,15 +1702,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 		// be closed via gh pr merge (showing "merged"), not via branch deletion
 		// (which shows "closed" and destroys the PR audit trail).
 		if isPolecat {
-			if e.git.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: mr.Branch, HeadSHA: mr.CommitSHA}) {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", mr.Branch)
-			} else if mr.CommitSHA == "" {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: missing submitted commit_sha\n", mr.Branch)
-			} else if err := e.git.DeleteRemoteBranchIfAt("origin", mr.Branch, mr.CommitSHA); err != nil {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to delete remote branch %s: %v\n", mr.Branch, err)
-			} else {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Deleted remote branch: %s\n", mr.Branch)
-			}
+			e.deleteMergedRemotePolecatBranch(mr)
 		}
 	}
 
@@ -1732,6 +1724,21 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 
 	// 5. Log success
 	_, _ = fmt.Fprintf(e.output, "[Engineer] ✓ Merged: %s (commit: %s)\n", mr.ID, result.MergeCommit)
+}
+
+func (e *Engineer) deleteMergedRemotePolecatBranch(mr *MRInfo) {
+	if mr == nil || mr.Branch == "" {
+		return
+	}
+	if e.git.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: mr.Branch, HeadSHA: mr.CommitSHA}) {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", mr.Branch)
+	} else if mr.CommitSHA == "" {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: missing submitted commit_sha\n", mr.Branch)
+	} else if err := e.git.DeleteRemoteBranchIfAt("origin", mr.Branch, mr.CommitSHA); err != nil {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to delete remote branch %s: %v\n", mr.Branch, err)
+	} else {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Deleted remote branch: %s\n", mr.Branch)
+	}
 }
 
 // HandleMRInfoFailure handles a failed merge from MRInfo.

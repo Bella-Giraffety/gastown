@@ -561,6 +561,22 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("remote branch delete: %w", err)
 	}
 
+	if err := deletePostMergeRemoteBranch(rigGit, mr); err != nil {
+		return err
+	}
+
+	// Also clean up the local tracking ref if it exists
+	if err := rigGit.DeleteBranch(mr.Branch, true); err != nil {
+		// Not a warning — local branch often doesn't exist
+		_ = err
+	} else {
+		fmt.Printf("  %s Deleted local branch: %s\n", style.Success.Render("✓"), mr.Branch)
+	}
+
+	return nil
+}
+
+func deletePostMergeRemoteBranch(rigGit *git.Git, mr *refinery.MergeRequest) error {
 	// Delete remote branch — but skip if there's an open PR on it.
 	// Deleting a branch with an open PR causes GitHub to auto-close the PR
 	// as "closed" (not "merged"), destroying the PR audit trail. (gas-fk4)
@@ -573,14 +589,5 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 	} else {
 		fmt.Printf("  %s Deleted remote branch: %s\n", style.Success.Render("✓"), mr.Branch)
 	}
-
-	// Also clean up the local tracking ref if it exists
-	if err := rigGit.DeleteBranch(mr.Branch, true); err != nil {
-		// Not a warning — local branch often doesn't exist
-		_ = err
-	} else {
-		fmt.Printf("  %s Deleted local branch: %s\n", style.Success.Render("✓"), mr.Branch)
-	}
-
 	return nil
 }

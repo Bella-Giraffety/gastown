@@ -9,6 +9,7 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	gitpkg "github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/refinery"
 )
 
 func TestResolveMQSubmitCommitSHAUsesSubmittedBranch(t *testing.T) {
@@ -79,6 +80,71 @@ func TestVerifyMQSubmitPushedBranchRequiresRemoteBranch(t *testing.T) {
 	if err := verifyMQSubmitPushedBranch(g, "feature/pr-target", featureSHA); err != nil {
 		t.Fatalf("verifyMQSubmitPushedBranch() after push: %v", err)
 	}
+}
+
+func TestDeletePostMergeRemoteBranchUsesSubmittedSHA(t *testing.T) {
+	installNoPRGHForMQSubmitTest(t)
+	repo := t.TempDir()
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	runGitForMQSubmitTest(t, filepath.Dir(remote), "init", "--bare", "--initial-branch=main", remote)
+
+	runGitForMQSubmitTest(t, repo, "init")
+	runGitForMQSubmitTest(t, repo, "config", "user.email", "test@example.com")
+	runGitForMQSubmitTest(t, repo, "config", "user.name", "Test User")
+	runGitForMQSubmitTest(t, repo, "remote", "add", "origin", remote)
+	runGitForMQSubmitTest(t, repo, "remote", "add", "upstream", "https://github.com/upstream/repo.git")
+
+	writeMQSubmitTestFile(t, repo, "file.txt", "main\n")
+	runGitForMQSubmitTest(t, repo, "add", "file.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "main")
+	runGitForMQSubmitTest(t, repo, "branch", "-M", "main")
+	runGitForMQSubmitTest(t, repo, "push", "-u", "origin", "main")
+
+	branch := "polecat/test/gt-abc"
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", branch)
+	writeMQSubmitTestFile(t, repo, "work.txt", "old\n")
+	runGitForMQSubmitTest(t, repo, "add", "work.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "old")
+	oldSHA := runGitForMQSubmitTest(t, repo, "rev-parse", "HEAD")
+	runGitForMQSubmitTest(t, repo, "push", "origin", branch)
+	writeMQSubmitTestFile(t, repo, "work.txt", "new\n")
+	runGitForMQSubmitTest(t, repo, "commit", "-am", "new")
+	newSHA := runGitForMQSubmitTest(t, repo, "rev-parse", "HEAD")
+	runGitForMQSubmitTest(t, repo, "push", "origin", branch)
+
+	g := gitpkg.NewGit(repo)
+	err := deletePostMergeRemoteBranch(g, &refinery.MergeRequest{Branch: branch, CommitSHA: oldSHA})
+	if err == nil {
+		t.Fatal("expected leased delete to reject advanced remote branch")
+	}
+	remoteLine := runGitForMQSubmitTest(t, repo, "ls-remote", "origin", "refs/heads/"+branch)
+	if !strings.HasPrefix(remoteLine, newSHA) {
+		t.Fatalf("remote branch changed after stale leased delete: got %q want prefix %s", remoteLine, newSHA)
+	}
+
+	if err := deletePostMergeRemoteBranch(g, &refinery.MergeRequest{Branch: branch, CommitSHA: newSHA}); err != nil {
+		t.Fatalf("matching leased delete: %v", err)
+	}
+	if remoteLine := runGitForMQSubmitTest(t, repo, "ls-remote", "origin", "refs/heads/"+branch); remoteLine != "" {
+		t.Fatalf("remote branch still exists after matching leased delete: %q", remoteLine)
+	}
+}
+
+func installNoPRGHForMQSubmitTest(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gh")
+	if err := os.WriteFile(path, []byte(`#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '[]\n'
+  exit 0
+fi
+printf 'unexpected gh args: %s\n' "$*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func runGitForMQSubmitTest(t *testing.T, dir string, args ...string) string {

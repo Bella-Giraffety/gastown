@@ -193,6 +193,55 @@ func TestBitbucketPRProviderMergeFailsClosedWithoutAtomicHeadMatch(t *testing.T)
 	}
 }
 
+func TestDeleteMergedRemotePolecatBranchUsesSubmittedSHA(t *testing.T) {
+	installNoPRGHForRefineryTest(t)
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+	run(t, workDir, "git", "remote", "add", "upstream", "https://github.com/upstream/repo.git")
+
+	branch := "polecat/test/gt-abc"
+	createFeatureBranch(t, workDir, branch, "work.txt", "old\n")
+	run(t, workDir, "git", "push", "origin", branch)
+	oldSHA := run(t, workDir, "git", "rev-parse", branch)
+	run(t, workDir, "git", "checkout", branch)
+	if err := os.WriteFile(filepath.Join(workDir, "work.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, workDir, "git", "commit", "-am", "new")
+	newSHA := run(t, workDir, "git", "rev-parse", "HEAD")
+	run(t, workDir, "git", "push", "origin", branch)
+	run(t, workDir, "git", "checkout", "main")
+
+	e := newTestEngineer(t, workDir, g)
+	e.deleteMergedRemotePolecatBranch(&MRInfo{Branch: branch, CommitSHA: oldSHA})
+	remoteLine := run(t, workDir, "git", "ls-remote", "origin", "refs/heads/"+branch)
+	if !strings.HasPrefix(remoteLine, newSHA) {
+		t.Fatalf("remote branch changed after stale leased delete: got %q want prefix %s", remoteLine, newSHA)
+	}
+
+	e.deleteMergedRemotePolecatBranch(&MRInfo{Branch: branch, CommitSHA: newSHA})
+	if remoteLine := run(t, workDir, "git", "ls-remote", "origin", "refs/heads/"+branch); remoteLine != "" {
+		t.Fatalf("remote branch still exists after matching leased delete: %q", remoteLine)
+	}
+}
+
+func installNoPRGHForRefineryTest(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gh")
+	if err := os.WriteFile(path, []byte(`#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '[]\n'
+  exit 0
+fi
+printf 'unexpected gh args: %s\n' "$*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestProcessResult_NeedsApproval(t *testing.T) {
 	// Verify NeedsApproval field works on ProcessResult.
 	r := ProcessResult{
