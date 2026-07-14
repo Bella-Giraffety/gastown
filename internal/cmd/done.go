@@ -1318,12 +1318,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					prBodyBuilder.WriteString("---\n")
 					prBodyBuilder.WriteString(fmt.Sprintf("*Polecat: %s | Issue: %s*\n", worker, issueID))
 					prBody := prBodyBuilder.String()
-					ghCmd := exec.CommandContext(context.Background(), "gh", "pr", "create",
-						"--base", target,
-						"--head", branch,
-						"--title", prTitle,
-						"--body", prBody,
-					)
+					ghArgs := noMergePRCreateArgs(g, target, branch, prTitle, prBody)
+					ghCmd := exec.CommandContext(context.Background(), "gh", ghArgs...)
 					ghCmd.Dir = cwd
 					prOutput, prErr := ghCmd.Output()
 					if prErr != nil {
@@ -1895,6 +1891,53 @@ func noteVerifiedPushSkipped(cwd, issueID, branch, commit, reason string) {
 
 func verifyPushedCommitOnRemote(g *git.Git, branch, commit string) error {
 	return g.VerifyPushedCommit("origin", branch, commit)
+}
+
+func noMergePRCreateArgs(g *git.Git, target, branch, title, body string) []string {
+	baseRepo := githubRepoForRemote(g, "upstream")
+	if baseRepo == "" {
+		baseRepo = githubRepoForRemote(g, "origin")
+	}
+	head := branch
+	if originRepo := githubRepoForRemote(g, "origin"); baseRepo != "" && originRepo != "" && originRepo != baseRepo {
+		if owner, _, ok := strings.Cut(originRepo, "/"); ok && owner != "" {
+			head = owner + ":" + branch
+		}
+	}
+	args := []string{"pr", "create", "--base", target, "--head", head, "--title", title, "--body", body}
+	if baseRepo != "" {
+		args = append(args, "--repo", baseRepo)
+	}
+	return args
+}
+
+func githubRepoForRemote(g *git.Git, remote string) string {
+	if g == nil {
+		return ""
+	}
+	url, err := g.RemoteURL(remote)
+	if err != nil {
+		return ""
+	}
+	return githubRepoFromRemoteURL(url)
+}
+
+func githubRepoFromRemoteURL(raw string) string {
+	raw = strings.TrimSpace(strings.TrimSuffix(raw, ".git"))
+	raw = strings.TrimPrefix(raw, "https://")
+	raw = strings.TrimPrefix(raw, "http://")
+	raw = strings.TrimPrefix(raw, "git@")
+	raw = strings.TrimPrefix(raw, "ssh://git@")
+	raw = strings.Replace(raw, ":", "/", 1)
+	path, ok := strings.CutPrefix(raw, "github.com/")
+	if !ok {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
 }
 
 // shouldNudgeRefinery reports whether a gt done invocation may wake the

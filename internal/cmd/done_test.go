@@ -383,6 +383,57 @@ func TestCompletionEvidenceRejectsRuntimeOnlyCommittedWork(t *testing.T) {
 	}
 }
 
+func TestCompletionEvidenceRejectsOnlyUnpreservedRuntimeWork(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/runtime-tail")
+	writeMQSubmitTestFile(t, repo, "source.txt", "real work\n")
+	runGitForMQSubmitTest(t, repo, "add", "source.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "real work")
+	runGitForMQSubmitTest(t, repo, "checkout", "main")
+	writeMQSubmitTestFile(t, repo, "source.txt", "real work\n")
+	runGitForMQSubmitTest(t, repo, "add", "source.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "same real work on target")
+	runGitForMQSubmitTest(t, repo, "push", "origin", "main")
+	runGitForMQSubmitTest(t, repo, "checkout", "feature/runtime-tail")
+	if err := os.MkdirAll(filepath.Join(repo, ".runtime"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMQSubmitTestFile(t, repo, ".runtime/session.log", "generated\n")
+	runGitForMQSubmitTest(t, repo, "add", ".runtime/session.log")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "runtime tail")
+
+	issue := &beads.Issue{ID: "gt-runtime-tail", Status: "in_progress", Type: "task"}
+	_, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+	if err == nil {
+		t.Fatal("runtime-only unpreserved tail should not count as deliverable evidence")
+	}
+	if !strings.Contains(err.Error(), "runtime artifacts") {
+		t.Fatalf("error = %v, want runtime artifact reason", err)
+	}
+}
+
+func TestCompletionEvidenceAllowsTrackedClaudeCommandsWork(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/claude-command")
+	if err := os.MkdirAll(filepath.Join(repo, ".claude", "commands"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMQSubmitTestFile(t, repo, ".claude/commands/review.md", "# Review\n")
+	runGitForMQSubmitTest(t, repo, "add", ".claude/commands/review.md")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "add command")
+
+	issue := &beads.Issue{ID: "gt-command", Status: "in_progress", Type: "task"}
+	got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+	if err != nil {
+		t.Fatalf("tracked .claude/commands change should count as deliverable: %v", err)
+	}
+	if !got.HasSubmittableWork {
+		t.Fatalf("assessment = %+v, want submittable command work", got)
+	}
+}
+
 func TestCompletionEvidencePreservesReviewOnlyNoBranchWork(t *testing.T) {
 	repo, targetRefs := setupCompletionEvidenceRepo(t)
 	g := gitpkg.NewGit(repo)
@@ -538,6 +589,37 @@ func TestCompletionEvidenceOnlyCompletedStatusUsesGate(t *testing.T) {
 	for _, exitType := range []string{ExitDeferred, ExitEscalated} {
 		if exitType == ExitCompleted {
 			t.Fatalf("%s should not be treated as completed work", exitType)
+		}
+	}
+}
+
+func TestCompletionTargetRefsUsesResolvedBaseOnly(t *testing.T) {
+	got := completionTargetRefs("main", "upstream/main")
+	want := []string{"upstream/main"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("completionTargetRefs = %#v, want %#v", got, want)
+	}
+}
+
+func TestNoMergePRCreateArgsTargetsUpstreamFromFork(t *testing.T) {
+	repo := t.TempDir()
+	runGitForMQSubmitTest(t, repo, "init")
+	runGitForMQSubmitTest(t, repo, "remote", "add", "origin", "git@github.com:Bella-Giraffety/gastown.git")
+	runGitForMQSubmitTest(t, repo, "remote", "add", "upstream", "https://github.com/gastownhall/gastown.git")
+
+	got := noMergePRCreateArgs(gitpkg.NewGit(repo), "main", "polecat/shiny/gt-zero", "title", "body")
+	wantContains := []string{"--repo", "gastownhall/gastown", "--head", "Bella-Giraffety:polecat/shiny/gt-zero"}
+	for i := 0; i < len(wantContains); i += 2 {
+		key, value := wantContains[i], wantContains[i+1]
+		found := false
+		for j := 0; j+1 < len(got); j++ {
+			if got[j] == key && got[j+1] == value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("noMergePRCreateArgs = %#v, want %s %s", got, key, value)
 		}
 	}
 }
