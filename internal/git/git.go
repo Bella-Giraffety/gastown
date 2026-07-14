@@ -1187,6 +1187,21 @@ func (g *Git) DiffNameOnly(base, head string) ([]string, error) {
 	return strings.Split(strings.TrimSpace(out), "\n"), nil
 }
 
+// DiffHasNonRuntimeChanges reports whether the ref diff includes at least one
+// path outside Gas Town's runtime-artifact policy.
+func (g *Git) DiffHasNonRuntimeChanges(base, head string) (bool, error) {
+	paths, err := g.DiffNameOnly(base, head)
+	if err != nil {
+		return false, err
+	}
+	for _, path := range paths {
+		if !isGasTownRuntimePath(path) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // GitStatus represents the status of the working directory.
 type GitStatus struct {
 	Clean     bool
@@ -2930,16 +2945,27 @@ func (g *Git) preservationOfRefAgainstRef(head, ref string) (BranchPreservationS
 		status.Evidence = "ancestor"
 		return status, nil
 	}
-	if preserved, err := g.mergeTreeNoopBetweenRefs(head, ref); err == nil && preserved {
-		status.Preserved = true
-		status.Evidence = "merge_tree_noop"
-		return status, nil
+	mergeTreeChecked := false
+	if preserved, err := g.mergeTreeNoopBetweenRefs(head, ref); err == nil {
+		mergeTreeChecked = true
+		if preserved {
+			status.Preserved = true
+			status.Evidence = "merge_tree_noop"
+			return status, nil
+		}
 	}
 	out, err := g.Cherry(ref, head)
 	if err != nil {
 		return status, err
 	}
 	status.UnpreservedPatchCount = CountCherryUnmergedCommits(out)
+	if status.UnpreservedPatchCount == 0 && mergeTreeChecked {
+		// A historical patch-id match is not enough after the target tree proves the
+		// submitted ref is not a no-op (for example, target applied and reverted it).
+		status.UnpreservedPatchCount = 1
+		status.Evidence = "merge_tree_non_noop"
+		return status, nil
+	}
 	status.Preserved = status.UnpreservedPatchCount == 0
 	if status.Preserved {
 		status.Evidence = "cherry"
@@ -2968,7 +2994,17 @@ func (g *Git) mergeTreeNoopBetweenRefs(head, ref string) (bool, error) {
 // fetch/push remotes are classified against the listed hash, not stale tracking
 // refs.
 func (g *Git) PushRemoteRefTargetStatus(remote string, ref RemoteRef, target string) (BranchPreservationStatus, error) {
+	return g.PushRemoteRefTargetsStatus(remote, ref, []string{target})
+}
+
+// PushRemoteRefTargetsStatus checks whether a push-remote ref is preserved on
+// any target ref. FETCH_HEAD is left at the submitted remote ref for callers that
+// need to inspect the final diff after the status result.
+func (g *Git) PushRemoteRefTargetsStatus(remote string, ref RemoteRef, targets []string) (BranchPreservationStatus, error) {
 	var status BranchPreservationStatus
+	if remote == "" {
+		remote = "origin"
+	}
 	refName := strings.TrimSpace(ref.Name)
 	expectedHash := strings.TrimSpace(ref.Hash)
 	if refName == "" || expectedHash == "" {
@@ -2987,7 +3023,41 @@ func (g *Git) PushRemoteRefTargetStatus(remote string, ref RemoteRef, target str
 		return status, fmt.Errorf("candidate %s changed while pruning: expected %s, fetched %s", refName, shortSHA(expectedHash), shortSHA(fetchedHash))
 	}
 
-	return g.preservationOfRefAgainstRef("FETCH_HEAD", target)
+	var candidates []string
+	for _, target := range nonEmptyUnique(targets) {
+		if resolved, ok := g.resolveComparisonRef(target, remote); ok {
+			candidates = append(candidates, resolved)
+		}
+	}
+	candidates = nonEmptyUnique(candidates)
+	if len(candidates) == 0 {
+		return status, fmt.Errorf("no target/custody refs resolved")
+	}
+
+	var lastErr error
+	for _, target := range candidates {
+		candidate, err := g.preservationOfRefAgainstRef("FETCH_HEAD", target)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if candidate.Evidence == "" {
+			candidate.Evidence = "comparison_ref"
+		}
+		if candidate.Preserved {
+			return candidate, nil
+		}
+		if status.ComparisonBase == "" {
+			status = candidate
+		}
+	}
+	if status.ComparisonBase != "" {
+		return status, nil
+	}
+	if lastErr != nil {
+		return status, lastErr
+	}
+	return status, fmt.Errorf("no usable comparison refs")
 }
 
 // CountCherryUnmergedCommits counts `git cherry` lines whose patches are not

@@ -223,7 +223,7 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot submit %s to merge queue: source issue unavailable", issueID)
 	}
 	baseRef := g.CleanBaseRef("origin", defaultBranch, target)
-	if _, err := assessSourceCompletionEvidence(g, "refs/heads/"+branch, completionTargetRefs(target, baseRef), issueID, sourceIssue, beads.ParseAttachmentFields(sourceIssue), completionEvidenceMQSubmit); err != nil {
+	if _, err := assessMQSubmitCompletionEvidence(g, branch, completionTargetRefs(target, baseRef), issueID, sourceIssue); err != nil {
 		return err
 	}
 
@@ -354,6 +354,35 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 
 func resolveMQSubmitCommitSHA(g *git.Git, branch string) (string, error) {
 	return g.Rev(fmt.Sprintf("refs/heads/%s^{commit}", branch))
+}
+
+func assessMQSubmitCompletionEvidence(g *git.Git, branch string, targetRefs []string, issueID string, sourceIssue *beads.Issue) (completionEvidenceResult, error) {
+	attachment := beads.ParseAttachmentFields(sourceIssue)
+	localRef := "refs/heads/" + branch
+	if _, err := g.Rev(localRef + "^{commit}"); err == nil {
+		return assessSourceCompletionEvidence(g, localRef, targetRefs, issueID, sourceIssue, attachment, completionEvidenceMQSubmit)
+	}
+
+	remoteRef, err := pushRemoteRefForBranch(g, "origin", branch)
+	if err != nil {
+		return completionEvidenceResult{}, err
+	}
+	status, statusErr := g.PushRemoteRefTargetsStatus("origin", remoteRef, targetRefs)
+	return assessSourceCompletionEvidenceWithStatus(g, "FETCH_HEAD", targetRefs, issueID, sourceIssue, attachment, completionEvidenceMQSubmit, status, statusErr)
+}
+
+func pushRemoteRefForBranch(g *git.Git, remote, branch string) (git.RemoteRef, error) {
+	name := "refs/heads/" + strings.TrimSpace(branch)
+	refs, err := g.ListPushRemoteRefsWithHashes(remote, name)
+	if err != nil {
+		return git.RemoteRef{}, fmt.Errorf("verify branch on %s: %w", remote, err)
+	}
+	for _, ref := range refs {
+		if ref.Name == name {
+			return ref, nil
+		}
+	}
+	return git.RemoteRef{}, fmt.Errorf("branch %q not found on %s\n\nHint: run 'git push %s %s' first (or 'gt done'), then re-run 'gt mq submit'", branch, remote, remote, branch)
 }
 
 func verifyMQSubmitPushedBranch(g *git.Git, branch, commitSHA string) error {

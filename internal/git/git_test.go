@@ -3836,6 +3836,54 @@ func TestRefTargetStatusDoesNotTreatRemoteSourceBranchAsTargetEvidence(t *testin
 	}
 }
 
+func TestRefTargetStatusTreatsRevertedPatchAsUnpreserved(t *testing.T) {
+	localDir, _, mainBranch := initTestRepoWithRemote(t)
+	g := NewGit(localDir)
+	branch := "feature/reverted-on-target"
+
+	if err := g.CreateBranch(branch); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := g.Checkout(branch); err != nil {
+		t.Fatalf("Checkout branch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "feature.txt"), []byte("feature\n"), 0644); err != nil {
+		t.Fatalf("write feature: %v", err)
+	}
+	if err := g.Add("feature.txt"); err != nil {
+		t.Fatalf("Add feature: %v", err)
+	}
+	if err := g.Commit("feature work"); err != nil {
+		t.Fatalf("Commit feature: %v", err)
+	}
+
+	if err := g.Checkout(mainBranch); err != nil {
+		t.Fatalf("Checkout main: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "feature.txt"), []byte("feature\n"), 0644); err != nil {
+		t.Fatalf("write target feature: %v", err)
+	}
+	if err := g.Add("feature.txt"); err != nil {
+		t.Fatalf("Add target feature: %v", err)
+	}
+	if err := g.Commit("apply feature then revert"); err != nil {
+		t.Fatalf("Commit target feature: %v", err)
+	}
+	runGit(t, localDir, "revert", "--no-edit", "HEAD")
+	runGit(t, localDir, "push", "origin", mainBranch)
+
+	status, err := g.RefTargetStatus("refs/heads/"+branch, "origin", []string{"origin/" + mainBranch})
+	if err != nil {
+		t.Fatalf("RefTargetStatus: %v", err)
+	}
+	if status.Preserved || status.UnpreservedPatchCount == 0 {
+		t.Fatalf("RefTargetStatus = %+v, want reverted patch to remain unpreserved", status)
+	}
+	if status.Evidence != "merge_tree_non_noop" {
+		t.Fatalf("Evidence = %q, want merge_tree_non_noop", status.Evidence)
+	}
+}
+
 // TestBranchPushedToRemote_NoPushURL verifies baseline behavior: when fetch and
 // push URLs are the same, BranchPushedToRemote works normally.
 func TestBranchPushedToRemote_NoPushURL(t *testing.T) {

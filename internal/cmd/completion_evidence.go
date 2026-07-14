@@ -23,6 +23,11 @@ type completionEvidenceResult struct {
 }
 
 func assessSourceCompletionEvidence(g *git.Git, submittedRef string, targetRefs []string, issueID string, issue *beads.Issue, attachment *beads.AttachmentFields, mode completionEvidenceMode) (completionEvidenceResult, error) {
+	status, err := g.RefTargetStatus(submittedRef, "origin", targetRefs)
+	return assessSourceCompletionEvidenceWithStatus(g, submittedRef, targetRefs, issueID, issue, attachment, mode, status, err)
+}
+
+func assessSourceCompletionEvidenceWithStatus(g *git.Git, submittedRef string, targetRefs []string, issueID string, issue *beads.Issue, attachment *beads.AttachmentFields, mode completionEvidenceMode, status git.BranchPreservationStatus, statusErr error) (completionEvidenceResult, error) {
 	var result completionEvidenceResult
 	issueID = strings.TrimSpace(issueID)
 	if issueID == "" {
@@ -41,12 +46,23 @@ func assessSourceCompletionEvidence(g *git.Git, submittedRef string, targetRefs 
 		}
 	}
 
-	status, err := g.RefTargetStatus(submittedRef, "origin", targetRefs)
-	if err != nil {
-		return result, fmt.Errorf("cannot verify deliverable evidence for %s: %w", issueID, err)
+	if statusErr != nil {
+		return result, fmt.Errorf("cannot verify deliverable evidence for %s: %w", issueID, statusErr)
 	}
 	result.Status = status
 	result.HasSubmittableWork = status.UnpreservedPatchCount > 0
+	if result.HasSubmittableWork {
+		hasNonRuntimeDiff, diffErr := g.DiffHasNonRuntimeChanges(status.ComparisonBase, submittedRef)
+		if diffErr != nil {
+			return result, fmt.Errorf("cannot verify deliverable content for %s: %w", issueID, diffErr)
+		}
+		if !hasNonRuntimeDiff {
+			if mode == completionEvidenceMQSubmit {
+				return result, fmt.Errorf("cannot submit %s to merge queue: submitted ref changes only runtime artifacts, not deliverable work", issueID)
+			}
+			return result, fmt.Errorf("cannot complete %s: submitted ref changes only runtime artifacts, not deliverable work", issueID)
+		}
+	}
 	if mode == completionEvidenceDone && beads.IssueStatus(strings.TrimSpace(issue.Status)).IsTerminal() && result.HasSubmittableWork {
 		return result, fmt.Errorf("cannot complete %s: source issue is already terminal", issueID)
 	}

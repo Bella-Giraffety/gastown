@@ -342,6 +342,27 @@ func TestCompletionEvidenceRejectsCleanupCleanStyleZeroBranchWithRemoteBranch(t 
 	}
 }
 
+func TestCompletionEvidenceRejectsRuntimeOnlyCommittedWork(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/runtime-only")
+	if err := os.MkdirAll(filepath.Join(repo, ".runtime"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMQSubmitTestFile(t, repo, ".runtime/session.log", "generated\n")
+	runGitForMQSubmitTest(t, repo, "add", ".runtime/session.log")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "runtime only")
+
+	issue := &beads.Issue{ID: "gt-runtime", Status: "in_progress", Type: "task"}
+	_, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+	if err == nil {
+		t.Fatal("runtime-only committed changes should not count as deliverable evidence")
+	}
+	if !strings.Contains(err.Error(), "runtime artifacts") {
+		t.Fatalf("error = %v, want runtime artifact reason", err)
+	}
+}
+
 func TestCompletionEvidencePreservesReviewOnlyNoBranchWork(t *testing.T) {
 	repo, targetRefs := setupCompletionEvidenceRepo(t)
 	g := gitpkg.NewGit(repo)

@@ -81,6 +81,28 @@ func TestVerifyMQSubmitPushedBranchRequiresRemoteBranch(t *testing.T) {
 	}
 }
 
+func TestAssessMQSubmitCompletionEvidenceAllowsRemoteOnlyBranch(t *testing.T) {
+	repo, targetRefs := setupCompletionEvidenceRepo(t)
+	g := gitpkg.NewGit(repo)
+	branch := "feature/remote-only-submit"
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", branch)
+	writeMQSubmitTestFile(t, repo, "remote-submit.txt", "remote work\n")
+	runGitForMQSubmitTest(t, repo, "add", "remote-submit.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "remote submit work")
+	runGitForMQSubmitTest(t, repo, "push", "origin", branch)
+	runGitForMQSubmitTest(t, repo, "checkout", "main")
+	runGitForMQSubmitTest(t, repo, "branch", "-D", branch)
+
+	issue := &beads.Issue{ID: "gt-remote", Status: "in_progress", Type: "task"}
+	got, err := assessMQSubmitCompletionEvidence(g, branch, targetRefs, issue.ID, issue)
+	if err != nil {
+		t.Fatalf("remote-only branch should be assessed from origin: %v", err)
+	}
+	if !got.HasSubmittableWork {
+		t.Fatalf("assessment = %+v, want submittable remote branch work", got)
+	}
+}
+
 func runGitForMQSubmitTest(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)

@@ -796,6 +796,59 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		}
 	}
 
+	// Get configured default branch for this rig.
+	defaultBranch := "main" // fallback
+	if rigCfg, err := rig.LoadRigConfig(filepath.Join(townRoot, rigName)); err == nil && rigCfg.DefaultBranch != "" {
+		defaultBranch = rigCfg.DefaultBranch
+	}
+	baseRef := g.CleanBaseRef("origin", defaultBranch, doneTarget)
+
+	var sourceIssue *beads.Issue
+	var sourceAttachment *beads.AttachmentFields
+	reviewOnlySource := false
+	completionBd := beads.New(cwd)
+	target := defaultBranch
+	var completionEvidence completionEvidenceResult
+	if exitType == ExitCompleted {
+		if branch == defaultBranch || branch == "master" {
+			return fmt.Errorf("cannot submit %s/master branch to merge queue", defaultBranch)
+		}
+
+		// Block if working directory not available - can't verify git state.
+		if !cwdAvailable {
+			return fmt.Errorf("cannot complete: working directory not available (worktree deleted?)\nUse --status DEFERRED to exit without completing")
+		}
+
+		// Block if there are uncommitted changes (would be lost on completion).
+		// Runtime artifacts (.claude/, .opencode/, .beads/, .runtime/, __pycache__/) are
+		// excluded — these are toolchain-managed and normally gitignored.
+		workStatus, err := g.CheckUncommittedWork()
+		if err != nil {
+			return fmt.Errorf("checking git status: %w", err)
+		}
+		if workStatus.HasUncommittedChanges && !workStatus.CleanExcludingRuntime() {
+			return fmt.Errorf("cannot complete: uncommitted changes would be lost\nCommit your changes first, or use --status DEFERRED to exit without completing\nUncommitted: %s", workStatus.String())
+		}
+
+		if issueID != "" {
+			shownIssue, showErr := completionBd.Show(issueID)
+			if showErr != nil {
+				return fmt.Errorf("cannot inspect source issue %s before completion: %w", issueID, showErr)
+			}
+			sourceIssue = shownIssue
+			sourceAttachment = beads.ParseAttachmentFields(shownIssue)
+			reviewOnlySource = sourceAttachment != nil && sourceAttachment.ReviewOnly
+		}
+
+		target = resolveDoneTargetBranch(townRoot, rigName, defaultBranch, doneTarget, completionBd, g, issueID, sourceIssue)
+		baseRef = g.CleanBaseRef("origin", defaultBranch, target)
+		var evidenceErr error
+		completionEvidence, evidenceErr = assessSourceCompletionEvidence(g, "HEAD", completionTargetRefs(target, baseRef), issueID, sourceIssue, sourceAttachment, completionEvidenceDone)
+		if evidenceErr != nil {
+			return evidenceErr
+		}
+	}
+
 	// Write done-intent label EARLY, before push/MR operations.
 	// If gt done crashes after this point, the Witness can detect the intent
 	// and auto-nuke the zombie polecat.
@@ -823,13 +876,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		polecat.TouchSessionHeartbeatWithState(townRoot, sessionName, polecat.HeartbeatExiting, "gt done", issueID)
 	}
 
-	// Get configured default branch for this rig
-	defaultBranch := "main" // fallback
-	if rigCfg, err := rig.LoadRigConfig(filepath.Join(townRoot, rigName)); err == nil && rigCfg.DefaultBranch != "" {
-		defaultBranch = rigCfg.DefaultBranch
-	}
-	baseRef := g.CleanBaseRef("origin", defaultBranch, doneTarget)
-
 	// For COMPLETED, we need an issue ID and branch must not be the default branch
 	var mrID string
 	var pushFailed bool
@@ -837,52 +883,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	var doneErrors []string
 	var convoyInfo *ConvoyInfo // Populated if issue is tracked by a convoy
 	if exitType == ExitCompleted {
-		if branch == defaultBranch || branch == "master" {
-			return fmt.Errorf("cannot submit %s/master branch to merge queue", defaultBranch)
-		}
-
-		// CRITICAL: Verify work exists before completing (hq-xthqf)
-		// Polecats calling gt done without commits results in lost work.
-		// We MUST check for:
-		// 1. Working directory availability (can't verify git state without it)
-		// 2. Uncommitted changes (work that would be lost)
-		// 3. Unique commits compared to origin (ensures branch was pushed with actual work)
-
-		// Block if working directory not available - can't verify git state
-		if !cwdAvailable {
-			return fmt.Errorf("cannot complete: working directory not available (worktree deleted?)\nUse --status DEFERRED to exit without completing")
-		}
-
-		// Block if there are uncommitted changes (would be lost on completion).
-		// Runtime artifacts (.claude/, .opencode/, .beads/, .runtime/, __pycache__/) are
-		// excluded — these are toolchain-managed and normally gitignored.
-		// Without this filter, gt done fails on virtually every polecat because
-		// Cursor creates .claude/ at runtime in every workspace.
-		workStatus, err := g.CheckUncommittedWork()
-		if err != nil {
-			return fmt.Errorf("checking git status: %w", err)
-		}
-		if workStatus.HasUncommittedChanges && !workStatus.CleanExcludingRuntime() {
-			return fmt.Errorf("cannot complete: uncommitted changes would be lost\nCommit your changes first, or use --status DEFERRED to exit without completing\nUncommitted: %s", workStatus.String())
-		}
-
-		var sourceIssue *beads.Issue
-		var sourceAttachment *beads.AttachmentFields
-		reviewOnlySource := false
-		completionBd := beads.New(cwd)
-		if issueID != "" {
-			noMergeIssue, showErr := completionBd.Show(issueID)
-			if showErr != nil {
-				return fmt.Errorf("cannot inspect source issue %s before completion: %w", issueID, showErr)
-			}
-			sourceIssue = noMergeIssue
-			sourceAttachment = beads.ParseAttachmentFields(noMergeIssue)
-			reviewOnlySource = sourceAttachment != nil && sourceAttachment.ReviewOnly
-		}
-
-		target := resolveDoneTargetBranch(townRoot, rigName, defaultBranch, doneTarget, completionBd, g, issueID, sourceIssue)
-		baseRef = g.CleanBaseRef("origin", defaultBranch, target)
-
 		// Branch contamination preflight: check if branch is significantly behind
 		// the effective target branch, which indicates the branch may contain stale merge-base
 		// artifacts that will pollute the PR diff. (GH#2220)
@@ -933,9 +933,10 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// overwriting project-specific CLAUDE.md content. Detect and revert before push.
 		stripOverlayCLAUDEmd(g, defaultBranch, baseRef)
 
-		completionEvidence, err := assessSourceCompletionEvidence(g, "HEAD", completionTargetRefs(target, baseRef), issueID, sourceIssue, sourceAttachment, completionEvidenceDone)
-		if err != nil {
-			return err
+		var evidenceErr error
+		completionEvidence, evidenceErr = assessSourceCompletionEvidence(g, "HEAD", completionTargetRefs(target, baseRef), issueID, sourceIssue, sourceAttachment, completionEvidenceDone)
+		if evidenceErr != nil {
+			return evidenceErr
 		}
 		if !completionEvidence.HasSubmittableWork {
 			if completionEvidence.NoBranchWorkReason == "source-terminal" {
