@@ -307,7 +307,7 @@ func detectSessionState(ctx RoleContext) SessionState {
 	// Check for hooked work (autonomous state).
 	// Primary: read hook_bead from the agent bead's DB column (same strategy as gt hook).
 	// Fallback: query hooked/in_progress beads by assignee.
-	agentID := getAgentIdentity(ctx)
+	agentID := getAgentAssigneeIdentity(ctx)
 	if agentID != "" {
 		// Use rig beads directory, not polecat worktree. Polecats don't have their
 		// own .beads — the rig's beads dir is the authoritative source. (GH#2503)

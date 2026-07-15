@@ -195,7 +195,7 @@ func runPrime(cmd *cobra.Command, args []string) (retErr error) {
 		// dead-with-active-work state, and exit non-zero so the dog can clear
 		// the hook on its next sweep.
 		if errors.Is(hookErr, ErrHookUnresolvable) {
-			agentID := getAgentIdentity(ctx)
+			agentID := getAgentAssigneeIdentity(ctx)
 			fmt.Fprintf(os.Stderr,
 				"polecat prime: hooked bead not resolvable from %s; check rig DB / dispatch routing. err=%v\n",
 				ctx.WorkDir, hookErr)
@@ -724,7 +724,7 @@ func hasWorkflowAttachment(attachment *beads.AttachmentFields) bool {
 // Returns (nil, err) if all attempts failed due to database errors — the caller
 // MUST distinguish this from "no work" to avoid silently closing beads. (GH#2638)
 func findAgentWork(ctx RoleContext) (*beads.Issue, error) {
-	agentID := getAgentIdentity(ctx)
+	agentID := getAgentAssigneeIdentity(ctx)
 	if agentID == "" {
 		return nil, nil
 	}
@@ -1210,6 +1210,13 @@ func getAgentIdentity(ctx RoleContext) string {
 	default:
 		return ""
 	}
+}
+
+// getAgentAssigneeIdentity returns the canonical bead assignee used for hook
+// and pinned-work lookup. Keep actor/event strings on getAgentIdentity or
+// RoleInfo.ActorString(); town-level assignees need trailing slashes.
+func getAgentAssigneeIdentity(ctx RoleContext) string {
+	return buildAgentIdentity(ctx)
 }
 
 // acquireIdentityLock checks and acquires the identity lock for worker roles.

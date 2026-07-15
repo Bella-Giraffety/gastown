@@ -8,6 +8,7 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/cli"
+	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/style"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -26,12 +27,34 @@ type PatrolConfig struct {
 	Beads         *beads.Beads // optional injected beads instance (for test isolation)
 }
 
-// maxStalePurgePerRun caps the number of stale patrol beads cleaned up in a
-// single findActivePatrol call. Without a cap, N accumulated orphans produce
-// N×K sequential Dolt queries (K = closeDescendants depth), overwhelming the
-// server when multiple patrol agents call gt patrol report concurrently (gt-18dzn6p).
-// Remaining stale beads are cleaned by burnPreviousPatrolWisps at cycle end.
-const maxStalePurgePerRun = 5
+func buildPatrolConfig(roleInfo RoleContext, role Role) (PatrolConfig, error) {
+	switch role {
+	case RoleDeacon:
+		return PatrolConfig{
+			RoleName:      "deacon",
+			PatrolMolName: constants.MolDeaconPatrol,
+			BeadsDir:      roleInfo.TownRoot,
+			Assignee:      getAgentAssigneeIdentity(RoleContext{Role: RoleDeacon}),
+		}, nil
+	case RoleWitness:
+		return PatrolConfig{
+			RoleName:      "witness",
+			PatrolMolName: constants.MolWitnessPatrol,
+			BeadsDir:      roleInfo.TownRoot,
+			Assignee:      roleInfo.Rig + "/witness",
+		}, nil
+	case RoleRefinery:
+		return PatrolConfig{
+			RoleName:      "refinery",
+			PatrolMolName: constants.MolRefineryPatrol,
+			BeadsDir:      roleInfo.TownRoot,
+			Assignee:      roleInfo.Rig + "/refinery",
+			ExtraVars:     buildRefineryPatrolVars(roleInfo),
+		}, nil
+	default:
+		return PatrolConfig{}, fmt.Errorf("unsupported role for patrol: %q", role)
+	}
+}
 
 // findActivePatrol finds an active patrol molecule for the role.
 // Returns the patrol ID, display line, and whether one was found.
@@ -40,11 +63,9 @@ const maxStalePurgePerRun = 5
 // and avoid auto-spawning duplicates.
 //
 // Patrol molecules are intentionally hooked to the agent (hooked status).
-// This function looks up hooked patrols and distinguishes active ones
-// (with open/in_progress children) from stale ones (all children closed,
-// e.g. after a squash that didn't close the root). Stale patrols are
-// cleaned up incrementally (up to maxStalePurgePerRun per call); any
-// remaining stale beads are cleaned by burnPreviousPatrolWisps at cycle end.
+// A hooked patrol root is reportable until gt patrol report closes it; child
+// state is not the authority because completed children are exactly what report
+// needs to consume.
 func findActivePatrol(cfg PatrolConfig) (patrolID, patrolLine string, found bool, err error) {
 	b := cfg.Beads
 	if b == nil {
@@ -61,92 +82,26 @@ func findActivePatrol(cfg PatrolConfig) (patrolID, patrolLine string, found bool
 		return "", "", false, fmt.Errorf("listing hooked beads: %w", listErr)
 	}
 
-	// Identify active patrol and collect stale ones for cleanup.
-	// Stop scanning as soon as the active patrol is found to avoid N+1
-	// checkHasOpenChildren queries when many accumulated orphans are present.
-	// Stale cleanup is capped at maxStalePurgePerRun to limit write pressure.
+	// Identify the newest reportable patrol. Discovery is intentionally read-only;
+	// replacement cleanup runs only after report closes the selected patrol.
 	var activeBead *beads.Issue
-	var staleIDs []string
-	var skipped int // tracks patrols skipped due to child-listing errors
-
 	for _, bead := range hookedBeads {
-		if !strings.HasPrefix(bead.Title, cfg.PatrolMolName) {
+		if !isPatrolWispTitle(bead.Title, cfg.PatrolMolName) {
 			continue
 		}
-
-		hasOpen, err := checkHasOpenChildren(b, bead.ID)
-		if err != nil {
-			// Transient error — skip this bead entirely to avoid
-			// destructive cleanup of a potentially active patrol.
-			style.PrintWarning("could not check children for %s: %v", bead.ID, err)
-			skipped++
-			continue
-		}
-
-		if !hasOpen {
-			// Stale patrol (no open children) — schedule for cleanup up to cap.
-			// Excess stale beads are deferred to burnPreviousPatrolWisps.
-			if len(staleIDs) < maxStalePurgePerRun {
-				staleIDs = append(staleIDs, bead.ID)
-			}
-		} else if activeBead == nil {
-			// Active patrol found — stop scanning to prevent N+1 queries.
-			// Any unvisited stale beads will be cleaned by burnPreviousPatrolWisps
-			// when the patrol cycle ends and autoSpawnPatrol is called.
+		if activeBead == nil || bead.CreatedAt > activeBead.CreatedAt || (bead.CreatedAt == activeBead.CreatedAt && bead.ID > activeBead.ID) {
 			activeBead = bead
-			break
-		}
-	}
-
-	// Clean up stale patrols (capped at maxStalePurgePerRun)
-	for _, id := range staleIDs {
-		closeDescendants(b, id)
-		if err := b.ForceCloseWithReason("stale patrol cleanup", id); err != nil {
-			style.PrintWarning("could not close stale patrol %s: %v", id, err)
 		}
 	}
 
 	if activeBead != nil {
 		return activeBead.ID, formatBeadLine(activeBead), true, nil
 	}
-
-	// If we found matching patrols but skipped them all due to errors,
-	// return an error so the caller doesn't auto-spawn a duplicate.
-	if skipped > 0 {
-		return "", "", false, fmt.Errorf("discovery incomplete: %d patrol(s) skipped due to child-listing errors", skipped)
-	}
 	return "", "", false, nil
 }
 
-// checkHasOpenChildren returns true if the given parent has any children
-// that are not in closed status (i.e., open or in_progress).
-// Returns an error if the child listing fails, so the caller can avoid
-// destructive cleanup on transient failures.
-//
-// A parent with zero children is treated as "has open children" (returns true)
-// to protect against a race where a freshly created wisp hasn't had its step
-// children materialized yet. This prevents findActivePatrol from closing a
-// just-created patrol during the window between root creation and step population.
-func checkHasOpenChildren(b *beads.Beads, parentID string) (bool, error) {
-	children, err := b.List(beads.ListOptions{
-		Parent:   parentID,
-		Status:   "all",
-		Priority: -1,
-	})
-	if err != nil {
-		return false, err
-	}
-	// Zero children means the wisp may still be materializing steps —
-	// treat as active to avoid destroying a just-created patrol.
-	if len(children) == 0 {
-		return true, nil
-	}
-	for _, child := range children {
-		if child.Status != "closed" {
-			return true, nil
-		}
-	}
-	return false, nil
+func isPatrolWispTitle(title, molName string) bool {
+	return title == molName || title == molName+" (wisp)"
 }
 
 // formatBeadLine formats a bead issue into a display line similar to bd list output.
@@ -164,35 +119,45 @@ func burnPreviousPatrolWisps(cfg PatrolConfig) {
 		b = beads.New(cfg.BeadsDir)
 	}
 
-	// Find all hooked patrol beads for this agent
-	hookedBeads, err := b.List(beads.ListOptions{
-		Status:   beads.StatusHooked,
-		Assignee: cfg.Assignee,
-		Priority: -1,
-	})
-	if err != nil {
-		style.PrintWarning("burn: could not list hooked beads: %v", err)
-		return
-	}
-
 	var burned int
-	for _, bead := range hookedBeads {
-		if !strings.HasPrefix(bead.Title, cfg.PatrolMolName) {
+	for _, assignee := range patrolCleanupAssignees(cfg) {
+		// Find all hooked patrol beads for this agent identity.
+		hookedBeads, err := b.List(beads.ListOptions{
+			Status:   beads.StatusHooked,
+			Assignee: assignee,
+			Priority: -1,
+		})
+		if err != nil {
+			style.PrintWarning("burn: could not list hooked beads for %s: %v", assignee, err)
 			continue
 		}
 
-		// Close all descendant wisps, then the root
-		closeDescendants(b, bead.ID)
-		if err := b.ForceCloseWithReason("burned: replaced by new patrol cycle", bead.ID); err != nil {
-			style.PrintWarning("burn: could not close patrol %s: %v", bead.ID, err)
-			continue
+		for _, bead := range hookedBeads {
+			if !isPatrolWispTitle(bead.Title, cfg.PatrolMolName) {
+				continue
+			}
+
+			// Close all descendant wisps, then the root.
+			closeDescendants(b, bead.ID)
+			if err := b.ForceCloseWithReason("burned: replaced by new patrol cycle", bead.ID); err != nil {
+				style.PrintWarning("burn: could not close patrol %s: %v", bead.ID, err)
+				continue
+			}
+			burned++
 		}
-		burned++
 	}
 
 	if burned > 0 {
 		fmt.Printf("%s Burned %d previous patrol wisp(s)\n", style.Dim.Render("🔥"), burned)
 	}
+}
+
+func patrolCleanupAssignees(cfg PatrolConfig) []string {
+	assignees := []string{cfg.Assignee}
+	if cfg.RoleName == "deacon" && cfg.Assignee == "deacon/" {
+		assignees = append(assignees, "deacon")
+	}
+	return assignees
 }
 
 // autoSpawnPatrol creates and pins a new patrol wisp.

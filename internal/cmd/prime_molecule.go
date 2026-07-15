@@ -384,17 +384,16 @@ func outputDeaconPatrolContext(ctx RoleContext) {
 		return
 	}
 
-	cfg := PatrolConfig{
-		RoleName:      "deacon",
-		PatrolMolName: constants.MolDeaconPatrol,
-		BeadsDir:      ctx.TownRoot, // Town-level role uses town root beads
-		Assignee:      "deacon",
-		HeaderEmoji:   "🔄",
-		HeaderTitle:   "Patrol Status (Wisp-based)",
-		WorkLoopSteps: []string{
-			"Work through each patrol step in sequence (see checklist below)",
-			"At cycle end:\n   - If context LOW:\n     * Report and loop: `" + cli.Name() + " patrol report --summary \"<brief summary of observations>\"`\n     * This closes the current patrol and starts a new cycle\n   - If context HIGH:\n     * Send handoff: `" + cli.Name() + " handoff -s \"Deacon patrol\" -m \"<observations>\"`\n     * Exit cleanly (daemon respawns fresh session)",
-		},
+	cfg, err := buildPatrolConfig(ctx, RoleDeacon)
+	if err != nil {
+		style.PrintWarning("could not build deacon patrol config: %v", err)
+		return
+	}
+	cfg.HeaderEmoji = "🔄"
+	cfg.HeaderTitle = "Patrol Status (Wisp-based)"
+	cfg.WorkLoopSteps = []string{
+		"Work through each patrol step in sequence (see checklist below)",
+		"At cycle end:\n   - If context LOW:\n     * Report and loop: `" + cli.Name() + " patrol report --summary \"<brief summary of observations>\"`\n     * This closes the current patrol and starts a new cycle\n   - If context HIGH:\n     * Send handoff: `" + cli.Name() + " handoff -s \"Deacon patrol\" -m \"<observations>\"`\n     * Exit cleanly (daemon respawns fresh session)",
 	}
 	outputPatrolContext(cfg)
 	showFormulaSteps(constants.MolDeaconPatrol, "Patrol Steps", ctx.TownRoot, ctx.Rig)
