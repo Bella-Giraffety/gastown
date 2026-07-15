@@ -2076,6 +2076,10 @@ func clearDoneCheckpoints(bd *beads.Beads, agentBeadID string) {
 	}
 }
 
+func shouldCloseHookedBeadOnDone(exitType string, isWorkflowStep bool) bool {
+	return exitType == ExitCompleted || (exitType == ExitDeferred && isWorkflowStep)
+}
+
 // updateAgentStateOnDone closes the hooked work bead and reports cleanup status.
 // Uses issueID directly to find the hooked bead instead of reading the agent bead's
 // hook_bead slot (hq-l6mm5: direct bead tracking).
@@ -2162,19 +2166,20 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) error {
 
 	// Workflow step beads (*-wfs-*) are ephemeral formula steps managed by the workflow
 	// engine. For these, DEFERRED means "step complete, no code commits" not "work
-	// paused for resumption". Close them on DEFERRED so the convoy can advance.
+	// paused for resumption". Close only that deferred step case; ESCALATED remains
+	// incomplete work and must stay open for recovery.
 	isWorkflowStep := strings.Contains(hookedBeadID, "-wfs-")
 
-	if hookedBeadID != "" && (exitType != ExitDeferred || isWorkflowStep) {
+	if hookedBeadID != "" && shouldCloseHookedBeadOnDone(exitType, isWorkflowStep) {
 		// BUG FIX (gt-pftz): Close hooked bead unless already terminal (closed/tombstone).
 		// Previously checked hookedBead.Status == StatusHooked, but polecats update
 		// their work bead to in_progress during work. The exact-match check caused
 		// gt done to skip closing the bead, leaving it as unassigned open work after
 		// the hook was cleared — triggering infinite dispatch loops.
 		//
-		// DEFERRED exits preserve the bead: work is paused, not done. The bead
-		// stays open/in_progress so it can be resumed on the next session.
-		// Exception: workflow step beads (*-wfs-*) are always closed — see above.
+		// DEFERRED/ESCALATED exits preserve the bead: work is paused or blocked,
+		// not done. The bead stays open/in_progress so it can be resumed on the next session.
+		// Exception: deferred workflow step beads (*-wfs-*) close so the convoy can advance.
 		if hookedBead, err := bd.Show(hookedBeadID); err == nil && !beads.IssueStatus(hookedBead.Status).IsTerminal() {
 			// Guard: never close a rig identity bead. Polecats dispatched with the
 			// rig bead as their hook (via mol-polecat-work) must not close permanent

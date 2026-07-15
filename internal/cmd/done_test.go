@@ -1146,6 +1146,31 @@ func TestShouldUpdateAgentStateOnDone(t *testing.T) {
 	}
 }
 
+func TestShouldCloseHookedBeadOnDone(t *testing.T) {
+	tests := []struct {
+		name           string
+		exitType       string
+		isWorkflowStep bool
+		want           bool
+	}{
+		{"completed normal closes", ExitCompleted, false, true},
+		{"completed workflow step closes", ExitCompleted, true, true},
+		{"deferred normal stays open", ExitDeferred, false, false},
+		{"deferred workflow step closes", ExitDeferred, true, true},
+		{"escalated normal stays open", ExitEscalated, false, false},
+		{"escalated workflow step stays open", ExitEscalated, true, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldCloseHookedBeadOnDone(tt.exitType, tt.isWorkflowStep)
+			if got != tt.want {
+				t.Errorf("shouldCloseHookedBeadOnDone(%q, %v) = %v, want %v", tt.exitType, tt.isWorkflowStep, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUpdateAgentStateAfterSubmissionSkipsFailedSubmissions(t *testing.T) {
 	calls := 0
 	old := updateAgentStateOnDoneFn
