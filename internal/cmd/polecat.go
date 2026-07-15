@@ -1868,19 +1868,10 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 		return err
 	}
 
-	// Capture the intended generation before destructive cleanup. The manager
-	// revalidates this under the per-polecat lock before killing the session or
-	// deleting files, so a stale nuke cannot act on a successor with the same name.
-	polecatInfo, getErr := mgr.Get(polecatName)
-	var branchToDelete string
-	var issueToCleanup string
-	if getErr == nil && polecatInfo != nil {
-		branchToDelete = polecatInfo.Branch
-		issueToCleanup = polecatInfo.Issue
-	}
-
-	expectation := polecat.RemoveExpectation{Validate: getErr == nil && polecatInfo != nil, Branch: branchToDelete, Issue: issueToCleanup}
-	if err := mgr.RemoveWithExpectation(polecatName, opts.Force, true, false, expectation); err != nil {
+	expectation, err := mgr.RemoveCurrentWithOptions(polecatName, opts.Force, true, false)
+	branchToDelete := expectation.Branch
+	issueToCleanup := expectation.Issue
+	if err != nil {
 		if errors.Is(err, polecat.ErrPolecatNotFound) {
 			fmt.Printf("  %s worktree already gone\n", style.Dim.Render("○"))
 		} else {

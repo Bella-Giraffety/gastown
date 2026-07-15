@@ -995,6 +995,7 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 		Rig:        m.rig.Name,
 		AgentState: "spawning",
 		HookBead:   opts.HookBead,
+		Branch:     branchName,
 	}); err != nil {
 		cleanupOnError()
 		return nil, fmt.Errorf("agent bead required for polecat tracking: %w", err)
@@ -1049,6 +1050,28 @@ func (m *Manager) RemoveWithExpectation(name string, force, nuclear, selfNuke bo
 	defer func() { _ = fl.Unlock() }()
 
 	return m.removeWithOptionsLocked(name, force, nuclear, selfNuke, expectation)
+}
+
+func (m *Manager) RemoveCurrentWithOptions(name string, force, nuclear, selfNuke bool) (_ RemoveExpectation, retErr error) {
+	defer func() { telemetry.RecordPolecatRemove(context.Background(), name, retErr) }()
+	fl, err := m.lockPolecat(name)
+	if err != nil {
+		return RemoveExpectation{}, err
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	if !m.exists(name) {
+		return RemoveExpectation{}, ErrPolecatNotFound
+	}
+	current, err := m.loadFromBeads(name)
+	if err != nil {
+		return RemoveExpectation{}, fmt.Errorf("capturing polecat identity for %s: %w", name, err)
+	}
+	expectation := RemoveExpectation{Validate: true, Branch: current.Branch, Issue: current.Issue}
+	if err := m.removeWithOptionsLocked(name, force, nuclear, selfNuke, expectation); err != nil {
+		return expectation, err
+	}
+	return expectation, nil
 }
 
 func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke bool, expectation RemoveExpectation) error {
@@ -1873,6 +1896,7 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		Rig:        m.rig.Name,
 		AgentState: "spawning",
 		HookBead:   opts.HookBead,
+		Branch:     branchName,
 	}); err != nil {
 		return nil, fmt.Errorf("agent bead required for polecat tracking: %w", err)
 	}
@@ -2823,13 +2847,19 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 	// Use clonePath which handles both new (polecats/<name>/<rigname>/)
 	// and old (polecats/<name>/) structures
 	clonePath := m.clonePath(name)
+	agentID := m.agentBeadID(name)
+	_, fields, agentErr := m.beads.GetAgentBead(agentID)
 
 	// Get actual branch from worktree (branches are now timestamped)
 	polecatGit := git.NewGit(clonePath)
 	branchName, err := polecatGit.CurrentBranch()
 	if err != nil {
-		// Fall back to old format if we can't read the branch
-		branchName = fmt.Sprintf("polecat/%s", name)
+		if agentErr == nil && fields != nil && strings.TrimSpace(fields.Branch) != "" {
+			branchName = strings.TrimSpace(fields.Branch)
+		} else {
+			// Fall back to old format if we can't read the branch.
+			branchName = fmt.Sprintf("polecat/%s", name)
+		}
 	}
 
 	assignee := m.assigneeID(name)
@@ -2870,8 +2900,6 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 	// Compatibility fallback: if legacy hook_bead is still set, only trust it when
 	// it resolves to a currently hooked bead for this assignee. This avoids stale
 	// issue reporting when hook_bead diverges from the work bead state.
-	agentID := m.agentBeadID(name)
-	_, fields, agentErr := m.beads.GetAgentBead(agentID)
 	if agentErr == nil && fields != nil && fields.HookBead != "" {
 		if hookIssue, err := m.beads.Show(fields.HookBead); err == nil &&
 			isCurrentHookedIssueForAssignee(hookIssue, assignee) {
