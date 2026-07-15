@@ -1631,7 +1631,7 @@ exit 0
 	}
 }
 
-func TestVerifyPolecatTargetAcceptsHookRejectsMissingAgentBead(t *testing.T) {
+func TestStandaloneFormulaPolecatValidationRejectsMissingAgentBead(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses POSIX bd stub")
 	}
@@ -1684,9 +1684,15 @@ exit 0
 		t.Fatalf("chdir: %v", err)
 	}
 
-	err = verifyPolecatTargetAcceptsHook("gastown/polecats/toast", townRoot)
+	err = validateStandaloneFormulaPolecatTarget("gastown/polecats/toast", "gastown/polecats/toast", townRoot, nil)
 	if err == nil || !strings.Contains(err.Error(), "refusing ghost target") {
-		t.Fatalf("verifyPolecatTargetAcceptsHook error = %v, want ghost target rejection", err)
+		t.Fatalf("validateStandaloneFormulaPolecatTarget error = %v, want ghost target rejection", err)
+	}
+}
+
+func TestStandaloneFormulaPolecatValidationSkipsSpawnedTarget(t *testing.T) {
+	if err := validateStandaloneFormulaPolecatTarget("gastown/polecats/toast", "gastown/polecats/toast", "", &SpawnedPolecatInfo{}); err != nil {
+		t.Fatalf("spawned formula target should be owned by spawn lifecycle: %v", err)
 	}
 }
 

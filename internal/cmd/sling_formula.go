@@ -498,6 +498,13 @@ func runSlingFormula(ctx context.Context, args []string) (err error) {
 	telemetry.RecordMolWisp(ctx, formulaName, wispRootID, "", nil)
 
 	fmt.Printf("%s Wisp created: %s\n", style.Bold.Render("✓"), wispRootID)
+	if err := validateStandaloneFormulaPolecatTarget(target, targetAgent, townRoot, resolved.NewPolecatInfo); err != nil {
+		cleanupErr := closeFormulaWisp(wispRootID, formulaWorkDir, "burned: target polecat not hookable")
+		if cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
+		return err
+	}
 
 	// Step 3: Hook the wisp bead with retry and verification.
 	// See: https://github.com/steveyegge/gastown/issues/148.
@@ -601,4 +608,14 @@ func runSlingFormula(ctx context.Context, args []string) (err error) {
 	}
 
 	return nil
+}
+
+func validateStandaloneFormulaPolecatTarget(target, targetAgent, townRoot string, spawned *SpawnedPolecatInfo) error {
+	if spawned != nil || !isPolecatTarget(targetAgent) {
+		return nil
+	}
+	if _, _, ok := explicitPolecatTarget(target, townRoot); !ok {
+		return nil
+	}
+	return verifyPolecatTargetAcceptsHook(targetAgent, townRoot)
 }

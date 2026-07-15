@@ -546,9 +546,10 @@ type AddOptions struct {
 // cleanup was scheduled for a slot with no active work, so newly assigned work
 // must abort the stale cleanup.
 type RemoveExpectation struct {
-	Validate bool
-	Branch   string
-	Issue    string
+	Validate               bool
+	Branch                 string
+	Issue                  string
+	RequireGeneratedBranch bool
 }
 
 // Add creates a new polecat as a git worktree from the repo base.
@@ -1101,8 +1102,22 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 	agentID := m.agentBeadID(name)
 	current, currentErr := m.loadFromBeads(name)
 	if expectation.Validate {
+		if expectation.RequireGeneratedBranch {
+			if _, ok := ParseGeneratedBranchName(expectation.Branch); !ok {
+				return fmt.Errorf("%w: cleanup generation for %s is not uniquely generated: branch=%q", ErrPolecatNeedsRecovery, name, expectation.Branch)
+			}
+		}
 		if currentErr != nil {
 			return fmt.Errorf("validating polecat identity for %s: %w", name, currentErr)
+		}
+		if expectation.Issue == "" {
+			active, err := m.activeWorkBeads(name)
+			if err != nil {
+				return fmt.Errorf("validating empty work generation for %s: %w", name, err)
+			}
+			if len(active) > 0 {
+				return fmt.Errorf("%w: %s changed from no active work to issue=%q", ErrPolecatNeedsRecovery, name, active[0].ID)
+			}
 		}
 		if current.Branch != expectation.Branch || current.Issue != expectation.Issue {
 			return fmt.Errorf("%w: %s changed from branch=%q issue=%q to branch=%q issue=%q", ErrPolecatNeedsRecovery, name, expectation.Branch, expectation.Issue, current.Branch, current.Issue)

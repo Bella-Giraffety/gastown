@@ -487,9 +487,10 @@ func cleanupPartialSpawnWithExpectation(polecatMgr *polecat.Manager, polecatName
 		return
 	}
 	_ = polecatMgr.RemoveWithExpectation(polecatName, true, false, false, polecat.RemoveExpectation{
-		Validate: true,
-		Branch:   branch,
-		Issue:    "",
+		Validate:               true,
+		Branch:                 branch,
+		Issue:                  "",
+		RequireGeneratedBranch: true,
 	})
 }
 

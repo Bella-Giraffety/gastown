@@ -203,7 +203,7 @@ func TestSpawnedPolecatCleanupExpectationUsesSpawnedGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawnedPolecatCleanupExpectation: %v", err)
 	}
-	want := polecat.RemoveExpectation{Validate: true, Branch: "polecat/toast/gt-work+1", Issue: ""}
+	want := polecat.RemoveExpectation{Validate: true, Branch: "polecat/toast/gt-work+1", Issue: "", RequireGeneratedBranch: true}
 	if got != want {
 		t.Fatalf("expectation = %#v, want %#v", got, want)
 	}

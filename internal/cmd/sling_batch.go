@@ -289,7 +289,7 @@ func spawnedPolecatCleanupExpectation(spawnInfo *SpawnedPolecatInfo) (polecat.Re
 	if branch == "" {
 		return polecat.RemoveExpectation{}, fmt.Errorf("missing spawned branch generation for %s", spawnInfo.PolecatName)
 	}
-	return polecat.RemoveExpectation{Validate: true, Branch: branch, Issue: ""}, nil
+	return polecat.RemoveExpectation{Validate: true, Branch: branch, Issue: "", RequireGeneratedBranch: true}, nil
 }
 
 // allBeadIDs returns true if every arg looks like a bead ID (syntactic check).
