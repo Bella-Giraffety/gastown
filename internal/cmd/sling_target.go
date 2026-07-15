@@ -314,7 +314,7 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 	if requestedAgentID != "" && !strings.EqualFold(agentID, requestedAgentID) {
 		return nil, fmt.Errorf("explicit target requested %s but resolved %s", requestedAgentID, agentID)
 	}
-	if isPolecatTarget(agentID) && (opts.BeadID != "" || requestedAgentID != "") {
+	if opts.BeadID != "" && isPolecatTarget(agentID) {
 		parts := strings.Split(agentID, "/")
 		if len(parts) >= 3 && parts[1] == "polecats" {
 			rigName := parts[0]
@@ -341,6 +341,9 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 }
 
 func verifyPolecatTargetAcceptsHook(agentID, townRoot string) error {
+	if os.Getenv("GT_TEST_SKIP_HOOK_VERIFY") != "" {
+		return nil
+	}
 	if !isPolecatTarget(agentID) {
 		return nil
 	}

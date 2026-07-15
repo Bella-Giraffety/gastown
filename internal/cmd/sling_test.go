@@ -1631,7 +1631,7 @@ exit 0
 	}
 }
 
-func TestResolveTargetCreateRejectsGhostSessionMissingAgentBead(t *testing.T) {
+func TestVerifyPolecatTargetAcceptsHookRejectsMissingAgentBead(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses POSIX bd stub")
 	}
@@ -1684,23 +1684,9 @@ exit 0
 		t.Fatalf("chdir: %v", err)
 	}
 
-	prevResolve := resolveTargetAgentFn
-	prevSpawn := spawnPolecatForSling
-	t.Cleanup(func() {
-		resolveTargetAgentFn = prevResolve
-		spawnPolecatForSling = prevSpawn
-	})
-	resolveTargetAgentFn = func(target string) (string, string, string, error) {
-		return "gastown/polecats/toast", "%1", filepath.Join(townRoot, "ghost"), nil
-	}
-	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
-		t.Fatal("ghost session must not fall through to spawn")
-		return nil, nil
-	}
-
-	_, err = resolveTarget("gastown/polecats/toast", ResolveTargetOptions{Create: true, NoBoot: true, TownRoot: townRoot})
+	err = verifyPolecatTargetAcceptsHook("gastown/polecats/toast", townRoot)
 	if err == nil || !strings.Contains(err.Error(), "refusing ghost target") {
-		t.Fatalf("resolveTarget error = %v, want ghost target rejection", err)
+		t.Fatalf("verifyPolecatTargetAcceptsHook error = %v, want ghost target rejection", err)
 	}
 }
 

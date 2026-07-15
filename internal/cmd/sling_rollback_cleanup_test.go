@@ -216,9 +216,7 @@ func TestSpawnedPolecatCleanupExpectationRejectsNil(t *testing.T) {
 	}
 }
 
-// TestCloseConvoy_ClosesConvoy verifies that the convoy is closed
-// when a convoyID is provided.
-func TestCloseConvoy_ClosesConvoy(t *testing.T) {
+func TestCleanupSpawnedPolecatKeepsConvoyOpenWhenCleanupFails(t *testing.T) {
 	townRoot, _ := filepath.EvalSymlinks(t.TempDir())
 
 	// Create minimal workspace structure
@@ -251,9 +249,6 @@ func TestCloseConvoy_ClosesConvoy(t *testing.T) {
 	if err := config.SaveRigsConfig(rigsPath, rigs); err != nil {
 		t.Fatalf("SaveRigsConfig: %v", err)
 	}
-
-	// Track close commands
-	closeCommands := []string{}
 
 	// Create bd stub that tracks close commands
 	binDir := filepath.Join(townRoot, "bin")
@@ -296,7 +291,9 @@ exit 0
 		t.Fatalf("chdir: %v", err)
 	}
 
-	// Call cleanupSpawnedPolecat with a convoyID
+	// Call cleanupSpawnedPolecat with a convoyID. The fixture does not create a
+	// matching polecat generation, so cleanup must fail closed and leave the
+	// convoy open for recovery.
 	spawnInfo := &SpawnedPolecatInfo{
 		RigName:     "gastown",
 		PolecatName: "Toast",
@@ -306,22 +303,11 @@ exit 0
 
 	cleanupSpawnedPolecat(spawnInfo, "gastown", "convoy-test-123")
 
-	// Check if close command was logged
-	logContent, err := os.ReadFile(filepath.Join(townRoot, "bd_close.log"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			t.Errorf("BUG: convoy close command was not executed")
-		} else {
-			t.Fatalf("reading close log: %v", err)
-		}
-	} else {
-		closeCommands = append(closeCommands, string(logContent))
-		if !strings.Contains(string(logContent), "convoy-test-123") {
-			t.Errorf("convoy close did not include correct convoy ID: %s", string(logContent))
-		}
+	if logContent, err := os.ReadFile(filepath.Join(townRoot, "bd_close.log")); err == nil {
+		t.Fatalf("cleanupSpawnedPolecat closed convoy despite failed cleanup: %s", string(logContent))
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("reading close log: %v", err)
 	}
-
-	_ = closeCommands
 }
 
 // TestCloseConvoy_EmptyConvoyID skips convoy close when convoyID is empty.
