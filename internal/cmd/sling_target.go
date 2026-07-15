@@ -314,12 +314,14 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 	if requestedAgentID != "" && !strings.EqualFold(agentID, requestedAgentID) {
 		return nil, fmt.Errorf("explicit target requested %s but resolved %s", requestedAgentID, agentID)
 	}
-	if opts.BeadID != "" && isPolecatTarget(agentID) {
+	if isPolecatTarget(agentID) && (opts.BeadID != "" || requestedAgentID != "") {
 		parts := strings.Split(agentID, "/")
 		if len(parts) >= 3 && parts[1] == "polecats" {
 			rigName := parts[0]
-			if err := verifyBeadExistsInTargetRigDatabase(opts.BeadID, rigName, opts.TownRoot); err != nil {
-				return nil, err
+			if opts.BeadID != "" {
+				if err := verifyBeadExistsInTargetRigDatabase(opts.BeadID, rigName, opts.TownRoot); err != nil {
+					return nil, err
+				}
 			}
 			if err := verifyPolecatTargetAcceptsHook(agentID, opts.TownRoot); err != nil {
 				return nil, err

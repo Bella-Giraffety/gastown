@@ -1698,7 +1698,7 @@ exit 0
 		return nil, nil
 	}
 
-	_, err = resolveTarget("gastown/polecats/toast", ResolveTargetOptions{Create: true, NoBoot: true, BeadID: "gt-work", TownRoot: townRoot})
+	_, err = resolveTarget("gastown/polecats/toast", ResolveTargetOptions{Create: true, NoBoot: true, TownRoot: townRoot})
 	if err == nil || !strings.Contains(err.Error(), "refusing ghost target") {
 		t.Fatalf("resolveTarget error = %v, want ghost target rejection", err)
 	}
