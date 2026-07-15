@@ -912,16 +912,17 @@ func TestFindActivePatrolMultiple(t *testing.T) {
 	molName := "mol-test-patrol"
 	assignee := "testrig/witness"
 
-	// Create 2 stale patrols (with closed children) and 1 active patrol (with open child)
-	stale1 := createHookedPatrol(t, b, molName, assignee, true)
-	stale2 := createHookedPatrol(t, b, molName, assignee, true)
-	activeID := createHookedPatrol(t, b, molName, assignee, true)
+	// Create 2 completed patrols and 1 patrol with an open child. Child state no
+	// longer decides active status; all hooked patrol roots are reportable.
+	completed1 := createHookedPatrol(t, b, molName, assignee, true)
+	completed2 := createHookedPatrol(t, b, molName, assignee, true)
+	openChildID := createHookedPatrol(t, b, molName, assignee, true)
 
-	// Close children of stale patrols to make them stale
-	for _, staleID := range []string{stale1, stale2} {
-		children, err := b.List(beads.ListOptions{Parent: staleID, Status: "all", Priority: -1})
+	// Close children of completed patrols to simulate work awaiting report.
+	for _, completedID := range []string{completed1, completed2} {
+		children, err := b.List(beads.ListOptions{Parent: completedID, Status: "all", Priority: -1})
 		if err != nil {
-			t.Fatalf("list children of %s: %v", staleID, err)
+			t.Fatalf("list children of %s: %v", completedID, err)
 		}
 		for _, child := range children {
 			if closeErr := b.ForceCloseWithReason("test cleanup", child.ID); closeErr != nil {
@@ -944,67 +945,72 @@ func TestFindActivePatrolMultiple(t *testing.T) {
 	if !found {
 		t.Fatal("expected to find active patrol")
 	}
-	if patrolID != activeID {
-		t.Errorf("patrolID = %q, want %q (should return the active one)", patrolID, activeID)
+	created := map[string]bool{completed1: true, completed2: true, openChildID: true}
+	if !created[patrolID] {
+		t.Errorf("patrolID = %q, want one of %v", patrolID, created)
 	}
 
-	// Verify active patrol is still hooked
-	issue, err := b.Show(activeID)
-	if err != nil {
-		t.Fatalf("show active: %v", err)
-	}
-	if issue.Status != beads.StatusHooked {
-		t.Errorf("active patrol status = %q, want %q", issue.Status, beads.StatusHooked)
-	}
-
-	// Stale patrol cleanup is not guaranteed when an active patrol is found —
-	// findActivePatrol breaks early on active discovery to prevent N+1 Dolt queries
-	// (gt-18dzn6p). Remaining stale beads are cleaned by burnPreviousPatrolWisps
-	// when the patrol cycle ends. Verify stale beads are either closed or still hooked
-	// (not left in an intermediate broken state).
-	for _, id := range []string{stale1, stale2} {
-		staleIssue, showErr := b.Show(id)
+	// Verify discovery did not close any reportable patrol roots.
+	for _, id := range []string{completed1, completed2, openChildID} {
+		issue, showErr := b.Show(id)
 		if showErr != nil {
-			t.Fatalf("show stale %s: %v", id, showErr)
+			t.Fatalf("show patrol %s: %v", id, showErr)
 		}
-		if staleIssue.Status != "closed" && staleIssue.Status != beads.StatusHooked {
-			t.Errorf("stale patrol %s status = %q, want closed or hooked", id, staleIssue.Status)
+		if issue.Status != beads.StatusHooked {
+			t.Errorf("patrol %s status = %q, want %q", id, issue.Status, beads.StatusHooked)
 		}
 	}
 }
 
 func TestFindActivePatrolUsesCanonicalDeaconAssignee(t *testing.T) {
-	requireBd(t)
-	tmpDir, b := setupPatrolTestDB(t)
+	cases := []struct {
+		name  string
+		order string
+	}{
+		{name: "legacy older", order: "legacy-first"},
+		{name: "legacy newer", order: "canonical-first"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			requireBd(t)
+			tmpDir, b := setupPatrolTestDB(t)
 
-	legacyID := createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon", false)
-	canonicalID := createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon/", false)
+			var legacyID, canonicalID string
+			if tc.order == "legacy-first" {
+				legacyID = createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon", false)
+				canonicalID = createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon/", false)
+			} else {
+				canonicalID = createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon/", false)
+				legacyID = createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon", false)
+			}
 
-	cfg := PatrolConfig{
-		RoleName:      "deacon",
-		PatrolMolName: constants.MolDeaconPatrol,
-		BeadsDir:      tmpDir,
-		Assignee:      "deacon/",
-		Beads:         b,
-	}
+			cfg := PatrolConfig{
+				RoleName:      "deacon",
+				PatrolMolName: constants.MolDeaconPatrol,
+				BeadsDir:      tmpDir,
+				Assignee:      "deacon/",
+				Beads:         b,
+			}
 
-	patrolID, _, found, findErr := findActivePatrol(cfg)
-	if findErr != nil {
-		t.Fatalf("findActivePatrol error: %v", findErr)
-	}
-	if !found {
-		t.Fatal("expected canonical Deacon patrol to be found")
-	}
-	if patrolID != canonicalID {
-		t.Fatalf("patrolID = %q, want canonical %q", patrolID, canonicalID)
-	}
+			patrolID, _, found, findErr := findActivePatrol(cfg)
+			if findErr != nil {
+				t.Fatalf("findActivePatrol error: %v", findErr)
+			}
+			if !found {
+				t.Fatal("expected canonical Deacon patrol to be found")
+			}
+			if patrolID != canonicalID {
+				t.Fatalf("patrolID = %q, want canonical %q", patrolID, canonicalID)
+			}
 
-	legacy, err := b.Show(legacyID)
-	if err != nil {
-		t.Fatalf("show legacy patrol: %v", err)
-	}
-	if legacy.Status != beads.StatusHooked {
-		t.Fatalf("legacy patrol status = %q, want still hooked until replacement cleanup", legacy.Status)
+			legacy, err := b.Show(legacyID)
+			if err != nil {
+				t.Fatalf("show legacy patrol: %v", err)
+			}
+			if legacy.Status != beads.StatusHooked {
+				t.Fatalf("legacy patrol status = %q, want still hooked until replacement cleanup", legacy.Status)
+			}
+		})
 	}
 }
 
@@ -1047,8 +1053,12 @@ func TestFindActivePatrolDoesNotCleanupCompletedPatrols(t *testing.T) {
 	if !found {
 		t.Fatal("expected completed hooked patrols to remain reportable")
 	}
-	if patrolID != patrolIDs[len(patrolIDs)-1] {
-		t.Fatalf("patrolID = %q, want newest %q", patrolID, patrolIDs[len(patrolIDs)-1])
+	created := map[string]bool{}
+	for _, id := range patrolIDs {
+		created[id] = true
+	}
+	if !created[patrolID] {
+		t.Fatalf("patrolID = %q, want one of %v", patrolID, created)
 	}
 
 	for _, id := range patrolIDs {
