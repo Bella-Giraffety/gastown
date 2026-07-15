@@ -587,6 +587,7 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 	if headCheck := e.verifySubmittedBranchHead(mr); !headCheck.Success {
 		return headCheck
 	}
+	mergeRef := submittedMergeRef(mr)
 
 	// Step 2: Checkout the target branch
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Checking out target branch %s...\n", target)
@@ -605,7 +606,7 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 
 	// Step 3: Check for merge conflicts (using local branch)
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Checking for conflicts...\n")
-	conflicts, err := e.git.CheckConflicts(branch, target)
+	conflicts, err := e.git.CheckConflicts(mergeRef, target)
 	if err != nil {
 		return ProcessResult{
 			Success:  false,
@@ -623,7 +624,7 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 
 	// Step 3.5: Detect submodule commits if the branch changes submodule pointers.
 	// Remote submodule pushes are delayed until candidate gates authorize the merge.
-	subChanges, err := e.git.SubmoduleChanges(target, branch)
+	subChanges, err := e.git.SubmoduleChanges(target, mergeRef)
 	if err != nil {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not check submodule changes: %v\n", err)
 	}
@@ -632,7 +633,7 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 	// this candidate tree; target-only tests never authorize landing source changes.
 	// Get the original commit message from the polecat branch to preserve the
 	// conventional commit format (feat:/fix:) instead of creating redundant merge commits
-	originalMsg, err := e.git.GetBranchCommitMessage(branch)
+	originalMsg, err := e.git.GetBranchCommitMessage(mergeRef)
 	if err != nil {
 		// Fallback to a descriptive message if we can't get the original
 		originalMsg = fmt.Sprintf("Squash merge %s into %s", branch, target)
@@ -642,7 +643,7 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not get original commit message: %v\n", err)
 	}
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Squash merging with message: %s\n", strings.TrimSpace(originalMsg))
-	if err := e.git.MergeSquash(branch, originalMsg); err != nil {
+	if err := e.git.MergeSquash(mergeRef, originalMsg); err != nil {
 		// ZFC: Use git's porcelain output to detect conflicts instead of parsing stderr.
 		// GetConflictingFiles() uses `git diff --diff-filter=U` which is proper.
 		conflicts, conflictErr := e.git.GetConflictingFiles()
@@ -957,6 +958,16 @@ func (e *Engineer) verifySubmittedBranchHead(mr *MRInfo) ProcessResult {
 		return gateNotProven(GateOutcomeUnknown, fmt.Sprintf("candidate branch %s moved from submitted head %s to %s", mr.Branch, shortSHA(submitted), shortSHA(actual)))
 	}
 	return ProcessResult{Success: true}
+}
+
+func submittedMergeRef(mr *MRInfo) string {
+	if mr == nil {
+		return ""
+	}
+	if sha := strings.TrimSpace(mr.CommitSHA); sha != "" {
+		return sha
+	}
+	return mr.Branch
 }
 
 func (e *Engineer) recheckMRStillMergeable(mr *MRInfo, target string) ProcessResult {
