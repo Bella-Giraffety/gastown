@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -72,6 +74,94 @@ func (b *Beads) OpenStore(ctx context.Context) (beadsdk.Storage, func(), error) 
 		_ = store.Close()
 	}
 	return store, cleanup, nil
+}
+
+type wispPromoter interface {
+	PromoteFromEphemeral(context.Context, string, string) error
+}
+
+type storeCommitter interface {
+	Commit(context.Context, string) error
+}
+
+// PromoteWisp promotes a compacted wisp through the Beads SDK store path.
+//
+// The promotion itself is owned by the SDK's PromoteFromEphemeral operation;
+// this method only binds gt compact to that authority, preserves the structured
+// promotion comment that the old bd comments path produced, and creates the
+// durable Dolt commit boundary that bd's post-run hook used to provide.
+func (b *Beads) PromoteWisp(id, reason string) error {
+	ctx, cancel := storeCtx()
+	defer cancel()
+
+	store := b.store
+	cleanup := func() {}
+	if store == nil {
+		var err error
+		store, cleanup, err = b.OpenStore(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	defer cleanup()
+
+	promoter, ok := store.(wispPromoter)
+	if !ok {
+		return fmt.Errorf("store promote wisp: PromoteFromEphemeral unsupported")
+	}
+	committer, ok := store.(storeCommitter)
+	if !ok {
+		return fmt.Errorf("store promote wisp: Commit unsupported")
+	}
+
+	actor := b.promotionActor(ctx)
+	if err := promoter.PromoteFromEphemeral(ctx, id, actor); err != nil {
+		return fmt.Errorf("promote wisp %s: %w", id, err)
+	}
+
+	_, _ = store.AddIssueComment(ctx, id, actor, promotionComment(reason))
+	if err := committer.Commit(ctx, fmt.Sprintf("Promote wisp %s", id)); err != nil {
+		return fmt.Errorf("commit promoted wisp %s: %w", id, err)
+	}
+	return nil
+}
+
+func promotionComment(reason string) string {
+	comment := "Promoted from Level 0"
+	if reason = strings.TrimSpace(reason); reason != "" {
+		comment += ": " + reason
+	}
+	return comment
+}
+
+func (b *Beads) promotionActor(ctx context.Context) string {
+	if actor := strings.TrimSpace(b.getActor()); actor != "" {
+		return actor
+	}
+	if !b.isolated {
+		if actor := strings.TrimSpace(os.Getenv("BEADS_ACTOR")); actor != "" {
+			return actor
+		}
+		if actor := strings.TrimSpace(b.gitUserName(ctx)); actor != "" {
+			return actor
+		}
+		if actor := strings.TrimSpace(os.Getenv("USER")); actor != "" {
+			return actor
+		}
+	}
+	return "unknown"
+}
+
+func (b *Beads) gitUserName(ctx context.Context) string {
+	if b.workDir == "" {
+		return ""
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", b.workDir, "config", "--get", "user.name")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // storeCtx returns a context with a standard timeout for store operations.
