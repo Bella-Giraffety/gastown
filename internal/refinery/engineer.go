@@ -207,6 +207,7 @@ type MRInfo struct {
 	Branch          string     // Source branch (e.g., "polecat/nux")
 	Target          string     // Target branch (e.g., "main")
 	SourceIssue     string     // The work item being merged
+	CommitSHA       string     // Submitted source branch head
 	Worker          string     // Who did the work
 	Rig             string     // Which rig
 	Title           string     // MR title
@@ -1179,6 +1180,12 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Released merge slot\n")
 	}
 
+	mergeCommit := strings.TrimSpace(result.MergeCommit)
+	if mergeCommit == "" {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Refusing post-merge cleanup for %s: missing verified merge proof\n", mr.ID)
+		return
+	}
+
 	// Update and close the MR bead
 	if mr.ID != "" {
 		// Fetch the MR bead to update its fields
@@ -1191,7 +1198,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 			if mrFields == nil {
 				mrFields = &beads.MRFields{}
 			}
-			mrFields.MergeCommit = result.MergeCommit
+			mrFields.MergeCommit = mergeCommit
 			mrFields.CloseReason = "merged"
 			newDesc := beads.SetMRFields(mrBead, mrFields)
 			if err := e.beads.Update(mr.ID, beads.UpdateOptions{Description: &newDesc}); err != nil {
@@ -1213,9 +1220,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 	// normal close. This matches how gt done handles closures.
 	if mr.SourceIssue != "" {
 		closeReason := fmt.Sprintf("Merged in %s", mr.ID)
-		if result.MergeCommit != "" {
-			closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, mr.Target, result.MergeCommit)
-		}
+		closeReason = fmt.Sprintf("%s\ntarget_branch: %s\ncommit_sha: %s", closeReason, mr.Target, mergeCommit)
 		if err := e.beads.ForceCloseWithReason(closeReason, mr.SourceIssue); err != nil {
 			// Check if already closed (by polecat's gt done) — that's fine
 			if issue, showErr := e.beads.Show(mr.SourceIssue); showErr == nil && beads.IssueStatus(issue.Status).IsTerminal() {
@@ -1241,35 +1246,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 	}
 
 	// 2. Delete source branch (local and remote).
-	// Polecat branches (polecat/*) are always cleaned up — they are ephemeral
-	// work branches that should never persist after merge. Other branches
-	// respect the DeleteMergedBranches config.
-	isPolecat := strings.HasPrefix(mr.Branch, "polecat/")
-	if mr.Branch != "" && (e.config.DeleteMergedBranches || isPolecat) {
-		if err := e.git.DeleteBranch(mr.Branch, true); err != nil {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to delete local branch %s: %v\n", mr.Branch, err)
-		} else {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Deleted local branch: %s\n", mr.Branch)
-		}
-		// Remote delete — only polecat branches. Non-polecat branches may belong
-		// to contributor forks with open upstream PRs; deleting them from origin
-		// causes GitHub to auto-close those PRs via head_ref_delete. (GH#2669)
-		// gas-fk4: Also skip deletion for polecat branches that have open PRs.
-		// When merge_strategy=pr, polecat branches have GitHub PRs that should
-		// be closed via gh pr merge (showing "merged"), not via branch deletion
-		// (which shows "closed" and destroys the PR audit trail).
-		if isPolecat {
-			if hasOpenPR, err := e.git.HasOpenPR(mr.Branch); err != nil {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: PR state uncertain (%v)\n", mr.Branch, err)
-			} else if hasOpenPR {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", mr.Branch)
-			} else if err := e.git.DeleteRemoteBranch("origin", mr.Branch); err != nil {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to delete remote branch %s: %v\n", mr.Branch, err)
-			} else {
-				_, _ = fmt.Fprintf(e.output, "[Engineer] Deleted remote branch: %s\n", mr.Branch)
-			}
-		}
-	}
+	e.cleanupMergedBranch(mr)
 
 	// 3. Check and auto-close completed convoys
 	// After closing a source issue, its parent convoy may now be complete.
@@ -1288,7 +1265,42 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 	}
 
 	// 5. Log success
-	_, _ = fmt.Fprintf(e.output, "[Engineer] ✓ Merged: %s (commit: %s)\n", mr.ID, result.MergeCommit)
+	_, _ = fmt.Fprintf(e.output, "[Engineer] ✓ Merged: %s (commit: %s)\n", mr.ID, mergeCommit)
+}
+
+func (e *Engineer) cleanupMergedBranch(mr *MRInfo) {
+	// Polecat branches (polecat/*) are always cleaned up locally; remote deletion
+	// is leased to the submitted source head so branch reuse/advancement preserves it.
+	isPolecat := strings.HasPrefix(mr.Branch, "polecat/")
+	if mr.Branch == "" || !(e.config.DeleteMergedBranches || isPolecat) {
+		return
+	}
+	if err := e.git.DeleteBranch(mr.Branch, true); err != nil {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to delete local branch %s: %v\n", mr.Branch, err)
+	} else {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Deleted local branch: %s\n", mr.Branch)
+	}
+	// Remote delete — only polecat branches. Non-polecat branches may belong
+	// to contributor forks with open upstream PRs; deleting them from origin
+	// causes GitHub to auto-close those PRs via head_ref_delete. (GH#2669)
+	// gas-fk4: Also skip deletion for polecat branches that have open PRs.
+	// When merge_strategy=pr, polecat branches have GitHub PRs that should
+	// be closed via gh pr merge (showing "merged"), not via branch deletion
+	// (which shows "closed" and destroys the PR audit trail).
+	if !isPolecat {
+		return
+	}
+	if hasOpenPR, err := e.git.HasOpenPR(mr.Branch); err != nil {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: PR state uncertain (%v)\n", mr.Branch, err)
+	} else if hasOpenPR {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", mr.Branch)
+	} else if sourceHead := strings.TrimSpace(mr.CommitSHA); sourceHead == "" {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: source head missing\n", mr.Branch)
+	} else if err := e.git.DeleteRemoteBranchIfAt("origin", mr.Branch, sourceHead); err != nil {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping remote branch delete for %s: branch state changed (%v)\n", mr.Branch, err)
+	} else {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] Deleted remote branch: %s\n", mr.Branch)
+	}
 }
 
 func (e *Engineer) clearAgentActiveMR(agentBeadID string) error {
@@ -1708,6 +1720,7 @@ func issueToMRInfo(issue *beads.Issue, fields *beads.MRFields) *MRInfo {
 		Branch:          fields.Branch,
 		Target:          fields.Target,
 		SourceIssue:     fields.SourceIssue,
+		CommitSHA:       fields.CommitSHA,
 		Worker:          fields.Worker,
 		Rig:             fields.Rig,
 		Title:           issue.Title,

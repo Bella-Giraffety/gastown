@@ -275,6 +275,20 @@ func TestManager_PostMerge_ClosesMRAndSourceIssue(t *testing.T) {
 	if result.MR.Branch != "polecat/test/gt-xyz" {
 		t.Errorf("PostMerge() MR.Branch = %s, want polecat/test/gt-xyz", result.MR.Branch)
 	}
+	mrAfter, err := b.Show(mrIssue.ID)
+	if err != nil {
+		t.Fatalf("show MR after PostMerge: %v", err)
+	}
+	fields := beads.ParseMRFields(mrAfter)
+	if fields == nil {
+		t.Fatal("MR fields missing after PostMerge")
+	}
+	if fields.MergeCommit != "abc123" {
+		t.Fatalf("MergeCommit = %q, want abc123", fields.MergeCommit)
+	}
+	if fields.CloseReason != "merged" {
+		t.Fatalf("CloseReason = %q, want merged", fields.CloseReason)
+	}
 }
 
 func TestManager_PostMerge_RequiresProof(t *testing.T) {

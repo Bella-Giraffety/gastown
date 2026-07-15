@@ -619,6 +619,10 @@ func (m *Manager) PostMerge(idOrBranch, verifiedCommit string) (*PostMergeResult
 
 	b := beads.New(m.rig.BeadsPath())
 
+	if err := m.persistPostMergeProof(b, mr.ID, verifiedCommit); err != nil {
+		return result, err
+	}
+
 	// Close the MR bead
 	if mr.IsClosed() {
 		_, _ = fmt.Fprintf(m.output, "  %s MR already closed\n", style.Dim.Render("—"))
@@ -655,6 +659,24 @@ func (m *Manager) PostMerge(idOrBranch, verifiedCommit string) (*PostMergeResult
 	}
 
 	return result, nil
+}
+
+func (m *Manager) persistPostMergeProof(b *beads.Beads, mrID, verifiedCommit string) error {
+	issue, err := b.Show(mrID)
+	if err != nil {
+		return fmt.Errorf("loading MR bead for proof persistence: %w", err)
+	}
+	fields := beads.ParseMRFields(issue)
+	if fields == nil {
+		fields = &beads.MRFields{}
+	}
+	fields.MergeCommit = verifiedCommit
+	fields.CloseReason = string(CloseReasonMerged)
+	newDesc := beads.SetMRFields(issue, fields)
+	if err := b.Update(mrID, beads.UpdateOptions{Description: &newDesc}); err != nil {
+		return fmt.Errorf("persisting post-merge proof: %w", err)
+	}
+	return nil
 }
 
 // notifyWorkerRejected sends a rejection notification to a polecat.

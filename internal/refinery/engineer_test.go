@@ -838,6 +838,94 @@ func TestPolecatBranchAlwaysDeletedAfterMerge(t *testing.T) {
 	}
 }
 
+func TestHandleMRInfoSuccess_EmptyMergeProofFailsClosed(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	e := newTestEngineer(t, workDir, g)
+	mr := &MRInfo{
+		ID:          "gt-mr-empty-proof",
+		Branch:      "polecat/test/gt-empty-proof",
+		Target:      "main",
+		SourceIssue: "gt-src-empty-proof",
+		CommitSHA:   "abc123",
+	}
+
+	e.HandleMRInfoSuccess(mr, ProcessResult{Success: true})
+
+	output := e.output.(*bytes.Buffer).String()
+	if !strings.Contains(output, "missing verified merge proof") {
+		t.Fatalf("HandleMRInfoSuccess output = %q, want missing proof refusal", output)
+	}
+	for _, unexpected := range []string{"Closed MR bead", "Closed source issue", "Deleted remote branch", "MERGED:"} {
+		if strings.Contains(output, unexpected) {
+			t.Fatalf("HandleMRInfoSuccess performed side effect %q with empty proof; output: %s", unexpected, output)
+		}
+	}
+}
+
+func TestCleanupMergedBranch_PRStateUncertainPreservesRemote(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	branch := "polecat/test/gt-pr-uncertain"
+	createFeatureBranch(t, workDir, branch, "uncertain.txt", "v1\n")
+	run(t, workDir, "git", "checkout", branch)
+	sourceHead := run(t, workDir, "git", "rev-parse", "HEAD")
+	run(t, workDir, "git", "push", "-u", "origin", branch)
+	run(t, workDir, "git", "checkout", "main")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.DeleteMergedBranches = false
+	e.cleanupMergedBranch(&MRInfo{Branch: branch, CommitSHA: sourceHead})
+
+	tip, err := g.RemoteBranchTip("origin", branch)
+	if err != nil {
+		t.Fatalf("RemoteBranchTip: %v", err)
+	}
+	if tip != sourceHead {
+		t.Fatalf("remote branch tip = %s, want preserved source head %s", tip, sourceHead)
+	}
+	output := e.output.(*bytes.Buffer).String()
+	if !strings.Contains(output, "PR state uncertain") {
+		t.Fatalf("cleanup output = %q, want PR state uncertainty", output)
+	}
+}
+
+func TestCleanupMergedBranch_LeasePreservesAdvancedRemote(t *testing.T) {
+	fakeBin := t.TempDir()
+	fakeGH := filepath.Join(fakeBin, "gh")
+	if err := os.WriteFile(fakeGH, []byte("#!/bin/sh\nprintf '[]\\n'\n"), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	workDir, g, _ := testGitRepo(t)
+	branch := "polecat/test/gt-advanced"
+	createFeatureBranch(t, workDir, branch, "advanced.txt", "v1\n")
+	run(t, workDir, "git", "checkout", branch)
+	sourceHead := run(t, workDir, "git", "rev-parse", "HEAD")
+	run(t, workDir, "git", "push", "-u", "origin", branch)
+	writeFile(t, workDir, "advanced.txt", "v2\n")
+	run(t, workDir, "git", "add", ".")
+	run(t, workDir, "git", "commit", "-m", "advance branch")
+	advancedHead := run(t, workDir, "git", "rev-parse", "HEAD")
+	run(t, workDir, "git", "push", "origin", branch)
+	run(t, workDir, "git", "checkout", "main")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.DeleteMergedBranches = false
+	e.cleanupMergedBranch(&MRInfo{Branch: branch, CommitSHA: sourceHead})
+
+	tip, err := g.RemoteBranchTip("origin", branch)
+	if err != nil {
+		t.Fatalf("RemoteBranchTip: %v", err)
+	}
+	if tip != advancedHead {
+		t.Fatalf("remote branch tip = %s, want advanced head %s", tip, advancedHead)
+	}
+	output := e.output.(*bytes.Buffer).String()
+	if !strings.Contains(output, "branch state changed") {
+		t.Fatalf("cleanup output = %q, want lease preservation", output)
+	}
+}
+
 func TestPostMergeConvoyCheck_NoTownBeads(t *testing.T) {
 	// postMergeConvoyCheck should silently return when town-level beads doesn't exist
 	tmpDir, err := os.MkdirTemp("", "engineer-convoy-test-*")
