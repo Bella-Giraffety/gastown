@@ -527,7 +527,9 @@ exit 0
 	}
 	t.Cleanup(func() { collectExistingMoleculesForRollback = prevCollectMolecules })
 
-	// Call rollbackSlingArtifacts with a convoyID
+	// Call rollbackSlingArtifacts with a convoyID. This test fixture has no
+	// matching polecat worktree, so generation-checked cleanup must fail closed
+	// and leave the convoy open for recovery rather than hiding the failure.
 	spawnInfo := &SpawnedPolecatInfo{
 		RigName:     "gastown",
 		PolecatName: "Toast",
@@ -537,18 +539,10 @@ exit 0
 
 	rollbackSlingArtifacts(spawnInfo, "gt-abc123", "", "convoy-rollback-123")
 
-	// Check if close command was logged
-	logContent, err := os.ReadFile(filepath.Join(townRoot, "bd_close.log"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			t.Errorf("BUG: rollbackSlingArtifacts did not close convoy")
-		} else {
-			t.Fatalf("reading close log: %v", err)
-		}
-	} else {
-		if !strings.Contains(string(logContent), "convoy-rollback-123") {
-			t.Errorf("rollbackSlingArtifacts did not close correct convoy: %s", string(logContent))
-		}
+	if logContent, err := os.ReadFile(filepath.Join(townRoot, "bd_close.log")); err == nil {
+		t.Fatalf("rollbackSlingArtifacts closed convoy despite failed cleanup: %s", string(logContent))
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("reading close log: %v", err)
 	}
 }
 
