@@ -1190,7 +1190,7 @@ func getGitRoot() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// getAgentIdentity returns the agent identity string for hook lookup.
+// getAgentIdentity returns the display/actor identity string for the current role.
 func getAgentIdentity(ctx RoleContext) string {
 	switch ctx.Role {
 	case RoleCrew:

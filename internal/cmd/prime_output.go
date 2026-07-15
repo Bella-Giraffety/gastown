@@ -600,8 +600,7 @@ func outputAttachmentStatus(ctx RoleContext) {
 	// Check for pinned beads with attachments
 	b := beads.New(ctx.WorkDir)
 
-	// Build assignee string based on role (same as getAgentIdentity)
-	assignee := getAgentIdentity(ctx)
+	assignee := getAgentAssigneeIdentity(ctx)
 	if assignee == "" {
 		return
 	}

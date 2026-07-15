@@ -15,6 +15,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/testutil"
 )
 
@@ -582,6 +583,35 @@ func splitFirstEquals(s string) []string {
 	return []string{s[:idx], s[idx+1:]}
 }
 
+func TestBuildPatrolConfig_DeaconUsesCanonicalAssignee(t *testing.T) {
+	cfg, err := buildPatrolConfig(RoleContext{Role: RoleDeacon, TownRoot: "/town"}, RoleDeacon)
+	if err != nil {
+		t.Fatalf("buildPatrolConfig: %v", err)
+	}
+	if cfg.Assignee != "deacon/" {
+		t.Fatalf("Deacon patrol assignee = %q, want %q", cfg.Assignee, "deacon/")
+	}
+}
+
+func TestGetAgentAssigneeIdentity_TownLevelCanonical(t *testing.T) {
+	cases := []struct {
+		name string
+		ctx  RoleContext
+		want string
+	}{
+		{name: "mayor", ctx: RoleContext{Role: RoleMayor}, want: "mayor/"},
+		{name: "deacon", ctx: RoleContext{Role: RoleDeacon}, want: "deacon/"},
+		{name: "boot", ctx: RoleContext{Role: RoleBoot}, want: "deacon/boot"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := getAgentAssigneeIdentity(tc.ctx); got != tc.want {
+				t.Fatalf("getAgentAssigneeIdentity() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // --- Patrol discovery tests (findActivePatrol) ---
 
 func requireBd(t *testing.T) {
@@ -729,17 +759,74 @@ func TestRunPatrolReportNoActivePatrolStartsReplacement(t *testing.T) {
 	}
 }
 
-func TestFindActivePatrolStale(t *testing.T) {
+func TestRunPatrolReportClosesCanonicalDeaconHook(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	legacyID := createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon", true)
+	canonicalID := createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon/", true)
+
+	oldSpawner := autoSpawnPatrolForReport
+	oldSummary := patrolReportSummary
+	oldSteps := patrolReportSteps
+	patrolReportSummary = "canonical cycle complete"
+	patrolReportSteps = ""
+	called := 0
+	autoSpawnPatrolForReport = func(cfg PatrolConfig) (string, error) {
+		called++
+		if cfg.RoleName != "deacon" || cfg.PatrolMolName != constants.MolDeaconPatrol || cfg.Assignee != "deacon/" {
+			t.Fatalf("unexpected patrol config: %+v", cfg)
+		}
+		return "hq-wisp-next", nil
+	}
+	t.Cleanup(func() {
+		autoSpawnPatrolForReport = oldSpawner
+		patrolReportSummary = oldSummary
+		patrolReportSteps = oldSteps
+	})
+
+	err := runPatrolReportWithConfig(PatrolConfig{
+		RoleName:      "deacon",
+		PatrolMolName: constants.MolDeaconPatrol,
+		BeadsDir:      tmpDir,
+		Assignee:      "deacon/",
+		Beads:         b,
+	})
+	if err != nil {
+		t.Fatalf("runPatrolReportWithConfig: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("autoSpawnPatrolForReport calls = %d, want 1", called)
+	}
+
+	canonical, err := b.Show(canonicalID)
+	if err != nil {
+		t.Fatalf("show canonical patrol: %v", err)
+	}
+	if canonical.Status != "closed" {
+		t.Fatalf("canonical patrol status = %q, want closed", canonical.Status)
+	}
+
+	legacy, err := b.Show(legacyID)
+	if err != nil {
+		t.Fatalf("show legacy patrol: %v", err)
+	}
+	if legacy.Status != beads.StatusHooked {
+		t.Fatalf("legacy patrol status = %q, want still hooked until replacement cleanup", legacy.Status)
+	}
+}
+
+func TestFindActivePatrolClosedChildrenReportable(t *testing.T) {
 	requireBd(t)
 	tmpDir, b := setupPatrolTestDB(t)
 
 	molName := "mol-test-patrol"
 	assignee := "testrig/witness"
 
-	// Create a patrol with a closed child (simulates post-squash state)
+	// Create a patrol with a closed child (simulates completed work awaiting report).
 	rootID := createHookedPatrol(t, b, molName, assignee, true /* with child */)
 
-	// Close the child to make the patrol stale
+	// Close the child; the hooked root should remain reportable.
 	children, err := b.List(beads.ListOptions{Parent: rootID, Status: "all", Priority: -1})
 	if err != nil {
 		t.Fatalf("list children: %v", err)
@@ -757,21 +844,24 @@ func TestFindActivePatrolStale(t *testing.T) {
 		Beads:         b,
 	}
 
-	_, _, found, findErr := findActivePatrol(cfg)
+	patrolID, _, found, findErr := findActivePatrol(cfg)
 	if findErr != nil {
 		t.Fatalf("findActivePatrol error: %v", findErr)
 	}
-	if found {
-		t.Fatal("expected stale patrol (all children closed) to NOT be found as active")
+	if !found {
+		t.Fatal("expected completed hooked patrol to remain reportable")
+	}
+	if patrolID != rootID {
+		t.Errorf("patrolID = %q, want %q", patrolID, rootID)
 	}
 
-	// Verify the stale patrol was closed
+	// Discovery must be read-only; report closeout owns closure.
 	issue, err := b.Show(rootID)
 	if err != nil {
 		t.Fatalf("show patrol: %v", err)
 	}
-	if issue.Status != "closed" {
-		t.Errorf("stale patrol status = %q, want %q", issue.Status, "closed")
+	if issue.Status != beads.StatusHooked {
+		t.Errorf("completed patrol status = %q, want %q", issue.Status, beads.StatusHooked)
 	}
 }
 
@@ -883,24 +973,55 @@ func TestFindActivePatrolMultiple(t *testing.T) {
 	}
 }
 
-// TestFindActivePatrol_StaleCleanupCapped verifies that when many stale patrols
-// accumulate with no active patrol, cleanup is capped at maxStalePurgePerRun per call
-// to prevent overwhelming Dolt with sequential write queries (gt-18dzn6p).
-func TestFindActivePatrol_StaleCleanupCapped(t *testing.T) {
+func TestFindActivePatrolUsesCanonicalDeaconAssignee(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	legacyID := createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon", false)
+	canonicalID := createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon/", false)
+
+	cfg := PatrolConfig{
+		RoleName:      "deacon",
+		PatrolMolName: constants.MolDeaconPatrol,
+		BeadsDir:      tmpDir,
+		Assignee:      "deacon/",
+		Beads:         b,
+	}
+
+	patrolID, _, found, findErr := findActivePatrol(cfg)
+	if findErr != nil {
+		t.Fatalf("findActivePatrol error: %v", findErr)
+	}
+	if !found {
+		t.Fatal("expected canonical Deacon patrol to be found")
+	}
+	if patrolID != canonicalID {
+		t.Fatalf("patrolID = %q, want canonical %q", patrolID, canonicalID)
+	}
+
+	legacy, err := b.Show(legacyID)
+	if err != nil {
+		t.Fatalf("show legacy patrol: %v", err)
+	}
+	if legacy.Status != beads.StatusHooked {
+		t.Fatalf("legacy patrol status = %q, want still hooked until replacement cleanup", legacy.Status)
+	}
+}
+
+func TestFindActivePatrolDoesNotCleanupCompletedPatrols(t *testing.T) {
 	requireBd(t)
 	tmpDir, b := setupPatrolTestDB(t)
 
 	molName := "mol-test-patrol"
 	assignee := "testrig/witness"
 
-	// Create more stale patrols than maxStalePurgePerRun (currently 5)
-	numStale := maxStalePurgePerRun + 3 // e.g., 8 total
-	staleIDs := make([]string, numStale)
-	for i := 0; i < numStale; i++ {
+	numPatrols := 3
+	patrolIDs := make([]string, numPatrols)
+	for i := 0; i < numPatrols; i++ {
 		id := createHookedPatrol(t, b, molName, assignee, true /* with child */)
-		staleIDs[i] = id
+		patrolIDs[i] = id
 
-		// Close the child to make the patrol stale
+		// Close the child to simulate a completed patrol awaiting report.
 		children, err := b.List(beads.ListOptions{Parent: id, Status: "all", Priority: -1})
 		if err != nil {
 			t.Fatalf("list children of %s: %v", id, err)
@@ -919,44 +1040,25 @@ func TestFindActivePatrol_StaleCleanupCapped(t *testing.T) {
 		Beads:         b,
 	}
 
-	_, _, found, findErr := findActivePatrol(cfg)
+	patrolID, _, found, findErr := findActivePatrol(cfg)
 	if findErr != nil {
 		t.Fatalf("findActivePatrol error: %v", findErr)
 	}
-	if found {
-		t.Fatal("expected no active patrol (all stale)")
+	if !found {
+		t.Fatal("expected completed hooked patrols to remain reportable")
+	}
+	if patrolID != patrolIDs[len(patrolIDs)-1] {
+		t.Fatalf("patrolID = %q, want newest %q", patrolID, patrolIDs[len(patrolIDs)-1])
 	}
 
-	// Count how many stale patrols were actually closed
-	closedCount := 0
-	hookedCount := 0
-	for _, id := range staleIDs {
+	for _, id := range patrolIDs {
 		issue, err := b.Show(id)
 		if err != nil {
-			t.Fatalf("show stale %s: %v", id, err)
+			t.Fatalf("show patrol %s: %v", id, err)
 		}
-		switch issue.Status {
-		case "closed":
-			closedCount++
-		case beads.StatusHooked:
-			hookedCount++
-		default:
-			t.Errorf("stale patrol %s unexpected status %q", id, issue.Status)
+		if issue.Status != beads.StatusHooked {
+			t.Errorf("patrol %s status = %q, want %q", id, issue.Status, beads.StatusHooked)
 		}
-	}
-
-	// Cleanup must be capped: at most maxStalePurgePerRun beads closed per run
-	if closedCount > maxStalePurgePerRun {
-		t.Errorf("closed %d stale patrols, want at most %d (cap exceeded — Dolt DoS risk)",
-			closedCount, maxStalePurgePerRun)
-	}
-	// But at least some cleanup must happen (the cap should not be zero)
-	if closedCount == 0 {
-		t.Errorf("no stale patrols were closed, expected up to %d", maxStalePurgePerRun)
-	}
-	// Total accounted for
-	if closedCount+hookedCount != numStale {
-		t.Errorf("closed=%d + hooked=%d != total=%d", closedCount, hookedCount, numStale)
 	}
 }
 
@@ -989,6 +1091,34 @@ func TestBurnPreviousPatrolWisps(t *testing.T) {
 		}
 		if issue.Status != "closed" {
 			t.Errorf("patrol %s status = %q, want %q after burn", id, issue.Status, "closed")
+		}
+	}
+}
+
+func TestBurnPreviousPatrolWisps_CollapsesLegacyDeaconAssignee(t *testing.T) {
+	requireBd(t)
+	tmpDir, b := setupPatrolTestDB(t)
+
+	canonicalID := createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon/", false)
+	legacyID := createHookedPatrol(t, b, constants.MolDeaconPatrol, "deacon", false)
+
+	cfg := PatrolConfig{
+		RoleName:      "deacon",
+		PatrolMolName: constants.MolDeaconPatrol,
+		BeadsDir:      tmpDir,
+		Assignee:      "deacon/",
+		Beads:         b,
+	}
+
+	burnPreviousPatrolWisps(cfg)
+
+	for _, id := range []string{canonicalID, legacyID} {
+		issue, err := b.Show(id)
+		if err != nil {
+			t.Fatalf("show patrol %s: %v", id, err)
+		}
+		if issue.Status != "closed" {
+			t.Errorf("patrol %s status = %q, want closed after burn", id, issue.Status)
 		}
 	}
 }

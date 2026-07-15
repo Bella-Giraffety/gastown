@@ -228,7 +228,7 @@ func detectMoleculeContext(workDir string, ctx RoleInfo) (moleculeID, stepID, st
 		Rig:     ctx.Rig,
 		Polecat: ctx.Polecat,
 	}
-	assignee := getAgentIdentity(roleCtx)
+	assignee := getAgentAssigneeIdentity(roleCtx)
 	if assignee == "" {
 		return "", "", ""
 	}
@@ -271,7 +271,7 @@ func detectHookedBead(workDir string, ctx RoleInfo) string {
 		Rig:     ctx.Rig,
 		Polecat: ctx.Polecat,
 	}
-	assignee := getAgentIdentity(roleCtx)
+	assignee := getAgentAssigneeIdentity(roleCtx)
 	if assignee == "" {
 		return ""
 	}
