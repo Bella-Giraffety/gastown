@@ -975,6 +975,9 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		}
 		if !completionEvidence.HasSubmittableWork {
 			if completionEvidence.NoBranchWorkReason == "source-terminal" {
+				if err := closeAttachedMoleculeForDone(completionBd, sourceAttachment); err != nil {
+					return fmt.Errorf("cannot complete terminal no-branch work: %w", err)
+				}
 				markDoneExiting()
 				fmt.Printf("%s Source issue %s is already terminal with completion evidence; skipping MR creation.\n", style.Bold.Render("→"), issueID)
 				goto notifyWitness
@@ -994,6 +997,11 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 						return fmt.Errorf("cannot complete review-only/no-MR work: %s", skipReason)
 					}
 					skipClose = true
+				}
+				if !skipClose {
+					if err := closeAttachedMoleculeForDone(bd, sourceAttachment); err != nil {
+						return fmt.Errorf("cannot complete review-only/no-MR work: %w", err)
+					}
 				}
 				markDoneExiting()
 
@@ -1100,19 +1108,15 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					}
 				} else {
 					closeReason := fmt.Sprintf("Direct merge to %s (convoy strategy)", defaultBranch)
-					var closeErr error
-					for attempt := 1; attempt <= 3; attempt++ {
-						closeErr = directBd.ForceCloseWithReason(closeReason, issueID)
-						if closeErr == nil {
-							fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
-							break
-						}
-						if attempt < 3 {
-							style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
-							time.Sleep(time.Duration(attempt*2) * time.Second)
-						}
+					if err := closeAttachedMoleculeForDone(directBd, sourceAttachment); err != nil {
+						return fmt.Errorf("cannot complete direct merge work: %w", err)
 					}
-					if closeErr != nil {
+					if closeErr := forceCloseIssueWithRetry(
+						directBd.ForceCloseWithReason,
+						issueID,
+						closeReason,
+						"Issue %s closed (direct merge)",
+					); closeErr != nil {
 						style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
 					}
 				}
@@ -1369,17 +1373,9 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 						}
 						canCloseIssue = false
 					}
-					if canCloseIssue && attachmentFields.AttachedMolecule != "" {
-						if n := closeDescendants(bd, attachmentFields.AttachedMolecule); n > 0 {
-							fmt.Fprintf(os.Stderr, "Closed %d molecule step(s) for %s\n", n, attachmentFields.AttachedMolecule)
-						}
-						if closeErr := forceCloseIssueWithRetry(
-							bd.ForceCloseWithReason,
-							attachmentFields.AttachedMolecule,
-							"done",
-							"Attached molecule %s closed",
-						); closeErr != nil && !errors.Is(closeErr, beads.ErrNotFound) {
-							style.PrintWarning("could not close attached molecule %s after 3 attempts: %v", attachmentFields.AttachedMolecule, closeErr)
+					if canCloseIssue {
+						if err := closeAttachedMoleculeForDone(bd, attachmentFields); err != nil {
+							style.PrintWarning("%v", err)
 							canCloseIssue = false
 						}
 					}
@@ -1448,20 +1444,15 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 							return fmt.Errorf("cannot complete review-only work: %s", skipReason)
 						}
 					} else {
-						var closeErr error
-						for attempt := 1; attempt <= 3; attempt++ {
-							closeErr = bd.ForceCloseWithReason(
-								fmt.Sprintf("Direct merge to %s (convoy strategy, late detection)", defaultBranch), issueID)
-							if closeErr == nil {
-								fmt.Printf("%s Issue %s closed (direct merge)\n", style.Bold.Render("✓"), issueID)
-								break
-							}
-							if attempt < 3 {
-								style.PrintWarning("close attempt %d/3 failed: %v (retrying in %ds)", attempt, closeErr, attempt*2)
-								time.Sleep(time.Duration(attempt*2) * time.Second)
-							}
+						if err := closeAttachedMoleculeForDone(bd, sourceAttachment); err != nil {
+							return fmt.Errorf("cannot complete late direct merge work: %w", err)
 						}
-						if closeErr != nil {
+						if closeErr := forceCloseIssueWithRetry(
+							bd.ForceCloseWithReason,
+							issueID,
+							fmt.Sprintf("Direct merge to %s (convoy strategy, late detection)", defaultBranch),
+							"Issue %s closed (direct merge)",
+						); closeErr != nil {
 							style.PrintWarning("could not close issue %s after 3 attempts: %v", issueID, closeErr)
 						}
 					}
@@ -1828,6 +1819,34 @@ func pushSubmoduleChanges(g *git.Git, baseRef string) {
 
 func forceCloseIssueWithRetry(closeFn func(string, ...string) error, issueID, reason, successFormat string) error {
 	return forceCloseIssueWithRetrySleep(closeFn, issueID, reason, successFormat, time.Sleep)
+}
+
+func closeAttachedMoleculeForDone(bd *beads.Beads, attachment *beads.AttachmentFields) error {
+	if bd == nil || attachment == nil {
+		return nil
+	}
+	moleculeID := strings.TrimSpace(attachment.AttachedMolecule)
+	if moleculeID == "" {
+		return nil
+	}
+
+	closed, err := forceCloseDescendants(bd, moleculeID)
+	if err != nil {
+		return fmt.Errorf("close descendants for attached molecule %s: %w", moleculeID, err)
+	}
+	if closed > 0 {
+		fmt.Fprintf(os.Stderr, "Closed %d molecule step(s) for %s\n", closed, moleculeID)
+	}
+
+	if err := forceCloseIssueWithRetry(
+		bd.ForceCloseWithReason,
+		moleculeID,
+		"done",
+		"Attached molecule %s closed",
+	); err != nil && !errors.Is(err, beads.ErrNotFound) {
+		return fmt.Errorf("close attached molecule %s: %w", moleculeID, err)
+	}
+	return nil
 }
 
 func forceCloseIssueWithRetrySleep(closeFn func(string, ...string) error, issueID, reason, successFormat string, sleep func(time.Duration)) error {
@@ -2199,44 +2218,21 @@ func updateAgentStateOnDone(cwd, townRoot, exitType, issueID string) error {
 				goto doneStateUpdate
 			}
 
-			// BUG FIX: Close attached molecule (wisp) BEFORE closing hooked bead.
-			// When using formula-on-bead (gt sling formula --on bead), the base bead
-			// has attached_molecule pointing to the wisp. Without this fix, gt done
-			// only closed the hooked bead, leaving the wisp orphaned.
-			// Order matters: wisp closes -> unblocks base bead -> base bead closes.
 			attachment := beads.ParseAttachmentFields(hookedBead)
-			if attachment != nil && attachment.AttachedMolecule != "" {
-				// Close molecule step descendants before closing the wisp root.
-				// bd close doesn't cascade — without this, open/in_progress steps
-				// from the molecule stay stuck forever after gt done completes.
-				// Order: step children -> wisp root -> base bead.
-				if n := closeDescendants(bd, attachment.AttachedMolecule); n > 0 {
-					fmt.Fprintf(os.Stderr, "Closed %d molecule step(s) for %s\n", n, attachment.AttachedMolecule)
-				}
-
-				// Close the wisp root with --force and audit reason.
-				// ForceCloseWithReason handles any status (hooked, open, in_progress)
-				// and records the reason + session for attribution.
-				// Same pattern as gt mol burn/squash (#1879).
-				if closeErr := bd.ForceCloseWithReason("done", attachment.AttachedMolecule); closeErr != nil {
-					if !errors.Is(closeErr, beads.ErrNotFound) {
-						fmt.Fprintf(os.Stderr, "Warning: couldn't close attached molecule %s: %v\n", attachment.AttachedMolecule, closeErr)
-						// Don't try to close hookedBeadID - it may still be blocked.
-						// But DO clear hooks and update agent state (goto doneStateUpdate)
-						// so the polecat isn't stuck in 'working' state (za-o9e).
-						goto doneStateUpdate
-					}
-					// Not found = already burned/deleted by another path, continue
-				}
-			}
-
 			// Acceptance criteria gate: skip close if criteria are unchecked.
 			if unchecked := beads.HasUncheckedCriteria(hookedBead); unchecked > 0 {
 				style.PrintWarning("hooked bead %s has %d unchecked acceptance criteria — skipping close", hookedBeadID, unchecked)
 				fmt.Fprintf(os.Stderr, "  The bead will remain open for witness/mayor review.\n")
-			} else if err := bd.Close(hookedBeadID); err != nil {
-				// Non-fatal: warn but continue
-				fmt.Fprintf(os.Stderr, "Warning: couldn't close hooked bead %s: %v\n", hookedBeadID, err)
+			} else {
+				// Close molecule descendants and root before closing the hooked bead.
+				// bd close doesn't cascade, and the source close would otherwise orphan steps.
+				if err := closeAttachedMoleculeForDone(bd, attachment); err != nil {
+					return fmt.Errorf("cannot close hooked bead %s: %w", hookedBeadID, err)
+				}
+				if err := bd.Close(hookedBeadID); err != nil {
+					// Non-fatal: warn but continue
+					fmt.Fprintf(os.Stderr, "Warning: couldn't close hooked bead %s: %v\n", hookedBeadID, err)
+				}
 			}
 		}
 	}

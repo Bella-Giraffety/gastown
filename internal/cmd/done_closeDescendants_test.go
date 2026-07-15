@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/steveyegge/gastown/internal/beads"
 )
 
 // TestDoneCloseDescendantsWithChildren verifies that when gt done is called
@@ -191,6 +193,118 @@ exit 0
 	// base should be closed AFTER wisp
 	if baseIdx >= 0 && wispIdx >= 0 && baseIdx < wispIdx {
 		t.Errorf("base bead closed BEFORE wisp (base line %d, wisp line %d)", baseIdx, wispIdx)
+	}
+}
+
+func TestCloseAttachedMoleculeForDoneClosesDescendantsFirst(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script bd stub not supported on Windows")
+	}
+
+	townRoot := t.TempDir()
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	closesLog := filepath.Join(townRoot, "closes.log")
+	bdScript := fmt.Sprintf(`#!/bin/sh
+while [ "$1" = "--allow-stale" ]; do shift; done
+cmd="$1"
+shift || true
+case "$cmd" in
+  list)
+    if echo "$*" | grep -q "parent=gt-wisp-xyz"; then
+      echo '[{"id":"gt-step-1","title":"Step 1","status":"open"},{"id":"gt-step-2","title":"Step 2","status":"open"}]'
+    else
+      echo '[]'
+    fi
+    ;;
+  close)
+    for arg in "$@"; do
+      case "$arg" in --*) continue ;; esac
+      echo "$arg" >> "%s"
+    done
+    ;;
+esac
+exit 0
+`, closesLog)
+	bdPath := filepath.Join(binDir, "bd")
+	if err := os.WriteFile(bdPath, []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := closeAttachedMoleculeForDone(beads.New(townRoot), &beads.AttachmentFields{AttachedMolecule: "gt-wisp-xyz"})
+	if err != nil {
+		t.Fatalf("closeAttachedMoleculeForDone: %v", err)
+	}
+	closesBytes, err := os.ReadFile(closesLog)
+	if err != nil {
+		t.Fatalf("no beads were closed: %v", err)
+	}
+	closeLines := strings.Split(strings.TrimSpace(string(closesBytes)), "\n")
+	indexOf := func(id string) int {
+		for i, line := range closeLines {
+			if strings.Contains(line, id) {
+				return i
+			}
+		}
+		return -1
+	}
+	step1Idx := indexOf("gt-step-1")
+	step2Idx := indexOf("gt-step-2")
+	wispIdx := indexOf("gt-wisp-xyz")
+	if step1Idx < 0 || step2Idx < 0 || wispIdx < 0 {
+		t.Fatalf("close calls missing expected ids: %v", closeLines)
+	}
+	if wispIdx < step1Idx || wispIdx < step2Idx {
+		t.Fatalf("attached molecule closed before descendants: %v", closeLines)
+	}
+}
+
+func TestCloseAttachedMoleculeForDoneStopsOnDescendantError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script bd stub not supported on Windows")
+	}
+
+	townRoot := t.TempDir()
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	closesLog := filepath.Join(townRoot, "closes.log")
+	bdScript := fmt.Sprintf(`#!/bin/sh
+while [ "$1" = "--allow-stale" ]; do shift; done
+cmd="$1"
+shift || true
+case "$cmd" in
+  list)
+    exit 1
+    ;;
+  close)
+    for arg in "$@"; do
+      case "$arg" in --*) continue ;; esac
+      echo "$arg" >> "%s"
+    done
+    ;;
+esac
+exit 0
+`, closesLog)
+	bdPath := filepath.Join(binDir, "bd")
+	if err := os.WriteFile(bdPath, []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := closeAttachedMoleculeForDone(beads.New(townRoot), &beads.AttachmentFields{AttachedMolecule: "gt-wisp-xyz"})
+	if err == nil {
+		t.Fatal("closeAttachedMoleculeForDone succeeded despite descendant list error")
+	}
+	if !strings.Contains(err.Error(), "close descendants") {
+		t.Fatalf("error = %v, want descendant close failure", err)
+	}
+	if closesBytes, readErr := os.ReadFile(closesLog); readErr == nil && strings.Contains(string(closesBytes), "gt-wisp-xyz") {
+		t.Fatalf("attached molecule root was closed after descendant failure: %s", closesBytes)
 	}
 }
 
