@@ -308,6 +308,113 @@ exit 0
 	}
 }
 
+func TestCloseAttachedMoleculeForDoneListsAllPriorities(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script bd stub not supported on Windows")
+	}
+
+	townRoot := t.TempDir()
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	closesLog := filepath.Join(townRoot, "closes.log")
+	bdScript := fmt.Sprintf(`#!/bin/sh
+while [ "$1" = "--allow-stale" ]; do shift; done
+cmd="$1"
+shift || true
+case "$cmd" in
+  list)
+    if echo "$*" | grep -q -- "--priority=0"; then
+      echo '[]'
+    elif echo "$*" | grep -q "parent=gt-wisp-xyz"; then
+      echo '[{"id":"gt-p2-step","title":"P2 Step","status":"open","priority":2}]'
+    else
+      echo '[]'
+    fi
+    ;;
+  close)
+    for arg in "$@"; do
+      case "$arg" in --*) continue ;; esac
+      echo "$arg" >> "%s"
+    done
+    ;;
+esac
+exit 0
+`, closesLog)
+	bdPath := filepath.Join(binDir, "bd")
+	if err := os.WriteFile(bdPath, []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := closeAttachedMoleculeForDone(beads.New(townRoot), &beads.AttachmentFields{AttachedMolecule: "gt-wisp-xyz"})
+	if err != nil {
+		t.Fatalf("closeAttachedMoleculeForDone: %v", err)
+	}
+	closesBytes, err := os.ReadFile(closesLog)
+	if err != nil {
+		t.Fatalf("no beads were closed: %v", err)
+	}
+	closes := string(closesBytes)
+	if !strings.Contains(closes, "gt-p2-step") {
+		t.Fatalf("non-P0 descendant was not closed; close calls:\n%s", closes)
+	}
+}
+
+func TestCloseAttachedMoleculeForDoneStopsOnNestedDescendantError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script bd stub not supported on Windows")
+	}
+
+	townRoot := t.TempDir()
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	closesLog := filepath.Join(townRoot, "closes.log")
+	bdScript := fmt.Sprintf(`#!/bin/sh
+while [ "$1" = "--allow-stale" ]; do shift; done
+cmd="$1"
+shift || true
+case "$cmd" in
+  list)
+    if echo "$*" | grep -q "parent=gt-wisp-xyz"; then
+      echo '[{"id":"gt-child","title":"Child","status":"open"}]'
+    elif echo "$*" | grep -q "parent=gt-child"; then
+      echo 'Error: nested database locked' >&2
+      exit 1
+    else
+      echo '[]'
+    fi
+    ;;
+  close)
+    for arg in "$@"; do
+      case "$arg" in --*) continue ;; esac
+      echo "$arg" >> "%s"
+    done
+    ;;
+esac
+exit 0
+`, closesLog)
+	bdPath := filepath.Join(binDir, "bd")
+	if err := os.WriteFile(bdPath, []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := closeAttachedMoleculeForDone(beads.New(townRoot), &beads.AttachmentFields{AttachedMolecule: "gt-wisp-xyz"})
+	if err == nil {
+		t.Fatal("closeAttachedMoleculeForDone succeeded despite nested descendant failure")
+	}
+	if closesBytes, readErr := os.ReadFile(closesLog); readErr == nil {
+		closes := string(closesBytes)
+		if strings.Contains(closes, "gt-child") || strings.Contains(closes, "gt-wisp-xyz") {
+			t.Fatalf("closed parent beads after nested descendant failure:\n%s", closes)
+		}
+	}
+}
+
 // TestDoneCloseDescendantsNoChildren verifies that gt done works correctly
 // when the molecule has no children - it should just close the molecule and
 // hooked bead without errors (edge case #2).
