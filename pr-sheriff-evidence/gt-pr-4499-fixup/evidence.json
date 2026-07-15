@@ -1,0 +1,206 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-15T14:05:34Z",
+  "run_id": "gt-pr-4499-fixup-2026-07-15",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request_replacement",
+    "change_id": "4499",
+    "url": "https://github.com/gastownhall/gastown/pull/4499",
+    "title": "fix(sling): route formula bond to target bead's beads dir so rig-prefixed beads dispatch",
+    "author": "Smarterburn",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "2155a57267d24ca1d0fd62822f5cefb67161b601",
+    "head_ref": "polecat/radrat/gt-pr-4499+b729f1",
+    "head_sha": "88b02232760d61b1e76c4852bd7e691a00178f85",
+    "diff_summary": {
+      "additions": 127,
+      "deletions": 9,
+      "changed_files": 2,
+      "paths": [
+        "internal/cmd/sling_helpers.go",
+        "internal/cmd/sling_288_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["local_report", "artifact_store", "bead"],
+    "baseline_checks": [],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-pr-4499-replacement",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-pr-4499-replacement",
+    "summary": "Carry forward PR #4499 as a cleanup-first replacement on exact current upstream/main: pin formula-on-bead bd commands to the target bead's routed Beads authority through one helper, without per-prefix exceptions or fallback layers.",
+    "created_at": "2026-07-15T13:45:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/review-approved", "family": "status", "semantic_value": "review-approved"},
+      {"name": "priority/p0", "family": "priority", "semantic_value": "p0"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "review-approved",
+    "priority": "p0",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {"id": "label-snapshot", "kind": "label_snapshot", "uri": "urn:bead:gt-pr-4499:labels", "actor": "gastown/polecats/radrat", "created_at": "2026-07-15T14:05:34Z", "digest": null, "summary": "Original PR #4499 is kind/bug priority/p0 status/reviewing; replacement branch has 15/5/5 evidence and is treated as review-approved for the replacement merge path."},
+    {"id": "original-pr-metadata", "kind": "pr_metadata", "uri": "https://github.com/gastownhall/gastown/pull/4499", "actor": "gastown/polecats/radrat", "created_at": "2026-07-15T14:05:34Z", "digest": "edbb2c2579b2be07e0303c1735a39f37277b6761", "summary": "Original PR #4499 by Smarterburn, head edbb2c2579b2be07e0303c1735a39f37277b6761, labels kind/bug priority/p0 status/reviewing, CI green, no reviews, one Codecov success comment."},
+    {"id": "implementation-commit-1", "kind": "git_commit", "uri": "urn:git:commit:88b02232760d61b1e76c4852bd7e691a00178f85", "actor": "gastown/polecats/radrat", "created_at": "2026-07-15T14:00:00Z", "digest": "88b02232760d61b1e76c4852bd7e691a00178f85", "summary": "Replacement implementation commit on exact upstream/main 2155a57267d24ca1d0fd62822f5cefb67161b601 with formulaBeadBdCmd and focused target-authority regression coverage."},
+    {"id": "focused-verification", "kind": "test_log", "uri": "urn:local:test:gt-pr-4499-fixup-focused", "actor": "gastown/polecats/radrat", "created_at": "2026-07-15T14:02:00Z", "digest": null, "summary": "Focused checks passed: CGO_ENABLED=0 go test ./internal/cmd targeted formula/direct-bond tests; CGO_ENABLED=0 go test ./internal/beads targeted ResolveBeadsDirForID/ResolveHookDir tests; git diff --check passed."},
+    {"id": "blocker-scan", "kind": "review_report", "uri": "urn:bead:gt-pr-4499:blocker-scan", "actor": "gastown/polecats/radrat", "created_at": "2026-07-15T14:05:00Z", "digest": null, "summary": "Scanned GitHub labels, PR comments, reviews, checks, bead notes, local diff, focused tests, and post-review findings. Original PR remains superseded by replacement; replacement blockers are resolved."},
+    {"id": "attribution-local-report", "kind": "local_report", "uri": "urn:bead:gt-pr-4499:attribution", "actor": "gastown/polecats/radrat", "created_at": "2026-07-15T14:05:00Z", "digest": null, "summary": "Replacement carries forward original PR #4499 intent from Smarterburn/Seth Arterburn, original commit edbb2c2579b2be07e0303c1735a39f37277b6761, with Co-authored-by: Seth Arterburn <setharterburn073@gmail.com>."},
+    {"id": "closure-intent", "kind": "bead_note", "uri": "urn:bead:gt-pr-4499:closure-intent", "actor": "gastown/polecats/radrat", "created_at": "2026-07-15T14:05:00Z", "digest": null, "summary": "Original PR #4499 should be closed or marked superseded only after the replacement branch lands, with attribution preserved."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-15T13:55:00Z",
+    "modified_paths": [
+      "internal/cmd/sling_helpers.go",
+      "internal/cmd/sling_288_test.go"
+    ],
+    "commits": [
+      "88b02232760d61b1e76c4852bd7e691a00178f85"
+    ]
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "research-pr-facts-01", "artifact_ref": "urn:opencode:research:research-pr-facts-01", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-01", "lens": "PR facts and status", "summary": "PR #4499 is an open non-draft P0 kind/bug by Smarterburn; original head edbb2c257 has clean GitHub CI and no reviews; merge gates still require Sheriff evidence."},
+      {"id": "research-02", "independence_key": "research-repro-main-02", "artifact_ref": "urn:opencode:research:research-repro-main-02", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-02", "lens": "main reproduction", "summary": "Read-only reproduction found bd show can resolve gt-pr-4499 while bd mol bond dry-run cannot under the same context, supporting a formula bond authority split."},
+      {"id": "research-03", "independence_key": "research-sling-path-03", "artifact_ref": "urn:opencode:research:research-sling-path-03", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-03", "lens": "sling path", "summary": "Sling verification selects target authority, but formula mutation paths recomputed cwd-derived authority; recommended first-class target Beads context."},
+      {"id": "research-04", "independence_key": "research-beads-routing-04", "artifact_ref": "urn:opencode:research:research-beads-routing-04", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-04", "lens": "Beads routing authority", "summary": "ResolveBeadsDirForID plus WithBeadsDir is the existing canonical authority-pinning path; one-off direct fallback pin alone would be a bandaid."},
+      {"id": "research-05", "independence_key": "research-verification-path-05b", "artifact_ref": "urn:opencode:research:research-verification-path-05b", "completed_at": "2026-07-15T12:50:00Z", "actor": "research-leg-05", "lens": "verification path", "summary": "On current upstream the direct formula bond path is canonical; fix should pin the current formula mutation commands rather than revive legacy wisp/bond layering."},
+      {"id": "research-06", "independence_key": "research-worktree-source-06", "artifact_ref": "urn:opencode:research:research-worktree-source-06", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-06", "lens": "worktree/source issue", "summary": "Source issue handling is consistently ID-driven; formula bond should align to the same bead-owned authority to avoid split writes."},
+      {"id": "research-07", "independence_key": "research-pr-diff-07", "artifact_ref": "urn:opencode:research:research-pr-diff-07", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-07", "lens": "PR diff critique", "summary": "Original PR adds a local WithBeadsDir in bondFormulaDirect. Intent is correct, but focused regression coverage and current-main adaptation are required."},
+      {"id": "research-08", "independence_key": "research-tests-coverage-08", "artifact_ref": "urn:opencode:research:research-tests-coverage-08", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-08", "lens": "test coverage", "summary": "Existing tests cover routing primitives and formula direct bond separately but not the exact rig/HQ target Beads authority under poisoned env."},
+      {"id": "research-09", "independence_key": "research-security-09", "artifact_ref": "urn:opencode:research:research-security-09", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-09", "lens": "security validation", "summary": "ResolveBeadsDirForID plus argv-based BdCmd/WithBeadsDir is safe under trusted town routes; no shell injection or beadID path traversal found."},
+      {"id": "research-10", "independence_key": "research-cleanup-architecture-10", "artifact_ref": "urn:opencode:research:research-cleanup-architecture-10", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-10", "lens": "cleanup architecture", "summary": "Best fix is a tiny shared target-authority helper, not per-prefix exceptions, retries, or repo-wide routing churn."},
+      {"id": "research-11", "independence_key": "research-blocker-scan-11", "artifact_ref": "urn:opencode:research:research-blocker-scan-11", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-11", "lens": "labels blockers CI", "summary": "Original PR labels have exactly one kind/priority/status but status/reviewing is not merge-ready; no unresolved comments or review blockers found."},
+      {"id": "research-12", "independence_key": "research-checker-12", "artifact_ref": "urn:opencode:research:research-checker-12", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-12", "lens": "checker evidence", "summary": "Identified gt-pr-sheriff-check schema, 15 research, 5 pre-review, 5 post-review, label, cleanup, verification, replacement, attribution, and blocker-scan gates."},
+      {"id": "research-13", "independence_key": "research-main-staleness-13", "artifact_ref": "urn:opencode:research:research-main-staleness-13", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-13", "lens": "main staleness", "summary": "Original PR is not superseded on upstream/main, but final replacement must refresh to exact current upstream after #4484 advanced main."},
+      {"id": "research-14", "independence_key": "research-focused-tests-14", "artifact_ref": "urn:opencode:research:research-focused-tests-14", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-14", "lens": "focused tests", "summary": "Local default CGO build lacks ICU headers, so focused checks should run with CGO_ENABLED=0; targeted cmd and beads routing tests pass."},
+      {"id": "research-15", "independence_key": "research-action-proposal-15", "artifact_ref": "urn:opencode:research:research-action-proposal-15", "completed_at": "2026-07-15T12:45:00Z", "actor": "research-leg-15", "lens": "action proposal", "summary": "Recommended maintainer replacement/fixup, preserving Smarterburn attribution, adding focused tests, and avoiding merge-as-is until gates pass."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "pre-review-correctness-01", "artifact_ref": "urn:opencode:pre-review:pre-review-correctness-01", "reviewed_action_ref": "action-plan-pr-4499-replacement", "completed_at": "2026-07-15T13:20:00Z", "actor": "pre-review-01", "verdict": "approve", "summary": "Approved shared formula target-authority helper and focused rig/HQ poisoned-env tests; keep WithAutoCommit command-specific."},
+      {"id": "pre-02", "independence_key": "pre-review-cleanup-02", "artifact_ref": "urn:opencode:pre-review:pre-review-cleanup-02", "reviewed_action_ref": "action-plan-pr-4499-replacement", "completed_at": "2026-07-15T13:20:00Z", "actor": "pre-review-02", "verdict": "approve", "summary": "Approved as convergent cleanup; collapse repeated formula BdCmd setup without per-prefix production logic."},
+      {"id": "pre-03", "independence_key": "pre-review-tests-03b", "artifact_ref": "urn:opencode:pre-review:pre-review-tests-03b", "reviewed_action_ref": "action-plan-pr-4499-replacement", "completed_at": "2026-07-15T13:20:00Z", "actor": "pre-review-03", "verdict": "approve", "summary": "Approved narrow direct-bond target-authority tests for rig and HQ prefixes under poisoned inherited env."},
+      {"id": "pre-04", "independence_key": "pre-review-security-04", "artifact_ref": "urn:opencode:pre-review:pre-review-security-04", "reviewed_action_ref": "action-plan-pr-4499-replacement", "completed_at": "2026-07-15T13:20:00Z", "actor": "pre-review-04", "verdict": "approve", "summary": "Approved security model: no shell interpolation, no beadID path join, WithBeadsDir reduces stale-env wrong-DB risk."},
+      {"id": "pre-05", "independence_key": "pre-review-integration-05", "artifact_ref": "urn:opencode:pre-review:pre-review-integration-05", "reviewed_action_ref": "action-plan-pr-4499-replacement", "completed_at": "2026-07-15T13:20:00Z", "actor": "pre-review-05", "verdict": "approve", "summary": "Approved bug-fix replacement as policy-allowed without human feature approval, requiring exact upstream-main final evidence and Smarterburn attribution."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "post-01", "independence_key": "post-review-correctness-01b", "artifact_ref": "urn:opencode:post-review:post-review-correctness-01b", "reviewed_action_ref": "action-plan-pr-4499-replacement", "reviewed_head_sha": "88b02232760d61b1e76c4852bd7e691a00178f85", "completed_at": "2026-07-15T14:04:00Z", "actor": "post-review-01", "verdict": "approve", "summary": "Approved final exact-upstream implementation: helper pins target authority for cook and direct bond; test covers rig/HQ prefixes."},
+      {"id": "post-02", "independence_key": "post-review-cleanup-02b", "artifact_ref": "urn:opencode:post-review:post-review-cleanup-02b", "reviewed_action_ref": "action-plan-pr-4499-replacement", "reviewed_head_sha": "88b02232760d61b1e76c4852bd7e691a00178f85", "completed_at": "2026-07-15T14:04:00Z", "actor": "post-review-02", "verdict": "approve", "summary": "Approved cleanup-first convergence; no per-prefix production exceptions, no new retry/fallback layer, minimal helper surface."},
+      {"id": "post-03", "independence_key": "post-review-tests-03b", "artifact_ref": "urn:opencode:post-review:post-review-tests-03b", "reviewed_action_ref": "action-plan-pr-4499-replacement", "reviewed_head_sha": "88b02232760d61b1e76c4852bd7e691a00178f85", "completed_at": "2026-07-15T14:04:00Z", "actor": "post-review-03", "verdict": "approve", "summary": "Approved focused verification; exact upstream parent confirmed and targeted CGO_ENABLED=0 cmd/beads tests passed."},
+      {"id": "post-04", "independence_key": "post-review-security-04b", "artifact_ref": "urn:opencode:post-review:post-review-security-04b", "reviewed_action_ref": "action-plan-pr-4499-replacement", "reviewed_head_sha": "88b02232760d61b1e76c4852bd7e691a00178f85", "completed_at": "2026-07-15T14:04:00Z", "actor": "post-review-04", "verdict": "approve", "summary": "Approved security/path review; WithBeadsDir strips stale target selectors and no new injection or path traversal vector was introduced."},
+      {"id": "post-05", "independence_key": "post-review-integration-05b", "artifact_ref": "urn:opencode:post-review:post-review-integration-05b", "reviewed_action_ref": "action-plan-pr-4499-replacement", "reviewed_head_sha": "88b02232760d61b1e76c4852bd7e691a00178f85", "completed_at": "2026-07-15T14:04:00Z", "actor": "post-review-05", "verdict": "approve", "summary": "Approved integration: branch is one commit on exact upstream/main 2155a572, branch embeds gt-pr-4499, and commit preserves Smarterburn attribution."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "The replacement collapses formula-on-bead bd command authority into one helper on current upstream's direct bond path. It carries forward PR #4499's valid intent without local per-prefix exceptions, retries, fallback layers, or compatibility shims.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": null},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": null}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "cmd formula target authority", "command_or_check": "CGO_ENABLED=0 go test ./internal/cmd -count=1 -run '^(TestBondFormulaDirectPinsTargetBeadsDir|TestInstantiateFormulaOnBead_FallbackToDirectBond|TestInstantiateFormulaOnBead_DirectBondHandlesNonGTIDs|TestInstantiateFormulaOnBead_DirectBondCreatesNoOrphanCleanup|TestInstantiateFormulaOnBead_DirectBondParseFailure)$'", "outcome": "pass", "artifact_ref": "focused-verification", "reason": "Focused formula/direct-bond authority and direct-bond behavior tests passed on final head."},
+      {"name": "beads routing helpers", "command_or_check": "CGO_ENABLED=0 go test ./internal/beads -count=1 -run '^(TestResolveBeadsDirForID|TestResolveBeadsDirForID_NoRoutes|TestResolveBeadsDirForID_UsesTownRoutesFromWorktreeBeadsDir|TestResolveHookDir)$'", "outcome": "pass", "artifact_ref": "focused-verification", "reason": "Focused routing helper tests passed on final head."},
+      {"name": "diff whitespace", "command_or_check": "git diff --check upstream/main...HEAD", "outcome": "pass", "artifact_ref": "focused-verification", "reason": "No whitespace or conflict-marker issues in final diff."},
+      {"name": "exact upstream parent", "command_or_check": "git merge-base HEAD upstream/main && git log --format='%H %P %s' -1 HEAD", "outcome": "pass", "artifact_ref": "focused-verification", "reason": "Final head is exactly one commit on upstream/main 2155a57267d24ca1d0fd62822f5cefb67161b601."}
+    ],
+    "ci_checks": [
+      {"name": "Original PR GitHub CI", "outcome": "pass", "run_url": "https://github.com/gastownhall/gastown/pull/4499/checks", "base_outcome": "not_applicable", "head_outcome": "pass", "unrelated_to_change": false, "artifact_ref": "original-pr-metadata", "reason": "Original PR #4499 had passing Integration Tests, Lint, Test, Windows Smoke Test, and policy checks; replacement has focused local verification."}
+    ]
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4499",
+    "replacement_change_url": null,
+    "replacement_branch": "polecat/radrat/gt-pr-4499+b729f1",
+    "replacement_commit_refs": [
+      "88b02232760d61b1e76c4852bd7e691a00178f85"
+    ],
+    "original_author": "Smarterburn",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["original-pr-metadata", "attribution-local-report"],
+      "fresh_artifact_refs": ["implementation-commit-1", "focused-verification", "blocker-scan"],
+      "rationale": "Original PR intent and attribution were reused; implementation and verification evidence are fresh for the upstream-main replacement branch."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement carries forward PR #4499 intent from Smarterburn/Seth Arterburn.",
+      "preserved": true,
+      "method": "co_authored_by",
+      "artifact_refs": ["attribution-local-report", "implementation-commit-1"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "closure-intent",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "checks", "bead_notes", "local_tests", "post_reviews"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": ["blocker-scan", "focused-verification", "implementation-commit-1"],
+    "scanned_at": "2026-07-15T14:05:00Z",
+    "summary": "Original PR #4499 remains open at status/reviewing and original head edbb2c, but no unresolved comments/reviews/check blockers were found. Replacement branch resolves the cleanup/test/current-main blockers, has 5/5 final-head post-review approvals, and preserves attribution."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "urn:git-branch:polecat/radrat/gt-pr-4499+b729f1",
+    "target_head_sha": "88b02232760d61b1e76c4852bd7e691a00178f85",
+    "decided_by": "gastown/polecats/radrat",
+    "decided_at": "2026-07-15T14:05:34Z",
+    "reason": "All required PR Sheriff gates passed for the cleanup-first replacement branch on exact current upstream/main.",
+    "required_actions": ["After replacement lands, close or supersede PR #4499 with attribution preserved."]
+  }
+}
