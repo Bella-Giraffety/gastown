@@ -126,6 +126,9 @@ func (e *Engineer) BuildRebaseStack(ctx context.Context, batch []*MRInfo, target
 			conflicts = append(conflicts, mr)
 			continue
 		}
+		if headCheck := e.verifySubmittedBranchHead(mr); !headCheck.Success {
+			return nil, nil, fmt.Errorf("submitted head check for %s: %s", mr.ID, headCheck.Error)
+		}
 
 		// Check for conflicts before merging
 		conflictFiles, conflictErr := e.git.CheckConflicts(mr.Branch, target)

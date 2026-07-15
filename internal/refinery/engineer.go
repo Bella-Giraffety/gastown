@@ -584,6 +584,9 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo) ProcessResult {
 			Error:          fmt.Sprintf("branch %s not found locally", branch),
 		}
 	}
+	if headCheck := e.verifySubmittedBranchHead(mr); !headCheck.Success {
+		return headCheck
+	}
 
 	// Step 2: Checkout the target branch
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Checking out target branch %s...\n", target)
@@ -932,6 +935,28 @@ func mergeIneligibleResult(format string, args ...interface{}) ProcessResult {
 		NoMerge: true,
 		Error:   fmt.Sprintf(format, args...),
 	}
+}
+
+func (e *Engineer) verifySubmittedBranchHead(mr *MRInfo) ProcessResult {
+	if mr == nil {
+		return ProcessResult{Success: false, Error: "merge request is missing"}
+	}
+	submitted := strings.TrimSpace(mr.CommitSHA)
+	if submitted == "" {
+		if e.testAllowSyntheticMRs {
+			return ProcessResult{Success: true}
+		}
+		return gateNotProven(GateOutcomeNoEvidence, "candidate head SHA missing for merge gate")
+	}
+	actual, err := e.git.Rev(mr.Branch)
+	if err != nil {
+		return ProcessResult{Success: false, Error: fmt.Sprintf("verify submitted branch head %s: %v", mr.Branch, err)}
+	}
+	actual = strings.TrimSpace(actual)
+	if actual != submitted {
+		return gateNotProven(GateOutcomeUnknown, fmt.Sprintf("candidate branch %s moved from submitted head %s to %s", mr.Branch, shortSHA(submitted), shortSHA(actual)))
+	}
+	return ProcessResult{Success: true}
 }
 
 func (e *Engineer) recheckMRStillMergeable(mr *MRInfo, target string) ProcessResult {

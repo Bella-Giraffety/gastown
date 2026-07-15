@@ -563,6 +563,32 @@ func TestProcessMRInfo_CheckOnlyGateDoesNotMerge(t *testing.T) {
 	assertOriginMainUnchangedAndReset(t, workDir, before)
 }
 
+func TestProcessMRInfo_SubmittedHeadMismatchBlocksMerge(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
+	submitted := run(t, workDir, "git", "rev-parse", "feature-a")
+	run(t, workDir, "git", "checkout", "feature-a")
+	writeFile(t, workDir, "a.txt", "moved\n")
+	run(t, workDir, "git", "commit", "-am", "move feature")
+	run(t, workDir, "git", "checkout", "main")
+
+	e := newTestEngineer(t, workDir, g)
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+	mr := makeMR("mr-a", "feature-a", "main")
+	mr.CommitSHA = submitted
+
+	result := e.ProcessMRInfo(context.Background(), mr)
+	if result.Success {
+		t.Fatal("expected submitted head mismatch to block merge")
+	}
+	if !result.GateUnproven || result.GateOutcome != GateOutcomeUnknown {
+		t.Fatalf("result = %+v, want GateUnproven unknown", result)
+	}
+	assertOriginMainUnchangedAndReset(t, workDir, before)
+}
+
 func TestProcessMRInfo_PreVerifiedDoesNotSkipUnprovenGates(t *testing.T) {
 	workDir, g, cleanup := testGitRepo(t)
 	defer cleanup()
