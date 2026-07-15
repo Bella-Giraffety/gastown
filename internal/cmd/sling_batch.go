@@ -231,6 +231,17 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 // preventing orphaned polecats from accumulating. Cleans up worktree, agent bead, git branch,
 // and optionally the associated auto-convoy.
 func cleanupSpawnedPolecat(spawnInfo *SpawnedPolecatInfo, rigName, convoyID string) {
+	if spawnInfo == nil {
+		fmt.Printf("  %s Could not clean up spawned polecat: missing spawn info\n", style.Dim.Render("Warning:"))
+		return
+	}
+	expectation, err := spawnedPolecatCleanupExpectation(spawnInfo)
+	if err != nil {
+		fmt.Printf("  %s Could not clean up orphaned polecat %s: %v\n",
+			style.Dim.Render("Warning:"), spawnInfo.PolecatName, err)
+		return
+	}
+
 	townRoot, err := workspace.FindFromCwdOrError()
 	if err != nil {
 		return
@@ -249,9 +260,10 @@ func cleanupSpawnedPolecat(spawnInfo *SpawnedPolecatInfo, rigName, convoyID stri
 	polecatGit := git.NewGit(r.Path)
 	t := tmux.NewTmux()
 	polecatMgr := polecat.NewManager(r, polecatGit, t)
-	if err := polecatMgr.Remove(spawnInfo.PolecatName, true); err != nil {
+	if err := polecatMgr.RemoveWithExpectation(spawnInfo.PolecatName, true, false, false, expectation); err != nil {
 		fmt.Printf("  %s Could not clean up orphaned polecat %s: %v\n",
 			style.Dim.Render("Warning:"), spawnInfo.PolecatName, err)
+		return
 	} else {
 		fmt.Printf("  %s Cleaned up orphaned polecat %s\n",
 			style.Dim.Render("○"), spawnInfo.PolecatName)
@@ -267,6 +279,17 @@ func cleanupSpawnedPolecat(spawnInfo *SpawnedPolecatInfo, rigName, convoyID stri
 	if convoyID != "" {
 		closeConvoy(convoyID, "Sling rollback - hook failed")
 	}
+}
+
+func spawnedPolecatCleanupExpectation(spawnInfo *SpawnedPolecatInfo) (polecat.RemoveExpectation, error) {
+	if spawnInfo == nil {
+		return polecat.RemoveExpectation{}, fmt.Errorf("missing spawn info")
+	}
+	branch := strings.TrimSpace(spawnInfo.Branch)
+	if branch == "" {
+		return polecat.RemoveExpectation{}, fmt.Errorf("missing spawned branch generation for %s", spawnInfo.PolecatName)
+	}
+	return polecat.RemoveExpectation{Validate: true, Branch: branch, Issue: ""}, nil
 }
 
 // allBeadIDs returns true if every arg looks like a bead ID (syntactic check).

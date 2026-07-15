@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/workspace"
@@ -257,6 +258,12 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 		return result, nil
 	}
 
+	requestedRig, requestedPolecat, hasExplicitPolecatTarget := explicitPolecatTarget(target, opts.TownRoot)
+	requestedAgentID := ""
+	if hasExplicitPolecatTarget {
+		requestedAgentID = fmt.Sprintf("%s/polecats/%s", requestedRig, requestedPolecat)
+	}
+
 	// Existing agent (with dead polecat fallback).
 	// Uses resolveTargetAgentFn seam — crew, mayor, and all existing agents
 	// resolve here, getting their pane for nudge delivery (gt-in7b).
@@ -304,6 +311,9 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 		}
 		return nil, fmt.Errorf("resolving target: %w", err)
 	}
+	if requestedAgentID != "" && !strings.EqualFold(agentID, requestedAgentID) {
+		return nil, fmt.Errorf("explicit target requested %s but resolved %s", requestedAgentID, agentID)
+	}
 	if opts.BeadID != "" && isPolecatTarget(agentID) {
 		parts := strings.Split(agentID, "/")
 		if len(parts) >= 3 && parts[1] == "polecats" {
@@ -345,13 +355,27 @@ func verifyPolecatTargetAcceptsHook(agentID, townRoot string) error {
 	rigName, polecatName := parts[0], parts[2]
 	prefix := beads.GetPrefixForRig(townRoot, rigName)
 	agentBeadID := beads.PolecatBeadIDWithPrefix(prefix, rigName, polecatName)
-	issue, err := beads.New(filepath.Join(townRoot, rigName, "mayor", "rig")).ForAgentBead().Show(agentBeadID)
-	if err != nil || issue == nil {
-		return nil
+	rigBeads := beads.New(filepath.Join(townRoot, rigName, "mayor", "rig"))
+	issue, fields, err := rigBeads.ForAgentBead().GetAgentBead(agentBeadID)
+	if err != nil {
+		return fmt.Errorf("checking lifecycle state for %s: %w", agentID, err)
 	}
-	fields := beads.ParseAgentFields(issue.Description)
-	if fields != nil && beads.AgentState(strings.TrimSpace(fields.AgentState)) == beads.AgentStateRemoving {
-		return fmt.Errorf("target polecat %s is being removed; wait for cleanup to complete", agentID)
+	if issue == nil || fields == nil {
+		return fmt.Errorf("target polecat %s has no agent bead; refusing ghost target", agentID)
+	}
+	state := beads.AgentState(strings.TrimSpace(fields.AgentState))
+	if state == "" || state == beads.AgentStateNuked {
+		return fmt.Errorf("target polecat %s is not hookable: agent_state=%s", agentID, state)
+	}
+	if blocker := polecat.AgentIssueFieldsReuseBlocker(issue, fields); blocker != "" {
+		return fmt.Errorf("target polecat %s is not hookable: %s", agentID, blocker)
+	}
+	assigned, err := rigBeads.ListByAssignee(agentID)
+	if err != nil {
+		return fmt.Errorf("checking active work for %s: %w", agentID, err)
+	}
+	if active := polecat.ActiveWorkBeadsForCleanup(assigned); len(active) > 0 {
+		return fmt.Errorf("target polecat %s already has active work assigned: %s", agentID, active[0].ID)
 	}
 	return nil
 }
@@ -360,9 +384,13 @@ func missingPolecatTargetRig(target string, allowCreate bool, townRoot string) (
 	if !allowCreate {
 		return "", "", false
 	}
+	return explicitPolecatTarget(target, townRoot)
+}
+
+func explicitPolecatTarget(target, townRoot string) (string, string, bool) {
 	if isPolecatTarget(target) {
 		parts := strings.Split(target, "/")
-		return parts[0], parts[2], true
+		return parts[0], strings.ToLower(parts[2]), true
 	}
 	parts := strings.Split(target, "/")
 	if len(parts) != 2 || knownRoles[strings.ToLower(parts[1])] {
@@ -376,5 +404,5 @@ func missingPolecatTargetRig(target string, allowCreate bool, townRoot string) (
 			return "", "", false
 		}
 	}
-	return parts[0], parts[1], true
+	return parts[0], strings.ToLower(parts[1]), true
 }

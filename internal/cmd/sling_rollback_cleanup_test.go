@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/polecat"
 )
 
 func writeRollbackCleanupBDStub(t *testing.T, binDir, unixScript, windowsScript string) {
@@ -187,20 +188,32 @@ exit 0
 
 // TestCleanupSpawnedPolecat_WithNilSpawnInfo handles nil spawnInfo gracefully.
 func TestCleanupSpawnedPolecat_WithNilSpawnInfo(t *testing.T) {
-	// This test verifies that cleanupSpawnedPolecat doesn't panic when spawnInfo is nil
-	// The function should handle this gracefully
-
-	// We expect this to return early without panicking
-	// In practice this might dereference nil, so let's check
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("ISSUE: cleanupSpawnedPolecat panics with nil spawnInfo: %v", r)
-			// Don't fail the test, just document the behavior
-			t.Skip("Known issue: cleanupSpawnedPolecat panics with nil spawnInfo")
-		}
-	}()
-
 	cleanupSpawnedPolecat(nil, "gastown", "")
+}
+
+func TestSpawnedPolecatCleanupExpectationRequiresBranch(t *testing.T) {
+	_, err := spawnedPolecatCleanupExpectation(&SpawnedPolecatInfo{PolecatName: "toast"})
+	if err == nil || !strings.Contains(err.Error(), "missing spawned branch generation") {
+		t.Fatalf("spawnedPolecatCleanupExpectation error = %v, want missing generation", err)
+	}
+}
+
+func TestSpawnedPolecatCleanupExpectationUsesSpawnedGeneration(t *testing.T) {
+	got, err := spawnedPolecatCleanupExpectation(&SpawnedPolecatInfo{PolecatName: "toast", Branch: "polecat/toast/gt-work+1"})
+	if err != nil {
+		t.Fatalf("spawnedPolecatCleanupExpectation: %v", err)
+	}
+	want := polecat.RemoveExpectation{Validate: true, Branch: "polecat/toast/gt-work+1", Issue: ""}
+	if got != want {
+		t.Fatalf("expectation = %#v, want %#v", got, want)
+	}
+}
+
+func TestSpawnedPolecatCleanupExpectationRejectsNil(t *testing.T) {
+	_, err := spawnedPolecatCleanupExpectation(nil)
+	if err == nil || !strings.Contains(err.Error(), "missing spawn info") {
+		t.Fatalf("spawnedPolecatCleanupExpectation error = %v, want missing spawn info", err)
+	}
 }
 
 // TestCloseConvoy_ClosesConvoy verifies that the convoy is closed

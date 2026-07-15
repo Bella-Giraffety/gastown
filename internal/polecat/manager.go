@@ -2716,6 +2716,12 @@ func agentIssueFieldsReuseBlocker(issue *beads.Issue, fields *beads.AgentFields)
 	return ""
 }
 
+// AgentIssueFieldsReuseBlocker exposes the same lifecycle blocker used by name
+// allocation so command-layer target validation cannot drift from manager policy.
+func AgentIssueFieldsReuseBlocker(issue *beads.Issue, fields *beads.AgentFields) string {
+	return agentIssueFieldsReuseBlocker(issue, fields)
+}
+
 // unassignWorkBeads finds all active work beads assigned to a polecat and resets them
 // to status=open with an empty assignee, so they can be picked up by another polecat.
 // This must be called during polecat removal to prevent orphaned beads (gt-e4u1).
@@ -2781,6 +2787,12 @@ func activeWorkBeadsForCleanup(issues []*beads.Issue) []*beads.Issue {
 		work = append(work, issue)
 	}
 	return work
+}
+
+// ActiveWorkBeadsForCleanup exposes the manager's active-assignment filter for
+// command paths that must validate targets before mutating hook state.
+func ActiveWorkBeadsForCleanup(issues []*beads.Issue) []*beads.Issue {
+	return activeWorkBeadsForCleanup(issues)
 }
 
 // loadFromBeads gets polecat info from hooked work beads + beads assignee field + tmux session state.

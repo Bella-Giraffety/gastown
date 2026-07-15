@@ -1616,6 +1616,9 @@ case "$cmd" in
   show)
     printf '[{"id":"gt-gastown-polecat-toast","title":"Polecat toast","issue_type":"agent","status":"open","labels":["gt:agent"],"description":"role_type: polecat\\nrig: gastown\\nagent_state: removing\\nhook_bead: null\\ncleanup_status: clean\\nactive_mr: null"}]\n'
     ;;
+  list)
+    printf '[]\n'
+    ;;
   version) ;;
 esac
 exit 0
@@ -1623,8 +1626,130 @@ exit 0
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	err := verifyPolecatTargetAcceptsHook("gastown/polecats/toast", townRoot)
-	if err == nil || !strings.Contains(err.Error(), "being removed") {
+	if err == nil || !strings.Contains(err.Error(), "agent_state=removing") {
 		t.Fatalf("verifyPolecatTargetAcceptsHook error = %v, want removing blocker", err)
+	}
+}
+
+func TestResolveTargetCreateRejectsGhostSessionMissingAgentBead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX bd stub")
+	}
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir rig: %v", err)
+	}
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeBDStub(t, binDir, `#!/bin/sh
+cmd=""
+last=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="${cmd:-$arg}"; last="$arg" ;; esac
+done
+case "$cmd" in
+  show)
+    case "$last" in
+      gt-work)
+        printf '[{"id":"gt-work","title":"work","issue_type":"task","status":"open"}]\n'
+        ;;
+      gt-gastown-polecat-toast)
+        printf '[]\n'
+        ;;
+      *)
+        printf '[]\n'
+        ;;
+    esac
+    ;;
+  list)
+    printf '[]\n'
+    ;;
+  version) ;;
+esac
+exit 0
+`, "")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevResolve := resolveTargetAgentFn
+	prevSpawn := spawnPolecatForSling
+	t.Cleanup(func() {
+		resolveTargetAgentFn = prevResolve
+		spawnPolecatForSling = prevSpawn
+	})
+	resolveTargetAgentFn = func(target string) (string, string, string, error) {
+		return "gastown/polecats/toast", "%1", filepath.Join(townRoot, "ghost"), nil
+	}
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		t.Fatal("ghost session must not fall through to spawn")
+		return nil, nil
+	}
+
+	_, err = resolveTarget("gastown/polecats/toast", ResolveTargetOptions{Create: true, NoBoot: true, BeadID: "gt-work", TownRoot: townRoot})
+	if err == nil || !strings.Contains(err.Error(), "refusing ghost target") {
+		t.Fatalf("resolveTarget error = %v, want ghost target rejection", err)
+	}
+}
+
+func TestResolveTargetExplicitTargetRejectsResolvedMismatch(t *testing.T) {
+	prevResolve := resolveTargetAgentFn
+	t.Cleanup(func() { resolveTargetAgentFn = prevResolve })
+	resolveTargetAgentFn = func(target string) (string, string, string, error) {
+		return "gastown/polecats/other", "%1", "/tmp/other", nil
+	}
+
+	_, err := resolveTarget("gastown/polecats/toast", ResolveTargetOptions{Create: true, NoBoot: true})
+	if err == nil || !strings.Contains(err.Error(), "explicit target requested gastown/polecats/toast but resolved gastown/polecats/other") {
+		t.Fatalf("resolveTarget error = %v, want explicit target mismatch", err)
+	}
+}
+
+func TestVerifyPolecatTargetAcceptsHookRejectsDirectActiveWork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX bd stub")
+	}
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "mayor", "rig"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeBDStub(t, binDir, `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+  show)
+    printf '[{"id":"gt-gastown-polecat-toast","title":"Polecat toast","issue_type":"agent","status":"open","labels":["gt:agent"],"description":"role_type: polecat\\nrig: gastown\\nagent_state: idle\\nhook_bead: null\\ncleanup_status: clean\\nactive_mr: null"}]\n'
+    ;;
+  list)
+    printf '[{"id":"gt-work","title":"work","issue_type":"task","status":"hooked","assignee":"gastown/polecats/toast"}]\n'
+    ;;
+  version) ;;
+esac
+exit 0
+`, "")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := verifyPolecatTargetAcceptsHook("gastown/polecats/toast", townRoot)
+	if err == nil || !strings.Contains(err.Error(), "already has active work assigned: gt-work") {
+		t.Fatalf("verifyPolecatTargetAcceptsHook error = %v, want active work blocker", err)
 	}
 }
 

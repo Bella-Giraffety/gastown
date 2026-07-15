@@ -181,7 +181,7 @@ func spawnRequestedPolecatForSling(rigName string, r *rig.Rig, t *tmux.Tmux, pol
 		return nil, fmt.Errorf("creating requested polecat %s: %w", polecatName, err)
 	}
 	if err := verifyWorktreeExists(p.ClonePath); err != nil {
-		_ = polecatMgr.Remove(polecatName, true)
+		cleanupPartialSpawnWithExpectation(polecatMgr, polecatName, p.Branch)
 		return nil, fmt.Errorf("worktree verification failed for %s: %w\nHint: try 'gt polecat nuke %s/%s --force' to clean up",
 			polecatName, err, rigName, polecatName)
 	}
@@ -445,7 +445,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 	// The identity bead may exist but worktree creation can fail silently
 	if err := verifyWorktreeExists(polecatObj.ClonePath); err != nil {
 		// Clean up the partial state before returning error
-		_ = polecatMgr.Remove(polecatName, true) // force=true to clean up partial state
+		cleanupPartialSpawnWithExpectation(polecatMgr, polecatName, polecatObj.Branch)
 		return nil, fmt.Errorf("worktree verification failed for %s: %w\nHint: try 'gt polecat nuke %s/%s --force' to clean up",
 			polecatName, err, rigName, polecatName)
 	}
@@ -479,6 +479,18 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		account:     opts.Account,
 		agent:       opts.Agent,
 	}, nil
+}
+
+func cleanupPartialSpawnWithExpectation(polecatMgr *polecat.Manager, polecatName, branch string) {
+	branch = strings.TrimSpace(branch)
+	if polecatMgr == nil || polecatName == "" || branch == "" {
+		return
+	}
+	_ = polecatMgr.RemoveWithExpectation(polecatName, true, false, false, polecat.RemoveExpectation{
+		Validate: true,
+		Branch:   branch,
+		Issue:    "",
+	})
 }
 
 // StartSession starts the tmux session for a spawned polecat.
