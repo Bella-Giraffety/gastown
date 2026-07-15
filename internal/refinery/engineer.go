@@ -741,6 +741,10 @@ func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue stri
 		}
 	} else {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Auto-push disabled, skipping push to origin/%s\n", target)
+		return ProcessResult{
+			Success: false,
+			Error:   fmt.Sprintf("auto-push disabled: no verified remote landing proof for origin/%s", target),
+		}
 	}
 
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Successfully merged: %s\n", shortSHA(mergeCommit))

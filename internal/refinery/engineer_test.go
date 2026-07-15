@@ -283,6 +283,21 @@ func TestEngineer_LoadConfig_AutoPushDisabled(t *testing.T) {
 	}
 }
 
+func TestDoMerge_AutoPushDisabledFailsClosed(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	e := newTestEngineer(t, workDir, g)
+	e.config.AutoPush = false
+	createFeatureBranch(t, workDir, "feat/no-auto-push", "no-auto-push.txt", "local only\n")
+
+	result := e.doMerge(context.Background(), "feat/no-auto-push", "main", "gt-no-auto-push")
+	if result.Success {
+		t.Fatal("doMerge should not report success without verified remote landing proof")
+	}
+	if !strings.Contains(result.Error, "no verified remote landing proof") {
+		t.Fatalf("doMerge error = %q, want remote landing proof error", result.Error)
+	}
+}
+
 func TestEngineer_LoadConfig_NoMergeQueueSection(t *testing.T) {
 	// Create a temp directory with config.json without merge_queue
 	tmpDir, err := os.MkdirTemp("", "engineer-test-*")
