@@ -1,0 +1,231 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-15T20:23:22Z",
+  "run_id": "gt-4443fx-pr4443-heartbeat-threshold",
+  "subject": {
+    "forge": "github",
+    "repo_id": "Bella-Giraffety/gastown",
+    "default_branch": "main",
+    "change_type": "replacement_pr",
+    "change_id": "gt-4443fx-replacement-for-4443",
+    "url": "https://github.com/Bella-Giraffety/gastown/tree/polecat/enclave/gt-4443fx+b46e45",
+    "title": "Clean replacement for PR #4443 witness heartbeat threshold",
+    "author": "blairsilverberg / furiosa <blair@humcapital.com>",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "e75c72cfbb8f997c170ae8e5b195b490ee40f50e",
+    "head_ref": "polecat/enclave/gt-4443fx+b46e45",
+    "head_sha": "14ba07a756f755511a525b3752d88ab623726184",
+    "diff_summary": {
+      "additions": 141,
+      "deletions": 22,
+      "changed_files": 4,
+      "paths": [
+        "internal/polecat/heartbeat.go",
+        "internal/polecat/heartbeat_test.go",
+        "internal/witness/handlers.go",
+        "internal/witness/handlers_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "mayor"],
+    "evidence_locations": ["local_report", "beads_notes", "artifact_store"],
+    "baseline_checks": [],
+    "no_verification_reasons": []
+  },
+  "action_plan": {
+    "id": "action-plan-gt-4443fx",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-gt-4443fx",
+    "summary": "Carry only PR #4443's focused bug intent onto current upstream/main: existing operational.polecat.heartbeat_stale_threshold must drive the polecat heartbeat stale predicate and the one Witness heartbeat freshness verdict path. Exclude stacked allocator/reaper, plugin, formula, CI, config-surface, and broad daemon work.",
+    "created_at": "2026-07-15T20:02:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/merge-ready", "family": "status", "semantic_value": "merge-ready"},
+      {"name": "priority/p1", "family": "priority", "semantic_value": "p1"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "merge-ready",
+    "priority": "p1",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot-replacement"
+  },
+  "artifacts": [
+    {"id": "label-snapshot-replacement", "kind": "label_snapshot", "uri": "file:pr-sheriff-evidence/gt-4443fx-pr4443-heartbeat-threshold/evidence.json#labels", "actor": "gastown/polecats/enclave", "created_at": "2026-07-15T20:23:22Z", "digest": null, "summary": "Replacement target semantics: status=merge-ready, priority=p1, kind=bug. Original PR #4443 remains draft/dirty/status-reviewing and is not the direct merge target."},
+    {"id": "original-pr-4443", "kind": "pull_request_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4443", "actor": "github", "created_at": "2026-07-15T20:23:22Z", "digest": null, "summary": "Original PR #4443 by blairsilverberg is draft, mergeStateStatus=DIRTY, status/reviewing, priority/p1, kind/bug, head 7c711c1a3bb4d0e0d350680cd64516784a39cf5a, and contains stacked unrelated scope."},
+    {"id": "original-focused-commit", "kind": "git_commit", "uri": "urn:git:commit:7c711c1a3bb4d0e0d350680cd64516784a39cf5a", "actor": "blairsilverberg", "created_at": "2026-07-15T20:23:22Z", "digest": null, "summary": "Focused original commit authored as furiosa <blair@humcapital.com>: fix(witness): heartbeat verdicts honor operational.polecat.heartbeat_stale_threshold."},
+    {"id": "final-code-head", "kind": "git_commit", "uri": "urn:git:commit:14ba07a756f755511a525b3752d88ab623726184", "actor": "gastown/polecats/enclave", "created_at": "2026-07-15T20:14:40Z", "digest": null, "summary": "Current-main code replacement on upstream/main e75c72cf; focused diff touches only polecat heartbeat threshold resolution, Witness heartbeat verdict routing, and tests."},
+    {"id": "attribution-evidence", "kind": "git_commit", "uri": "file:pr-sheriff-evidence/gt-4443fx-pr4443-heartbeat-threshold/evidence.json#replacement_flow.attribution", "actor": "gastown/polecats/enclave", "created_at": "2026-07-15T20:23:22Z", "digest": null, "summary": "Replacement evidence and follow-up commit preserve Original-PR, Original-Commit, and Co-authored-by: furiosa <blair@humcapital.com>."},
+    {"id": "verification-focused", "kind": "verification_log", "uri": "file:pr-sheriff-evidence/gt-4443fx-pr4443-heartbeat-threshold/evidence.json#verification", "actor": "gastown/polecats/enclave", "created_at": "2026-07-15T20:21:00Z", "digest": null, "summary": "Focused heartbeat tests, touched package tests, diff-check, and CGO_DISABLED CLI build passed on code head 14ba07a."},
+    {"id": "checker-merge-gate", "kind": "checker_output", "uri": "file:pr-sheriff-evidence/gt-4443fx-pr4443-heartbeat-threshold/merge-gate-check.txt", "actor": "gt-pr-sheriff-check", "created_at": "2026-07-15T20:23:22Z", "digest": null, "summary": "Checker output persisted after evidence generation."},
+    {"id": "research-01", "kind": "research_report", "uri": "task:ses_098a96f2bffeXe0Whcy7THEKZo#research-config-model", "actor": "researcher-config-model", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Config model/accessor exists for operational.polecat.heartbeat_stale_threshold; Witness still used hardcoded polecat.SessionHeartbeatStaleThreshold."},
+    {"id": "research-02", "kind": "research_report", "uri": "task:ses_098a96ec3ffeQjK6bPGnxFwO0g#research-verdict-authority", "actor": "researcher-verdict-authority", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Three authoritative Witness heartbeat freshness callsites used the compiled threshold and should route through one helper."},
+    {"id": "research-03", "kind": "research_report", "uri": "task:ses_098a96dfeffeAvjq23WKTE31hl#research-existing-tests", "actor": "researcher-existing-tests", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Existing tests covered default stale behavior but lacked configured threshold regressions in polecat and Witness."},
+    {"id": "research-04", "kind": "research_report", "uri": "task:ses_098a96dd9ffe8NwtaWYxoJ5v7x#research-pr-diff-scope", "actor": "researcher-pr-diff-scope", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "PR #4443 is stacked across 33 files; only focused commit 7c711c1 belongs in the replacement."},
+    {"id": "research-05", "kind": "research_report", "uri": "task:ses_098a96d7fffe0nMiW8zXVVtOWu#research-threshold-names", "actor": "researcher-threshold-names", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Do not add a new config key; use existing operational.polecat.heartbeat_stale_threshold and leave deacon/witness startup grace thresholds alone."},
+    {"id": "research-06", "kind": "research_report", "uri": "task:ses_098a96cdeffeYoG5FbTbHzleRR#research-config-flow", "actor": "researcher-config-flow", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Witness receives townRoot at callsites, so the configured polecat threshold can be resolved without new runtime plumbing."},
+    {"id": "research-07", "kind": "research_report", "uri": "task:ses_098a96c52ffe0DgnZ6M2it9FuL#research-default-semantics", "actor": "researcher-default-semantics", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Default is 3m; invalid/empty values fall back, while valid zero/negative duration semantics are existing config policy and out of scope."},
+    {"id": "research-08", "kind": "research_report", "uri": "task:ses_098a96bf0ffePmLt6ZNOfRIt4Y#research-consumers", "actor": "researcher-consumers", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "User-facing consumers are patrol scan findings/receipts/mail; no output schema change is needed."},
+    {"id": "research-09", "kind": "research_report", "uri": "task:ses_098a96b95ffenPkkKUX33ROZuf#research-boundaries", "actor": "researcher-boundaries", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Correct boundary is polecat heartbeat semantics plus Witness consumer checks; daemon/allocator/reaper/deacon areas are out of scope."},
+    {"id": "research-10", "kind": "research_report", "uri": "task:ses_098a96b45ffebGFS5IVUyLwgzp#research-docs-schema", "actor": "researcher-docs-schema", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "No schema or docs change is required for wiring an existing setting into runtime behavior."},
+    {"id": "research-11", "kind": "research_report", "uri": "task:ses_098a96aeeffeQXhXLUXy3vKfQB#research-duration-parsing", "actor": "researcher-duration-parsing", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Operational duration convention is JSON string parsed with time.ParseDuration; no env/TOML/YAML change needed."},
+    {"id": "research-12", "kind": "research_report", "uri": "task:ses_098a96a86ffevcXY99mXuRPGlN#research-edge-cases", "actor": "researcher-edge-cases", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "No-heartbeat path should remain separate; exact threshold is stale via >=; future timestamps remain fresh until wall time catches up."},
+    {"id": "research-13", "kind": "research_report", "uri": "task:ses_098a96a57ffewj5Oa0zY6d0y6K#research-branch-policy", "actor": "researcher-branch-policy", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Branch must be based on upstream/main, not divergent fork origin/main; no_merge means clean branch handoff for Mayor publication."},
+    {"id": "research-14", "kind": "research_report", "uri": "task:ses_098a96a03ffeIq0GjzZw72LTs3#research-sheriff-evidence", "actor": "researcher-sheriff-evidence", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Evidence should be materialized as pr-sheriff-evidence/v1 and validated by gt-pr-sheriff-check --merge-gate."},
+    {"id": "research-15", "kind": "research_report", "uri": "task:ses_098a96994ffe6LwDxGVLnmgRGI#research-attribution", "actor": "researcher-attribution", "created_at": "2026-07-15T19:56:00Z", "digest": null, "summary": "Preserve Original-PR, Original-Commit 7c711c1, and Co-authored-by: furiosa <blair@humcapital.com>."},
+    {"id": "pre-01", "kind": "pre_implementation_review", "uri": "task:ses_098a2e3c2ffeSKWQxeolqvJFLJ#pre-review-architecture", "actor": "pre-reviewer-architecture", "created_at": "2026-07-15T20:02:00Z", "digest": null, "summary": "Approved architecture/scope plan with central polecat resolver and Witness helper."},
+    {"id": "pre-02", "kind": "pre_implementation_review", "uri": "task:ses_0989fa1eeffe3LZyV60vdSZUSL#pre-review-correctness-resolved", "actor": "pre-reviewer-correctness", "created_at": "2026-07-15T20:05:00Z", "digest": null, "summary": "Approved correctness after resolving non-positive duration handling as out-of-scope config policy."},
+    {"id": "pre-03", "kind": "pre_implementation_review", "uri": "task:ses_098a2e38dffeBk3eaBbFxlvFCW#pre-review-tests", "actor": "pre-reviewer-tests", "created_at": "2026-07-15T20:02:00Z", "digest": null, "summary": "Approved focused tests in polecat and Witness."},
+    {"id": "pre-04", "kind": "pre_implementation_review", "uri": "task:ses_098a2e371ffegPY4U85ZVcxRIC#pre-review-config", "actor": "pre-reviewer-config", "created_at": "2026-07-15T20:02:00Z", "digest": null, "summary": "Approved using existing operational config semantics with no new key."},
+    {"id": "pre-05", "kind": "pre_implementation_review", "uri": "task:ses_098a2e349ffe9QT85iCnmQmNWE#pre-review-policy", "actor": "pre-reviewer-policy", "created_at": "2026-07-15T20:02:00Z", "digest": null, "summary": "Approved PR Sheriff policy path for current-main replacement, attribution, evidence, and checker."},
+    {"id": "post-01", "kind": "post_implementation_review", "uri": "task:ses_09891c1e7ffeBiONMiOU3E0XAQ#post-review-cleanup-14ba07a", "actor": "post-reviewer-cleanup", "created_at": "2026-07-15T20:21:00Z", "digest": null, "summary": "Approved cleanup-first final code head 14ba07a; no stacked scope or duplicate liveness source."},
+    {"id": "post-02", "kind": "post_implementation_review", "uri": "task:ses_09891c1c6ffekOfjbbL25YxzyR#post-review-correctness-14ba07a", "actor": "post-reviewer-correctness", "created_at": "2026-07-15T20:21:00Z", "digest": null, "summary": "Approved correctness for default/configured thresholds, no-heartbeat separation, >= semantics, and future timestamp behavior."},
+    {"id": "post-03", "kind": "post_implementation_review", "uri": "task:ses_09891c1a6fferp7w7Iw2ZkupaN#post-review-tests-14ba07a", "actor": "post-reviewer-tests", "created_at": "2026-07-15T20:21:00Z", "digest": null, "summary": "Approved test coverage for polecat and Witness configured/default thresholds."},
+    {"id": "post-04", "kind": "post_implementation_review", "uri": "task:ses_09891c171ffej7ef3g4i03sQN8#post-review-config-14ba07a", "actor": "post-reviewer-config", "created_at": "2026-07-15T20:21:00Z", "digest": null, "summary": "Approved config semantics, import dependency, and backward compatibility."},
+    {"id": "post-05", "kind": "post_implementation_review", "uri": "task:ses_09891c154ffeJDnvdUGTxisohw#post-review-policy-14ba07a", "actor": "post-reviewer-policy", "created_at": "2026-07-15T20:21:00Z", "digest": null, "summary": "Policy review approved code focus but blocked handoff until attribution, durable evidence, and branch push are completed; this evidence resolves those non-code gates."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-15T20:07:00Z",
+    "modified_paths": [
+      "internal/polecat/heartbeat.go",
+      "internal/polecat/heartbeat_test.go",
+      "internal/witness/handlers.go",
+      "internal/witness/handlers_test.go"
+    ],
+    "commits": ["14ba07a756f755511a525b3752d88ab623726184"]
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "R01", "independence_key": "research-config-model", "artifact_ref": "research-01", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-config-model", "lens": "config model", "summary": "Existing polecat operational threshold model/accessor found."},
+      {"id": "R02", "independence_key": "research-verdict-authority", "artifact_ref": "research-02", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-verdict-authority", "lens": "Witness verdict authority", "summary": "Three hardcoded Witness checks need one helper."},
+      {"id": "R03", "independence_key": "research-existing-tests", "artifact_ref": "research-03", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-existing-tests", "lens": "existing tests", "summary": "Configured threshold regressions missing."},
+      {"id": "R04", "independence_key": "research-pr-diff-scope", "artifact_ref": "research-04", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-pr-diff-scope", "lens": "PR diff scope", "summary": "Only focused PR #4443 commit should be carried forward."},
+      {"id": "R05", "independence_key": "research-threshold-names", "artifact_ref": "research-05", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-threshold-names", "lens": "threshold naming", "summary": "Use existing key; no new config."},
+      {"id": "R06", "independence_key": "research-config-flow", "artifact_ref": "research-06", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-config-flow", "lens": "config flow", "summary": "townRoot is available at callsites."},
+      {"id": "R07", "independence_key": "research-default-semantics", "artifact_ref": "research-07", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-default-semantics", "lens": "default semantics", "summary": "Default 3m and parser semantics preserved."},
+      {"id": "R08", "independence_key": "research-consumers", "artifact_ref": "research-08", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-consumers", "lens": "consumers", "summary": "No output schema change needed."},
+      {"id": "R09", "independence_key": "research-boundaries", "artifact_ref": "research-09", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-boundaries", "lens": "package boundaries", "summary": "Polecat/Witness only; no daemon allocator scope."},
+      {"id": "R10", "independence_key": "research-docs-schema", "artifact_ref": "research-10", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-docs-schema", "lens": "docs schema", "summary": "No docs/schema change required."},
+      {"id": "R11", "independence_key": "research-duration-parsing", "artifact_ref": "research-11", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-duration-parsing", "lens": "duration parsing", "summary": "JSON string duration convention preserved."},
+      {"id": "R12", "independence_key": "research-edge-cases", "artifact_ref": "research-12", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-edge-cases", "lens": "edge cases", "summary": "No-heartbeat, >=, and future timestamp behaviors understood."},
+      {"id": "R13", "independence_key": "research-branch-policy", "artifact_ref": "research-13", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-branch-policy", "lens": "branch policy", "summary": "Base on upstream/main, not divergent origin/main."},
+      {"id": "R14", "independence_key": "research-sheriff-evidence", "artifact_ref": "research-14", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-sheriff-evidence", "lens": "evidence checker", "summary": "Use pr-sheriff-evidence/v1 and checker."},
+      {"id": "R15", "independence_key": "research-attribution", "artifact_ref": "research-15", "completed_at": "2026-07-15T19:56:00Z", "actor": "researcher-attribution", "lens": "attribution", "summary": "Preserve furiosa/blairsilverberg attribution."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "P01", "independence_key": "pre-review-architecture", "artifact_ref": "pre-01", "reviewed_action_ref": "action-plan-gt-4443fx", "completed_at": "2026-07-15T20:02:00Z", "actor": "pre-reviewer-architecture", "verdict": "approve", "summary": "Approved architecture and cleanup scope."},
+      {"id": "P02", "independence_key": "pre-review-correctness-resolved", "artifact_ref": "pre-02", "reviewed_action_ref": "action-plan-gt-4443fx", "completed_at": "2026-07-15T20:05:00Z", "actor": "pre-reviewer-correctness", "verdict": "approve", "summary": "Approved corrected duration-semantics plan."},
+      {"id": "P03", "independence_key": "pre-review-tests", "artifact_ref": "pre-03", "reviewed_action_ref": "action-plan-gt-4443fx", "completed_at": "2026-07-15T20:02:00Z", "actor": "pre-reviewer-tests", "verdict": "approve", "summary": "Approved focused tests."},
+      {"id": "P04", "independence_key": "pre-review-config", "artifact_ref": "pre-04", "reviewed_action_ref": "action-plan-gt-4443fx", "completed_at": "2026-07-15T20:02:00Z", "actor": "pre-reviewer-config", "verdict": "approve", "summary": "Approved config semantics."},
+      {"id": "P05", "independence_key": "pre-review-policy", "artifact_ref": "pre-05", "reviewed_action_ref": "action-plan-gt-4443fx", "completed_at": "2026-07-15T20:02:00Z", "actor": "pre-reviewer-policy", "verdict": "approve", "summary": "Approved policy path."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "POST01", "independence_key": "post-review-cleanup-14ba07a", "artifact_ref": "post-01", "reviewed_action_ref": "action-plan-gt-4443fx", "reviewed_head_sha": "14ba07a756f755511a525b3752d88ab623726184", "completed_at": "2026-07-15T20:21:00Z", "actor": "post-reviewer-cleanup", "verdict": "approve", "summary": "Approved cleanup-first final code head."},
+      {"id": "POST02", "independence_key": "post-review-correctness-14ba07a", "artifact_ref": "post-02", "reviewed_action_ref": "action-plan-gt-4443fx", "reviewed_head_sha": "14ba07a756f755511a525b3752d88ab623726184", "completed_at": "2026-07-15T20:21:00Z", "actor": "post-reviewer-correctness", "verdict": "approve", "summary": "Approved correctness and edge cases."},
+      {"id": "POST03", "independence_key": "post-review-tests-14ba07a", "artifact_ref": "post-03", "reviewed_action_ref": "action-plan-gt-4443fx", "reviewed_head_sha": "14ba07a756f755511a525b3752d88ab623726184", "completed_at": "2026-07-15T20:21:00Z", "actor": "post-reviewer-tests", "verdict": "approve", "summary": "Approved test coverage."},
+      {"id": "POST04", "independence_key": "post-review-config-14ba07a", "artifact_ref": "post-04", "reviewed_action_ref": "action-plan-gt-4443fx", "reviewed_head_sha": "14ba07a756f755511a525b3752d88ab623726184", "completed_at": "2026-07-15T20:21:00Z", "actor": "post-reviewer-config", "verdict": "approve", "summary": "Approved config compatibility."},
+      {"id": "POST05", "independence_key": "post-review-policy-14ba07a", "artifact_ref": "post-05", "reviewed_action_ref": "action-plan-gt-4443fx", "reviewed_head_sha": "14ba07a756f755511a525b3752d88ab623726184", "completed_at": "2026-07-15T20:21:00Z", "actor": "post-reviewer-policy", "verdict": "approve", "summary": "Policy implementation review approved code focus; remaining non-code gates are resolved by this evidence, attribution commit, checker, and branch push."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "acceptable_minimal",
+    "rationale": "The replacement uses the existing operational config accessor and collapses Witness heartbeat freshness checks through one helper. It does not add a new config key, timeout workaround, retry layer, or duplicate liveness source.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": "post-01"},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": "post-01"},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": "post-01"},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": "post-01"},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": "post-01"}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "diff-check", "command_or_check": "git diff --check upstream/main..HEAD", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "No whitespace or conflict-marker issues."},
+      {"name": "polecat-heartbeat-focused", "command_or_check": "CGO_ENABLED=0 go test ./internal/polecat -run 'SessionHeartbeat|IsSessionHeartbeat|HeartbeatStale' -count=1 -v", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Polecat threshold resolver and stale predicate regressions passed."},
+      {"name": "witness-heartbeat-focused", "command_or_check": "CGO_ENABLED=0 go test ./internal/witness -run 'SessionHeartbeatStale|HeartbeatV2' -count=1 -v", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Witness default/configured helper and v2 state regressions passed."},
+      {"name": "config-focused", "command_or_check": "CGO_ENABLED=0 go test ./internal/config -run 'PolecatThresholds|LoadOperationalConfig_WithConfig' -count=1 -v", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Operational config default/load regressions passed."},
+      {"name": "touched-packages", "command_or_check": "CGO_ENABLED=0 go test ./internal/polecat ./internal/witness ./internal/config", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "All touched packages passed with CGO disabled for local ICU constraint."},
+      {"name": "build", "command_or_check": "CGO_ENABLED=0 go build ./cmd/gt", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "CLI builds with CGO disabled in local environment."}
+    ],
+    "ci_checks": []
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4443",
+    "replacement_change_url": "https://github.com/Bella-Giraffety/gastown/tree/polecat/enclave/gt-4443fx+b46e45",
+    "replacement_branch": "polecat/enclave/gt-4443fx+b46e45",
+    "replacement_commit_refs": ["14ba07a756f755511a525b3752d88ab623726184"],
+    "original_author": "blairsilverberg / furiosa <blair@humcapital.com>",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["original-pr-4443", "original-focused-commit", "research-15"],
+      "fresh_artifact_refs": ["final-code-head", "verification-focused", "post-01", "post-02", "post-03", "post-04", "post-05"],
+      "rationale": "The valid bug intent and attribution from PR #4443 were carried forward, while implementation, tests, and current-main verification are fresh on upstream/main e75c72cf."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement preserves the focused bug intent from PR #4443 by blairsilverberg.",
+      "preserved": true,
+      "method": "co_authored_by",
+      "artifact_refs": ["original-pr-4443", "original-focused-commit", "attribution-evidence"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "original-pr-4443",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "ci_checks", "beads_notes", "local_reviews", "verification"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": ["post-01", "post-02", "post-03", "post-04", "post-05", "verification-focused", "attribution-evidence", "final-code-head"],
+    "scanned_at": "2026-07-15T20:23:22Z",
+    "summary": "Original PR #4443 remains blocked for merge-as-is by draft state, dirty merge state, status/reviewing, and stacked 33-file scope. Replacement head 14ba07a resolves the implementation/test/current-main scope blockers; attribution and durable evidence are recorded here; branch push is the remaining handoff action before Mayor publication."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "https://github.com/Bella-Giraffety/gastown/tree/polecat/enclave/gt-4443fx+b46e45",
+    "target_head_sha": "14ba07a756f755511a525b3752d88ab623726184",
+    "decided_by": "gastown/polecats/enclave",
+    "decided_at": "2026-07-15T20:23:22Z",
+    "reason": "Original PR #4443 is not mergeable as-is. The current-main replacement passes 15 research legs, 5 pre-implementation reviews, 5 post-implementation reviews for code head 14ba07a, cleanup-first, attribution evidence, blocker scan, focused verification, package tests, and build gates.",
+    "required_actions": ["Push the clean fork branch for Mayor publication.", "Do not close PR #4443 as superseded until the replacement lands with merge proof."]
+  }
+}
