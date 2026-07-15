@@ -885,8 +885,8 @@ exit 0
 	}
 }
 
-// TestCloseDescendantsHandlesListError verifies that closeDescendants handles
-// errors from b.List gracefully and continues with closing what it can.
+// TestCloseDescendantsHandlesListError verifies that updateAgentStateOnDone
+// fails closed instead of closing a parent while descendant state is unknown.
 func TestCloseDescendantsHandlesListError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script bd stub not supported on Windows")
@@ -979,22 +979,18 @@ exit 0
 		t.Fatalf("chdir: %v", err)
 	}
 
-	// Should not error even though list fails - continues with closing molecule and base bead
-	updateAgentStateOnDone(filepath.Join(townRoot, "gastown"), townRoot, ExitCompleted, "gt-base-123")
-
-	// Verify close calls - should still close wisp and base even though list failed
-	closesBytes, err := os.ReadFile(closesLog)
-	if err != nil {
-		t.Fatalf("no beads were closed: %v", err)
+	err = updateAgentStateOnDone(filepath.Join(townRoot, "gastown"), townRoot, ExitCompleted, "gt-base-123")
+	if err == nil {
+		t.Fatal("updateAgentStateOnDone succeeded despite descendant list failure")
 	}
-	closes := string(closesBytes)
-
-	// Should have closed: wisp, base (list error doesn't prevent molecule close)
-	if !strings.Contains(closes, "gt-wisp-xyz") {
-		t.Errorf("attached molecule gt-wisp-xyz was NOT closed after list error\nClose calls:\n%s", closes)
+	if !strings.Contains(err.Error(), "close descendants") {
+		t.Fatalf("error = %v, want descendant close failure", err)
 	}
-	if !strings.Contains(closes, "gt-base-123") {
-		t.Errorf("hooked bead gt-base-123 was NOT closed after list error\nClose calls:\n%s", closes)
+	if closesBytes, readErr := os.ReadFile(closesLog); readErr == nil {
+		closes := string(closesBytes)
+		if strings.Contains(closes, "gt-wisp-xyz") || strings.Contains(closes, "gt-base-123") {
+			t.Fatalf("closed parent beads after descendant failure:\n%s", closes)
+		}
 	}
 }
 
