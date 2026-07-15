@@ -28,6 +28,7 @@ func TestPromoteWispEmbeddedStorePromotesAndAddsStructuredComment(t *testing.T) 
 	beadsDir := filepath.Join(workDir, ".beads")
 	bdEnv := cleanBDTestEnv(beadsDir, "real-store-actor")
 	runCmd(t, workDir, bdEnv, bdPath, "init", "--prefix", "pw", "--skip-agents", "--skip-hooks", "--non-interactive", "--quiet")
+	assertEmbeddedDoltMode(t, beadsDir)
 	out := runCmd(t, workDir, bdEnv, bdPath, "create", "--title", "Promote me", "--type", "task", "--ephemeral", "--json", "--quiet")
 
 	var created struct {
@@ -105,6 +106,23 @@ func cleanBDTestEnv(beadsDir, actor string) []string {
 		}
 	}
 	return append(env, "BEADS_DIR="+beadsDir, "BD_ACTOR="+actor, "BD_NON_INTERACTIVE=1")
+}
+
+func assertEmbeddedDoltMode(t *testing.T, beadsDir string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(beadsDir, "metadata.json"))
+	if err != nil {
+		t.Fatalf("read metadata.json: %v", err)
+	}
+	var metadata struct {
+		DoltMode string `json:"dolt_mode"`
+	}
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		t.Fatalf("parse metadata.json: %v", err)
+	}
+	if metadata.DoltMode != "" && metadata.DoltMode != "embedded" {
+		t.Fatalf("dolt_mode = %q, want embedded", metadata.DoltMode)
+	}
 }
 
 func extractJSONObject(out []byte) []byte {
