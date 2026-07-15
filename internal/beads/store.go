@@ -135,11 +135,11 @@ func promotionComment(reason string) string {
 }
 
 func (b *Beads) promotionActor(ctx context.Context) string {
-	if actor := strings.TrimSpace(b.getActor()); actor != "" {
-		return actor
-	}
 	if !b.isolated {
 		if actor := strings.TrimSpace(os.Getenv("BEADS_ACTOR")); actor != "" {
+			return actor
+		}
+		if actor := strings.TrimSpace(b.getActor()); actor != "" {
 			return actor
 		}
 		if actor := strings.TrimSpace(b.gitUserName(ctx)); actor != "" {

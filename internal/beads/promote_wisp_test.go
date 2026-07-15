@@ -191,10 +191,20 @@ func TestPromoteWispTreatsCommentFailureAsBestEffort(t *testing.T) {
 }
 
 func TestPromoteWispActorFallbacks(t *testing.T) {
-	t.Run("bd actor first", func(t *testing.T) {
+	t.Run("beads actor first", func(t *testing.T) {
 		b := New(t.TempDir())
 		t.Setenv("BD_ACTOR", "bd-actor")
 		t.Setenv("BEADS_ACTOR", "beads-actor")
+
+		if got := b.promotionActor(context.Background()); got != "beads-actor" {
+			t.Fatalf("actor = %q", got)
+		}
+	})
+
+	t.Run("bd actor", func(t *testing.T) {
+		b := New(t.TempDir())
+		t.Setenv("BD_ACTOR", "bd-actor")
+		t.Setenv("BEADS_ACTOR", "")
 
 		if got := b.promotionActor(context.Background()); got != "bd-actor" {
 			t.Fatalf("actor = %q", got)
