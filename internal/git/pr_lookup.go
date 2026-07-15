@@ -231,8 +231,10 @@ func selectPullRequest(raw []ghPullRequest, targetRepo, branch, headSHA, source 
 		if pr.BaseRepo != "" && !strings.EqualFold(pr.BaseRepo, targetRepo) {
 			continue
 		}
-		if headSHA != "" && pr.HeadSHA != "" && pr.HeadSHA != headSHA {
-			continue
+		if headSHA != "" {
+			if pr.HeadSHA == "" || pr.HeadSHA != headSHA {
+				continue
+			}
 		}
 		pr.LookupSource = source
 		matches = append(matches, pr)

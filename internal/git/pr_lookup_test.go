@@ -124,6 +124,25 @@ exit 1
 	}
 }
 
+func TestLookupPullRequestBranchMissingHeadSHAFailsClosed(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '%s\n' '[{"number":1,"url":"https://github.com/upstream/repo/pull/1","state":"OPEN","mergedAt":"","headRefName":"shared","headRefOid":"","headRepository":{"nameWithOwner":"one/repo"},"headRepositoryOwner":{"login":"one"},"baseRepository":{"nameWithOwner":"upstream/repo"}}]'
+  exit 0
+fi
+printf 'unexpected gh args: %s\n' "$*" >&2
+exit 1
+`)
+	dir := initTestRepo(t)
+	g := NewGit(dir)
+	addGitHubRemotes(t, g)
+
+	_, err := g.LookupPullRequest(PullRequestRef{Branch: "shared", HeadSHA: "expected"})
+	if !errors.Is(err, ErrPullRequestNotFound) {
+		t.Fatalf("LookupPullRequest err = %v, want ErrPullRequestNotFound", err)
+	}
+}
+
 func TestFindPRNumberRequiresOpenPR(t *testing.T) {
 	installFakeGH(t, `#!/bin/sh
 if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$3" = "99" ]; then

@@ -772,6 +772,37 @@ func TestEngineer_LoadConfig_GateInvalidPhase(t *testing.T) {
 	}
 }
 
+func TestEngineer_LoadConfig_GateInvalidKind(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	config := map[string]interface{}{
+		"merge_queue": map[string]interface{}{
+			"gates": map[string]interface{}{
+				"unit": map[string]interface{}{
+					"cmd":  "go test ./...",
+					"kind": "tests",
+				},
+			},
+		},
+	}
+
+	data, _ := json.MarshalIndent(config, "", "  ")
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &rig.Rig{Name: "test-rig", Path: tmpDir}
+	e := NewEngineer(r)
+
+	err := e.LoadConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid gate kind")
+	}
+	if !strings.Contains(err.Error(), "invalid kind") {
+		t.Errorf("error = %q, want substring 'invalid kind'", err.Error())
+	}
+}
+
 func TestRunGatesForPhase_FiltersCorrectly(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses Unix shell commands")
@@ -884,6 +915,8 @@ func TestRunGate_TestEvidenceOutcomes(t *testing.T) {
 	}{
 		{"executed true", `{"executed":true}`, true, GateOutcomePassed},
 		{"positive count", `{"tests_executed":1}`, true, GateOutcomePassed},
+		{"empty object", `{}`, false, GateOutcomeNoEvidence},
+		{"executed false", `{"executed":false}`, false, GateOutcomeNoEvidence},
 		{"zero count", `{"tests_executed":0}`, false, GateOutcomeZeroTests},
 		{"failed evidence", `{"executed":true,"passed":false}`, false, GateOutcomeCheckFailed},
 		{"pre-existing", `{"outcome":"pre_existing_failure"}`, false, GateOutcomePreExistingFailure},
@@ -917,6 +950,40 @@ func TestRunGate_TestEvidenceMalformed(t *testing.T) {
 	}
 	if result.Outcome != GateOutcomeNoEvidence {
 		t.Fatalf("outcome = %q, want %q", result.Outcome, GateOutcomeNoEvidence)
+	}
+}
+
+func TestRunGate_InvalidKindFailsClosed(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+	e.workDir = t.TempDir()
+
+	result := e.runGate(context.Background(), "unit", &GateConfig{
+		Cmd:  "true",
+		Kind: "tests",
+	})
+	if result.Success {
+		t.Fatal("expected invalid gate kind to fail closed")
+	}
+	if result.Outcome != GateOutcomeConfigFailure {
+		t.Fatalf("outcome = %q, want %q", result.Outcome, GateOutcomeConfigFailure)
+	}
+}
+
+func TestRunGate_UnprovenEvidenceOverridesNonZeroExit(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+	e.workDir = t.TempDir()
+
+	result := e.runGate(context.Background(), "test", &GateConfig{
+		Cmd:  `printf '{"outcome":"pre_existing_failure"}' > "$GT_GATE_EVIDENCE"; exit 1`,
+		Kind: gateKindTest,
+	})
+	if result.Success {
+		t.Fatal("expected pre-existing failure evidence to fail closed")
+	}
+	if result.Outcome != GateOutcomePreExistingFailure {
+		t.Fatalf("outcome = %q, want %q", result.Outcome, GateOutcomePreExistingFailure)
 	}
 }
 
@@ -1018,6 +1085,50 @@ func TestRunGates_Parallel_AllPass(t *testing.T) {
 	result := e.runGates(context.Background())
 	if !result.Success {
 		t.Errorf("expected success, got error: %s", result.Error)
+	}
+}
+
+func TestRunGates_CheckOnlyDoesNotAuthorizeMerge(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+	e.workDir = t.TempDir()
+	e.output = io.Discard
+	e.config.Gates = map[string]*GateConfig{
+		"lint":  {Cmd: "true"},
+		"build": {Cmd: "true", Kind: gateKindCheck},
+	}
+
+	result := e.runGates(context.Background())
+	if !result.Success {
+		t.Fatalf("expected check gates to pass, got: %s", result.Error)
+	}
+	if result.TestGateProven {
+		t.Fatal("check-only gate set must not prove test execution")
+	}
+	if mergeGateAuthorized(result).ok() {
+		t.Fatal("check-only gate set must not authorize merge")
+	}
+}
+
+func TestRunGates_TestEvidenceAuthorizesMerge(t *testing.T) {
+	r := &rig.Rig{Name: "test-rig", Path: t.TempDir()}
+	e := NewEngineer(r)
+	e.workDir = t.TempDir()
+	e.output = io.Discard
+	e.config.Gates = map[string]*GateConfig{
+		"lint": {Cmd: "true"},
+		"unit": {Cmd: `printf '{"executed":true}' > "$GT_GATE_EVIDENCE"`, Kind: gateKindTest},
+	}
+
+	result := e.runGates(context.Background())
+	if !result.Success {
+		t.Fatalf("expected gates to pass, got: %s", result.Error)
+	}
+	if result.GateOutcome != GateOutcomePassed || !result.TestGateProven {
+		t.Fatalf("result = %+v, want passed test proof", result)
+	}
+	if !mergeGateAuthorized(result).ok() {
+		t.Fatal("test evidence gate should authorize merge")
 	}
 }
 

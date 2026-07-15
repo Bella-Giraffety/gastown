@@ -396,6 +396,7 @@ func (e *Engineer) verifyAndPush(ctx context.Context, stacked []*MRInfo, target 
 func (e *Engineer) fastForwardBatch(ctx context.Context, stacked []*MRInfo, target string, result *BatchResult, gateAuth mergeGateAuthorization) *BatchResult {
 	if !gateAuth.ok() {
 		result.Error = fmt.Errorf("merge gate authorization missing")
+		e.resetBatchTarget(target, "missing merge gate authorization")
 		return result
 	}
 

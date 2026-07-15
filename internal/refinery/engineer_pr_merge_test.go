@@ -14,6 +14,25 @@ import (
 	"github.com/steveyegge/gastown/internal/rig"
 )
 
+type recordingPRProvider struct {
+	findCalled  bool
+	mergeCalled bool
+}
+
+func (p *recordingPRProvider) FindPullRequest(string, string, int, string) (*gitpkg.PullRequestInfo, error) {
+	p.findCalled = true
+	return &gitpkg.PullRequestInfo{Number: 42, State: "OPEN", HeadSHA: "abc123"}, nil
+}
+
+func (p *recordingPRProvider) IsPRApproved(*gitpkg.PullRequestInfo) (bool, error) {
+	return true, nil
+}
+
+func (p *recordingPRProvider) MergePR(*gitpkg.PullRequestInfo, string) (string, error) {
+	p.mergeCalled = true
+	return "deadbeef", nil
+}
+
 func TestEngineer_LoadConfig_MergeStrategyPR(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -120,6 +139,27 @@ func TestDoMerge_DirectStrategy_SkipsPRPath(t *testing.T) {
 	}
 }
 
+func TestDoMerge_PRStrategy_UnprovenGateDoesNotCallProvider(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	e := newTestEngineer(t, workDir, g)
+	e.config.MergeStrategy = "pr"
+	e.config.Gates = map[string]*GateConfig{
+		"test": {Cmd: "true", Kind: gateKindTest},
+	}
+	provider := &recordingPRProvider{}
+	e.prProvider = provider
+
+	createFeatureBranch(t, workDir, "feat/pr-unproven", "unproven.txt", "hello")
+	result := e.doMerge(context.Background(), &MRInfo{ID: "mr-pr-unproven", Branch: "feat/pr-unproven", Target: "main"})
+
+	if result.Success || !result.GateUnproven {
+		t.Fatalf("expected unproven gate failure before PR provider, got: %+v", result)
+	}
+	if provider.findCalled || provider.mergeCalled {
+		t.Fatalf("PR provider called despite unproven gate: find=%v merge=%v", provider.findCalled, provider.mergeCalled)
+	}
+}
+
 func TestDoMerge_DirectStrategy_BlocksForkBackedDefaultPush(t *testing.T) {
 	workDir, g, _ := testGitRepo(t)
 	addDistinctUpstreamRemote(t, workDir, g)
@@ -155,7 +195,7 @@ func TestDoMergePR_NoPR_ReturnsError(t *testing.T) {
 
 	createFeatureBranch(t, workDir, "feat/no-pr", "test.txt", "hello")
 
-	result := e.doMergePR(context.Background(), &MRInfo{ID: "mr-no-pr", Branch: "feat/no-pr", Target: "main"}, mergeGateAuthorization{verified: true})
+	result := e.doMergePR(context.Background(), &MRInfo{ID: "mr-no-pr", Branch: "feat/no-pr", Target: "main"}, testMergeGateAuthorization())
 
 	if result.Success {
 		t.Error("expected failure when no PR exists")

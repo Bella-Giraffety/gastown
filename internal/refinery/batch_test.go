@@ -95,7 +95,7 @@ func newTestEngineer(t *testing.T, workDir string, g *gitpkg.Git) *Engineer {
 	e.workDir = workDir
 	e.output = &bytes.Buffer{}
 	e.testAllowSyntheticMRs = true
-	e.config.Gates = map[string]*GateConfig{"check": {Cmd: "true"}}
+	e.config.Gates = map[string]*GateConfig{"test": {Cmd: `printf '{"executed":true}' > "$GT_GATE_EVIDENCE"`, Kind: gateKindTest}}
 	// No-op merge slot functions for tests
 	e.mergeSlotEnsureExists = func() (string, error) { return "test-slot", nil }
 	e.mergeSlotAcquire = func(holder string, addWaiter bool) (*beads.MergeSlotStatus, error) {
@@ -103,6 +103,10 @@ func newTestEngineer(t *testing.T, workDir string, g *gitpkg.Git) *Engineer {
 	}
 	e.mergeSlotRelease = func(holder string) error { return nil }
 	return e
+}
+
+func testMergeGateAuthorization() mergeGateAuthorization {
+	return mergeGateAuthorization{verified: true, outcome: GateOutcomePassed, testGateProven: true}
 }
 
 func makeMR(id, branch, target string) *MRInfo {
@@ -117,7 +121,7 @@ func makeMR(id, branch, target string) *MRInfo {
 func failMarkerGateCmd() string {
 	// Gate commands already run inside workDir, so use a relative path.
 	// Raw Windows paths like D:\... confuse `sh test -f` under MSYS.
-	return "test ! -f FAIL_MARKER"
+	return `if test -f FAIL_MARKER; then printf '{"executed":true,"passed":false}' > "$GT_GATE_EVIDENCE"; exit 1; fi; printf '{"executed":true}' > "$GT_GATE_EVIDENCE"`
 }
 
 // --- DefaultBatchConfig tests ---
@@ -146,7 +150,7 @@ func TestFastForwardBatch_BlocksForkBackedDefaultPush(t *testing.T) {
 	run(t, workDir, "git", "add", ".")
 	run(t, workDir, "git", "commit", "-m", "batch result")
 
-	result := e.fastForwardBatch(context.Background(), nil, "main", &BatchResult{}, mergeGateAuthorization{verified: true})
+	result := e.fastForwardBatch(context.Background(), nil, "main", &BatchResult{}, testMergeGateAuthorization())
 	if result.Error == nil || !strings.Contains(result.Error.Error(), "refusing direct push") {
 		t.Fatalf("expected fork-backed default push refusal, got: %+v", result)
 	}
@@ -167,10 +171,7 @@ func TestFastForwardBatchRequiresGateAuthorization(t *testing.T) {
 	if result.Error == nil || !strings.Contains(result.Error.Error(), "gate authorization") {
 		t.Fatalf("expected missing gate authorization failure, got: %+v", result)
 	}
-	after := run(t, workDir, "git", "rev-parse", "origin/main")
-	if after != before {
-		t.Fatalf("origin/main changed without gate authorization: before %s after %s", before, after)
-	}
+	assertOriginMainUnchangedAndReset(t, workDir, before)
 }
 
 // --- AssembleBatch tests ---
@@ -523,6 +524,45 @@ func TestProcessMRInfo_TestGateUnprovenOutcomesBlockMerge(t *testing.T) {
 	}
 }
 
+func TestProcessMRInfo_TestGateEvidenceAllowsMerge(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.Gates = map[string]*GateConfig{
+		"unit": {Cmd: `printf '{"executed":true}' > "$GT_GATE_EVIDENCE"`, Kind: gateKindTest},
+	}
+
+	result := e.ProcessMRInfo(context.Background(), makeMR("mr-a", "feature-a", "main"))
+	if !result.Success {
+		t.Fatalf("expected test evidence to allow merge, got: %+v", result)
+	}
+}
+
+func TestProcessMRInfo_CheckOnlyGateDoesNotMerge(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	createFeatureBranch(t, workDir, "feature-a", "a.txt", "hello a\n")
+
+	e := newTestEngineer(t, workDir, g)
+	e.config.Gates = map[string]*GateConfig{
+		"lint": {Cmd: "true"},
+	}
+	before := run(t, workDir, "git", "rev-parse", "origin/main")
+
+	result := e.ProcessMRInfo(context.Background(), makeMR("mr-a", "feature-a", "main"))
+	if result.Success {
+		t.Fatal("expected check-only gate set to fail closed")
+	}
+	if !result.GateUnproven || result.GateOutcome != GateOutcomeNoEvidence {
+		t.Fatalf("result = %+v, want GateUnproven no_evidence", result)
+	}
+	assertOriginMainUnchangedAndReset(t, workDir, before)
+}
+
 func TestProcessMRInfo_PreVerifiedDoesNotSkipUnprovenGates(t *testing.T) {
 	workDir, g, cleanup := testGitRepo(t)
 	defer cleanup()
@@ -623,7 +663,7 @@ func TestProcessBatch_GateFailure_BisectsToFindCulprit(t *testing.T) {
 	e := newTestEngineer(t, workDir, g)
 	// Gate that fails if FAIL_MARKER exists
 	e.config.Gates = map[string]*GateConfig{
-		"check": {Cmd: failMarkerGateCmd()},
+		"test": {Cmd: failMarkerGateCmd(), Kind: gateKindTest},
 	}
 	e.config.GatesParallel = false
 
@@ -690,7 +730,7 @@ func TestProcessBatch_AllCulpritsResetsTarget(t *testing.T) {
 
 	e := newTestEngineer(t, workDir, g)
 	e.config.Gates = map[string]*GateConfig{
-		"check": {Cmd: `test ! -e FAIL_A && test ! -e FAIL_B`},
+		"test": {Cmd: `if test -e FAIL_A || test -e FAIL_B; then printf '{"executed":true,"passed":false}' > "$GT_GATE_EVIDENCE"; exit 1; fi; printf '{"executed":true}' > "$GT_GATE_EVIDENCE"`, Kind: gateKindTest},
 	}
 	e.config.GatesParallel = false
 	before := run(t, workDir, "git", "rev-parse", "origin/main")
@@ -720,7 +760,7 @@ func TestProcessBatch_RetryOnFlaky(t *testing.T) {
 	// Create a flaky gate: fails first time, passes second
 	counterFile := filepath.Join(workDir, ".gate_counter")
 	e.config.Gates = map[string]*GateConfig{
-		"flaky": {Cmd: fmt.Sprintf(`count=$(cat %s 2>/dev/null || echo 0); count=$((count + 1)); echo $count > %s; test $count -ge 2`, counterFile, counterFile)},
+		"test": {Cmd: fmt.Sprintf(`count=$(cat %s 2>/dev/null || echo 0); count=$((count + 1)); echo $count > %s; if test $count -ge 2; then printf '{"executed":true}' > "$GT_GATE_EVIDENCE"; exit 0; fi; printf '{"executed":true,"passed":false}' > "$GT_GATE_EVIDENCE"; exit 1`, counterFile, counterFile), Kind: gateKindTest},
 	}
 
 	batch := []*MRInfo{makeMR("mr-a", "feature-a", "main")}
@@ -749,7 +789,7 @@ func TestProcessBatch_RetryOnFlaky_MultipleMRs(t *testing.T) {
 	// Create a flaky gate: fails first time, passes second
 	counterFile := filepath.Join(t.TempDir(), "gate_counter")
 	e.config.Gates = map[string]*GateConfig{
-		"flaky": {Cmd: fmt.Sprintf(`count=$(cat %s 2>/dev/null || echo 0); count=$((count + 1)); echo $count > %s; test $count -ge 2`, counterFile, counterFile)},
+		"test": {Cmd: fmt.Sprintf(`count=$(cat %s 2>/dev/null || echo 0); count=$((count + 1)); echo $count > %s; if test $count -ge 2; then printf '{"executed":true}' > "$GT_GATE_EVIDENCE"; exit 0; fi; printf '{"executed":true,"passed":false}' > "$GT_GATE_EVIDENCE"; exit 1`, counterFile, counterFile), Kind: gateKindTest},
 	}
 
 	batch := []*MRInfo{
@@ -812,7 +852,7 @@ func TestBisectBatch_SingleMR(t *testing.T) {
 
 	e := newTestEngineer(t, workDir, g)
 	e.config.Gates = map[string]*GateConfig{
-		"check": {Cmd: failMarkerGateCmd()},
+		"test": {Cmd: failMarkerGateCmd(), Kind: gateKindTest},
 	}
 
 	batch := []*MRInfo{makeMR("mr-a", "feature-a", "main")}
@@ -838,7 +878,7 @@ func TestBisectBatch_TwoMRs_SecondBad(t *testing.T) {
 
 	e := newTestEngineer(t, workDir, g)
 	e.config.Gates = map[string]*GateConfig{
-		"check": {Cmd: failMarkerGateCmd()},
+		"test": {Cmd: failMarkerGateCmd(), Kind: gateKindTest},
 	}
 
 	batch := []*MRInfo{
@@ -867,7 +907,7 @@ func TestBisectBatch_TwoMRs_FirstBad(t *testing.T) {
 
 	e := newTestEngineer(t, workDir, g)
 	e.config.Gates = map[string]*GateConfig{
-		"check": {Cmd: failMarkerGateCmd()},
+		"test": {Cmd: failMarkerGateCmd(), Kind: gateKindTest},
 	}
 
 	batch := []*MRInfo{
@@ -899,7 +939,7 @@ func TestBisectBatch_FourMRs_ThirdBad(t *testing.T) {
 	e := newTestEngineer(t, workDir, g)
 	e.output = os.Stderr
 	e.config.Gates = map[string]*GateConfig{
-		"check": {Cmd: failMarkerGateCmd()},
+		"test": {Cmd: failMarkerGateCmd(), Kind: gateKindTest},
 	}
 
 	batch := []*MRInfo{
@@ -967,7 +1007,7 @@ func TestProcessBatch_BisectAndMergeGood(t *testing.T) {
 
 	e := newTestEngineer(t, workDir, g)
 	e.config.Gates = map[string]*GateConfig{
-		"check": {Cmd: failMarkerGateCmd()},
+		"test": {Cmd: failMarkerGateCmd(), Kind: gateKindTest},
 	}
 
 	batch := []*MRInfo{

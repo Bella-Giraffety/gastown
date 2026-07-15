@@ -103,7 +103,10 @@ const (
 	GateOutcomePreExistingFailure GateOutcome = "pre_existing_failure"
 )
 
-const gateKindTest = "test"
+const (
+	gateKindCheck = "check"
+	gateKindTest  = "test"
+)
 
 // GateResult holds the outcome of a single gate execution.
 type GateResult struct {
@@ -433,7 +436,11 @@ func (e *Engineer) LoadConfig() error {
 	if mqRaw.Gates != nil {
 		e.config.Gates = make(map[string]*GateConfig, len(mqRaw.Gates))
 		for name, raw := range mqRaw.Gates {
-			gc := &GateConfig{Cmd: raw.Cmd, Kind: strings.ToLower(strings.TrimSpace(raw.Kind))}
+			kind, err := normalizeConfiguredGateKind(name, raw.Kind)
+			if err != nil {
+				return err
+			}
+			gc := &GateConfig{Cmd: raw.Cmd, Kind: kind}
 			if raw.Timeout != "" {
 				dur, err := time.ParseDuration(raw.Timeout)
 				if err != nil {
@@ -522,6 +529,7 @@ type ProcessResult struct {
 	TestsFailed    bool
 	GateUnproven   bool // Verification did not produce authoritative merge evidence.
 	GateOutcome    GateOutcome
+	TestGateProven bool // A test gate produced authoritative executable evidence.
 	SlotTimeout    bool // Merge slot contention timeout (distinct from build/test failure)
 	BranchNotFound bool // Source branch no longer exists (e.g. cleaned up after cherry-pick)
 	NoMerge        bool // MR/source is intentionally not merge-eligible, not a build failure
@@ -529,15 +537,21 @@ type ProcessResult struct {
 }
 
 type mergeGateAuthorization struct {
-	verified bool
+	verified       bool
+	outcome        GateOutcome
+	testGateProven bool
 }
 
 func mergeGateAuthorized(result ProcessResult) mergeGateAuthorization {
-	return mergeGateAuthorization{verified: result.Success}
+	return mergeGateAuthorization{
+		verified:       result.Success,
+		outcome:        result.GateOutcome,
+		testGateProven: result.TestGateProven,
+	}
 }
 
 func (a mergeGateAuthorization) ok() bool {
-	return a.verified
+	return a.verified && a.outcome == GateOutcomePassed && a.testGateProven
 }
 
 // doMerge performs the actual git merge operation.
@@ -1161,7 +1175,7 @@ func (e *Engineer) runTests(ctx context.Context) ProcessResult {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Executing test command: %s\n", e.config.TestCommand)
 		lastResult = e.runGate(ctx, "test", &GateConfig{Cmd: e.config.TestCommand, Kind: gateKindTest})
 		if lastResult.Success {
-			return ProcessResult{Success: true}
+			return ProcessResult{Success: true, GateOutcome: GateOutcomePassed, TestGateProven: true}
 		}
 		if lastResult.Outcome != GateOutcomeCheckFailed {
 			break
@@ -1178,6 +1192,15 @@ func (e *Engineer) runGate(ctx context.Context, name string, gate *GateConfig) G
 		ctx = context.Background()
 	}
 	kind := normalizedGateKind(name, gate)
+	if !validGateKind(kind) {
+		return GateResult{
+			Name:    name,
+			Kind:    kind,
+			Outcome: GateOutcomeConfigFailure,
+			Error:   fmt.Sprintf("invalid gate kind %q", kind),
+			Elapsed: time.Since(start),
+		}
+	}
 
 	if strings.TrimSpace(gate.Cmd) == "" {
 		return GateResult{
@@ -1384,8 +1407,16 @@ func (e *Engineer) runGateSet(ctx context.Context, gates map[string]*GateConfig,
 		return processGateFailures(results, "quality gates")
 	}
 
+	testGateProven := false
+	for _, r := range results {
+		if r.Success && r.Kind == gateKindTest {
+			testGateProven = true
+			break
+		}
+	}
+
 	_, _ = fmt.Fprintln(e.output, "[Engineer] All quality gates passed")
-	return ProcessResult{Success: true}
+	return ProcessResult{Success: true, GateOutcome: GateOutcomePassed, TestGateProven: testGateProven}
 }
 
 func (e *Engineer) countGatesForPhase(phase GatePhase) int {
@@ -1407,10 +1438,31 @@ func normalizedGateKind(name string, gate *GateConfig) string {
 	if gate != nil {
 		kind = strings.ToLower(strings.TrimSpace(gate.Kind))
 	}
-	if kind == "" && name == gateKindTest {
+	if kind != "" {
+		return kind
+	}
+	if name == gateKindTest {
 		return gateKindTest
 	}
-	return kind
+	return gateKindCheck
+}
+
+func normalizeConfiguredGateKind(name, rawKind string) (string, error) {
+	gate := &GateConfig{Kind: rawKind}
+	kind := normalizedGateKind(name, gate)
+	if !validGateKind(kind) {
+		return "", fmt.Errorf("gate %q has invalid kind %q: must be \"test\" or \"check\"", name, rawKind)
+	}
+	return kind, nil
+}
+
+func validGateKind(kind string) bool {
+	switch kind {
+	case gateKindCheck, gateKindTest:
+		return true
+	default:
+		return false
+	}
 }
 
 func gateNotProven(outcome GateOutcome, message string) ProcessResult {
