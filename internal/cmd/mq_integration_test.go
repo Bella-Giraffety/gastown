@@ -726,12 +726,9 @@ func TestPostMergeProof_UnlandedExpectedHeadFailsClosed(t *testing.T) {
 	}
 
 	oldExpectedHead := mqPostMergeExpectedHead
-	oldMergeCommit := mqPostMergeMergeCommit
 	mqPostMergeExpectedHead = ""
-	mqPostMergeMergeCommit = ""
 	t.Cleanup(func() {
 		mqPostMergeExpectedHead = oldExpectedHead
-		mqPostMergeMergeCommit = oldMergeCommit
 	})
 
 	mr := &refinery.MergeRequest{
@@ -760,11 +757,11 @@ func TestPostMergeProof_UnlandedExpectedHeadFailsClosed(t *testing.T) {
 	}
 }
 
-func TestPostMergeProof_MergeCommitProofAllowsSquashLikeLanding(t *testing.T) {
+func TestPostMergeProof_StoredMergeCommitDoesNotAuthorizeUnlandedHead(t *testing.T) {
 	localDir, mainBranch := initPostMergeProofRepo(t)
 	rigGit := git.NewGit(localDir)
 
-	branch := "polecat/test/gt-squash-proof"
+	branch := "polecat/test/gt-stale-proof"
 	if err := rigGit.CreateBranch(branch); err != nil {
 		t.Fatalf("CreateBranch: %v", err)
 	}
@@ -791,47 +788,44 @@ func TestPostMergeProof_MergeCommitProofAllowsSquashLikeLanding(t *testing.T) {
 	if err := rigGit.Checkout(mainBranch); err != nil {
 		t.Fatalf("Checkout main: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(localDir, "squash.txt"), []byte("squash proof\n"), 0644); err != nil {
-		t.Fatalf("write squash: %v", err)
+	if err := os.WriteFile(filepath.Join(localDir, "target.txt"), []byte("unrelated target proof\n"), 0644); err != nil {
+		t.Fatalf("write target: %v", err)
 	}
-	if err := rigGit.Add("squash.txt"); err != nil {
-		t.Fatalf("Add squash: %v", err)
+	if err := rigGit.Add("target.txt"); err != nil {
+		t.Fatalf("Add target: %v", err)
 	}
-	if err := rigGit.Commit("squash merge proof"); err != nil {
-		t.Fatalf("Commit squash: %v", err)
+	if err := rigGit.Commit("unrelated target proof"); err != nil {
+		t.Fatalf("Commit target: %v", err)
 	}
-	mergeCommit, err := rigGit.Rev("HEAD")
+	landedTarget, err := rigGit.Rev("HEAD")
 	if err != nil {
-		t.Fatalf("Rev merge commit: %v", err)
+		t.Fatalf("Rev target commit: %v", err)
 	}
 	if err := rigGit.Push("origin", mainBranch, false); err != nil {
 		t.Fatalf("Push main: %v", err)
 	}
 
 	oldExpectedHead := mqPostMergeExpectedHead
-	oldMergeCommit := mqPostMergeMergeCommit
 	mqPostMergeExpectedHead = ""
-	mqPostMergeMergeCommit = ""
 	t.Cleanup(func() {
 		mqPostMergeExpectedHead = oldExpectedHead
-		mqPostMergeMergeCommit = oldMergeCommit
 	})
 
 	mr := &refinery.MergeRequest{
-		ID:           "gt-mr-squash-proof",
+		ID:           "gt-mr-stale-proof",
 		Branch:       branch,
 		TargetBranch: mainBranch,
 		CommitSHA:    sourceHead,
-		MergeCommit:  mergeCommit,
+		MergeCommit:  landedTarget,
 	}
-	if got, err := verifyMQPostMergeProof(rigGit, mr); err != nil {
-		t.Fatalf("verifyMQPostMergeProof merge proof: %v", err)
-	} else if got != mergeCommit {
-		t.Fatalf("verifyMQPostMergeProof = %s, want merge commit %s", got, mergeCommit)
+	if _, err := verifyMQPostMergeProof(rigGit, mr); err == nil {
+		t.Fatal("verifyMQPostMergeProof should ignore stored merge_commit and reject unlanded source head")
+	} else if !strings.Contains(err.Error(), "commit_sha") {
+		t.Fatalf("verifyMQPostMergeProof error = %v, want commit_sha source", err)
 	}
 }
 
-func TestPostMergeProof_SelectedMergeCommitFailureDoesNotFallback(t *testing.T) {
+func TestPostMergeProof_SelectedExpectedHeadFailureDoesNotFallback(t *testing.T) {
 	localDir, mainBranch := initPostMergeProofRepo(t)
 	rigGit := git.NewGit(localDir)
 	landedCommit, err := rigGit.Rev(mainBranch)
@@ -864,12 +858,9 @@ func TestPostMergeProof_SelectedMergeCommitFailureDoesNotFallback(t *testing.T) 
 	}
 
 	oldExpectedHead := mqPostMergeExpectedHead
-	oldMergeCommit := mqPostMergeMergeCommit
-	mqPostMergeExpectedHead = ""
-	mqPostMergeMergeCommit = ""
+	mqPostMergeExpectedHead = unlandedMerge
 	t.Cleanup(func() {
 		mqPostMergeExpectedHead = oldExpectedHead
-		mqPostMergeMergeCommit = oldMergeCommit
 	})
 
 	mr := &refinery.MergeRequest{
@@ -877,12 +868,12 @@ func TestPostMergeProof_SelectedMergeCommitFailureDoesNotFallback(t *testing.T) 
 		Branch:       branch,
 		TargetBranch: mainBranch,
 		CommitSHA:    landedCommit,
-		MergeCommit:  unlandedMerge,
+		MergeCommit:  landedCommit,
 	}
 	if _, err := verifyMQPostMergeProof(rigGit, mr); err == nil {
-		t.Fatal("verifyMQPostMergeProof should fail selected unlanded merge_commit instead of falling back to commit_sha")
-	} else if !strings.Contains(err.Error(), "merge_commit") {
-		t.Fatalf("verifyMQPostMergeProof error = %v, want merge_commit source", err)
+		t.Fatal("verifyMQPostMergeProof should fail selected unlanded --expected-head instead of falling back to commit_sha")
+	} else if !strings.Contains(err.Error(), "--expected-head") {
+		t.Fatalf("verifyMQPostMergeProof error = %v, want --expected-head source", err)
 	}
 }
 
@@ -901,6 +892,10 @@ func TestRunMQPostMerge_UnlandedHeadPreservesRecordsAndBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create source issue: %v", err)
 	}
+	landedTarget, err := rigGit.Rev(mainBranch)
+	if err != nil {
+		t.Fatalf("Rev target head: %v", err)
+	}
 	mrDesc := beads.FormatMRFields(&beads.MRFields{
 		Branch:      branch,
 		Target:      mainBranch,
@@ -908,6 +903,7 @@ func TestRunMQPostMerge_UnlandedHeadPreservesRecordsAndBranch(t *testing.T) {
 		Worker:      "test",
 		Rig:         "testrig",
 		CommitSHA:   head,
+		MergeCommit: landedTarget,
 	})
 	mrIssue, err := b.Create(beads.CreateOptions{
 		Title:       "MR for source work",
@@ -919,14 +915,11 @@ func TestRunMQPostMerge_UnlandedHeadPreservesRecordsAndBranch(t *testing.T) {
 	}
 
 	oldExpectedHead := mqPostMergeExpectedHead
-	oldMergeCommit := mqPostMergeMergeCommit
 	oldSkipBranchDelete := mqPostMergeSkipBranchDelete
 	mqPostMergeExpectedHead = ""
-	mqPostMergeMergeCommit = ""
 	mqPostMergeSkipBranchDelete = false
 	t.Cleanup(func() {
 		mqPostMergeExpectedHead = oldExpectedHead
-		mqPostMergeMergeCommit = oldMergeCommit
 		mqPostMergeSkipBranchDelete = oldSkipBranchDelete
 	})
 	oldCwd, err := os.Getwd()
