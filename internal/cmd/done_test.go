@@ -449,18 +449,20 @@ func TestCompletionEvidencePreservesReviewOnlyNoBranchWork(t *testing.T) {
 	}
 }
 
-func TestCompletionEvidencePreservesTerminalExplicitNoCode(t *testing.T) {
+func TestCompletionEvidencePreservesTerminalNonDeliverableNoBranchWork(t *testing.T) {
 	repo, targetRefs := setupCompletionEvidenceRepo(t)
 	g := gitpkg.NewGit(repo)
 	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/terminal")
 
-	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", CloseReason: "no-changes: cannot reproduce after verification"}
-	got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
-	if err != nil {
-		t.Fatalf("terminal no-code evidence should be allowed: %v", err)
-	}
-	if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
-		t.Fatalf("assessment = %+v, want terminal no-branch allowance", got)
+	for _, issueType := range []string{"decision", "spike", "milestone"} {
+		issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: issueType, CloseReason: "no-changes: no branch artifact expected"}
+		got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
+		if err != nil {
+			t.Fatalf("terminal %s no-branch work should be allowed: %v", issueType, err)
+		}
+		if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
+			t.Fatalf("assessment = %+v, want terminal no-branch allowance for %s", got, issueType)
+		}
 	}
 }
 
@@ -469,21 +471,27 @@ func TestCompletionEvidenceRejectsGenericNoCodeForImplementationSource(t *testin
 	g := gitpkg.NewGit(repo)
 	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/terminal-task")
 
-	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "task", CloseReason: "no-changes: skipped implementation"}
-	if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
-		t.Fatal("generic no-code evidence should not bypass implementation work")
+	for _, issue := range []*beads.Issue{
+		{ID: "gt-task", Status: "closed", Type: "task", CloseReason: "no-changes: skipped implementation"},
+		{ID: "gt-bug", Status: "closed", Type: "bug", CloseReason: "no-changes: cannot reproduce after verification"},
+		{ID: "gt-default", Status: "closed", CloseReason: "no-changes: nothing to implement"},
+	} {
+		if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
+			t.Fatalf("generic no-code evidence should not bypass implementation work for %s", issue.ID)
+		}
 	}
 }
 
-func TestCompletionEvidenceAllowsAlreadyLandedForImplementationSource(t *testing.T) {
+func TestCompletionEvidenceAllowsStructuredAlreadyLandedForImplementationSource(t *testing.T) {
 	repo, targetRefs := setupCompletionEvidenceRepo(t)
 	g := gitpkg.NewGit(repo)
 	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/already-landed")
 
-	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "task", CloseReason: "already landed in commit abcdef1"}
+	mainSHA := runGitForMQSubmitTest(t, repo, "rev-parse", "origin/main")
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "task", CloseReason: "Merged in gt-wisp\ntarget_branch: main\ncommit_sha: " + mainSHA}
 	got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
 	if err != nil {
-		t.Fatalf("already-landed implementation evidence should be allowed: %v", err)
+		t.Fatalf("structured already-landed implementation evidence should be allowed: %v", err)
 	}
 	if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
 		t.Fatalf("assessment = %+v, want terminal already-landed allowance", got)
@@ -495,7 +503,7 @@ func TestCompletionEvidenceRejectsVagueAlreadyFixedForImplementationSource(t *te
 	g := gitpkg.NewGit(repo)
 	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/vague-already-fixed")
 
-	for _, reason := range []string{"already fixed", "no-changes: already done", "already fixed #4469", "already landed in a commit", "already merged sha", "already merged in previous run", "merged in prior attempt", "already landed in upstream/main"} {
+	for _, reason := range []string{"already fixed", "no-changes: already done", "already fixed #4469", "already fixed in PR #123", "already landed in a commit", "already landed commit abcdef1", "already merged in MR: 456", "already landed https://github.com/gastownhall/gastown/pull/123", "already merged sha", "already merged in previous run", "merged in prior attempt", "already landed in upstream/main"} {
 		issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "bug", CloseReason: reason}
 		if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
 			t.Fatalf("vague terminal evidence %q should not bypass implementation work", reason)
@@ -503,20 +511,20 @@ func TestCompletionEvidenceRejectsVagueAlreadyFixedForImplementationSource(t *te
 	}
 }
 
-func TestCompletionEvidenceAllowsConcreteAlreadyLandedArtifacts(t *testing.T) {
+func TestCompletionEvidenceRejectsUnreachableStructuredAlreadyLanded(t *testing.T) {
 	repo, targetRefs := setupCompletionEvidenceRepo(t)
 	g := gitpkg.NewGit(repo)
-	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/concrete-artifacts")
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/fake-artifact")
+	writeMQSubmitTestFile(t, repo, "fake.txt", "fake\n")
+	runGitForMQSubmitTest(t, repo, "add", "fake.txt")
+	runGitForMQSubmitTest(t, repo, "commit", "-m", "unreachable fake")
+	fakeSHA := runGitForMQSubmitTest(t, repo, "rev-parse", "HEAD")
+	runGitForMQSubmitTest(t, repo, "checkout", "main")
+	runGitForMQSubmitTest(t, repo, "checkout", "-b", "feature/fake-terminal")
 
-	for _, reason := range []string{"already fixed in PR #123", "already merged in MR: 456", "already landed https://github.com/gastownhall/gastown/pull/123", "already landed commit abcdef1"} {
-		issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "bug", CloseReason: reason}
-		got, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone)
-		if err != nil {
-			t.Fatalf("concrete terminal evidence %q should be allowed: %v", reason, err)
-		}
-		if !got.AllowsNoBranchWork || got.NoBranchWorkReason != "source-terminal" {
-			t.Fatalf("assessment = %+v, want terminal artifact allowance for %q", got, reason)
-		}
+	issue := &beads.Issue{ID: "gt-terminal", Status: "closed", Type: "bug", CloseReason: "Merged in gt-wisp\ntarget_branch: main\ncommit_sha: " + fakeSHA}
+	if _, err := assessSourceCompletionEvidence(g, "HEAD", targetRefs, issue.ID, issue, nil, completionEvidenceDone); err == nil {
+		t.Fatal("structured landing metadata with commit outside target should reject")
 	}
 }
 

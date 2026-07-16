@@ -870,14 +870,13 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 		target = resolveDoneTargetBranch(townRoot, rigName, defaultBranch, doneTarget, completionBd, g, issueID, sourceIssue)
 		baseRef = g.CleanBaseRef("origin", defaultBranch, target)
-		if doneHasTerminalNoBranchEvidence(sourceIssue) {
-			completionEvidence = completionEvidenceResult{AllowsNoBranchWork: true, NoBranchWorkReason: "source-terminal"}
-		} else {
-			var evidenceErr error
-			completionEvidence, evidenceErr = assessSourceCompletionEvidence(g, "HEAD", completionTargetRefs(target, baseRef), issueID, sourceIssue, sourceAttachment, completionEvidenceDone)
-			if evidenceErr != nil {
-				return evidenceErr
-			}
+		if fetchErr := refreshMQSubmitTarget(g, baseRef); fetchErr != nil {
+			style.PrintWarning("could not fetch %s before completion evidence check: %v (proceeding with local refs)", baseRef, fetchErr)
+		}
+		var evidenceErr error
+		completionEvidence, evidenceErr = assessSourceCompletionEvidence(g, "HEAD", completionTargetRefs(target, baseRef), issueID, sourceIssue, sourceAttachment, completionEvidenceDone)
+		if evidenceErr != nil {
+			return evidenceErr
 		}
 	}
 
