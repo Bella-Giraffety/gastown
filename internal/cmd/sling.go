@@ -1021,12 +1021,6 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		return fmt.Errorf("serializing hook write for %s: %w", targetAgent, assigneeLockErr)
 	}
 	defer assigneeUnlock()
-	if isPolecatTarget(targetAgent) && !hookSetAtomically {
-		if err := verifyPolecatTargetAcceptsHook(targetAgent, townRoot); err != nil {
-			rollbackSpawnedPolecat("Target lifecycle changed before hook")
-			return err
-		}
-	}
 	if attachedMoleculeID == "" && (slingNoMerge || slingReviewOnly) {
 		if err := storeFieldsInBeadFromTownRoot(townRoot, beadID, fieldUpdates); err != nil {
 			if newPolecatInfo != nil {
@@ -1038,9 +1032,17 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		}
 	}
 	hookDir := beads.ResolveHookDir(townRoot, beadID, hookWorkDir)
-	if err := hookBeadWithRetryFn(beadID, targetAgent, hookDir); err != nil {
+	var hookErr error
+	if isPolecatTarget(targetAgent) && !hookSetAtomically {
+		hookErr = withPolecatTargetHookLock(targetAgent, townRoot, func() error {
+			return hookBeadWithRetryFn(beadID, targetAgent, hookDir)
+		})
+	} else {
+		hookErr = hookBeadWithRetryFn(beadID, targetAgent, hookDir)
+	}
+	if hookErr != nil {
 		rollbackSpawnedPolecat("Hook failed")
-		return err
+		return hookErr
 	}
 
 	// Emit a propulsion signal if the target is the mayor.

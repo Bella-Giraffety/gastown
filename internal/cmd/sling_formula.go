@@ -498,18 +498,27 @@ func runSlingFormula(ctx context.Context, args []string) (err error) {
 	telemetry.RecordMolWisp(ctx, formulaName, wispRootID, "", nil)
 
 	fmt.Printf("%s Wisp created: %s\n", style.Bold.Render("✓"), wispRootID)
-	if err := validateStandaloneFormulaPolecatTarget(target, targetAgent, townRoot, resolved.NewPolecatInfo); err != nil {
-		cleanupErr := closeFormulaWisp(wispRootID, formulaWorkDir, "burned: target polecat not hookable")
-		if cleanupErr != nil {
-			return errors.Join(err, cleanupErr)
-		}
-		return err
-	}
 
 	// Step 3: Hook the wisp bead with retry and verification.
 	// See: https://github.com/steveyegge/gastown/issues/148.
 	hookDir := beads.ResolveHookDir(townRoot, wispRootID, "")
-	if err := hookBeadWithRetryFn(wispRootID, targetAgent, hookDir); err != nil {
+	hookAttempted := false
+	hookWisp := func() error {
+		hookAttempted = true
+		return hookBeadWithRetryFn(wispRootID, targetAgent, hookDir)
+	}
+	if resolved.NewPolecatInfo == nil && isPolecatTarget(targetAgent) {
+		err = withPolecatTargetHookLock(targetAgent, townRoot, hookWisp)
+	} else {
+		err = hookWisp()
+	}
+	if err != nil {
+		if resolved.NewPolecatInfo == nil && isPolecatTarget(targetAgent) && !hookAttempted {
+			cleanupErr := closeFormulaWisp(wispRootID, formulaWorkDir, "burned: target polecat not hookable")
+			if cleanupErr != nil {
+				return errors.Join(err, cleanupErr)
+			}
+		}
 		return err
 	}
 	fmt.Printf("%s Attached to hook (status=hooked)\n", style.Bold.Render("✓"))

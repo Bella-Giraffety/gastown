@@ -338,6 +338,72 @@ exit 0
 	}
 }
 
+func TestWithHookTargetUsesPolecatLifecycleLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+	show)
+		printf '%s\n' '[{"id":"gt-gastown-polecat-toast","title":"Polecat toast","issue_type":"agent","status":"open","agent_state":"idle","labels":["gt:agent"],"description":"role_type: polecat\\nrig: gastown\\nagent_state: idle\\nhook_bead: null\\ncleanup_status: clean\\nactive_mr: null"}]'
+    ;;
+  list)
+    printf '[]\n'
+    ;;
+  version|update)
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	rigPath := t.TempDir()
+	mgr := NewManager(&rig.Rig{Name: "gastown", Path: rigPath}, git.NewGit(rigPath), nil)
+	name := "toast"
+	if err := os.MkdirAll(mgr.clonePath(name), 0755); err != nil {
+		t.Fatal(err)
+	}
+	fl, err := mgr.lockPolecat(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callbackRan := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- mgr.WithHookTarget(name, func() error {
+			close(callbackRan)
+			return nil
+		})
+	}()
+
+	select {
+	case <-callbackRan:
+		t.Fatal("hook callback ran while lifecycle lock was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := fl.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-callbackRan:
+	case err := <-done:
+		t.Fatalf("WithHookTarget returned before callback: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("hook callback did not run after lifecycle lock release")
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("WithHookTarget: %v", err)
+	}
+}
+
 func TestAgentStateRemovingReservesPoolAfterFailedRemoval(t *testing.T) {
 	rigPath := t.TempDir()
 	mgr := &Manager{

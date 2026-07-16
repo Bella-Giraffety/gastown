@@ -151,6 +151,61 @@ exit 0
 	}
 }
 
+func TestNukeMissingPolecatConvergesRegistry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX bd stub")
+	}
+	rigPath := t.TempDir()
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "bd.log")
+	bdScript := `#!/bin/sh
+echo "$*" >> "` + logPath + `"
+cmd=""
+last=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="${cmd:-$arg}"; last="$arg" ;; esac
+done
+case "$cmd" in
+  show)
+    case "$last" in
+      gt-work)
+        printf '[{"id":"gt-work","status":"hooked","issue_type":"bug","assignee":"gastown/polecats/toast"}]\n'
+        ;;
+      *)
+        printf '%s\n' '[{"id":"gt-gastown-polecat-toast","title":"Polecat toast","issue_type":"agent","status":"open","labels":["gt:agent"],"description":"role_type: polecat\\nrig: gastown\\nagent_state: working\\nhook_bead: gt-work\\ncleanup_status: clean\\nactive_mr: null"}]'
+        ;;
+    esac
+    ;;
+  list)
+    printf '[{"id":"gt-work","status":"hooked","issue_type":"bug","assignee":"gastown/polecats/toast"}]\n'
+    ;;
+  update|version)
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	r := &rig.Rig{Name: "gastown", Path: rigPath}
+	mgr := polecat.NewManager(r, git.NewGit(rigPath), nil)
+	if err := nukePolecatFullWithOptions("toast", "gastown", mgr, r, nukePolecatOptions{Force: true}); err != nil {
+		t.Fatalf("nukePolecatFullWithOptions: %v", err)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	log := string(logBytes)
+	for _, want := range []string{"update gt-work", "--status=open", "--assignee=", "update gt-gastown-polecat-toast"} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("bd log missing %q:\n%s", want, log)
+		}
+	}
+}
+
 func TestApplyMQCheck(t *testing.T) {
 	tests := []struct {
 		name           string

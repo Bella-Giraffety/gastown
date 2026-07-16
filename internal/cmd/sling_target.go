@@ -365,10 +365,20 @@ func verifyResolvedExplicitPolecatWorktree(agentID, workDir string) error {
 }
 
 func verifyPolecatTargetAcceptsHook(agentID, townRoot string) error {
+	return withPolecatTargetHookLock(agentID, townRoot, nil)
+}
+
+func withPolecatTargetHookLock(agentID, townRoot string, fn func() error) error {
 	if os.Getenv("GT_TEST_SKIP_HOOK_VERIFY") != "" {
+		if fn != nil {
+			return fn()
+		}
 		return nil
 	}
 	if !isPolecatTarget(agentID) {
+		if fn != nil {
+			return fn()
+		}
 		return nil
 	}
 	parts := strings.Split(agentID, "/")
@@ -383,7 +393,7 @@ func verifyPolecatTargetAcceptsHook(agentID, townRoot string) error {
 	}
 	rigName, polecatName := parts[0], parts[2]
 	mgr := polecat.NewManager(&rig.Rig{Name: rigName, Path: filepath.Join(townRoot, rigName)}, git.NewGit(filepath.Join(townRoot, rigName)), tmux.NewTmux())
-	if err := mgr.ValidateHookTarget(polecatName); err != nil {
+	if err := mgr.WithHookTarget(polecatName, fn); err != nil {
 		if errors.Is(err, polecat.ErrPolecatNotFound) {
 			return fmt.Errorf("target polecat %s has no worktree; refusing ghost target", agentID)
 		}

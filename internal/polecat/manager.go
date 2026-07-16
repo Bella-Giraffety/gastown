@@ -1087,6 +1087,32 @@ func (m *Manager) ValidateHookTarget(name string) error {
 	}
 	defer func() { _ = fl.Unlock() }()
 
+	return m.validateHookTargetLocked(name)
+}
+
+// WithHookTarget validates a polecat hook target and runs fn while holding the
+// per-polecat lifecycle lock. Hook mutation must use this path so removal cannot
+// delete/reset the slot between validation and assignment.
+func (m *Manager) WithHookTarget(name string, fn func() error) error {
+	if err := validateExactPolecatName(name); err != nil {
+		return err
+	}
+	fl, err := m.lockPolecat(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	if err := m.validateHookTargetLocked(name); err != nil {
+		return err
+	}
+	if fn != nil {
+		return fn()
+	}
+	return nil
+}
+
+func (m *Manager) validateHookTargetLocked(name string) error {
 	if !m.exists(name) {
 		return ErrPolecatNotFound
 	}
