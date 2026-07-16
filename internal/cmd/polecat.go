@@ -1873,6 +1873,9 @@ func nukePolecatFullWithOptions(polecatName, rigName string, mgr *polecat.Manage
 	issueToCleanup := expectation.Issue
 	if err != nil {
 		if errors.Is(err, polecat.ErrPolecatNotFound) {
+			if convergeErr := mgr.ConvergeMissingPolecat(polecatName, "polecat missing during nuke"); convergeErr != nil {
+				return fmt.Errorf("converging missing polecat %s/%s: %w", rigName, polecatName, convergeErr)
+			}
 			fmt.Printf("  %s worktree already gone\n", style.Dim.Render("○"))
 		} else {
 			return fmt.Errorf("worktree removal failed: %w", err)

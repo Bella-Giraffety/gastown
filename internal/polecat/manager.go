@@ -1074,6 +1074,76 @@ func (m *Manager) RemoveCurrentWithOptions(name string, force, nuclear, selfNuke
 	return expectation, nil
 }
 
+// ValidateHookTarget proves a polecat slot can accept a new hook while holding
+// the same per-polecat lifecycle lock used by removal. This prevents hook writes
+// from racing between a removal safety check and agent_state=removing.
+func (m *Manager) ValidateHookTarget(name string) error {
+	if err := validateExactPolecatName(name); err != nil {
+		return err
+	}
+	fl, err := m.lockPolecat(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	if !m.exists(name) {
+		return ErrPolecatNotFound
+	}
+	issue, fields, err := m.agentBeads().GetAgentBead(m.agentBeadID(name))
+	if err != nil {
+		return fmt.Errorf("checking agent bead: %w", err)
+	}
+	if issue == nil || fields == nil {
+		return fmt.Errorf("%w: missing agent bead", ErrPolecatNeedsRecovery)
+	}
+	state := beads.AgentState(strings.TrimSpace(fields.AgentState))
+	if state == "" || state == beads.AgentStateNuked {
+		return fmt.Errorf("%w: agent_state=%s", ErrPolecatNeedsRecovery, state)
+	}
+	if blocker := agentIssueFieldsReuseBlocker(issue, fields); blocker != "" {
+		return fmt.Errorf("%w: %s", ErrPolecatNeedsRecovery, blocker)
+	}
+	active, err := m.activeWorkBeads(name)
+	if err != nil {
+		return fmt.Errorf("checking active work: %w", err)
+	}
+	if len(active) > 0 {
+		return fmt.Errorf("%w: already has active work assigned: %s", ErrPolecatNeedsRecovery, active[0].ID)
+	}
+	return nil
+}
+
+// ConvergeMissingPolecat clears registry and hook ownership for a polecat whose
+// worktree is already gone. It is the missing-worktree side of the same removal
+// lifecycle: active work is unassigned and the agent bead is reset before the
+// name is released for reuse.
+func (m *Manager) ConvergeMissingPolecat(name, reason string) error {
+	if err := validateExactPolecatName(name); err != nil {
+		return err
+	}
+	fl, err := m.lockPolecat(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	if m.exists(name) {
+		return nil
+	}
+	workToUnassign, err := m.activeWorkBeads(name)
+	if err != nil {
+		return fmt.Errorf("capturing active work for %s: %w", name, err)
+	}
+	m.unassignCapturedWorkBeads(name, workToUnassign)
+	if err := m.resetAgentBeadForReuse(m.agentBeadID(name), reason); err != nil && !errors.Is(err, beads.ErrNotFound) {
+		return fmt.Errorf("resetting agent bead for missing polecat %s: %w", name, err)
+	}
+	m.namePool.Release(name)
+	_ = m.namePool.Save()
+	return nil
+}
+
 func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke bool, expectation RemoveExpectation) error {
 	if !m.exists(name) {
 		return ErrPolecatNotFound

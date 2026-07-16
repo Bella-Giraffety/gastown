@@ -284,6 +284,60 @@ exit 0
 	}
 }
 
+func TestConvergeMissingPolecatUnassignsWorkAndResetsAgent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "bd.log")
+	script := `#!/bin/sh
+echo "$*" >> "` + logPath + `"
+cmd=""
+last=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="${cmd:-$arg}"; last="$arg" ;; esac
+done
+case "$cmd" in
+  show)
+    case "$last" in
+      gt-work)
+		printf '[{"id":"gt-work","status":"hooked","issue_type":"bug","assignee":"gastown/polecats/toast"}]\n'
+		;;
+	  *)
+		printf '%s\n' '[{"id":"gt-gastown-polecat-toast","title":"Polecat toast","issue_type":"agent","status":"open","labels":["gt:agent"],"description":"role_type: polecat\\nrig: gastown\\nagent_state: working\\nhook_bead: gt-work\\ncleanup_status: clean\\nactive_mr: null"}]'
+		;;
+	esac
+    ;;
+  list)
+    printf '[{"id":"gt-work","status":"hooked","issue_type":"bug","assignee":"gastown/polecats/toast"}]\n'
+    ;;
+  update|version)
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	rigPath := t.TempDir()
+	mgr := NewManager(&rig.Rig{Name: "gastown", Path: rigPath}, git.NewGit(rigPath), nil)
+	if err := mgr.ConvergeMissingPolecat("toast", "test convergence"); err != nil {
+		t.Fatalf("ConvergeMissingPolecat: %v", err)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	log := string(logBytes)
+	for _, want := range []string{"update gt-work", "--status=open", "--assignee=", "update gt-gastown-polecat-toast"} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("bd log missing %q:\n%s", want, log)
+		}
+	}
+}
+
 func TestAgentStateRemovingReservesPoolAfterFailedRemoval(t *testing.T) {
 	rigPath := t.TempDir()
 	mgr := &Manager{

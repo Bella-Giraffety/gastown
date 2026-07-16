@@ -1603,6 +1603,9 @@ func TestVerifyPolecatTargetAcceptsHookRejectsRemoving(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "mayor", "rig"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "polecats", "toast", "gastown"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	binDir := filepath.Join(townRoot, "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
 		t.Fatal(err)
@@ -1729,6 +1732,9 @@ func TestVerifyPolecatTargetAcceptsHookRejectsDirectActiveWork(t *testing.T) {
 	}
 	townRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "mayor", "rig"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(townRoot, "gastown", "polecats", "toast", "gastown"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	binDir := filepath.Join(townRoot, "bin")

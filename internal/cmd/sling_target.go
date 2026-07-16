@@ -1,14 +1,16 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/polecat"
+	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/workspace"
@@ -380,29 +382,15 @@ func verifyPolecatTargetAcceptsHook(agentID, townRoot string) error {
 		return fmt.Errorf("cannot verify lifecycle state for %s: town root not found", agentID)
 	}
 	rigName, polecatName := parts[0], parts[2]
-	prefix := beads.GetPrefixForRig(townRoot, rigName)
-	agentBeadID := beads.PolecatBeadIDWithPrefix(prefix, rigName, polecatName)
-	rigBeads := beads.New(filepath.Join(townRoot, rigName, "mayor", "rig"))
-	issue, fields, err := rigBeads.ForAgentBead().GetAgentBead(agentBeadID)
-	if err != nil {
-		return fmt.Errorf("checking lifecycle state for %s: %w", agentID, err)
-	}
-	if issue == nil || fields == nil {
-		return fmt.Errorf("target polecat %s has no agent bead; refusing ghost target", agentID)
-	}
-	state := beads.AgentState(strings.TrimSpace(fields.AgentState))
-	if state == "" || state == beads.AgentStateNuked {
-		return fmt.Errorf("target polecat %s is not hookable: agent_state=%s", agentID, state)
-	}
-	if blocker := polecat.AgentIssueFieldsReuseBlocker(issue, fields); blocker != "" {
-		return fmt.Errorf("target polecat %s is not hookable: %s", agentID, blocker)
-	}
-	assigned, err := rigBeads.ListByAssignee(agentID)
-	if err != nil {
-		return fmt.Errorf("checking active work for %s: %w", agentID, err)
-	}
-	if active := polecat.ActiveWorkBeadsForCleanup(assigned); len(active) > 0 {
-		return fmt.Errorf("target polecat %s already has active work assigned: %s", agentID, active[0].ID)
+	mgr := polecat.NewManager(&rig.Rig{Name: rigName, Path: filepath.Join(townRoot, rigName)}, git.NewGit(filepath.Join(townRoot, rigName)), tmux.NewTmux())
+	if err := mgr.ValidateHookTarget(polecatName); err != nil {
+		if errors.Is(err, polecat.ErrPolecatNotFound) {
+			return fmt.Errorf("target polecat %s has no worktree; refusing ghost target", agentID)
+		}
+		if strings.Contains(err.Error(), "missing agent bead") {
+			return fmt.Errorf("target polecat %s has no agent bead; refusing ghost target", agentID)
+		}
+		return fmt.Errorf("target polecat %s is not hookable: %w", agentID, err)
 	}
 	return nil
 }
