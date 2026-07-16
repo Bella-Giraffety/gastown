@@ -127,16 +127,8 @@ func TestIsSessionHeartbeatStale_Old(t *testing.T) {
 	townRoot := t.TempDir()
 
 	// Write a heartbeat with an old timestamp
-	dir := filepath.Join(townRoot, ".runtime", "heartbeats")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
 	oldTime := time.Now().Add(-10 * time.Minute).UTC()
-	data := []byte(`{"timestamp":"` + oldTime.Format(time.RFC3339Nano) + `"}`)
-	if err := os.WriteFile(filepath.Join(dir, "gt-test-stale.json"), data, 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeSessionHeartbeatAt(t, townRoot, "gt-test-stale", oldTime, "")
 
 	stale, exists := IsSessionHeartbeatStale(townRoot, "gt-test-stale")
 	if !exists {
@@ -144,6 +136,42 @@ func TestIsSessionHeartbeatStale_Old(t *testing.T) {
 	}
 	if !stale {
 		t.Error("expected stale=true for 10-minute-old heartbeat")
+	}
+}
+
+func TestSessionHeartbeatStaleThresholdFor_Configured(t *testing.T) {
+	townRoot := t.TempDir()
+
+	if got := SessionHeartbeatStaleThresholdFor(townRoot); got != SessionHeartbeatStaleThreshold {
+		t.Fatalf("default threshold = %v, want %v", got, SessionHeartbeatStaleThreshold)
+	}
+
+	writePolecatHeartbeatThreshold(t, townRoot, "10m")
+	if got := SessionHeartbeatStaleThresholdFor(townRoot); got != 10*time.Minute {
+		t.Fatalf("configured threshold = %v, want 10m", got)
+	}
+}
+
+func TestIsSessionHeartbeatStale_HonorsConfiguredThreshold(t *testing.T) {
+	townRoot := t.TempDir()
+	writePolecatHeartbeatThreshold(t, townRoot, "10m")
+
+	writeSessionHeartbeatAt(t, townRoot, "gt-test-config-fresh", time.Now().Add(-5*time.Minute), HeartbeatWorking)
+	stale, exists := IsSessionHeartbeatStale(townRoot, "gt-test-config-fresh")
+	if !exists {
+		t.Fatal("expected heartbeat to exist")
+	}
+	if stale {
+		t.Fatal("5-minute-old heartbeat should be fresh with 10m threshold")
+	}
+
+	writeSessionHeartbeatAt(t, townRoot, "gt-test-config-stale", time.Now().Add(-15*time.Minute), HeartbeatWorking)
+	stale, exists = IsSessionHeartbeatStale(townRoot, "gt-test-config-stale")
+	if !exists {
+		t.Fatal("expected heartbeat to exist")
+	}
+	if !stale {
+		t.Fatal("15-minute-old heartbeat should be stale with 10m threshold")
 	}
 }
 
@@ -189,18 +217,35 @@ func TestIsSessionProcessDead_HeartbeatFresh(t *testing.T) {
 
 func writeStaleSessionHeartbeat(t *testing.T, townRoot, sessionName string) {
 	t.Helper()
+	writeSessionHeartbeatAt(t, townRoot, sessionName, time.Now().Add(-10*time.Minute), HeartbeatWorking)
+}
+
+func writeSessionHeartbeatAt(t *testing.T, townRoot, sessionName string, timestamp time.Time, state HeartbeatState) {
+	t.Helper()
 	dir := filepath.Join(townRoot, ".runtime", "heartbeats")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	data, err := json.Marshal(SessionHeartbeat{
-		Timestamp: time.Now().Add(-10 * time.Minute).UTC(),
-		State:     HeartbeatWorking,
+		Timestamp: timestamp.UTC(),
+		State:     state,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, sessionName+".json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writePolecatHeartbeatThreshold(t *testing.T, townRoot, threshold string) {
+	t.Helper()
+	settingsDir := filepath.Join(townRoot, "settings")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"type":"town-settings","version":1,"operational":{"polecat":{"heartbeat_stale_threshold":"` + threshold + `"}}}`)
+	if err := os.WriteFile(filepath.Join(settingsDir, "config.json"), data, 0644); err != nil {
 		t.Fatal(err)
 	}
 }
