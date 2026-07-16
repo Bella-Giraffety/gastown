@@ -205,6 +205,13 @@ func checkPolecatSafety(target polecatTarget) *SafetyCheckResult {
 		}
 	}
 
+	assignee := fmt.Sprintf("%s/polecats/%s", target.rigName, target.polecatName)
+	if assigned, err := bd.ListByAssignee(assignee); err != nil {
+		result.Reasons = append(result.Reasons, fmt.Sprintf("assigned_work lookup_error: %v", err))
+	} else if active := polecat.ActiveWorkBeadsForCleanup(assigned); len(active) > 0 {
+		result.Reasons = append(result.Reasons, fmt.Sprintf("assigned_work=%s status=%s", active[0].ID, active[0].Status))
+	}
+
 	// Check 2: Open MR beads for this branch
 	if infoErr == nil && polecatInfo != nil && polecatInfo.Branch != "" {
 		mr, mrErr := bd.FindMRForBranch(polecatInfo.Branch)

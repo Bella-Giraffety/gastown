@@ -1021,6 +1021,12 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		return fmt.Errorf("serializing hook write for %s: %w", targetAgent, assigneeLockErr)
 	}
 	defer assigneeUnlock()
+	if isPolecatTarget(targetAgent) && !hookSetAtomically {
+		if err := verifyPolecatTargetAcceptsHook(targetAgent, townRoot); err != nil {
+			rollbackSpawnedPolecat("Target lifecycle changed before hook")
+			return err
+		}
+	}
 	if attachedMoleculeID == "" && (slingNoMerge || slingReviewOnly) {
 		if err := storeFieldsInBeadFromTownRoot(townRoot, beadID, fieldUpdates); err != nil {
 			if newPolecatInfo != nil {

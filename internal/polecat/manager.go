@@ -1120,6 +1120,11 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 		if activeMR, blocker := m.ActiveMRRemovalBlocker(name); blocker != "" {
 			return fmt.Errorf("cannot remove polecat %s: MR %s is still pending in merge queue (%s)\nRefinery will process the MR and clean up after merge\nUse --force to override (risks data loss)", name, activeMR, blocker)
 		}
+		if active, err := m.activeWorkBeads(name); err != nil {
+			return fmt.Errorf("checking active work for %s: %w", name, err)
+		} else if len(active) > 0 {
+			return fmt.Errorf("%w: %s has active work assigned: %s", ErrPolecatNeedsRecovery, name, active[0].ID)
+		}
 	}
 
 	agentID := m.agentBeadID(name)
