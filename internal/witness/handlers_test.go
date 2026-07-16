@@ -1425,6 +1425,26 @@ func TestActiveAssignedWorkBeadFindsDirectHook(t *testing.T) {
 	}
 }
 
+func TestActiveAssignedWorkBeadFindsOpenWork(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 || args[0] != "list" {
+				return "[]", nil
+			}
+			if strings.Contains(strings.Join(args, " "), "--status=open") {
+				return `[{"id":"gt-open","assignee":"testrig/polecats/alpha","issue_type":"task","labels":[]}]`, nil
+			}
+			return "[]", nil
+		},
+		func(args []string) error { return nil },
+	)
+
+	got := activeAssignedWorkBead(bd, t.TempDir(), "testrig", "alpha")
+	if got != "gt-open" {
+		t.Fatalf("activeAssignedWorkBead = %q, want gt-open", got)
+	}
+}
+
 func TestDetectZombieDeadSessionUsesDirectAssignedWorkWhenAgentHookEmpty(t *testing.T) {
 	bd, _ := mockBd(
 		func(args []string) (string, error) {
@@ -1468,6 +1488,51 @@ func TestDetectZombieDeadSessionUsesDirectAssignedWorkWhenAgentHookEmpty(t *test
 	}
 	if zombie.Classification != ZombieSessionDeadActive {
 		t.Fatalf("Classification = %q, want %q", zombie.Classification, ZombieSessionDeadActive)
+	}
+}
+
+func TestDetectZombieDeadSessionDirectWorkOverridesStaleHook(t *testing.T) {
+	bd, _ := mockBd(
+		func(args []string) (string, error) {
+			if len(args) == 0 {
+				return "", nil
+			}
+			switch args[0] {
+			case "list":
+				if strings.Contains(strings.Join(args, " "), "--status=hooked") {
+					return `[{"id":"gt-work","assignee":"testrig/polecats/alpha","issue_type":"task","labels":[]}]`, nil
+				}
+				return "[]", nil
+			case "show":
+				if len(args) > 1 && args[1] == "gt-old" {
+					return `[{"id":"gt-old","status":"closed"}]`, nil
+				}
+				return `[{"id":"gt-work","status":"open"}]`, nil
+			default:
+				return "{}", nil
+			}
+		},
+		func(args []string) error { return nil },
+	)
+
+	zombie, ok := detectZombieDeadSession(
+		bd,
+		t.TempDir(),
+		t.TempDir(),
+		"testrig",
+		"alpha",
+		"gt-testrig-alpha",
+		tmux.NewTmux(),
+		nil,
+		time.Now(),
+		&config.WitnessThresholds{},
+		&agentBeadSnapshot{AgentState: string(beads.AgentStateDone), HookBead: "gt-old", Fields: &beads.AgentFields{CleanupStatus: "clean"}},
+	)
+	if !ok {
+		t.Fatal("direct assigned work should prevent closed stale hook from suppressing zombie handling")
+	}
+	if zombie.HookBead != "gt-work" {
+		t.Fatalf("HookBead = %q, want direct assigned gt-work", zombie.HookBead)
 	}
 }
 

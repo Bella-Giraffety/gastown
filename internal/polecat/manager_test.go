@@ -233,6 +233,57 @@ func TestRemoveWithExpectationRequiresGeneratedBranchBeforeDelete(t *testing.T) 
 	}
 }
 
+func TestRemoveWithExpectationNonForceBlocksActiveAssignedWork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses Unix shell script mock for bd")
+	}
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+  show)
+    printf '[]\n'
+    ;;
+  list)
+    printf '[{"id":"gt-work","status":"hooked","issue_type":"bug","assignee":"gastown/polecats/toast"}]\n'
+    ;;
+  version|update)
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+		t.Fatalf("write mock bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	rigPath := t.TempDir()
+	mgr := NewManager(&rig.Rig{Name: "gastown", Path: rigPath}, git.NewGit(rigPath), nil)
+	name := "toast"
+	clonePath := mgr.clonePath(name)
+	if err := os.MkdirAll(clonePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(mgr.polecatDir(name), "active-work.txt")
+	if err := os.WriteFile(sentinel, []byte("preserve"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := mgr.RemoveWithExpectation(name, false, true, false, RemoveExpectation{})
+	if !errors.Is(err, ErrPolecatNeedsRecovery) {
+		t.Fatalf("RemoveWithExpectation error = %v, want ErrPolecatNeedsRecovery", err)
+	}
+	if !strings.Contains(err.Error(), "active work assigned: gt-work") {
+		t.Fatalf("RemoveWithExpectation error = %v, want active assigned work blocker", err)
+	}
+	if _, statErr := os.Stat(sentinel); statErr != nil {
+		t.Fatalf("active worktree marker was deleted: %v", statErr)
+	}
+}
+
 func TestAgentStateRemovingReservesPoolAfterFailedRemoval(t *testing.T) {
 	rigPath := t.TempDir()
 	mgr := &Manager{

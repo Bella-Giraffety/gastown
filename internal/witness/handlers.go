@@ -1716,7 +1716,9 @@ func detectZombieLiveSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 		snapState, snapHook = snap.AgentState, snap.HookBead
 	}
 	directWork := activeAssignedWorkBead(bd, workDir, rigName, polecatName)
-	if snapHook == "" {
+	if directWork != "" {
+		snapHook = directWork
+	} else if snapHook == "" {
 		snapHook = directWork
 	}
 
@@ -1949,7 +1951,9 @@ func detectZombieDeadSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 		snapState, snapHook = snap.AgentState, snap.HookBead
 	}
 	directWork := activeAssignedWorkBead(bd, workDir, rigName, polecatName)
-	if snapHook == "" {
+	if directWork != "" {
+		snapHook = directWork
+	} else if snapHook == "" {
 		snapHook = directWork
 	}
 
@@ -2089,7 +2093,7 @@ func isZombieState(agentState beads.AgentState, hookBead string) bool {
 
 func activeAssignedWorkBead(bd *BdCli, workDir, rigName, polecatName string) string {
 	assignee := fmt.Sprintf("%s/polecats/%s", rigName, polecatName)
-	for _, status := range []string{"hooked", "in_progress"} {
+	for _, status := range []string{"hooked", "in_progress", "open"} {
 		output, err := bd.Exec(workDir, "list", "--status="+status, "--json", "--limit=0")
 		if err != nil || output == "" {
 			continue
@@ -2103,15 +2107,15 @@ func activeAssignedWorkBead(bd *BdCli, workDir, rigName, polecatName string) str
 		if err := json.Unmarshal([]byte(output), &issues); err != nil {
 			continue
 		}
+		candidates := make([]*beads.Issue, 0, len(issues))
 		for _, issue := range issues {
 			if issue.Assignee != assignee {
 				continue
 			}
-			candidate := &beads.Issue{ID: issue.ID, Type: issue.Type, Labels: issue.Labels, Status: status, Assignee: issue.Assignee}
-			if beads.IsAgentBead(candidate) || beads.IsProtectedBead(candidate) {
-				continue
-			}
-			return issue.ID
+			candidates = append(candidates, &beads.Issue{ID: issue.ID, Type: issue.Type, Labels: issue.Labels, Status: status, Assignee: issue.Assignee})
+		}
+		if active := polecat.ActiveWorkBeadsForCleanup(candidates); len(active) > 0 {
+			return active[0].ID
 		}
 	}
 	return ""

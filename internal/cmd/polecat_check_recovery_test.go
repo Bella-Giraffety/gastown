@@ -6,11 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/polecat"
+	"github.com/steveyegge/gastown/internal/rig"
 )
 
 // fakeMRFinder is a test stub for the mrFinder interface used by applyMQCheck.
@@ -102,6 +105,49 @@ func TestCheckNukeActiveMRSafety(t *testing.T) {
 	err = checkNukeActiveMRSafety(lookupErrorChecker, "toast", "gastown", false)
 	if err == nil || !strings.Contains(err.Error(), "agent_lookup_error") {
 		t.Fatalf("lookup-error check = %v, want fail-closed agent_lookup_error", err)
+	}
+}
+
+func TestCheckPolecatSafetyReportsAssignedWork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX bd stub")
+	}
+	rigPath := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(rigPath, "polecats", "toast", "gastown"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	bdScript := `#!/bin/sh
+cmd=""
+for arg in "$@"; do
+  case "$arg" in --*) ;; *) cmd="$arg"; break ;; esac
+done
+case "$cmd" in
+  show)
+    printf '[{"id":"gt-gastown-polecat-toast","title":"Polecat toast","issue_type":"agent","status":"open","labels":["gt:agent"],"description":"role_type: polecat\nrig: gastown\nagent_state: idle\nhook_bead: null\ncleanup_status: clean\nactive_mr: null\nbranch: polecat/toast/gt-work+1"}]\n'
+    ;;
+  list)
+    printf '[{"id":"gt-work","status":"hooked","issue_type":"bug","assignee":"gastown/polecats/toast"}]\n'
+    ;;
+  version|config|update)
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	r := &rig.Rig{Name: "gastown", Path: rigPath}
+	mgr := polecat.NewManager(r, git.NewGit(rigPath), nil)
+	result := checkPolecatSafety(polecatTarget{rigName: "gastown", polecatName: "toast", mgr: mgr, r: r})
+	if !result.Blocked {
+		t.Fatal("checkPolecatSafety should block direct assigned work")
+	}
+	joined := strings.Join(result.Reasons, "\n")
+	if !strings.Contains(joined, "assigned_work=gt-work status=hooked") {
+		t.Fatalf("reasons = %q, want assigned_work blocker", joined)
 	}
 }
 

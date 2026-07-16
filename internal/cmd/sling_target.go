@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -314,6 +315,11 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 	if requestedAgentID != "" && !strings.EqualFold(agentID, requestedAgentID) {
 		return nil, fmt.Errorf("explicit target requested %s but resolved %s", requestedAgentID, agentID)
 	}
+	if requestedAgentID != "" {
+		if err := verifyResolvedExplicitPolecatWorktree(requestedAgentID, workDir); err != nil {
+			return nil, err
+		}
+	}
 	if opts.BeadID != "" && isPolecatTarget(agentID) {
 		parts := strings.Split(agentID, "/")
 		if len(parts) >= 3 && parts[1] == "polecats" {
@@ -338,6 +344,22 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 		result.IsSelfSling = true
 	}
 	return result, nil
+}
+
+func verifyResolvedExplicitPolecatWorktree(agentID, workDir string) error {
+	if workDir == "" {
+		return fmt.Errorf("explicit target requested %s but resolved no worktree", agentID)
+	}
+	clonePath := workDir
+	if out, err := exec.Command("git", "-C", workDir, "rev-parse", "--show-toplevel").Output(); err == nil {
+		if top := strings.TrimSpace(string(out)); top != "" {
+			clonePath = top
+		}
+	}
+	if err := verifyWorktreeExists(clonePath); err != nil {
+		return fmt.Errorf("explicit target requested %s but resolved stale session at %s: %w", agentID, workDir, err)
+	}
+	return nil
 }
 
 func verifyPolecatTargetAcceptsHook(agentID, townRoot string) error {

@@ -1709,6 +1709,20 @@ func TestResolveTargetExplicitTargetRejectsResolvedMismatch(t *testing.T) {
 	}
 }
 
+func TestResolveTargetExplicitTargetRejectsStaleResolvedWorktree(t *testing.T) {
+	prevResolve := resolveTargetAgentFn
+	t.Cleanup(func() { resolveTargetAgentFn = prevResolve })
+	missingWorktree := filepath.Join(t.TempDir(), "missing")
+	resolveTargetAgentFn = func(target string) (string, string, string, error) {
+		return "gastown/polecats/toast", "%1", missingWorktree, nil
+	}
+
+	_, err := resolveTarget("gastown/polecats/toast", ResolveTargetOptions{Create: true, NoBoot: true})
+	if err == nil || !strings.Contains(err.Error(), "resolved stale session") {
+		t.Fatalf("resolveTarget error = %v, want stale resolved worktree rejection", err)
+	}
+}
+
 func TestVerifyPolecatTargetAcceptsHookRejectsDirectActiveWork(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses POSIX bd stub")
@@ -2991,7 +3005,7 @@ exit /b 0
 		} else {
 			// Some other error - might be expected in dry-run mode
 			t.Logf("gt sling returned error (may be expected in test): %v", err)
-		}
+		} 
 	}
 }
 
