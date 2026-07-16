@@ -168,7 +168,6 @@ Examples:
 // Post-merge flags
 var mqPostMergeSkipBranchDelete bool
 var mqPostMergeExpectedHead string
-var mqPostMergeMergeCommit string
 
 var mqPostMergeCmd = &cobra.Command{
 	Use:   "post-merge <rig> <mr-id>",
@@ -186,7 +185,6 @@ The branch name is read from the MR bead, so no manual branch argument is needed
 
 Examples:
   gt mq post-merge gastown gt-mr-abc123 --expected-head abc1234
-  gt mq post-merge gastown gt-mr-abc123 --merge-commit def5678
   gt mq post-merge gastown gt-mr-abc123 --expected-head abc1234 --skip-branch-delete`,
 	Args: cobra.ExactArgs(2),
 	RunE: runMQPostMerge,
@@ -339,7 +337,6 @@ func init() {
 	// Post-merge flags
 	mqPostMergeCmd.Flags().BoolVar(&mqPostMergeSkipBranchDelete, "skip-branch-delete", false, "Skip remote branch deletion")
 	mqPostMergeCmd.Flags().StringVar(&mqPostMergeExpectedHead, "expected-head", "", "Expected landed source head SHA (defaults to MR commit_sha)")
-	mqPostMergeCmd.Flags().StringVar(&mqPostMergeMergeCommit, "merge-commit", "", "Verified forge merge commit SHA (defaults to MR merge_commit)")
 
 	// Add subcommands
 	mqCmd.AddCommand(mqSubmitCmd)
@@ -615,7 +612,7 @@ func verifyMQPostMergeProof(rigGit *git.Git, mr *refinery.MergeRequest) (string,
 	}
 	commit, source := selectMQPostMergeProof(mr)
 	if commit == "" {
-		return "", fmt.Errorf("post-merge proof: proof missing for %s (pass --merge-commit/--expected-head or record merge_commit/commit_sha)", mr.ID)
+		return "", fmt.Errorf("post-merge proof: expected head missing for %s (pass --expected-head or record commit_sha)", mr.ID)
 	}
 	if err := rigGit.VerifyRemoteContainsCommit("origin", target, commit); err != nil {
 		return "", fmt.Errorf("post-merge proof (%s): %w", source, err)
@@ -624,16 +621,10 @@ func verifyMQPostMergeProof(rigGit *git.Git, mr *refinery.MergeRequest) (string,
 }
 
 func selectMQPostMergeProof(mr *refinery.MergeRequest) (commit, source string) {
-	if commit = strings.TrimSpace(mqPostMergeMergeCommit); commit != "" {
-		return commit, "--merge-commit"
-	}
 	if commit = strings.TrimSpace(mqPostMergeExpectedHead); commit != "" {
 		return commit, "--expected-head"
 	}
 	if mr != nil {
-		if commit = strings.TrimSpace(mr.MergeCommit); commit != "" {
-			return commit, "merge_commit"
-		}
 		if commit = strings.TrimSpace(mr.CommitSHA); commit != "" {
 			return commit, "commit_sha"
 		}
