@@ -3005,7 +3005,7 @@ exit /b 0
 		} else {
 			// Some other error - might be expected in dry-run mode
 			t.Logf("gt sling returned error (may be expected in test): %v", err)
-		} 
+		}
 	}
 }
 

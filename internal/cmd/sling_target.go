@@ -315,7 +315,7 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 	if requestedAgentID != "" && !strings.EqualFold(agentID, requestedAgentID) {
 		return nil, fmt.Errorf("explicit target requested %s but resolved %s", requestedAgentID, agentID)
 	}
-	if requestedAgentID != "" {
+	if requestedAgentID != "" && opts.Create {
 		if err := verifyResolvedExplicitPolecatWorktree(requestedAgentID, workDir); err != nil {
 			return nil, err
 		}
