@@ -709,6 +709,26 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	if len(args) > 1 {
 		target = args[1]
 	}
+	if !slingDryRun {
+		preflightFormulaName := formulaName
+		preflightVars := append([]string(nil), slingVars...)
+		if targetRig, isRig := IsRigName(target); isRig {
+			if preflightFormulaName == "" && !slingHookRawBead {
+				preflightFormulaName = resolveFormula(slingFormula, false, townRoot, targetRig)
+			}
+			if slingBaseBranch != "" && slingBaseBranch != "main" {
+				preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", slingBaseBranch))
+			}
+			if preflightFormulaName != "" {
+				preflightVars = append(loadRigCommandVars(townRoot, targetRig), preflightVars...)
+			}
+		}
+		if preflightFormulaName != "" {
+			if err := preflightFormulaBond(preflightFormulaName, beadID, info.Title, "", townRoot, preflightVars); err != nil {
+				return err
+			}
+		}
+	}
 	resolved, err := resolveTarget(target, ResolveTargetOptions{
 		DryRun:       slingDryRun,
 		Force:        force,

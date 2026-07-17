@@ -387,10 +387,10 @@ func verifyBeadExists(beadID string) error {
 	return nil
 }
 
-// verifyBeadExistsInTargetRigDatabase checks the target rig's beads database
-// directly instead of following prefix routing. This prevents gt sling from
-// spawning polecats or creating molecule/hook side effects for beads that only
-// resolve from HQ or another rig database.
+// verifyBeadExistsInTargetRigDatabase checks the source bead through the same
+// route-resolved database used by formula, hook, and metadata mutations. This
+// prevents gt sling from spawning polecats for beads that only resolve through a
+// different ambient bd authority.
 func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) error {
 	if beadID == "" {
 		return nil
@@ -406,20 +406,25 @@ func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) err
 	if !ok {
 		return fmt.Errorf("cannot resolve target rig %q beads database for bead %s; refusing to sling before creating hooks or molecule side effects", targetRig, beadID)
 	}
-	targetRigDir := filepath.Dir(targetBeadsDir)
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	sourceBeadsDir := beads.ResolveBeadsDirForID(townBeadsDir, beadID)
+	sourceBeadDir := filepath.Dir(sourceBeadsDir)
+	if !sameCleanPath(sourceBeadsDir, targetBeadsDir) {
+		prefixRig := beads.GetRigNameForPrefix(townRoot, beads.ExtractPrefix(beadID))
+		if prefixRig != "" && prefixRig != targetRig {
+			return fmt.Errorf("bead %s resolves to rig %q, not target rig %q; refusing to sling before creating hooks or molecule side effects", beadID, prefixRig, targetRig)
+		}
+	}
 
 	out, err := BdCmd("show", beadID, "--json").
 		AllowStale().
-		Dir(targetRigDir).
-		WithBeadsDir(targetBeadsDir).
+		Dir(sourceBeadDir).
+		WithBeadsDir(sourceBeadsDir).
 		StripBeadsDir().
 		Stderr(io.Discard).
 		Output()
 	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-		if routedBeadExistsForTargetRig(beadID, targetRig, townRoot) {
-			return nil
-		}
-		return fmt.Errorf("bead %s is not present in target rig %q beads database; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
+		return fmt.Errorf("bead %s is not present in routed source beads database for target rig %q; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
 	}
 
 	var infos []beadInfo
@@ -427,49 +432,25 @@ func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) err
 		return fmt.Errorf("checking target rig %q database for bead %s: %w", targetRig, beadID, err)
 	}
 	if len(infos) == 0 {
-		if routedBeadExistsForTargetRig(beadID, targetRig, townRoot) {
-			return nil
-		}
-		return fmt.Errorf("bead %s is not present in target rig %q beads database; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
+		return fmt.Errorf("bead %s is not present in routed source beads database for target rig %q; refusing to sling before creating hooks or molecule side effects", beadID, targetRig)
 	}
 
 	return nil
 }
 
-func routedBeadExistsForTargetRig(beadID, targetRig, townRoot string) bool {
-	prefixRig := beads.GetRigNameForPrefix(townRoot, beads.ExtractPrefix(beadID))
-	if prefixRig != targetRig {
-		return false
-	}
-	out, err := bdShowBeadRoutedCmdFromTownRoot(townRoot, beadID).Stderr(io.Discard).Output()
-	return err == nil && len(strings.TrimSpace(string(out))) > 0
+func sameCleanPath(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func bdShowBeadOutput(beadID string) ([]byte, error) {
-	out, err := bdShowBeadDirectCmd(beadID).Stderr(io.Discard).Output()
-	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
-		return out, nil
-	}
-	routedOut, routedErr := bdShowBeadRoutedCmd(beadID).Stderr(io.Discard).Output()
-	if routedErr == nil && len(strings.TrimSpace(string(routedOut))) > 0 {
-		return routedOut, nil
-	}
-	return out, err
+	return bdShowBeadDirectCmd(beadID).Stderr(io.Discard).Output()
 }
 
 func bdShowBeadOutputFromTownRoot(townRoot, beadID string) ([]byte, error) {
 	if townRoot == "" {
 		return bdShowBeadOutput(beadID)
 	}
-	out, err := bdShowBeadDirectCmdFromTownRoot(townRoot, beadID).Stderr(io.Discard).Output()
-	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
-		return out, nil
-	}
-	routedOut, routedErr := bdShowBeadRoutedCmdFromTownRoot(townRoot, beadID).Stderr(io.Discard).Output()
-	if routedErr == nil && len(strings.TrimSpace(string(routedOut))) > 0 {
-		return routedOut, nil
-	}
-	return out, err
+	return bdShowBeadDirectCmdFromTownRoot(townRoot, beadID).Stderr(io.Discard).Output()
 }
 
 func bdShowBeadDirectCmd(beadID string) *bdCmd {
@@ -484,18 +465,6 @@ func bdShowBeadDirectCmdFromTownRoot(townRoot, beadID string) *bdCmd {
 		AllowStale().
 		Dir(resolveBeadDirFromTownRoot(townRoot, beadID)).
 		StripBeadsDir()
-}
-
-func bdShowBeadRoutedCmd(beadID string) *bdCmd {
-	bdc := BdCmd("show", beadID, "--json").AllowStale()
-	if townRoot, err := workspace.FindFromCwdOrError(); err == nil && townRoot != "" {
-		return bdShowBeadRoutedCmdFromTownRoot(townRoot, beadID)
-	}
-	return bdc.Dir(resolveBeadDir(beadID)).StripBeadsDir()
-}
-
-func bdShowBeadRoutedCmdFromTownRoot(townRoot, beadID string) *bdCmd {
-	return BdCmd("show", beadID, "--json").AllowStale().Dir(townRoot).WithRouting()
 }
 
 // getBeadInfo returns status and assignee for a bead.
@@ -1012,6 +981,36 @@ func formulaBeadBdCmd(beadID, formulaWorkDir, townRoot string, args ...string) *
 	return BdCmd(args...).Dir(formulaWorkDir).WithBeadsDir(targetBeadsDir).WithGTRoot(townRoot)
 }
 
+func formulaBondArgs(bondTarget, beadID string, jsonOutput, dryRun bool, vars []string) []string {
+	bondArgs := []string{"mol", "bond", bondTarget, beadID}
+	if jsonOutput {
+		bondArgs = append(bondArgs, "--json")
+	}
+	if dryRun {
+		bondArgs = append(bondArgs, "--dry-run")
+	}
+	bondArgs = append(bondArgs, "--ephemeral")
+	for _, variable := range vars {
+		bondArgs = append(bondArgs, "--var", variable)
+	}
+	return bondArgs
+}
+
+func preflightFormulaBond(formulaName, beadID, title, hookWorkDir, townRoot string, extraVars []string) error {
+	formulaWorkDir := beads.ResolveHookDir(townRoot, beadID, hookWorkDir)
+	formulaVars := formulaVarsForBead(formulaName, beadID, title, extraVars)
+	bondArgs := formulaBondArgs(formulaName, beadID, false, true, formulaVars)
+	out, err := formulaBeadBdCmd(beadID, formulaWorkDir, townRoot, bondArgs...).
+		CombinedOutput()
+	if err != nil {
+		if len(out) > 0 {
+			return fmt.Errorf("preflighting formula bond %s to bead %s: %w: %s", formulaName, beadID, err, strings.TrimSpace(string(out)))
+		}
+		return fmt.Errorf("preflighting formula bond %s to bead %s: %w", formulaName, beadID, err)
+	}
+	return nil
+}
+
 // InstantiateFormulaOnBead bonds a formula directly to a bead.
 // This is the formula-on-bead pattern used by issue #288 for auto-applying mol-polecat-work.
 //
@@ -1085,10 +1084,7 @@ func formulaVarsForBead(formulaName, beadID, title string, extraVars []string) [
 
 // bondFormulaDirect attaches a formula to a bead through bd's canonical bond path.
 func bondFormulaDirect(bondTarget, formulaName, beadID, formulaWorkDir, townRoot string, vars []string) (string, error) {
-	bondArgs := []string{"mol", "bond", bondTarget, beadID, "--json", "--ephemeral"}
-	for _, variable := range vars {
-		bondArgs = append(bondArgs, "--var", variable)
-	}
+	bondArgs := formulaBondArgs(bondTarget, beadID, true, false, vars)
 	bondOut, err := formulaBeadBdCmd(beadID, formulaWorkDir, townRoot, bondArgs...).
 		WithAutoCommit().
 		Output()
