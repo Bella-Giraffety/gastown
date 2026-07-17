@@ -172,6 +172,21 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		}
 	}
 
+	if params.FormulaName != "" {
+		preflightVars := append(loadRigCommandVars(townRoot, params.RigName), params.Vars...)
+		if params.BaseBranch != "" && params.BaseBranch != "main" {
+			preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", params.BaseBranch))
+		}
+		if err := preflightFormulaBond(params.FormulaName, params.BeadID, info.Title, "", townRoot, preflightVars); err != nil {
+			if params.FormulaFailFatal {
+				result.ErrMsg = fmt.Sprintf("formula preflight failed: %v", err)
+				return result, err
+			}
+			fmt.Printf("  %s Could not preflight formula %s: %v (hooking raw bead)\n", style.Dim.Render("Warning:"), params.FormulaName, err)
+			params.FormulaName = ""
+		}
+	}
+
 	// Send LIFECYCLE:Shutdown to the witness when force-stealing a bead from a
 	// live polecat. Without this, the old polecat becomes a zombie — still running
 	// but unaware it lost its hook. Mirrors the same logic in runSling (sling.go).

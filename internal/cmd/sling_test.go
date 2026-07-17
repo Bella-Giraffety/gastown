@@ -1034,8 +1034,8 @@ func TestSlingRejectsBeadMissingFromTargetRigBeforeSpawn(t *testing.T) {
 		t.Fatalf("mkdir .beads: %v", err)
 	}
 	routes := strings.Join([]string{
-		`{"prefix":"gt-","path":"."}`,
-		`{"prefix":"zz-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
 		"",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
@@ -1056,14 +1056,18 @@ if [ "$cmd" = "--allow-stale" ]; then
   cmd="$1"
   shift || true
 fi
-case "$cmd" in
-  show)
-    if [ "${BEADS_DIR:-}" = "${TARGET_BEADS_DIR}" ]; then
-      # The direct target-rig DB lookup must fail: the bead only resolves from HQ.
-      exit 1
-    fi
-    echo '[{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]'
-    ;;
+	case "$cmd" in
+	  show)
+	    if [ "${BEADS_DIR:-}" = "${TARGET_BEADS_DIR}" ]; then
+	      # The route-resolved DB lookup must fail: the legacy bead only exists in HQ.
+	      exit 1
+	    fi
+	    if [ "${BEADS_DIR:-}" = "${HQ_BEADS_DIR}" ]; then
+	      echo '[{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]'
+	      exit 0
+	    fi
+	    exit 1
+	    ;;
   mol|update|cook)
     echo "unexpected side effect: $cmd" >&2
     exit 2
@@ -1075,10 +1079,13 @@ exit 0
 echo %*>>"%BD_LOG%"
 set "cmd=%1"
 if "%cmd%"=="show" (
-  if "%BEADS_DIR%"=="%TARGET_BEADS_DIR%" exit /b 1
-  echo [{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]
-  exit /b 0
-)
+	  if "%BEADS_DIR%"=="%TARGET_BEADS_DIR%" exit /b 1
+	  if "%BEADS_DIR%"=="%HQ_BEADS_DIR%" (
+	    echo [{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]
+	    exit /b 0
+	  )
+	  exit /b 1
+	)
 if "%cmd%"=="mol" exit /b 2
 if "%cmd%"=="update" exit /b 2
 if "%cmd%"=="cook" exit /b 2
@@ -1088,6 +1095,7 @@ exit /b 0
 
 	t.Setenv("BD_LOG", logPath)
 	t.Setenv("TARGET_BEADS_DIR", filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads"))
+	t.Setenv("HQ_BEADS_DIR", filepath.Join(townRoot, ".beads"))
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv(EnvGTRole, "mayor")
 	t.Setenv("GT_POLECAT", "")
@@ -1124,13 +1132,151 @@ exit /b 0
 
 	err = runSling(nil, []string{"gt-r2405", "gastown"})
 	if err == nil {
-		t.Fatal("expected target-rig database validation error")
+		t.Fatal("expected routed source database validation error")
 	}
-	if !strings.Contains(err.Error(), "not present in target rig") {
+	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if spawnCalled {
 		t.Fatal("spawnPolecatForSling was called before target-rig database validation rejected the bead")
+	}
+}
+
+func TestRunSlingPreflightsFormulaBondBeforeRigSpawn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows: shell stub uses POSIX env logging")
+	}
+	beads.ResetBdAllowStaleCacheForTest()
+	t.Cleanup(beads.ResetBdAllowStaleCacheForTest)
+
+	townRoot := t.TempDir()
+	rigDir := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	for _, dir := range []string{filepath.Join(townRoot, ".beads"), filepath.Join(townRoot, "mayor", "rig"), filepath.Join(rigDir, ".beads")} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	routes := strings.Join([]string{
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+	rigs := &config.RigsConfig{Version: 1, Rigs: map[string]config.RigEntry{
+		"gastown": {GitURL: "git@github.com:test/gastown.git", AddedAt: time.Now().Truncate(time.Second), BeadsConfig: &config.BeadsConfig{Repo: "local", Prefix: "gt"}},
+	}}
+	if err := config.SaveRigsConfig(filepath.Join(townRoot, "mayor", "rigs.json"), rigs); err != nil {
+		t.Fatalf("SaveRigsConfig: %v", err)
+	}
+
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd.log")
+	bdScript := `#!/bin/sh
+set -e
+printf '%s|%s|%s\n' "$*" "${BEADS_DIR:-}" "$(pwd)" >> "${BD_LOG}"
+cmd="$1"
+shift || true
+if [ "$cmd" = "--allow-stale" ]; then
+  cmd="$1"
+  shift || true
+fi
+case "$cmd" in
+  show)
+    if [ "${BEADS_DIR:-}" = "${TARGET_BEADS_DIR}" ]; then
+      echo '[{"title":"Route issue","status":"open","assignee":"","description":""}]'
+      exit 0
+    fi
+    exit 1
+    ;;
+  formula)
+    echo '{"name":"mol-polecat-work"}'
+    exit 0
+    ;;
+  mol)
+    sub="$1"; shift || true
+    if [ "$sub" = "bond" ]; then
+      if [ "${BEADS_DIR:-}" != "${TARGET_BEADS_DIR}" ]; then
+        echo "wrong beads dir: ${BEADS_DIR:-}" >&2
+        exit 2
+      fi
+      if printf '%s\n' "$*" | grep -q -- '--dry-run'; then
+        echo 'Error resolving gt-preflight: no issue found matching gt-preflight' >&2
+        exit 1
+      fi
+      echo 'actual bond should not run before spawn' >&2
+      exit 2
+    fi
+    ;;
+  update|cook|create)
+    echo "unexpected side effect: $cmd" >&2
+    exit 2
+    ;;
+esac
+exit 0
+`
+	_ = writeBDStub(t, binDir, bdScript, "")
+
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("TARGET_BEADS_DIR", filepath.Join(rigDir, ".beads"))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(EnvGTRole, "mayor")
+	t.Setenv("GT_POLECAT", "")
+	t.Setenv("GT_CREW", "")
+	t.Setenv("TMUX_PANE", "")
+	t.Setenv("GT_TEST_NO_NUDGE", "1")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Join(townRoot, "mayor", "rig")); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevNoConvoy := slingNoConvoy
+	prevNoBoot := slingNoBoot
+	prevSpawn := spawnPolecatForSling
+	t.Cleanup(func() {
+		slingNoConvoy = prevNoConvoy
+		slingNoBoot = prevNoBoot
+		spawnPolecatForSling = prevSpawn
+	})
+	slingNoConvoy = true
+	slingNoBoot = true
+
+	spawnCalled := false
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		spawnCalled = true
+		return &SpawnedPolecatInfo{RigName: rigName, PolecatName: "toast", ClonePath: filepath.Join(townRoot, "fake-polecat")}, nil
+	}
+
+	err = runSling(nil, []string{"gt-preflight", "gastown"})
+	if err == nil {
+		t.Fatal("expected formula preflight error")
+	}
+	if !strings.Contains(err.Error(), "preflighting formula bond") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if spawnCalled {
+		t.Fatal("spawnPolecatForSling was called before formula bond preflight failed")
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	logContent := string(logBytes)
+	if !strings.Contains(logContent, "mol bond mol-polecat-work gt-preflight --dry-run --ephemeral") {
+		t.Fatalf("preflight mol bond not found in log:\n%s", logContent)
+	}
+	if strings.Contains(logContent, " update ") || strings.Contains(logContent, " cook ") || strings.Contains(logContent, " create ") {
+		t.Fatalf("unexpected side effect before spawn:\n%s", logContent)
 	}
 }
 
