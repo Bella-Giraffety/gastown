@@ -1403,8 +1403,8 @@ func setupCrossDatabaseSlingGuardTest(t *testing.T) (townRoot, logPath string) {
 		t.Fatalf("mkdir .beads: %v", err)
 	}
 	routes := strings.Join([]string{
-		`{"prefix":"gt-","path":"."}`,
-		`{"prefix":"zz-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
 		"",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
@@ -1425,13 +1425,17 @@ if [ "$cmd" = "--allow-stale" ]; then
   cmd="$1"
   shift || true
 fi
-case "$cmd" in
-  show)
-    if [ "${BEADS_DIR:-}" = "${TARGET_BEADS_DIR}" ]; then
-      exit 1
-    fi
-    echo '[{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]'
-    ;;
+	case "$cmd" in
+	  show)
+	    if [ "${BEADS_DIR:-}" = "${TARGET_BEADS_DIR}" ]; then
+	      exit 1
+	    fi
+	    if [ "${BEADS_DIR:-}" = "${HQ_BEADS_DIR}" ]; then
+	      echo '[{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]'
+	      exit 0
+	    fi
+	    exit 1
+	    ;;
   create|update|cook|mol|close|dep)
     echo "unexpected side effect: $cmd" >&2
     exit 2
@@ -1443,10 +1447,13 @@ exit 0
 echo %*>>"%BD_LOG%"
 set "cmd=%1"
 if "%cmd%"=="show" (
-  if "%BEADS_DIR%"=="%TARGET_BEADS_DIR%" exit /b 1
-  echo [{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]
-  exit /b 0
-)
+	  if "%BEADS_DIR%"=="%TARGET_BEADS_DIR%" exit /b 1
+	  if "%BEADS_DIR%"=="%HQ_BEADS_DIR%" (
+	    echo [{"title":"HQ-owned issue","status":"open","assignee":"","description":""}]
+	    exit /b 0
+	  )
+	  exit /b 1
+	)
 if "%cmd%"=="create" exit /b 2
 if "%cmd%"=="update" exit /b 2
 if "%cmd%"=="cook" exit /b 2
@@ -1459,6 +1466,7 @@ exit /b 0
 
 	t.Setenv("BD_LOG", logPath)
 	t.Setenv("TARGET_BEADS_DIR", filepath.Join(townRoot, "gastown", "mayor", "rig", ".beads"))
+	t.Setenv("HQ_BEADS_DIR", filepath.Join(townRoot, ".beads"))
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv(EnvGTRole, "mayor")
 	t.Setenv("GT_POLECAT", "")
@@ -1484,9 +1492,9 @@ func TestScheduleBeadRejectsMissingTargetRigDatabaseBeforeContext(t *testing.T) 
 
 	err := scheduleBead("gt-r2405", "gastown", ScheduleOptions{})
 	if err == nil {
-		t.Fatal("expected target-rig database validation error")
+		t.Fatal("expected routed source database validation error")
 	}
-	if !strings.Contains(err.Error(), "not present in target rig") {
+	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1524,9 +1532,9 @@ func TestBatchSlingRejectsMissingTargetRigDatabaseBeforeSpawn(t *testing.T) {
 
 	err := runBatchSling([]string{"gt-r2405"}, "gastown", filepath.Join(townRoot, ".beads"))
 	if err == nil {
-		t.Fatal("expected target-rig database validation error")
+		t.Fatal("expected routed source database validation error")
 	}
-	if !strings.Contains(err.Error(), "not present in target rig") {
+	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if spawnCalled {
@@ -1571,9 +1579,9 @@ func TestExecuteSlingRejectsMissingTargetRigDatabaseBeforeSpawn(t *testing.T) {
 		BeadsDir: filepath.Join(townRoot, ".beads"),
 	})
 	if err == nil {
-		t.Fatal("expected target-rig database validation error")
+		t.Fatal("expected routed source database validation error")
 	}
-	if !strings.Contains(err.Error(), "not present in target rig") {
+	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if spawnCalled {
@@ -1597,9 +1605,9 @@ func TestResolveTargetRejectsLivePolecatMissingTargetRigDatabase(t *testing.T) {
 				TownRoot: townRoot,
 			})
 			if err == nil {
-				t.Fatal("expected target-rig database validation error")
+				t.Fatal("expected routed source database validation error")
 			}
-			if !strings.Contains(err.Error(), "not present in target rig") {
+			if !strings.Contains(err.Error(), "not present in routed source beads database") {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
