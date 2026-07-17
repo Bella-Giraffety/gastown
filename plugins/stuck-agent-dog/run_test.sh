@@ -462,6 +462,38 @@ test_rig_list_unavailable_fails_closed() {
   assert_file_contains "$TEST_STATE/output.log" "gt rig list --json unavailable" "rig list unavailable: logged fail-closed"
 }
 
+test_rig_list_unparseable_fails_closed() {
+  setup_case
+  printf 'not-json\n' > "$TEST_STATE/rig_list.json"
+  add_polecat alpha agent-dead
+  add_polecat beta agent-dead
+  add_polecat gamma agent-dead
+  run_script
+
+  assert_file_empty "$TEST_STATE/kill.log" "rig list unparseable: no kills"
+  assert_file_empty "$TEST_STATE/mail.log" "rig list unparseable: no restart mail"
+  assert_file_empty "$TEST_STATE/escalate.log" "rig list unparseable: no escalation"
+  assert_file_empty "$TEST_STATE/health_calls.log" "rig list unparseable: no health checks"
+  assert_file_contains "$TEST_STATE/output.log" "gt rig list --json not parseable" "rig list unparseable: logged fail-closed"
+}
+
+test_no_operational_rigs_fails_closed() {
+  setup_case
+  cat > "$TEST_STATE/rig_list.json" <<'JSON'
+[{"name":"gastown","beads_prefix":"gt","status":"docked"}]
+JSON
+  add_polecat alpha agent-dead
+  add_polecat beta agent-dead
+  add_polecat gamma agent-dead
+  run_script
+
+  assert_file_empty "$TEST_STATE/kill.log" "no operational rigs: no kills"
+  assert_file_empty "$TEST_STATE/mail.log" "no operational rigs: no restart mail"
+  assert_file_empty "$TEST_STATE/escalate.log" "no operational rigs: no escalation"
+  assert_file_empty "$TEST_STATE/health_calls.log" "no operational rigs: no health checks"
+  assert_file_contains "$TEST_STATE/output.log" "no operational rigs found" "no operational rigs: logged fail-closed"
+}
+
 test_mass_death_recheck_recovered() {
   setup_case
   add_polecat alpha agent-dead
@@ -566,6 +598,8 @@ test_no_hook_dead_sessions_do_not_mass_death
 test_non_actionable_hook_statuses_do_not_mass_death
 test_docked_rig_skipped
 test_rig_list_unavailable_fails_closed
+test_rig_list_unparseable_fails_closed
+test_no_operational_rigs_fails_closed
 test_mass_death_recheck_recovered
 test_mass_death_recheck_hook_cleared
 test_mass_death_recheck_one_remaining_restarts
