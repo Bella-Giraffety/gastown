@@ -5,12 +5,20 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/steveyegge/gastown/internal/config"
 )
 
 // SessionHeartbeatStaleThreshold is the age at which a polecat session heartbeat
 // is considered stale, indicating the agent process is likely dead.
 // Configurable via operational.polecat.heartbeat_stale_threshold in settings/config.json.
-const SessionHeartbeatStaleThreshold = 3 * time.Minute
+const SessionHeartbeatStaleThreshold = config.DefaultPolecatHeartbeatStale
+
+// SessionHeartbeatStaleThresholdFor returns the configured stale threshold for
+// polecat session heartbeats, falling back to the compiled default.
+func SessionHeartbeatStaleThresholdFor(townRoot string) time.Duration {
+	return config.LoadOperationalConfig(townRoot).GetPolecatConfig().HeartbeatStaleThresholdD()
+}
 
 // HeartbeatState represents the agent-reported state in a heartbeat v2 (gt-3vr5).
 // Agents report their own state; the witness makes exactly one inference:
@@ -123,7 +131,7 @@ func IsSessionHeartbeatStale(townRoot, sessionName string) (stale bool, exists b
 	if hb == nil {
 		return false, false
 	}
-	return time.Since(hb.Timestamp) >= SessionHeartbeatStaleThreshold, true
+	return time.Since(hb.Timestamp) >= SessionHeartbeatStaleThresholdFor(townRoot), true
 }
 
 // RemoveSessionHeartbeat removes the heartbeat file for a session.

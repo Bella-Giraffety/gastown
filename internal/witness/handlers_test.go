@@ -2430,19 +2430,75 @@ func TestClearCompletionMetadata_NoBd(t *testing.T) {
 
 // --- Heartbeat v2 tests (gt-3vr5) ---
 
+func TestSessionHeartbeatStale_DefaultsWithoutConfig(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+
+	fresh := &polecat.SessionHeartbeat{
+		Timestamp: time.Now().Add(-time.Minute),
+		State:     polecat.HeartbeatWorking,
+	}
+	if sessionHeartbeatStale(townRoot, fresh) {
+		t.Fatal("1-minute-old heartbeat should be fresh with default threshold")
+	}
+
+	stale := &polecat.SessionHeartbeat{
+		Timestamp: time.Now().Add(-5 * time.Minute),
+		State:     polecat.HeartbeatWorking,
+	}
+	if !sessionHeartbeatStale(townRoot, stale) {
+		t.Fatal("5-minute-old heartbeat should be stale with default threshold")
+	}
+}
+
+func TestSessionHeartbeatStale_HonorsConfiguredThreshold(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	writeWitnessPolecatHeartbeatThreshold(t, townRoot, "10m")
+
+	fresh := &polecat.SessionHeartbeat{
+		Timestamp: time.Now().Add(-5 * time.Minute),
+		State:     polecat.HeartbeatWorking,
+	}
+	if sessionHeartbeatStale(townRoot, fresh) {
+		t.Fatal("5-minute-old heartbeat should be fresh with 10m threshold")
+	}
+
+	stale := &polecat.SessionHeartbeat{
+		Timestamp: time.Now().Add(-15 * time.Minute),
+		State:     polecat.HeartbeatWorking,
+	}
+	if !sessionHeartbeatStale(townRoot, stale) {
+		t.Fatal("15-minute-old heartbeat should be stale with 10m threshold")
+	}
+}
+
+func writeWitnessPolecatHeartbeatThreshold(t *testing.T, townRoot, threshold string) {
+	t.Helper()
+	settingsDir := filepath.Join(townRoot, "settings")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"type":"town-settings","version":1,"operational":{"polecat":{"heartbeat_stale_threshold":"` + threshold + `"}}}`)
+	if err := os.WriteFile(filepath.Join(settingsDir, "config.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHeartbeatV2_ExitingStateSkipsZombieDetection(t *testing.T) {
 	t.Parallel()
 	// Agent reports "exiting" state via heartbeat v2.
 	// The witness should trust the agent and NOT flag as zombie,
 	// even if done-intent is older than config.DefaultWitnessDoneIntentStuckTimeout.
 	// This replaces timer-based inference for v2 agents.
+	townRoot := t.TempDir()
 
 	// Fresh heartbeat with state="exiting" → not a zombie
 	hb := &polecat.SessionHeartbeat{
 		Timestamp: time.Now(),
 		State:     polecat.HeartbeatExiting,
 	}
-	stale := time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThreshold
+	stale := sessionHeartbeatStale(townRoot, hb)
 	if stale {
 		t.Error("fresh heartbeat should not be stale")
 	}
@@ -2461,12 +2517,13 @@ func TestHeartbeatV2_StuckStateEscalates(t *testing.T) {
 	t.Parallel()
 	// Agent self-reports "stuck" via heartbeat v2.
 	// The witness should escalate (not restart — agent is alive).
+	townRoot := t.TempDir()
 	hb := &polecat.SessionHeartbeat{
 		Timestamp: time.Now(),
 		State:     polecat.HeartbeatStuck,
 		Context:   "blocked on auth issue",
 	}
-	stale := time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThreshold
+	stale := sessionHeartbeatStale(townRoot, hb)
 	if stale {
 		t.Error("fresh heartbeat should not be stale")
 	}
@@ -2480,11 +2537,12 @@ func TestHeartbeatV2_StuckStateEscalates(t *testing.T) {
 func TestHeartbeatV2_WorkingStateHealthy(t *testing.T) {
 	t.Parallel()
 	// Agent heartbeats "working" — healthy, not a zombie.
+	townRoot := t.TempDir()
 	hb := &polecat.SessionHeartbeat{
 		Timestamp: time.Now(),
 		State:     polecat.HeartbeatWorking,
 	}
-	stale := time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThreshold
+	stale := sessionHeartbeatStale(townRoot, hb)
 	shouldSkip := hb.IsV2() && !stale && (hb.EffectiveState() == polecat.HeartbeatWorking || hb.EffectiveState() == polecat.HeartbeatIdle)
 	if !shouldSkip {
 		t.Error("expected v2 working heartbeat to skip zombie detection")
@@ -2493,11 +2551,12 @@ func TestHeartbeatV2_WorkingStateHealthy(t *testing.T) {
 
 func TestHeartbeatV2_IdleStateHealthy(t *testing.T) {
 	t.Parallel()
+	townRoot := t.TempDir()
 	hb := &polecat.SessionHeartbeat{
 		Timestamp: time.Now(),
 		State:     polecat.HeartbeatIdle,
 	}
-	stale := time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThreshold
+	stale := sessionHeartbeatStale(townRoot, hb)
 	shouldSkip := hb.IsV2() && !stale && (hb.EffectiveState() == polecat.HeartbeatWorking || hb.EffectiveState() == polecat.HeartbeatIdle)
 	if !shouldSkip {
 		t.Error("expected v2 idle heartbeat to skip zombie detection")
@@ -2507,11 +2566,12 @@ func TestHeartbeatV2_IdleStateHealthy(t *testing.T) {
 func TestHeartbeatV2_StaleHeartbeatFallsThrough(t *testing.T) {
 	t.Parallel()
 	// Stale v2 heartbeat (agent died) → fall through to legacy detection.
+	townRoot := t.TempDir()
 	hb := &polecat.SessionHeartbeat{
 		Timestamp: time.Now().Add(-10 * time.Minute), // 10min old → stale
 		State:     polecat.HeartbeatWorking,
 	}
-	stale := time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThreshold
+	stale := sessionHeartbeatStale(townRoot, hb)
 	if !stale {
 		t.Error("10-minute-old heartbeat should be stale")
 	}
@@ -2545,11 +2605,12 @@ func TestHeartbeatV2_DeadSessionFreshHeartbeatRace(t *testing.T) {
 	t.Parallel()
 	// Dead session but fresh heartbeat → possible race (session just restarted).
 	// Should skip zombie detection to avoid killing a newly-started session.
+	townRoot := t.TempDir()
 	hb := &polecat.SessionHeartbeat{
 		Timestamp: time.Now(),
 		State:     polecat.HeartbeatWorking,
 	}
-	stale := time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThreshold
+	stale := sessionHeartbeatStale(townRoot, hb)
 	sessionDead := true
 
 	// Fresh heartbeat + dead session → skip (race condition)

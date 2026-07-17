@@ -1722,6 +1722,11 @@ func DetectZombiePolecats(bd *BdCli, workDir, rigName string, router *mail.Route
 	return result
 }
 
+// sessionHeartbeatStale applies the single Witness freshness verdict for polecat heartbeats.
+func sessionHeartbeatStale(townRoot string, hb *polecat.SessionHeartbeat) bool {
+	return time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThresholdFor(townRoot)
+}
+
 // detectZombieLiveSession checks a polecat with a live tmux session for zombie indicators:
 // stuck done-intent, dead agent process, or closed bead while still running.
 //
@@ -1740,7 +1745,7 @@ func detectZombieLiveSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 	// The witness makes exactly ONE inference: is the heartbeat fresh?
 	hb := polecat.ReadSessionHeartbeat(townRoot, sessionName)
 	if hb != nil && hb.IsV2() {
-		stale := time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThreshold
+		stale := sessionHeartbeatStale(townRoot, hb)
 		if !stale {
 			switch hb.EffectiveState() {
 			case polecat.HeartbeatExiting:
@@ -1968,7 +1973,7 @@ func detectZombieDeadSession(bd *BdCli, workDir, townRoot, rigName, polecatName,
 	// the session isn't actually dead (race condition). A stale heartbeat confirms death.
 	// This check is supplementary — dead session detection proceeds normally after.
 	if hb := polecat.ReadSessionHeartbeat(townRoot, sessionName); hb != nil && hb.IsV2() {
-		stale := time.Since(hb.Timestamp) >= polecat.SessionHeartbeatStaleThreshold
+		stale := sessionHeartbeatStale(townRoot, hb)
 		if !stale {
 			// Fresh heartbeat but session appears dead — possible race.
 			// Skip zombie detection; the session may have just restarted.
@@ -2300,7 +2305,7 @@ func DetectStalledPolecats(workDir, rigName string) *DetectStalledPolecatsResult
 		// it's alive and making progress — skip stall detection entirely.
 		// This replaces tmux activity scraping for v2 agents.
 		if hb := polecat.ReadSessionHeartbeat(townRoot, sessionName); hb != nil && hb.IsV2() {
-			if time.Since(hb.Timestamp) < polecat.SessionHeartbeatStaleThreshold {
+			if !sessionHeartbeatStale(townRoot, hb) {
 				continue // Fresh v2 heartbeat — agent is alive, not stalled
 			}
 		}
