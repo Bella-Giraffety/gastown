@@ -315,6 +315,37 @@ func TestRuntimeReceiptOmitsScriptOutput(t *testing.T) {
 	}
 }
 
+func TestRuntimeUsesScriptRecordRunRequest(t *testing.T) {
+	runtime, recorder, p := testRuntimePlugin(t, `#!/usr/bin/env bash
+cat > "$GT_PLUGIN_RUNNER_RECORD_FILE" <<'JSON'
+{"plugin_name":"test-plugin","result":"warning","title":"script warning","body":"partial failure","extra_labels":["source:script","cooldown:counted"]}
+JSON
+exit 0
+`)
+	outcome, err := runtime.Execute(context.Background(), p, RunOptions{Trigger: TriggerAuto})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if outcome.Result != RunResult("warning") || outcome.CooldownCounted || !outcome.Retryable {
+		t.Fatalf("unexpected recorded outcome: %+v", outcome)
+	}
+	if len(recorder.records) != 1 {
+		t.Fatalf("records = %d, want 1", len(recorder.records))
+	}
+	record := recorder.records[0]
+	if record.Result != RunResult("warning") || record.Title != "script warning" || record.Body != "partial failure" {
+		t.Fatalf("record did not use script request: %+v", record)
+	}
+	for _, want := range []string{LabelAuthorityRunner, "cooldown:retryable", LabelRetryableTrue, "source:script"} {
+		if !contains(record.ExtraLabels, want) {
+			t.Fatalf("record labels missing %q: %v", want, record.ExtraLabels)
+		}
+	}
+	if contains(record.ExtraLabels, LabelCooldownCounted) {
+		t.Fatalf("script-provided cooldown label should be filtered: %v", record.ExtraLabels)
+	}
+}
+
 func TestRunnerEnvUsesBoundedPathAllowlist(t *testing.T) {
 	t.Setenv("PATH", "/tmp/evil:/usr/bin")
 	t.Setenv("HOME", "/home/tester")

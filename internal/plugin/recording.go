@@ -39,6 +39,17 @@ type PluginRunRecord struct {
 	ExtraLabels []string
 }
 
+// RunnerRecordRun is a script-local record-run request captured by the runtime.
+// The runtime remains the only receipt writer; this only carries script intent.
+type RunnerRecordRun struct {
+	PluginName  string    `json:"plugin_name"`
+	RigName     string    `json:"rig_name,omitempty"`
+	Result      RunResult `json:"result"`
+	Title       string    `json:"title,omitempty"`
+	Body        string    `json:"body,omitempty"`
+	ExtraLabels []string  `json:"extra_labels,omitempty"`
+}
+
 // PluginRunBead represents a recorded plugin run from the ledger.
 type PluginRunBead struct {
 	ID        string    `json:"id"`

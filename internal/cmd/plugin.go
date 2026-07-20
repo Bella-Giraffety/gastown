@@ -688,6 +688,20 @@ func runPluginRecordRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--result is required")
 	}
 	if os.Getenv("GT_PLUGIN_RUNNER_ACTIVE") == "1" {
+		if recordFile := os.Getenv("GT_PLUGIN_RUNNER_RECORD_FILE"); recordFile != "" {
+			data, err := json.Marshal(plugin.RunnerRecordRun{
+				PluginName:  pluginRecordPlugin,
+				RigName:     pluginRecordRig,
+				Result:      plugin.RunResult(pluginRecordResult),
+				Title:       pluginRecordTitle,
+				Body:        pluginRecordBody,
+				ExtraLabels: pluginRecordLabels,
+			})
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(recordFile, data, 0600)
+		}
 		return nil
 	}
 

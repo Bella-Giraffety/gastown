@@ -33,6 +33,45 @@ func TestPluginRecordRunSuppressedUnderRunner(t *testing.T) {
 	}
 }
 
+func TestPluginRecordRunUnderRunnerWritesRecordRequest(t *testing.T) {
+	recordFile := filepath.Join(t.TempDir(), "record.json")
+	t.Setenv("GT_PLUGIN_RUNNER_ACTIVE", "1")
+	t.Setenv("GT_PLUGIN_RUNNER_RECORD_FILE", recordFile)
+	oldPlugin, oldResult, oldTitle, oldBody, oldRig, oldLabels := pluginRecordPlugin, pluginRecordResult, pluginRecordTitle, pluginRecordBody, pluginRecordRig, pluginRecordLabels
+	t.Cleanup(func() {
+		pluginRecordPlugin = oldPlugin
+		pluginRecordResult = oldResult
+		pluginRecordTitle = oldTitle
+		pluginRecordBody = oldBody
+		pluginRecordRig = oldRig
+		pluginRecordLabels = oldLabels
+	})
+	pluginRecordPlugin = "test-plugin"
+	pluginRecordResult = "warning"
+	pluginRecordTitle = "script warning"
+	pluginRecordBody = "partial failure"
+	pluginRecordRig = "gastown"
+	pluginRecordLabels = []string{"source:script"}
+
+	if err := runPluginRecordRun(&cobra.Command{}, nil); err != nil {
+		t.Fatalf("runPluginRecordRun returned error under runner: %v", err)
+	}
+	data, err := os.ReadFile(recordFile)
+	if err != nil {
+		t.Fatalf("read runner record file: %v", err)
+	}
+	var record plugin.RunnerRecordRun
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("unmarshal runner record: %v", err)
+	}
+	if record.PluginName != "test-plugin" || record.Result != plugin.RunResult("warning") || record.Title != "script warning" || record.Body != "partial failure" || record.RigName != "gastown" {
+		t.Fatalf("unexpected runner record: %+v", record)
+	}
+	if !stringSliceContains(record.ExtraLabels, "source:script") {
+		t.Fatalf("runner record labels missing source:script: %+v", record)
+	}
+}
+
 func TestPluginRecordRunLabelsManualReceipts(t *testing.T) {
 	oldLabels := pluginRecordLabels
 	t.Cleanup(func() { pluginRecordLabels = oldLabels })

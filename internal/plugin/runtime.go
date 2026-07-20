@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -89,11 +90,12 @@ type RunOutcome struct {
 }
 
 type ScriptResult struct {
-	ExitCode  int           `json:"exit_code"`
-	TimedOut  bool          `json:"timed_out"`
-	Duration  time.Duration `json:"duration"`
-	Output    string        `json:"output,omitempty"`
-	Truncated bool          `json:"truncated,omitempty"`
+	ExitCode    int              `json:"exit_code"`
+	TimedOut    bool             `json:"timed_out"`
+	Duration    time.Duration    `json:"duration"`
+	Output      string           `json:"output,omitempty"`
+	Truncated   bool             `json:"truncated,omitempty"`
+	RecordedRun *RunnerRecordRun `json:"recorded_run,omitempty"`
 }
 
 type DogDispatchOptions struct {
@@ -163,15 +165,20 @@ func (r *Runtime) Execute(ctx context.Context, p *Plugin, opts RunOptions) (*Run
 		outcome.Executor = ExecutorScript
 		script, err := r.RunScript(ctx, p, trigger)
 		outcome.Script = script
-		if err != nil && script == nil {
-			return r.recordOutcome(outcome, p, ResultFailure, nil, nil, true, false, fmt.Errorf("%w: %v", ErrScriptFailed, err))
+		if err != nil {
+			return r.recordOutcome(outcome, p, ResultFailure, script, nil, true, false, fmt.Errorf("%w: %v", ErrScriptFailed, err))
 		}
 		if script.TimedOut {
 			return r.recordOutcome(outcome, p, ResultTimeout, script, nil, true, false, fmt.Errorf("%w: timed out", ErrScriptFailed))
 		}
 		switch script.ExitCode {
 		case 0:
-			return r.recordOutcome(outcome, p, ResultSuccess, script, nil, false, true, nil)
+			result := ResultSuccess
+			if script.RecordedRun != nil && script.RecordedRun.Result != "" {
+				result = script.RecordedRun.Result
+			}
+			retryable, cooldownCounted := resultOutcomePolicy(result)
+			return r.recordOutcome(outcome, p, result, script, nil, retryable, cooldownCounted, nil)
 		case 10:
 			body := p.FormatAgentStepMailBody(script.Output)
 			dispatch, dispatchErr := r.dispatchDog(ctx, p, body, DogDispatchOptions{
@@ -250,7 +257,12 @@ func (r *Runtime) RunScript(ctx context.Context, p *Plugin, trigger string) (*Sc
 	}
 	cmd := exec.CommandContext(runCtx, bashPath, "./run.sh")
 	cmd.Dir = p.Path
-	cmd.Env = RunnerEnv(r.TownRoot, p, trigger)
+	recordPath, cleanupRecord, err := runnerRecordPath()
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupRecord()
+	cmd.Env = append(RunnerEnv(r.TownRoot, p, trigger), "GT_PLUGIN_RUNNER_RECORD_FILE="+recordPath)
 	util.SetProcessGroup(cmd)
 
 	output := newBoundedTail(limit)
@@ -277,6 +289,11 @@ func (r *Runtime) RunScript(ctx context.Context, p *Plugin, trigger string) (*Sc
 			return result, fmt.Errorf("running run.sh: %w", err)
 		}
 	}
+	recorded, recordErr := readRunnerRecord(recordPath)
+	if recordErr != nil {
+		return result, recordErr
+	}
+	result.RecordedRun = recorded
 	return result, nil
 }
 
@@ -327,11 +344,25 @@ func (r *Runtime) recordOutcome(outcome *RunOutcome, p *Plugin, result RunResult
 	}
 
 	body := formatOutcomeBody(result, script, dispatch, outcomeErr)
+	title := fmt.Sprintf("Plugin run: %s (%s)", p.Name, result)
+	rigName := p.RigName
+	if script != nil && script.RecordedRun != nil {
+		if script.RecordedRun.RigName != "" {
+			rigName = script.RecordedRun.RigName
+		}
+		if script.RecordedRun.Title != "" {
+			title = script.RecordedRun.Title
+		}
+		if script.RecordedRun.Body != "" {
+			body = script.RecordedRun.Body
+		}
+		labels = append(labels, runnerRecordExtraLabels(script.RecordedRun.ExtraLabels)...)
+	}
 	receiptID, recordErr := r.Recorder.RecordRun(PluginRunRecord{
 		PluginName:  p.Name,
-		RigName:     p.RigName,
+		RigName:     rigName,
 		Result:      result,
-		Title:       fmt.Sprintf("Plugin run: %s (%s)", p.Name, result),
+		Title:       title,
 		Body:        body,
 		ExtraLabels: labels,
 	})
@@ -343,6 +374,60 @@ func (r *Runtime) recordOutcome(outcome *RunOutcome, p *Plugin, result RunResult
 	}
 	outcome.ReceiptID = receiptID
 	return outcome, outcomeErr
+}
+
+func resultOutcomePolicy(result RunResult) (retryable bool, cooldownCounted bool) {
+	switch result {
+	case ResultSuccess, ResultSkipped:
+		return false, true
+	case ResultDogDispatched:
+		return false, false
+	default:
+		return true, false
+	}
+}
+
+func runnerRecordExtraLabels(labels []string) []string {
+	filtered := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if hasLabelPrefix([]string{label}, "authority:") || hasLabelPrefix([]string{label}, "cooldown:") || hasLabelPrefix([]string{label}, "retryable:") || hasLabelPrefix([]string{label}, "result:") || hasLabelPrefix([]string{label}, "plugin:") || label == "type:plugin-run" {
+			continue
+		}
+		filtered = append(filtered, label)
+	}
+	return filtered
+}
+
+func runnerRecordPath() (string, func(), error) {
+	f, err := os.CreateTemp("", "gt-plugin-record-*.json")
+	if err != nil {
+		return "", nil, fmt.Errorf("creating runner record file: %w", err)
+	}
+	path := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", nil, fmt.Errorf("closing runner record file: %w", err)
+	}
+	_ = os.Remove(path)
+	return path, func() { _ = os.Remove(path) }, nil
+}
+
+func readRunnerRecord(path string) (*RunnerRecordRun, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading runner record file: %w", err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return nil, nil
+	}
+	var record RunnerRecordRun
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, fmt.Errorf("parsing runner record file: %w", err)
+	}
+	return &record, nil
 }
 
 func formatOutcomeBody(result RunResult, script *ScriptResult, dispatch *DogDispatchResult, outcomeErr error) string {
