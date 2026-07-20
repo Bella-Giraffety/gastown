@@ -5,6 +5,7 @@ Dogs work through molecules (poured from this formula) to clean up dead sessions
 other system cruft. This is the garbage collector for Gas Town's runtime:
 - Dead tmux sessions (no Claude process)
 - Orphaned Claude processes (no tmux parent)
+- Old OpenCode session history via supported OpenCode retention
 - Stale wisps past retention
 - Leftover state files
 
@@ -30,7 +31,9 @@ GC is destructive. This formula errs on the side of caution:
 - Aggressive mode: Includes old but possibly-recoverable state
 
 Running `gt doctor --fix` handles most of this. This formula wraps it with
-reporting and multi-rig scope."""
+reporting and multi-rig scope. OpenCode cleanup must stay inside the doctor
+retention check; never manually delete OpenCode DB/WAL files or run raw SQLite
+DELETE statements."""
 formula = "mol-session-gc"
 version = 1
 
@@ -60,6 +63,7 @@ gt hook               # Shows mode in hook_bead
 **Conservative targets:**
 - tmux sessions with no processes
 - Claude processes with no tmux parent
+- OpenCode sessions eligible for the bounded doctor retention policy
 - Wisps > 24 hours old
 
 **Aggressive additions:**
@@ -85,6 +89,7 @@ gt doctor -v
 **2. Parse doctor output for:**
 - orphan-sessions: Tmux sessions to kill
 - orphan-processes: Claude processes to terminate
+- opencode-retention: Old OpenCode sessions/WAL requiring supported retention
 - wisp-gc: Wisps to delete
 
 **3. Additional scans (for aggressive mode):**
@@ -119,7 +124,7 @@ Actually remove the garbage.
 **1. Run doctor with fix:**
 ```bash
 gt doctor --fix
-# This handles sessions, processes, and wisps
+# This handles sessions, processes, OpenCode retention, and wisps
 ```
 
 **2. For aggressive mode, additional cleanup:**
@@ -136,6 +141,7 @@ Record each item actually removed for the report.
 
 **Safety checks:**
 - Never delete active sessions (tmux list-clients)
+- Never delete OpenCode DB/WAL files or use raw SQLite DELETE; doctor uses supported OpenCode commands
 - Never delete branches with uncommitted polecat work
 - Never delete wisps < 1 hour old
 

@@ -942,6 +942,8 @@ description = """
 tmux list-sessions 2>/dev/null | wc -l
 # Count open wisps as a proxy for system load
 bd list --status=open --json 2>/dev/null | jq length
+# Cheap OpenCode pressure check; dispatch dog if DB/WAL is large
+db=$(opencode --pure db path 2>/dev/null) && stat -c '%s %n' "$db" "${db}-wal" 2>/dev/null
 ```
 
 **Step 2: If cleanup needed, dispatch to dog**
@@ -960,6 +962,7 @@ Skip dispatch - system is healthy.
 **Cleanup types (for reference):**
 - orphan-sessions: Dead tmux sessions
 - orphan-processes: Orphaned Claude processes
+- opencode-retention: Old OpenCode sessions and WAL pressure handled by doctor
 - wisp-gc: Old wisps past retention
 
 **Exit criteria:** Session GC dispatched to dog (if needed)."""

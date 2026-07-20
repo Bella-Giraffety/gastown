@@ -41,17 +41,22 @@ func (c *OpenCodeRetentionCheck) Run(ctx *CheckContext) *CheckResult {
 	}
 	if !report.NeedsCleanup() {
 		return &CheckResult{
-			Name:    c.Name(),
-			Status:  StatusOK,
+			Name:   c.Name(),
+			Status: StatusOK,
 			Message: fmt.Sprintf("OpenCode history within retention (%d session(s), db %s, wal %s)",
 				report.SessionCount, util.FormatBytesHuman(report.DBBytes), util.FormatBytesHuman(report.WALBytes)),
 		}
 	}
+	message := fmt.Sprintf("%d OpenCode session(s) eligible for retention; db %s, wal %s",
+		report.Eligible, util.FormatBytesHuman(report.DBBytes), util.FormatBytesHuman(report.WALBytes))
+	if report.Eligible == 0 {
+		message = fmt.Sprintf("OpenCode WAL %s exceeds checkpoint threshold; db %s",
+			util.FormatBytesHuman(report.WALBytes), util.FormatBytesHuman(report.DBBytes))
+	}
 	return &CheckResult{
 		Name:    c.Name(),
 		Status:  StatusWarning,
-		Message: fmt.Sprintf("%d OpenCode session(s) eligible for retention; db %s, wal %s",
-			report.Eligible, util.FormatBytesHuman(report.DBBytes), util.FormatBytesHuman(report.WALBytes)),
+		Message: message,
 		Details: report.Details(),
 		FixHint: "Run 'gt doctor --fix' to prune old OpenCode sessions through supported retention",
 	}

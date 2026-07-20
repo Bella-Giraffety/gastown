@@ -19,7 +19,8 @@ import (
 const (
 	DefaultRetentionAge     = 7 * 24 * time.Hour
 	DefaultKeepPerDirectory = 20
-	DefaultMaxDeletes       = 500
+	DefaultMaxDeletes       = 200
+	MaxDeleteBatchLimit     = 200
 	DefaultCommandTimeout   = 30 * time.Second
 
 	DefaultMinDeleteHeadroomBytes = 512 * 1024 * 1024
@@ -32,7 +33,7 @@ var (
 	ErrLockBusy            = errors.New("opencode retention already running")
 )
 
-const sessionScanSQL = "select id, coalesce(directory, '') as directory, time_updated from session order by time_updated desc;"
+const sessionRankedCTE = "with normalized as (select id, case when coalesce(directory, '') in ('', '.') then '<unknown>' else directory end as directory, case when time_updated < 1000000000000 then time_updated * 1000 else time_updated end as time_updated from session), ranked as (select id, directory, time_updated, row_number() over (partition by directory order by time_updated desc, id asc) as dir_rank from normalized)"
 
 type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -90,11 +91,20 @@ type Session struct {
 	TimeUpdated int64  `json:"time_updated"`
 }
 
+type retentionCounts struct {
+	Total     int `json:"total"`
+	TooRecent int `json:"too_recent"`
+	Kept      int `json:"kept"`
+	Protected int `json:"protected"`
+	Eligible  int `json:"eligible"`
+}
+
 type Report struct {
 	DBPath       string
 	DBBytes      uint64
 	WALBytes     uint64
 	SHMBytes     uint64
+	WALThreshold uint64
 	SessionCount int
 
 	TooRecent       int
@@ -114,7 +124,11 @@ func (r *Report) NeedsCleanup() bool {
 	if r == nil {
 		return false
 	}
-	return r.Eligible > 0 || r.WALBytes >= DefaultWALCheckpointBytes
+	threshold := r.WALThreshold
+	if threshold == 0 {
+		threshold = DefaultWALCheckpointBytes
+	}
+	return r.Eligible > 0 || r.WALBytes >= threshold
 }
 
 func (r *Report) Details() []string {
@@ -185,7 +199,15 @@ func Fix(ctx context.Context, opts Options) (*Report, error) {
 		return report, err
 	}
 
+	protected, err := collectProtectedSessionIDs(opts.TownRoot)
+	if err != nil {
+		return report, err
+	}
 	for _, candidate := range report.Selected {
+		if _, ok := protected[candidate.ID]; ok {
+			report.Protected++
+			continue
+		}
 		if _, err := runOpenCode(ctx, opts, "session", "delete", candidate.ID); err != nil {
 			return report, fmt.Errorf("deleting opencode session %s: %w", candidate.ID, err)
 		}
@@ -228,8 +250,14 @@ func (opts Options) withDefaults() Options {
 	if opts.KeepPerDir == 0 {
 		opts.KeepPerDir = DefaultKeepPerDirectory
 	}
-	if opts.MaxDeletes == 0 {
+	if opts.KeepPerDir < 0 {
+		opts.KeepPerDir = 0
+	}
+	if opts.MaxDeletes <= 0 {
 		opts.MaxDeletes = DefaultMaxDeletes
+	}
+	if opts.MaxDeletes > MaxDeleteBatchLimit {
+		opts.MaxDeletes = MaxDeleteBatchLimit
 	}
 	if opts.CommandTimeout == 0 {
 		opts.CommandTimeout = DefaultCommandTimeout
@@ -263,7 +291,7 @@ func analyze(ctx context.Context, opts Options) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	report := &Report{DBPath: dbPath}
+	report := &Report{DBPath: dbPath, WALThreshold: opts.WALCheckpointBytes}
 	if err := refreshSizes(report); err != nil {
 		if os.IsNotExist(err) {
 			return report, nil
@@ -271,16 +299,13 @@ func analyze(ctx context.Context, opts Options) (*Report, error) {
 		return report, err
 	}
 
-	sessions, err := loadSessions(ctx, opts)
-	if err != nil {
-		return report, err
-	}
 	protected, err := collectProtectedSessionIDs(opts.TownRoot)
 	if err != nil {
 		return report, err
 	}
-	report.SessionCount = len(sessions)
-	selectCandidates(report, sessions, protected, opts)
+	if err := loadRetentionStats(ctx, opts, protected, report); err != nil {
+		return report, err
+	}
 	return report, nil
 }
 
@@ -299,18 +324,62 @@ func opencodeDBPath(ctx context.Context, opts Options) (string, error) {
 	return dbPath, nil
 }
 
-func loadSessions(ctx context.Context, opts Options) ([]Session, error) {
-	out, err := runOpenCode(ctx, opts, "db", sessionScanSQL, "--format", "json")
+func loadRetentionStats(ctx context.Context, opts Options, protected map[string]struct{}, report *Report) error {
+	cutoff := opts.Now.Add(-opts.RetentionAge).UnixMilli()
+	counts, err := loadRetentionCounts(ctx, opts, sessionStatsSQL(cutoff, opts.KeepPerDir, protected))
+	if err != nil {
+		return err
+	}
+	report.SessionCount = counts.Total
+	report.TooRecent = counts.TooRecent
+	report.KeptPerDir = counts.Kept
+	report.Protected = counts.Protected
+	report.Eligible = counts.Eligible
+
+	candidates, err := loadCandidateSessions(ctx, opts, sessionCandidateSQL(cutoff, opts.KeepPerDir, opts.MaxDeletes, protected))
+	if err != nil {
+		return err
+	}
+	for _, candidate := range candidates {
+		if _, ok := protected[candidate.ID]; ok {
+			continue
+		}
+		report.Selected = append(report.Selected, candidate)
+	}
+	if report.Eligible > len(report.Selected) {
+		report.RemainingReason = fmt.Sprintf("%d eligible session(s) exceed one bounded %d-delete batch; rerun gt doctor --fix until clear",
+			report.Eligible-len(report.Selected), opts.MaxDeletes)
+	}
+	return nil
+}
+
+func loadRetentionCounts(ctx context.Context, opts Options, query string) (retentionCounts, error) {
+	out, err := runOpenCode(ctx, opts, "db", query, "--format", "json")
+	if err != nil {
+		return retentionCounts{}, err
+	}
+	var rows []retentionCounts
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return retentionCounts{}, fmt.Errorf("parsing opencode retention counts: %w", err)
+	}
+	if len(rows) != 1 {
+		return retentionCounts{}, fmt.Errorf("opencode retention counts returned %d rows, want 1", len(rows))
+	}
+	return rows[0], nil
+}
+
+func loadCandidateSessions(ctx context.Context, opts Options, query string) ([]Session, error) {
+	out, err := runOpenCode(ctx, opts, "db", query, "--format", "json")
 	if err != nil {
 		return nil, err
 	}
 	var sessions []Session
 	if err := json.Unmarshal(out, &sessions); err != nil {
-		return nil, fmt.Errorf("parsing opencode session scan: %w", err)
+		return nil, fmt.Errorf("parsing opencode candidate scan: %w", err)
 	}
 	for i := range sessions {
 		if sessions[i].ID == "" {
-			return nil, fmt.Errorf("opencode session scan returned a row with empty id")
+			return nil, fmt.Errorf("opencode candidate scan returned a row with empty id")
 		}
 		if sessions[i].TimeUpdated <= 0 {
 			return nil, fmt.Errorf("opencode session %s has invalid time_updated %d", sessions[i].ID, sessions[i].TimeUpdated)
@@ -320,6 +389,46 @@ func loadSessions(ctx context.Context, opts Options) ([]Session, error) {
 		}
 	}
 	return sessions, nil
+}
+
+func sessionStatsSQL(cutoff int64, keep int, protected map[string]struct{}) string {
+	return fmt.Sprintf("%s select (select count(*) from normalized) as total, (select count(*) from normalized where time_updated >= %d) as too_recent, (select count(*) from ranked where time_updated < %d and dir_rank <= %d) as kept, (select count(*) from ranked where time_updated < %d and dir_rank > %d%s) as protected, (select count(*) from ranked where time_updated < %d and dir_rank > %d%s) as eligible;",
+		sessionRankedCTE,
+		cutoff,
+		cutoff, keep,
+		cutoff, keep, protectedIDClause(protected, true),
+		cutoff, keep, protectedIDClause(protected, false))
+}
+
+func sessionCandidateSQL(cutoff int64, keep, limit int, protected map[string]struct{}) string {
+	return fmt.Sprintf("%s select id, directory, time_updated from ranked where time_updated < %d and dir_rank > %d%s order by time_updated asc, id asc limit %d;",
+		sessionRankedCTE, cutoff, keep, protectedIDClause(protected, false), limit)
+}
+
+func protectedIDClause(protected map[string]struct{}, include bool) string {
+	ids := make([]string, 0, len(protected))
+	for id := range protected {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			ids = append(ids, quoteSQLString(id))
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		if include {
+			return " and 1 = 0"
+		}
+		return ""
+	}
+	operator := "not in"
+	if include {
+		operator = "in"
+	}
+	return fmt.Sprintf(" and id %s (%s)", operator, strings.Join(ids, ", "))
+}
+
+func quoteSQLString(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func runOpenCode(ctx context.Context, opts Options, args ...string) ([]byte, error) {
@@ -389,62 +498,6 @@ func shouldVacuum(report *Report, opts Options) bool {
 	}
 	needed := report.DBBytes + report.WALBytes + opts.VacuumReserveBytes
 	return info.AvailableBytes > needed
-}
-
-func selectCandidates(report *Report, sessions []Session, protected map[string]struct{}, opts Options) {
-	sorted := append([]Session(nil), sessions...)
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].TimeUpdated == sorted[j].TimeUpdated {
-			return sorted[i].ID < sorted[j].ID
-		}
-		return sorted[i].TimeUpdated > sorted[j].TimeUpdated
-	})
-
-	keep := make(map[string]struct{})
-	counts := make(map[string]int)
-	for _, session := range sorted {
-		dir := filepath.Clean(session.Directory)
-		if session.Directory == "" || dir == "." {
-			dir = "<unknown>"
-		}
-		if counts[dir] < opts.KeepPerDir {
-			keep[session.ID] = struct{}{}
-			counts[dir]++
-			continue
-		}
-		counts[dir]++
-	}
-
-	cutoff := opts.Now.Add(-opts.RetentionAge).UnixMilli()
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].TimeUpdated == sorted[j].TimeUpdated {
-			return sorted[i].ID < sorted[j].ID
-		}
-		return sorted[i].TimeUpdated < sorted[j].TimeUpdated
-	})
-
-	for _, session := range sorted {
-		if session.TimeUpdated >= cutoff {
-			report.TooRecent++
-			continue
-		}
-		if _, ok := protected[session.ID]; ok {
-			report.Protected++
-			continue
-		}
-		if _, ok := keep[session.ID]; ok {
-			report.KeptPerDir++
-			continue
-		}
-		report.Eligible++
-		if len(report.Selected) < opts.MaxDeletes {
-			report.Selected = append(report.Selected, session)
-		}
-	}
-	if report.Eligible > len(report.Selected) {
-		report.RemainingReason = fmt.Sprintf("%d eligible session(s) remain after this bounded %d-delete batch",
-			report.Eligible-len(report.Selected), opts.MaxDeletes)
-	}
 }
 
 func collectProtectedSessionIDs(townRoot string) (map[string]struct{}, error) {
