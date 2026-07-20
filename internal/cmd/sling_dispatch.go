@@ -40,11 +40,10 @@ type SlingParams struct {
 	ReviewOnly   bool     // --review-only: review and report back only, no merge/commit/push
 
 	// Execution behavior (set by caller, not serialized to queue)
-	SkipCook         bool   // Batch optimization: formula already cooked
-	FormulaFailFatal bool   // true=rollback+error (single/queue), false=hook raw bead (batch)
-	CallerContext    string // Identifies the caller for shutdown messages (e.g., "queue-dispatch", "batch-sling")
-	TownRoot         string
-	BeadsDir         string
+	SkipCook      bool   // Batch optimization: formula already cooked
+	CallerContext string // Identifies the caller for shutdown messages (e.g., "queue-dispatch", "batch-sling")
+	TownRoot      string
+	BeadsDir      string
 }
 
 // SlingResult captures the outcome of executeSling for caller-level tracking.
@@ -173,17 +172,10 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	}
 
 	if params.FormulaName != "" {
-		preflightVars := append(loadRigCommandVars(townRoot, params.RigName), params.Vars...)
-		if params.BaseBranch != "" && params.BaseBranch != "main" {
-			preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", params.BaseBranch))
-		}
+		preflightVars := formulaPreflightVars(townRoot, params.RigName, params.BaseBranch, params.Vars)
 		if err := preflightFormulaBond(params.FormulaName, params.BeadID, info.Title, "", townRoot, preflightVars); err != nil {
-			if params.FormulaFailFatal {
-				result.ErrMsg = fmt.Sprintf("formula preflight failed: %v", err)
-				return result, err
-			}
-			fmt.Printf("  %s Could not preflight formula %s: %v (hooking raw bead)\n", style.Dim.Render("Warning:"), params.FormulaName, err)
-			params.FormulaName = ""
+			result.ErrMsg = fmt.Sprintf("formula preflight failed: %v", err)
+			return result, err
 		}
 	}
 
@@ -303,13 +295,9 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	if params.FormulaName != "" && !formulaCooked {
 		workDir := beads.ResolveHookDir(townRoot, params.BeadID, hookWorkDir)
 		if err := CookFormula(params.FormulaName, workDir, townRoot); err != nil {
-			if params.FormulaFailFatal {
-				// Rollback spawned polecat on fatal cook failure
-				rollbackSpawnedPolecat(params.BeadID, "Formula cook failed")
-				result.ErrMsg = fmt.Sprintf("cook failed: %v", err)
-				return result, fmt.Errorf("cooking formula %s: %w", params.FormulaName, err)
-			}
-			fmt.Printf("  %s Could not cook formula %s: %v\n", style.Dim.Render("Warning:"), params.FormulaName, err)
+			rollbackSpawnedPolecat(params.BeadID, "Formula cook failed")
+			result.ErrMsg = fmt.Sprintf("cook failed: %v", err)
+			return result, fmt.Errorf("cooking formula %s: %w", params.FormulaName, err)
 		} else {
 			formulaCooked = true
 		}
@@ -342,15 +330,9 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		formulaVarsForAttachment = strings.Join(allVars, "\n")
 		formulaResult, err := InstantiateFormulaOnBead(context.Background(), params.FormulaName, params.BeadID, info.Title, hookWorkDir, townRoot, true, allVars)
 		if err != nil {
-			if params.FormulaFailFatal {
-				// Rollback spawned polecat on fatal formula failure
-				rollbackSpawnedPolecat(params.BeadID, "Formula instantiation failed")
-				result.ErrMsg = fmt.Sprintf("formula failed: %v", err)
-				return result, fmt.Errorf("instantiating formula %s: %w", params.FormulaName, err)
-			}
-			// Best-effort: in batch mode, a formula instantiation failure should not abort or rollback the
-			// spawned polecat. We still hook the raw bead so work can proceed (e.g., missing required vars).
-			fmt.Printf("  %s Could not apply formula: %v (hooking raw bead)\n", style.Dim.Render("Warning:"), err)
+			rollbackSpawnedPolecat(params.BeadID, "Formula instantiation failed")
+			result.ErrMsg = fmt.Sprintf("formula failed: %v", err)
+			return result, fmt.Errorf("instantiating formula %s: %w", params.FormulaName, err)
 		} else {
 			fmt.Printf("  %s Formula %s applied\n", style.Bold.Render("✓"), params.FormulaName)
 			beadToHook = formulaResult.BeadToHook
