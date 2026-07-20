@@ -342,3 +342,10 @@ func missingPolecatTargetRig(target string, allowShorthand bool, townRoot string
 	}
 	return parts[0], true
 }
+
+func formulaTargetRig(target, townRoot string) (string, bool) {
+	if rigName, isRig := IsRigName(target); isRig {
+		return rigName, true
+	}
+	return missingPolecatTargetRig(target, true, townRoot)
+}

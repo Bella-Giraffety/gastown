@@ -710,24 +710,26 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	if len(args) > 1 {
 		target = args[1]
 	}
+	preflightedFormula := false
 	if !slingDryRun {
 		preflightFormulaName := formulaName
-		preflightVars := append([]string(nil), slingVars...)
-		if targetRig, isRig := IsRigName(target); isRig {
+		if targetRig, isPolecatTarget := formulaTargetRig(target, townRoot); isPolecatTarget {
 			if preflightFormulaName == "" && !slingHookRawBead {
 				preflightFormulaName = resolveFormula(slingFormula, false, townRoot, targetRig)
 			}
-			if slingBaseBranch != "" && slingBaseBranch != "main" {
-				preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", slingBaseBranch))
-			}
 			if preflightFormulaName != "" {
-				preflightVars = append(loadRigCommandVars(townRoot, targetRig), preflightVars...)
+				preflightVars := formulaPreflightVars(townRoot, targetRig, slingBaseBranch, slingVars)
+				if err := preflightFormulaBond(preflightFormulaName, beadID, info.Title, "", townRoot, preflightVars); err != nil {
+					return err
+				}
+				preflightedFormula = true
 			}
-		}
-		if preflightFormulaName != "" {
+		} else if preflightFormulaName != "" {
+			preflightVars := formulaPreflightVars(townRoot, "", slingBaseBranch, slingVars)
 			if err := preflightFormulaBond(preflightFormulaName, beadID, info.Title, "", townRoot, preflightVars); err != nil {
 				return err
 			}
+			preflightedFormula = true
 		}
 	}
 	resolved, err := resolveTarget(target, ResolveTargetOptions{
@@ -862,10 +864,38 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		}
 	}
 
-	// Auto-convoy: check if issue is already tracked by a convoy
-	// If not, create one for dashboard visibility (unless --no-convoy is set)
+	// Issue #288: Auto-apply mol-polecat-work when slinging bare bead to polecat.
+	// This ensures polecats get structured work guidance through formula-on-bead.
+	// Use --hook-raw-bead to bypass for expert/debugging scenarios.
+	if formulaName == "" && !slingHookRawBead && strings.Contains(targetAgent, "/polecats/") {
+		targetRig := ""
+		if parts := strings.SplitN(targetAgent, "/", 2); len(parts) >= 1 {
+			targetRig = parts[0]
+		}
+		formulaName = resolveFormula(slingFormula, false, townRoot, targetRig)
+		if slingFormula != "" {
+			fmt.Printf("  Applying %s for polecat work...\n", formulaName)
+		} else {
+			fmt.Printf("  Auto-applying %s for polecat work...\n", formulaName)
+		}
+	}
+	if !slingDryRun && formulaName != "" && !preflightedFormula {
+		targetRig := ""
+		if parts := strings.SplitN(targetAgent, "/", 2); len(parts) >= 1 {
+			targetRig = parts[0]
+		}
+		preflightVars := formulaPreflightVars(townRoot, targetRig, slingBaseBranch, slingVars)
+		if err := preflightFormulaBond(formulaName, beadID, info.Title, hookWorkDir, townRoot, preflightVars); err != nil {
+			return err
+		}
+		preflightedFormula = true
+	}
+
+	// Auto-convoy: check if issue is already tracked by a convoy.
+	// Formula-on-bead slings are scaffolding operations; normal bead dispatches
+	// still get convoy tracking even when a polecat formula is auto-applied.
 	var convoyID string
-	if !slingNoConvoy && formulaName == "" {
+	if !slingNoConvoy && !formulaOnBeadMode {
 		if slingDryRun {
 			fmt.Printf("Would create convoy 'Work: %s' if needed\n", info.Title)
 			fmt.Printf("Would add tracking relation to %s if needed\n", beadID)
@@ -893,22 +923,6 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			} else {
 				fmt.Printf("%s Already tracked by convoy %s\n", style.Dim.Render("○"), existingConvoy)
 			}
-		}
-	}
-
-	// Issue #288: Auto-apply mol-polecat-work when slinging bare bead to polecat.
-	// This ensures polecats get structured work guidance through formula-on-bead.
-	// Use --hook-raw-bead to bypass for expert/debugging scenarios.
-	if formulaName == "" && !slingHookRawBead && strings.Contains(targetAgent, "/polecats/") {
-		targetRig := ""
-		if parts := strings.SplitN(targetAgent, "/", 2); len(parts) >= 1 {
-			targetRig = parts[0]
-		}
-		formulaName = resolveFormula(slingFormula, false, townRoot, targetRig)
-		if slingFormula != "" {
-			fmt.Printf("  Applying %s for polecat work...\n", formulaName)
-		} else {
-			fmt.Printf("  Auto-applying %s for polecat work...\n", formulaName)
 		}
 	}
 
