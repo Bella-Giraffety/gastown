@@ -151,16 +151,14 @@ func (r *Runtime) Execute(ctx context.Context, p *Plugin, opts RunOptions) (*Run
 	}
 
 	if p.HasRunScript {
-		if opts.TargetDog == "" {
-			outcome.Executor = ExecutorDog
-			inFlight, inFlightErr := r.inFlightPlugin(ctx, p)
-			if inFlightErr != nil {
-				return r.recordOutcome(outcome, p, ResultDispatchFailure, nil, nil, true, false, inFlightErr)
-			}
-			if inFlight != nil {
-				outcome.Dispatch = inFlight
-				return r.recordOutcome(outcome, p, ResultSkipped, nil, inFlight, false, false, nil)
-			}
+		outcome.Executor = ExecutorDog
+		inFlight, inFlightErr := r.inFlightPlugin(ctx, p)
+		if inFlightErr != nil {
+			return r.recordOutcome(outcome, p, ResultDispatchFailure, nil, nil, true, false, inFlightErr)
+		}
+		if inFlight != nil {
+			outcome.Dispatch = inFlight
+			return r.recordOutcome(outcome, p, ResultSkipped, nil, inFlight, false, false, nil)
 		}
 		outcome.Executor = ExecutorScript
 		script, err := r.RunScript(ctx, p, trigger)
@@ -510,12 +508,10 @@ func (d *DogPoolDispatcher) DispatchPlugin(ctx context.Context, p *Plugin, body 
 		from = "deacon/"
 	}
 	workDesc := fmt.Sprintf("plugin:%s", p.Name)
-	if opts.TargetDog == "" {
-		if inFlight, inFlightErr := d.inFlightDispatch(workDesc); inFlightErr != nil {
-			return nil, inFlightErr
-		} else if inFlight != nil {
-			return inFlight, ErrPluginInFlight
-		}
+	if inFlight, inFlightErr := d.inFlightDispatch(workDesc); inFlightErr != nil {
+		return nil, inFlightErr
+	} else if inFlight != nil {
+		return inFlight, ErrPluginInFlight
 	}
 	candidates, err := d.candidateDogs(opts.TargetDog)
 	if err != nil {
@@ -539,12 +535,10 @@ func (d *DogPoolDispatcher) DispatchPlugin(ctx context.Context, p *Plugin, body 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if opts.TargetDog == "" {
-			if inFlight, inFlightErr := d.inFlightDispatch(workDesc); inFlightErr != nil {
-				return nil, inFlightErr
-			} else if inFlight != nil {
-				return inFlight, ErrPluginInFlight
-			}
+		if inFlight, inFlightErr := d.inFlightDispatch(workDesc); inFlightErr != nil {
+			return nil, inFlightErr
+		} else if inFlight != nil {
+			return inFlight, ErrPluginInFlight
 		}
 
 		result := &DogDispatchResult{Dog: candidate.Name, DogCreated: candidate.Name == createdDog, Work: workDesc}

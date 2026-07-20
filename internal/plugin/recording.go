@@ -153,6 +153,8 @@ func (r *Recorder) queryRuns(pluginName string, limit int, since string) ([]*Plu
 	}
 	if limit > 0 {
 		args = append(args, fmt.Sprintf("--limit=%d", limit))
+	} else {
+		args = append(args, "--limit=0")
 	}
 	if since != "" {
 		// Parse as Go duration and compute an absolute RFC3339 cutoff.

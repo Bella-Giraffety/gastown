@@ -82,6 +82,38 @@ func TestRecordRunCreatesAndClosesReceipt(t *testing.T) {
 	}
 }
 
+func TestGetRunsSinceRequestsUnlimitedResults(t *testing.T) {
+	townRoot := t.TempDir()
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "bd-list-args.log")
+	bdPath := filepath.Join(binDir, "bd")
+	fakeBD := "#!/usr/bin/env bash\n" +
+		"printf '%s\\n' \"$*\" >> \"$BD_ARGS_LOG\"\n" +
+		"case \"$1\" in\n" +
+		"  list) printf '[]\\n' ;;\n" +
+		"  *) exit 2 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(bdPath, []byte(fakeBD), 0755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BD_ARGS_LOG", logPath)
+
+	if _, err := NewRecorder(townRoot).GetRunsSince("tool-updater", "1h"); err != nil {
+		t.Fatalf("GetRunsSince failed: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read fake bd log: %v", err)
+	}
+	log := string(data)
+	for _, want := range []string{"list --json --all", "--limit=0", "--created-after="} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("fake bd log missing %q in:\n%s", want, log)
+		}
+	}
+}
+
 func TestRunResultConstants(t *testing.T) {
 	if ResultSuccess != "success" {
 		t.Errorf("expected ResultSuccess to be 'success', got %q", ResultSuccess)

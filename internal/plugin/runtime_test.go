@@ -120,7 +120,7 @@ func TestRuntimeExecuteScriptFailureRetryableNotCooldownCounted(t *testing.T) {
 func TestRuntimeExecuteScriptTimeoutRetryable(t *testing.T) {
 	runtime, _, p := testRuntimePlugin(t, "#!/usr/bin/env bash\nsleep 2\n")
 	runtime.DefaultTimeout = 50 * time.Millisecond
-	outcome, err := runtime.Execute(context.Background(), p, RunOptions{Trigger: TriggerAuto})
+	outcome, err := runtime.Execute(context.Background(), p, RunOptions{Trigger: TriggerAuto, TargetDog: "bravo"})
 	if !errors.Is(err, ErrScriptFailed) {
 		t.Fatalf("Execute error = %v, want ErrScriptFailed", err)
 	}
