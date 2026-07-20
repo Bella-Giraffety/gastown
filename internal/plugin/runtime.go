@@ -545,11 +545,14 @@ func (d *DogPoolDispatcher) DispatchPlugin(ctx context.Context, p *Plugin, body 
 		assigned, assignErr := d.Manager.AssignWorkIfIdle(candidate.Name, workDesc)
 		if assignErr != nil {
 			lastErr = assignErr
-			if errors.Is(assignErr, dog.ErrDogWorking) && opts.TargetDog == "" {
+			if errors.Is(assignErr, dog.ErrDogWorking) {
 				if inFlight, inFlightErr := d.inFlightDispatch(workDesc); inFlightErr != nil {
 					return nil, inFlightErr
 				} else if inFlight != nil {
 					return inFlight, ErrPluginInFlight
+				}
+				if opts.TargetDog != "" {
+					return result, fmt.Errorf("assigning work to dog %s: %w", candidate.Name, assignErr)
 				}
 				continue
 			}

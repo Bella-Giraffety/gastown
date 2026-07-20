@@ -483,6 +483,47 @@ func TestDispatchPlugins_SkipsManualGatePlugin(t *testing.T) {
 		t.Errorf("dog work = %q, want empty (manual-gate plugin must not auto-dispatch)", dg.Work)
 	}
 }
+
+func TestDispatchPlugins_DefaultCooldownDurationSkipsRecentRun(t *testing.T) {
+	townRoot := t.TempDir()
+	d := testHandlerDaemon(t, townRoot)
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	binDir := t.TempDir()
+	bdPath := filepath.Join(binDir, "bd")
+	recent := time.Now().UTC().Format(time.RFC3339)
+	fakeBD := fmt.Sprintf("#!/usr/bin/env bash\ncase \"$1\" in\n  list) printf '[{\"id\":\"gt-rec\",\"title\":\"Plugin run\",\"created_at\":\"%s\",\"labels\":[\"type:plugin-run\",\"plugin:test-cooldown\",\"result:success\"]}]\\n' ;;\n  *) exit 2 ;;\nesac\n", recent)
+	if err := os.WriteFile(bdPath, []byte(fakeBD), 0755); err != nil {
+		t.Fatalf("write fake bd: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	pluginDir := filepath.Join(townRoot, "plugins", "test-cooldown")
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	pluginMD := "+++\nname = \"test-cooldown\"\ndescription = \"cooldown default plugin\"\n\n[gate]\ntype = \"cooldown\"\n+++\n\n# Instructions\n"
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.md"), []byte(pluginMD), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	testSetupDogState(t, townRoot, "idle-dog", dog.StateIdle, time.Now().Add(-10*time.Minute))
+	rigsConfig := &config.RigsConfig{Version: 1, Rigs: map[string]config.RigEntry{}}
+	mgr := dog.NewManager(townRoot, rigsConfig)
+	sm := dog.NewSessionManager(tmux.NewTmux(), townRoot, mgr)
+
+	d.dispatchPlugins(mgr, sm, rigsConfig)
+
+	dg, err := mgr.Get("idle-dog")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if dg.State != dog.StateIdle || dg.Work != "" {
+		t.Fatalf("dog dispatched despite default cooldown receipt: state=%q work=%q", dg.State, dg.Work)
+	}
+}
+
 func TestCleanupStuckDogs_ClearsDeadSessionWorker(t *testing.T) {
 	requireTmux(t)
 

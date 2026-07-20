@@ -662,10 +662,11 @@ func runPluginHistory(cmd *cobra.Command, args []string) error {
 	for _, run := range runs {
 		resultStyle := style.Success
 		resultIcon := "✓"
-		if run.Result == plugin.ResultFailure {
+		switch run.Result {
+		case plugin.ResultFailure, plugin.ResultTimeout, plugin.ResultDispatchFailure:
 			resultStyle = style.Error
 			resultIcon = "✗"
-		} else if run.Result == plugin.ResultSkipped {
+		case plugin.ResultSkipped:
 			resultStyle = style.Dim
 			resultIcon = "○"
 		}

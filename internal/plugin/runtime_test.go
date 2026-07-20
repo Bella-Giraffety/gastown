@@ -163,7 +163,7 @@ func TestRuntimeExecuteExit10DispatchesAgentStepWithoutRerun(t *testing.T) {
 func TestRuntimeDispatchFailureRetryableNotCooldownCounted(t *testing.T) {
 	runtime, recorder, p := testRuntimePlugin(t, "#!/usr/bin/env bash\nexit 10\n")
 	runtime.DogDispatcher = &fakeDogDispatcher{err: ErrNoDogAvailable}
-	outcome, err := runtime.Execute(context.Background(), p, RunOptions{Trigger: TriggerAuto})
+	outcome, err := runtime.Execute(context.Background(), p, RunOptions{Trigger: TriggerAuto, TargetDog: "bravo"})
 	if !errors.Is(err, ErrNoDogAvailable) {
 		t.Fatalf("Execute error = %v, want ErrNoDogAvailable", err)
 	}

@@ -1057,7 +1057,6 @@ func runDogDispatch(cmd *cobra.Command, args []string) error {
 	result := dogDispatchResult{
 		Plugin:     p.Name,
 		PluginPath: p.Path,
-		Dog:        targetDogName,
 		Work:       workDesc,
 		DryRun:     dogDispatchDryRun,
 	}
@@ -1067,6 +1066,7 @@ func runDogDispatch(cmd *cobra.Command, args []string) error {
 
 	// Dry-run mode: show what would happen and exit
 	if dogDispatchDryRun {
+		result.Dog = targetDogName
 		if dogDispatchJSON {
 			return json.NewEncoder(os.Stdout).Encode(result)
 		}
@@ -1108,6 +1108,7 @@ func runDogDispatch(cmd *cobra.Command, args []string) error {
 			result.Warnings = append(result.Warnings, outcome.Dispatch.Warnings...)
 		}
 		if outcome.Script != nil {
+			result.ScriptRan = true
 			result.ScriptExitCode = outcome.Script.ExitCode
 			result.ScriptTimedOut = outcome.Script.TimedOut
 		}
@@ -1133,14 +1134,24 @@ func runDogDispatch(cmd *cobra.Command, args []string) error {
 	if result.DogCreated {
 		fmt.Printf("%s Created dog %s (pool was empty)\n", style.Bold.Render("✓"), result.Dog)
 	}
-	if result.ScriptExitCode != 0 || p.HasRunScript {
+	if result.ScriptRan {
 		fmt.Printf("  Script exit: %d\n", result.ScriptExitCode)
 	}
-	if result.Dog != "" {
+	switch plugin.RunResult(result.Result) {
+	case plugin.ResultSkipped:
+		if result.Dog != "" {
+			fmt.Printf("%s Plugin already in flight on dog: %s\n", style.Bold.Render("○"), result.Dog)
+		} else {
+			fmt.Printf("%s Plugin skipped\n", style.Bold.Render("○"))
+		}
+	case plugin.ResultDogDispatched:
 		fmt.Printf("%s Dispatching to dog: %s\n", style.Bold.Render("🐕"), result.Dog)
 		fmt.Printf("%s Plugin dispatched (non-blocking)\n", style.Bold.Render("✓"))
 		fmt.Printf("  Dog: %s\n", result.Dog)
-	} else {
+	default:
+		if result.Dog != "" {
+			fmt.Printf("  Dog: %s\n", result.Dog)
+		}
 		fmt.Printf("%s Plugin completed without dog dispatch\n", style.Bold.Render("✓"))
 	}
 	if result.ReceiptID != "" {
@@ -1161,6 +1172,7 @@ type dogDispatchResult struct {
 	Work           string   `json:"work"`
 	Result         string   `json:"result,omitempty"`
 	ReceiptID      string   `json:"receipt_id,omitempty"`
+	ScriptRan      bool     `json:"script_ran,omitempty"`
 	ScriptExitCode int      `json:"script_exit_code,omitempty"`
 	ScriptTimedOut bool     `json:"script_timed_out,omitempty"`
 	DryRun         bool     `json:"dry_run,omitempty"`

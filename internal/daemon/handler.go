@@ -280,15 +280,17 @@ func (d *Daemon) dispatchPlugins(mgr *dog.Manager, sm *dog.SessionManager, rigsC
 		}
 
 		// Evaluate cooldown: skip if plugin ran recently.
-		if p.Gate.Duration != "" {
-			count, err := recorder.CountRunsSince(p.Name, p.Gate.Duration)
-			if err != nil {
-				d.logger.Printf("Handler: error checking cooldown for plugin %s: %v", p.Name, err)
-				continue
-			}
-			if count > 0 {
-				continue // Still in cooldown
-			}
+		duration := p.Gate.Duration
+		if duration == "" {
+			duration = "1h"
+		}
+		count, err := recorder.CountRunsSince(p.Name, duration)
+		if err != nil {
+			d.logger.Printf("Handler: error checking cooldown for plugin %s: %v", p.Name, err)
+			continue
+		}
+		if count > 0 {
+			continue // Still in cooldown
 		}
 
 		outcome, err := runtime.Execute(context.Background(), p, plugin.RunOptions{

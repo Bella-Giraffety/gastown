@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -97,6 +99,35 @@ printf '%s %s' "$GT_PLUGIN_TRIGGER" "$GT_PLUGIN_RUNNER_ACTIVE" > "$GT_TOWN_ROOT/
 	}
 }
 
+func TestDogDispatchTargetedScriptSuccessDoesNotReportDog(t *testing.T) {
+	townRoot := setupPluginCommandTown(t, `#!/usr/bin/env bash
+printf '%s %s' "$GT_PLUGIN_TRIGGER" "$GT_PLUGIN_RUNNER_ACTIVE" > "$GT_TOWN_ROOT/dog-dispatch-marker"
+`)
+	chdir(t, townRoot)
+	resetDogDispatchFlags(t)
+	dogDispatchPlugin = "script-plugin"
+	dogDispatchDog = "alpha"
+	dogDispatchJSON = true
+
+	var runErr error
+	output := capturePluginTestStdout(t, func() {
+		runErr = runDogDispatch(&cobra.Command{}, nil)
+	})
+	if runErr != nil {
+		t.Fatalf("runDogDispatch returned error: %v", runErr)
+	}
+	var result dogDispatchResult
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("unmarshal dispatch JSON %q: %v", output, err)
+	}
+	if result.Dog != "" || result.SessionStarted || result.WorkConfirmed {
+		t.Fatalf("script-only success reported dog assignment: %+v", result)
+	}
+	if !result.ScriptRan || result.ScriptExitCode != 0 || result.Result != string(plugin.ResultSuccess) {
+		t.Fatalf("unexpected script success result: %+v", result)
+	}
+}
+
 func setupPluginCommandTown(t *testing.T, script string) string {
 	t.Helper()
 	townRoot := t.TempDir()
@@ -184,6 +215,26 @@ func chdir(t *testing.T, dir string) {
 		t.Fatalf("chdir %s: %v", dir, err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
+}
+
+func capturePluginTestStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdout pipe: %v", err)
+	}
+	os.Stdout = old
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read stdout pipe: %v", err)
+	}
+	return string(data)
 }
 
 func stringSliceContains(values []string, want string) bool {
