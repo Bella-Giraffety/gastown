@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -689,6 +690,91 @@ func TestHasDescendantWithNames(t *testing.T) {
 	got = hasDescendantWithNames(selfPID, []string{"node", "claude"}, 0)
 	if got {
 		t.Logf("hasDescendantWithNames(%q, [node,claude]) = true - process has matching child?", selfPID)
+	}
+}
+
+func TestParseProcessSnapshot(t *testing.T) {
+	t.Parallel()
+
+	out := []byte(`
+PID PPID COMMAND
+10 1 /usr/local/bin/node
+11 nope claude
+12 10 foo bar
+0 10 zero
+13 -1 negative
+14 12
+`)
+	got := parseProcessSnapshot(out, true)
+	want := []processSnapshotEntry{
+		{pid: "10", ppid: "1", name: "node"},
+		{pid: "12", ppid: "10", name: "foo bar"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseProcessSnapshot() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDescendantsFromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	entries := []processSnapshotEntry{
+		{pid: "1", ppid: "0"},
+		{pid: "2", ppid: "1"},
+		{pid: "3", ppid: "1"},
+		{pid: "4", ppid: "2"},
+		{pid: "5", ppid: "4"},
+		{pid: "6", ppid: "3"},
+	}
+	got := descendantsFromSnapshot("1", entries)
+	want := []string{"5", "4", "2", "6", "3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("descendantsFromSnapshot() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDescendantsFromSnapshotSkipsCyclesAndDuplicates(t *testing.T) {
+	t.Parallel()
+
+	entries := []processSnapshotEntry{
+		{pid: "2", ppid: "1"},
+		{pid: "3", ppid: "2"},
+		{pid: "1", ppid: "3"}, // malformed cycle back to root
+		{pid: "4", ppid: "2"},
+		{pid: "2", ppid: "1"}, // duplicate row
+	}
+	got := descendantsFromSnapshot("1", entries)
+	want := []string{"3", "4", "2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("descendantsFromSnapshot() = %#v, want %#v", got, want)
+	}
+}
+
+func TestHasDescendantWithNamesInSnapshot(t *testing.T) {
+	t.Parallel()
+
+	entries := []processSnapshotEntry{
+		{pid: "1", ppid: "0", name: "node"},
+		{pid: "2", ppid: "1", name: "bash"},
+		{pid: "3", ppid: "2", name: "claude"},
+		{pid: "4", ppid: "99", name: "node"},
+		{pid: "5", ppid: "1", name: "claude-helper"},
+	}
+
+	if !hasDescendantWithNamesInSnapshot("1", []string{"claude"}, 0, entries) {
+		t.Fatal("expected matching grandchild to be found")
+	}
+	if hasDescendantWithNamesInSnapshot("1", []string{"node"}, 0, entries) {
+		t.Fatal("root self-match or unrelated ambient process should not match")
+	}
+	if hasDescendantWithNamesInSnapshot("999999999", []string{"node", "claude"}, 0, entries) {
+		t.Fatal("nonexistent root should not match ambient processes")
+	}
+	if hasDescendantWithNamesInSnapshot("1", nil, 0, entries) {
+		t.Fatal("nil process names should not match")
+	}
+	if hasDescendantWithNamesInSnapshot("1", []string{"claude"}, 10, entries) {
+		t.Fatal("depth cap should stop before matching grandchildren")
 	}
 }
 
