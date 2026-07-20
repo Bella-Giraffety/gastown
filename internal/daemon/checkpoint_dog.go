@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/gastown/internal/checkpoint"
 	"github.com/steveyegge/gastown/internal/constants"
 	gtgit "github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/session"
@@ -181,7 +182,7 @@ func (d *Daemon) checkpointWorktree(workDir, rigName, polecatName string) bool {
 	}
 
 	// Commit the checkpoint
-	if _, err := runGitCmd(workDir, "commit", "-m", "WIP: checkpoint (auto)"); err != nil {
+	if _, err := runGitCmd(workDir, "commit", "-m", checkpoint.WIPCommitPrefix); err != nil {
 		d.logger.Printf("checkpoint_dog: git commit failed in %s/%s: %v", rigName, polecatName, err)
 		return false
 	}

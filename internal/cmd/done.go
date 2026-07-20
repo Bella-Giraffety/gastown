@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/checkpoint"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
@@ -116,6 +117,17 @@ func updateAgentStateAfterSubmission(cwd, townRoot, exitType, issueID string, pu
 		return nil
 	}
 	return updateAgentStateOnDoneFn(cwd, townRoot, exitType, issueID)
+}
+
+func squashWIPCheckpointsBeforePublish(g *git.Git, baseRef string) (int, error) {
+	count, err := checkpoint.SquashWIPCommits(g.WorkDir(), baseRef)
+	if err != nil {
+		return 0, fmt.Errorf("squashing WIP checkpoint commits before publish: %w", err)
+	}
+	if count > 0 {
+		fmt.Printf("%s Squashed %d WIP checkpoint commit(s) before push\n", style.Bold.Render("✓"), count)
+	}
+	return count, nil
 }
 
 func polecatSessionRetirementTarget(rigName, polecatName string, pid int) (string, []string, bool) {
@@ -821,6 +833,21 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	var mrFailed bool
 	var doneErrors []string
 	var convoyInfo *ConvoyInfo // Populated if issue is tracked by a convoy
+	squashBeforePublish := func(publishBaseRef string) bool {
+		count, err := squashWIPCheckpointsBeforePublish(g, publishBaseRef)
+		if err != nil {
+			pushFailed = true
+			errMsg := err.Error()
+			doneErrors = append(doneErrors, errMsg)
+			style.PrintWarning("%s\nBranch is not pushed. Witness will be notified.", errMsg)
+			return false
+		}
+		if count > 0 && donePreVerified {
+			style.PrintWarning("WIP checkpoint squash rewrote HEAD after verification; disabling pre-verified metadata so the refinery reruns gates")
+			donePreVerified = false
+		}
+		return true
+	}
 	if exitType == ExitCompleted {
 		if branch == defaultBranch || branch == "master" {
 			return fmt.Errorf("cannot submit %s/master branch to merge queue", defaultBranch)
@@ -1082,6 +1109,9 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				notifyDoneCloseSkipped(townRoot, rigName, sender, issueID, skipReason)
 				return fmt.Errorf("cannot complete direct-merge work: %s", skipReason)
 			}
+			if !squashBeforePublish(baseRef) {
+				goto notifyWitness
+			}
 			// Push submodule changes before direct push (gt-dzs)
 			pushSubmoduleChanges(g, baseRef)
 			directRefspec := branch + ":" + defaultBranch
@@ -1195,6 +1225,9 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				return fmt.Errorf("cannot complete direct-merge work: %s", skipReason)
 			}
 
+			if !squashBeforePublish(baseRef) {
+				goto notifyWitness
+			}
 			pushSubmoduleChanges(g, baseRef)
 			directRefspec := branch + ":" + defaultBranch
 			directPushErr := g.Push("origin", directRefspec, false)
@@ -1247,6 +1280,50 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			goto notifyWitness
 		}
 
+		// Determine target branch before publishing. WIP checkpoint squash must use
+		// the actual publish target's merge-base, not always the rig default branch.
+		// Priority: explicit --target flag > formula_vars base_branch > integration branch auto-detect > rig default.
+		target := defaultBranch
+		explicitTarget := false
+
+		// 1. Explicit --target flag (highest priority — polecat knows its base branch).
+		// This is the most reliable path: the formula passes {{base_branch}} directly,
+		// avoiding any dependency on bd.Show() or Dolt availability.
+		if doneTarget != "" {
+			target = doneTarget
+			explicitTarget = true
+			fmt.Printf("  Target branch: %s (from --target flag)\n", target)
+		}
+
+		// 2. Check for --base-branch override in formula vars (stored on bead at sling time).
+		// Fallback for polecats dispatched before --target flag existed, or when
+		// the formula doesn't pass --target explicitly.
+		if !explicitTarget && target == defaultBranch && sourceIssueForNoMerge != nil {
+			if af := beads.ParseAttachmentFields(sourceIssueForNoMerge); af != nil {
+				if bb := extractFormulaVar(af.FormulaVars, "base_branch"); bb != "" && bb != defaultBranch {
+					target = bb
+					fmt.Printf("  Target branch override: %s (from formula_vars)\n", target)
+				}
+			}
+		}
+
+		// 3. Auto-detect integration branch from epic hierarchy (if enabled).
+		// Only overrides if no explicit target was set above.
+		if !explicitTarget && target == defaultBranch {
+			refineryEnabled := true
+			settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
+			if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
+				refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
+			}
+			if refineryEnabled {
+				autoTarget, err := beads.DetectIntegrationBranch(bd, g, issueID)
+				if err == nil && autoTarget != "" {
+					target = autoTarget
+				}
+			}
+		}
+		publishBaseRef := g.CleanBaseRef("origin", defaultBranch, target)
+
 		// Pre-declare push variables for checkpoint goto (gt-aufru)
 		var refspec string
 		var pushErr error
@@ -1274,7 +1351,10 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// If the parent repo's submodule pointer references commits that don't
 		// exist on the submodule's remote, the Refinery MR will be broken.
 		// Detect modified submodules and push each one first.
-		pushSubmoduleChanges(g, baseRef)
+		if !squashBeforePublish(publishBaseRef) {
+			goto notifyWitness
+		}
+		pushSubmoduleChanges(g, publishBaseRef)
 
 		// Use explicit refspec (branch:branch) to create the remote branch.
 		// Without refspec, git push follows the tracking config — polecat branches
@@ -1396,7 +1476,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 						}
 					}
 					// Add diff stat for quick review context
-					if diffStat, diffErr := g.DiffStat(baseRef + "..." + branch); diffErr == nil && diffStat != "" {
+					if diffStat, diffErr := g.DiffStat(publishBaseRef + "..." + branch); diffErr == nil && diffStat != "" {
 						prBodyBuilder.WriteString("## Changes\n\n```\n")
 						prBodyBuilder.WriteString(diffStat)
 						prBodyBuilder.WriteString("```\n\n")
@@ -1405,7 +1485,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					prBodyBuilder.WriteString(fmt.Sprintf("*Polecat: %s | Issue: %s*\n", worker, issueID))
 					prBody := prBodyBuilder.String()
 					ghCmd := exec.CommandContext(context.Background(), "gh", "pr", "create",
-						"--base", defaultBranch,
+						"--base", target,
 						"--head", branch,
 						"--title", prTitle,
 						"--body", prBody,
@@ -1488,48 +1568,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 				// Skip MR creation, go to witness notification
 				goto notifyWitness
-			}
-		}
-
-		// Determine target branch for the MR.
-		// Priority: explicit --target flag > formula_vars base_branch > integration branch auto-detect > rig default.
-		target := defaultBranch
-		explicitTarget := false
-
-		// 1. Explicit --target flag (highest priority — polecat knows its base branch).
-		// This is the most reliable path: the formula passes {{base_branch}} directly,
-		// avoiding any dependency on bd.Show() or Dolt availability.
-		if doneTarget != "" {
-			target = doneTarget
-			explicitTarget = true
-			fmt.Printf("  Target branch: %s (from --target flag)\n", target)
-		}
-
-		// 2. Check for --base-branch override in formula vars (stored on bead at sling time).
-		// Fallback for polecats dispatched before --target flag existed, or when
-		// the formula doesn't pass --target explicitly.
-		if !explicitTarget && target == defaultBranch && sourceIssueForNoMerge != nil {
-			if af := beads.ParseAttachmentFields(sourceIssueForNoMerge); af != nil {
-				if bb := extractFormulaVar(af.FormulaVars, "base_branch"); bb != "" && bb != defaultBranch {
-					target = bb
-					fmt.Printf("  Target branch override: %s (from formula_vars)\n", target)
-				}
-			}
-		}
-
-		// 3. Auto-detect integration branch from epic hierarchy (if enabled).
-		// Only overrides if no explicit target was set above.
-		if !explicitTarget && target == defaultBranch {
-			refineryEnabled := true
-			settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
-			if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
-				refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
-			}
-			if refineryEnabled {
-				autoTarget, err := beads.DetectIntegrationBranch(bd, g, issueID)
-				if err == nil && autoTarget != "" {
-					target = autoTarget
-				}
 			}
 		}
 

@@ -19,7 +19,7 @@ func CountWIPCommits(workDir, baseRef string) (int, error) {
 		return 0, fmt.Errorf("finding merge-base: %w", err)
 	}
 
-	// List commit subjects from merge-base..HEAD
+	// Count only commit subjects; body lines can legitimately mention the WIP prefix.
 	logOut, err := gitOutput(workDir, "log", "--format=%s", mergeBase+"..HEAD")
 	if err != nil {
 		return 0, fmt.Errorf("listing commits: %w", err)
@@ -42,16 +42,23 @@ func CountWIPCommits(workDir, baseRef string) (int, error) {
 // commit, preserving non-WIP commit messages in the body. Returns the number
 // of WIP commits that were squashed.
 //
-// This is safe because Refinery squash-merges polecat branches anyway —
-// individual commit history on polecat branches is not preserved.
+// Callers should use this only at a publish boundary: if checkpoint commits are
+// present, the branch history is rewritten while preserving the committed HEAD
+// tree. The current index is intentionally ignored so tolerated runtime-only
+// dirt cannot be swept into the replacement commit.
 func SquashWIPCommits(workDir, baseRef string) (int, error) {
 	mergeBase, err := gitOutput(workDir, "merge-base", baseRef, "HEAD")
 	if err != nil {
 		return 0, fmt.Errorf("finding merge-base: %w", err)
 	}
+	originalHead, err := gitOutput(workDir, "rev-parse", "HEAD")
+	if err != nil {
+		return 0, fmt.Errorf("resolving HEAD: %w", err)
+	}
 
-	// List commit subjects from merge-base..HEAD
-	logOut, err := gitOutput(workDir, "log", "--format=%s", mergeBase+"..HEAD")
+	// List commit messages from merge-base..HEAD. Use full messages so attribution
+	// trailers on real commits survive the publish-boundary squash.
+	logOut, err := gitOutput(workDir, "log", "--reverse", "--format=%B%x00", mergeBase+"..HEAD")
 	if err != nil {
 		return 0, fmt.Errorf("listing commits: %w", err)
 	}
@@ -60,48 +67,57 @@ func SquashWIPCommits(workDir, baseRef string) (int, error) {
 		return 0, nil // No commits to squash
 	}
 
-	subjects := strings.Split(logOut, "\n")
-
-	// Count WIP commits
+	messages := strings.Split(logOut, "\x00")
 	wipCount := 0
-	var nonWIPSubjects []string
-	for _, subj := range subjects {
+	var nonWIPMessages []string
+	for _, message := range messages {
+		message = strings.Trim(message, "\n")
+		if message == "" {
+			continue
+		}
+		subj := message
+		if i := strings.IndexByte(subj, '\n'); i >= 0 {
+			subj = subj[:i]
+		}
 		if strings.HasPrefix(subj, WIPCommitPrefix) {
 			wipCount++
-		} else if subj != "" {
-			nonWIPSubjects = append(nonWIPSubjects, subj)
+		} else {
+			nonWIPMessages = append(nonWIPMessages, message)
 		}
 	}
 
 	if wipCount == 0 {
 		return 0, nil // No WIP commits to squash
 	}
-
-	// Soft-reset to merge-base (preserves all changes as staged)
-	if _, err := gitOutput(workDir, "reset", "--soft", mergeBase); err != nil {
-		return 0, fmt.Errorf("soft reset: %w", err)
+	tree, err := gitOutput(workDir, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		return 0, fmt.Errorf("resolving HEAD tree: %w", err)
 	}
 
 	// Build combined commit message
 	var msg strings.Builder
-	if len(nonWIPSubjects) > 0 {
-		// Use first non-WIP subject as the title
-		msg.WriteString(nonWIPSubjects[0])
-		if len(nonWIPSubjects) > 1 {
-			msg.WriteString("\n")
-			for _, subj := range nonWIPSubjects[1:] {
-				msg.WriteString("\n- ")
-				msg.WriteString(subj)
+	if len(nonWIPMessages) > 0 {
+		for i, message := range nonWIPMessages {
+			if i > 0 {
+				msg.WriteString("\n\n")
 			}
+			msg.WriteString(message)
 		}
 	} else {
 		// All commits were WIP — use a generic message
 		msg.WriteString("squashed WIP checkpoint commits")
 	}
 
-	// Commit with combined message
-	if _, err := gitOutput(workDir, "commit", "-m", msg.String()); err != nil {
+	newCommit, err := gitOutput(workDir, "commit-tree", tree, "-p", mergeBase, "-m", msg.String())
+	if err != nil {
 		return 0, fmt.Errorf("squash commit: %w", err)
+	}
+
+	if _, err := gitOutput(workDir, "reset", "--soft", newCommit); err != nil {
+		if _, rollbackErr := gitOutput(workDir, "reset", "--soft", originalHead); rollbackErr != nil {
+			return 0, fmt.Errorf("updating HEAD to squash commit: %w; rollback to %s failed: %v", err, originalHead, rollbackErr)
+		}
+		return 0, fmt.Errorf("updating HEAD to squash commit: %w", err)
 	}
 
 	return wipCount, nil

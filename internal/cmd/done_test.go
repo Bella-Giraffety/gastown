@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/checkpoint"
 	gitpkg "github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/session"
 )
@@ -1761,16 +1762,19 @@ func TestCheckpointResumeSkipsPush(t *testing.T) {
 	tests := []struct {
 		name        string
 		checkpoints map[DoneCheckpoint]string
+		branch      string
 		wantSkip    bool
 	}{
 		{
 			name:        "no checkpoints - push runs normally",
 			checkpoints: map[DoneCheckpoint]string{},
+			branch:      "mybranch",
 			wantSkip:    false,
 		},
 		{
 			name:        "push checkpoint exists - skip push",
 			checkpoints: map[DoneCheckpoint]string{CheckpointPushed: "mybranch"},
+			branch:      "mybranch",
 			wantSkip:    true,
 		},
 		{
@@ -1779,18 +1783,108 @@ func TestCheckpointResumeSkipsPush(t *testing.T) {
 				CheckpointPushed:    "mybranch",
 				CheckpointMRCreated: "gt-xyz",
 			},
+			branch:   "mybranch",
 			wantSkip: true,
+		},
+		{
+			name:        "stale push checkpoint for different branch - push runs normally",
+			checkpoints: map[DoneCheckpoint]string{CheckpointPushed: "oldbranch"},
+			branch:      "mybranch",
+			wantSkip:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Replicate the guard condition from runDone
-			skipPush := tt.checkpoints[CheckpointPushed] != ""
+			skipPush := tt.checkpoints[CheckpointPushed] == tt.branch
 			if skipPush != tt.wantSkip {
 				t.Errorf("skipPush = %v, want %v", skipPush, tt.wantSkip)
 			}
 		})
+	}
+}
+
+func TestSquashWIPCheckpointsBeforePublishSquashesBranch(t *testing.T) {
+	dir := initDoneSquashTestRepo(t)
+	addDoneTestCommit(t, dir, "a.txt", "real work\n", "real work")
+	addDoneTestCommit(t, dir, "b.txt", "checkpoint\n", checkpoint.WIPCommitPrefix)
+
+	g := gitpkg.NewGit(dir)
+	count, err := squashWIPCheckpointsBeforePublish(g, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("count = %d, want 1", count)
+	}
+	subjects := doneTestCommitSubjects(t, dir)
+	if len(subjects) != 1 {
+		t.Fatalf("subjects = %v, want one squashed commit", subjects)
+	}
+	if strings.HasPrefix(subjects[0], checkpoint.WIPCommitPrefix) {
+		t.Fatalf("squashed subject still has WIP prefix: %q", subjects[0])
+	}
+}
+
+func TestSquashWIPCheckpointsBeforePublishNoWIPIsNoOp(t *testing.T) {
+	dir := initDoneSquashTestRepo(t)
+	addDoneTestCommit(t, dir, "a.txt", "real work\n", "real work")
+	before := testGitOutput(t, dir, "rev-parse", "HEAD")
+
+	g := gitpkg.NewGit(dir)
+	count, err := squashWIPCheckpointsBeforePublish(g, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+	if after := testGitOutput(t, dir, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("HEAD = %s, want unchanged %s", after, before)
+	}
+}
+
+func TestSquashWIPCheckpointsBeforePublishUsesTargetBase(t *testing.T) {
+	dir := initDoneSquashTestRepo(t)
+	testRunGit(t, dir, "checkout", "main")
+	testRunGit(t, dir, "checkout", "-b", "integration")
+	addDoneTestCommit(t, dir, "target.txt", "target work\n", "target base work")
+	targetHead := testGitOutput(t, dir, "rev-parse", "HEAD")
+	testRunGit(t, dir, "checkout", "-b", "feature-target")
+	addDoneTestCommit(t, dir, "a.txt", "real work\n", "real work")
+	addDoneTestCommit(t, dir, "b.txt", "checkpoint\n", checkpoint.WIPCommitPrefix)
+
+	g := gitpkg.NewGit(dir)
+	count, err := squashWIPCheckpointsBeforePublish(g, "integration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("count = %d, want 1", count)
+	}
+	if parent := testGitOutput(t, dir, "rev-parse", "HEAD^"); parent != targetHead {
+		t.Fatalf("squashed commit parent = %s, want target base %s", parent, targetHead)
+	}
+}
+
+func TestSquashWIPCheckpointsBeforePublishReturnsError(t *testing.T) {
+	dir := initDoneSquashTestRepo(t)
+	addDoneTestCommit(t, dir, "a.txt", "real work\n", "real work")
+	addDoneTestCommit(t, dir, "b.txt", "checkpoint\n", checkpoint.WIPCommitPrefix)
+	before := testGitOutput(t, dir, "rev-parse", "HEAD")
+
+	t.Setenv("GIT_AUTHOR_NAME", "")
+	t.Setenv("GIT_AUTHOR_EMAIL", "")
+	t.Setenv("GIT_COMMITTER_NAME", "")
+	t.Setenv("GIT_COMMITTER_EMAIL", "")
+
+	g := gitpkg.NewGit(dir)
+	if _, err := squashWIPCheckpointsBeforePublish(g, "main"); err == nil {
+		t.Fatal("expected squash error, got nil")
+	}
+	if after := testGitOutput(t, dir, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("HEAD = %s after failed squash, want %s", after, before)
 	}
 }
 
@@ -2246,4 +2340,46 @@ func testRunGit(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
+}
+
+func testGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	fullArgs := append([]string{"-c", "protocol.file.allow=always"}, args...)
+	cmd := exec.Command("git", fullArgs...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func initDoneSquashTestRepo(t *testing.T) string {
+	t.Helper()
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "repo")
+	testRunGit(t, tmp, "init", "--initial-branch", "main", dir)
+	testRunGit(t, dir, "config", "user.email", "test@test.com")
+	testRunGit(t, dir, "config", "user.name", "Test")
+	writeRepoFile(t, dir, "README.md", "# initial\n")
+	testRunGit(t, dir, "add", ".")
+	testRunGit(t, dir, "commit", "-m", "initial")
+	testRunGit(t, dir, "checkout", "-b", "feature")
+	return dir
+}
+
+func addDoneTestCommit(t *testing.T, dir, name, content, msg string) {
+	t.Helper()
+	writeRepoFile(t, dir, name, content)
+	testRunGit(t, dir, "add", name)
+	testRunGit(t, dir, "commit", "-m", msg)
+}
+
+func doneTestCommitSubjects(t *testing.T, dir string) []string {
+	t.Helper()
+	out := testGitOutput(t, dir, "log", "--format=%s", "main..HEAD")
+	if out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
 }

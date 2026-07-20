@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/steveyegge/gastown/internal/checkpoint"
 )
 
 func TestCheckpointDogInterval_Default(t *testing.T) {
@@ -243,6 +245,9 @@ func TestCheckpointWorktreeExcludesNestedRuntimeArtifacts(t *testing.T) {
 
 	if got := strings.TrimSpace(mustRunGit(t, workDir, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")); got != "src/app.go" {
 		t.Fatalf("checkpoint commit changed %q, want only src/app.go", got)
+	}
+	if got := strings.TrimSpace(mustRunGit(t, workDir, "log", "-1", "--format=%s")); got != checkpoint.WIPCommitPrefix {
+		t.Fatalf("checkpoint subject = %q, want %q", got, checkpoint.WIPCommitPrefix)
 	}
 	if got := strings.TrimSpace(mustRunGit(t, workDir, "diff", "--cached", "--name-only")); got != "" {
 		t.Fatalf("runtime artifact remained staged: %q", got)
