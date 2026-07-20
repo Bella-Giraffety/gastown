@@ -53,6 +53,7 @@ Cleanup checks (fixable):
   - orphan-sessions          Detect orphaned tmux sessions
   - stalled-polecats         Detect polecats with dead sessions and unpushed work (fixable)
   - orphan-processes         Detect orphaned Claude processes
+  - opencode-retention       Bound OpenCode session history through supported retention
   - session-name-format      Detect sessions with outdated naming format (fixable)
   - wisp-gc                  Detect and clean abandoned wisps (>1h)
   - misclassified-wisps      Detect issues that should be wisps (purges to wisps table, fixable)
@@ -193,6 +194,7 @@ func newDoctorForCommand(rig string) *doctor.Doctor {
 	// root cause of cascading failures (Dolt data loss, polecat death, lost commits).
 	// Must run before infrastructure checks that might fail confusingly on full disks.
 	d.Register(doctor.NewDiskSpaceCheck())
+	d.Register(doctor.NewOpenCodeRetentionCheck())
 
 	// Infrastructure prerequisites — these must pass before any check that
 	// shells out to bd/dolt or queries the database. Order matters:
