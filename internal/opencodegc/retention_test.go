@@ -369,6 +369,35 @@ func TestFixCheckpointsWalWithoutDeletingSessions(t *testing.T) {
 	}
 }
 
+func TestFixRequiresWalPlusHeadroomBeforeCheckpoint(t *testing.T) {
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	dbPath := makeOpenCodeFiles(t, 1024, 100)
+	runner := newFakeRunner()
+	opts := Options{
+		TownRoot:               t.TempDir(),
+		Now:                    now,
+		Runner:                 runner,
+		WALCheckpointBytes:     16,
+		MinDeleteHeadroomBytes: 50,
+	}
+	addAnalyzeOutputs(t, runner, dbPath, opts, nil, retentionStats{}, nil)
+	opts.DiskInfo = func(path string) (*util.DiskSpaceInfo, error) {
+		return &util.DiskSpaceInfo{AvailableBytes: 120}, nil
+	}
+	opts.TryLock = func(path string) (func(), bool, error) { return func() {}, true, nil }
+
+	report, err := Fix(context.Background(), opts)
+	if err == nil || !strings.Contains(err.Error(), "need at least 150 B") {
+		t.Fatalf("Fix error = %v, want WAL-proportional headroom", err)
+	}
+	if report == nil || report.Deleted != 0 || report.Checkpointed {
+		t.Fatalf("unexpected report after low WAL headroom: %#v", report)
+	}
+	if hasMutation(runner.calls) || countCallsContaining(runner.calls, "wal_checkpoint(PASSIVE)") != 0 {
+		t.Fatalf("checkpoint/delete ran despite insufficient WAL headroom: %v", runner.calls)
+	}
+}
+
 func TestFixRechecksProtectedSessionsBeforeDelete(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	townRoot := t.TempDir()
@@ -421,6 +450,28 @@ func TestAnalyzeFailsClosedOnInvalidCandidateScan(t *testing.T) {
 	}
 	if hasMutation(runner.calls) {
 		t.Fatalf("destructive command ran after invalid scan: %v", runner.calls)
+	}
+}
+
+func TestAnalyzeFailsClosedWhenCandidateScanExceedsLimit(t *testing.T) {
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	dbPath := makeOpenCodeFiles(t, 1, 0)
+	runner := newFakeRunner()
+	opts := Options{Now: now, MaxDeletes: 1, Runner: runner}
+	addAnalyzeOutputs(t, runner, dbPath, opts, nil, retentionStats{total: 2, eligible: 2}, []Session{
+		{ID: "one", Directory: "/repo", TimeUpdated: now.Add(-48 * time.Hour).UnixMilli()},
+		{ID: "two", Directory: "/repo", TimeUpdated: now.Add(-49 * time.Hour).UnixMilli()},
+	})
+
+	report, err := Analyze(context.Background(), opts)
+	if err == nil || !strings.Contains(err.Error(), "exceeds bounded limit 1") {
+		t.Fatalf("Analyze error = %v, want bounded limit failure", err)
+	}
+	if report == nil || report.Deleted != 0 {
+		t.Fatalf("unexpected report after over-limit scan: %#v", report)
+	}
+	if hasMutation(runner.calls) {
+		t.Fatalf("destructive command ran after over-limit scan: %v", runner.calls)
 	}
 }
 

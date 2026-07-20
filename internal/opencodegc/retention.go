@@ -190,20 +190,21 @@ func Fix(ctx context.Context, opts Options) (*Report, error) {
 		return report, fmt.Errorf("checking opencode db headroom: %w", err)
 	}
 	report.DeleteHeadroom = fmt.Sprintf("%s available", info.AvailableHuman())
-	if info.AvailableBytes < opts.MinDeleteHeadroomBytes {
+	requiredHeadroom := requiredDeleteHeadroom(report, opts)
+	if info.AvailableBytes < requiredHeadroom {
 		return report, fmt.Errorf("insufficient headroom for OpenCode retention: %s available, need at least %s",
-			info.AvailableHuman(), util.FormatBytesHuman(opts.MinDeleteHeadroomBytes))
+			info.AvailableHuman(), util.FormatBytesHuman(requiredHeadroom))
 	}
 
 	if err := runCheckpoint(ctx, opts, "PASSIVE"); err != nil {
 		return report, err
 	}
 
-	protected, err := collectProtectedSessionIDs(opts.TownRoot)
-	if err != nil {
-		return report, err
-	}
 	for _, candidate := range report.Selected {
+		protected, err := collectProtectedSessionIDs(opts.TownRoot)
+		if err != nil {
+			return report, err
+		}
 		if _, ok := protected[candidate.ID]; ok {
 			report.Protected++
 			continue
@@ -238,6 +239,21 @@ func Fix(ctx context.Context, opts Options) (*Report, error) {
 	}
 
 	return report, nil
+}
+
+func requiredDeleteHeadroom(report *Report, opts Options) uint64 {
+	required := opts.MinDeleteHeadroomBytes
+	if report == nil || report.WALBytes == 0 {
+		return required
+	}
+	checkpointHeadroom := report.WALBytes + opts.MinDeleteHeadroomBytes
+	if checkpointHeadroom < report.WALBytes {
+		return ^uint64(0)
+	}
+	if checkpointHeadroom > required {
+		return checkpointHeadroom
+	}
+	return required
 }
 
 func (opts Options) withDefaults() Options {
@@ -387,6 +403,9 @@ func loadCandidateSessions(ctx context.Context, opts Options, query string) ([]S
 		if sessions[i].TimeUpdated < 1_000_000_000_000 {
 			sessions[i].TimeUpdated *= 1000
 		}
+	}
+	if len(sessions) > opts.MaxDeletes {
+		return nil, fmt.Errorf("opencode candidate scan returned %d row(s), exceeds bounded limit %d", len(sessions), opts.MaxDeletes)
 	}
 	return sessions, nil
 }
