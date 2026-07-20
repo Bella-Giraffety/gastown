@@ -23,7 +23,7 @@ This is infrastructure cleanup work:
 | purge_age | config | Max closed wisp age before purging (default 7d) |
 | stale_issue_age | config | Max issue staleness before auto-close (default 30d) |
 | mail_delete_age | config | Max closed mail age before purging (default 7d) |
-| alert_threshold | config | Open wisp count that triggers escalation (default 500) |
+| alert_threshold | config | Alertable wisp backlog that triggers escalation (default 800) |
 | dry_run | config | If "true", report without acting |
 | databases | config | Comma-separated DB list (default: auto-discover) |
 | dolt_port | daemon/env | Optional display port; commands inherit GT_DOLT_PORT |
@@ -40,7 +40,7 @@ issues that are not P0/P1, not epics, and have no active dependencies.
 The Dog should watch for and flag:
 - Dangling parent references (wisps referencing purged parents)
 - Sudden spikes in reap candidates (suggests a wisp lifecycle problem)
-- Open wisp counts exceeding alert_threshold
+- Alertable wisp backlog exceeding alert_threshold
 - Dolt commit failures (data may not be persisted)
 
 NOT anomalies (do NOT escalate these):
@@ -81,7 +81,7 @@ gt reaper scan --db=<name> \\
 - Treat an absent `molecule_step_candidates` field as zero
 - Flag any `dangling_parent_ref` anomalies — these indicate wisps with
   parent dependency records pointing to purged/missing parents
-- If `open_wisps` exceeds {{alert_threshold}}, escalate
+- If `alertable_wisps` exceeds {{alert_threshold}}, escalate; `open_wisps` is raw diagnostic inventory
 
 **4. Decide whether to proceed:**
 - If no candidates found across all databases, including `molecule_step_candidates`, skip remaining steps
@@ -111,8 +111,8 @@ gt reaper reap --db=<name> \\
 - Check for any anomalies in the response
 
 **3. Alert check:**
-If total open wisps across all databases exceed {{alert_threshold}},
-log a warning and consider escalating.
+If total `alertable_remain` across all databases exceeds {{alert_threshold}},
+log a warning and consider escalating; `open_remain` is raw diagnostic inventory.
 
 **Exit criteria:** All stale wisps closed (or dry-run counts reported)."""
 
@@ -210,7 +210,8 @@ Generate summary and signal completion.
 **Mail purged**: (total deleted old closed mail)
 **Issues auto-closed**: (stale > stale_issue_age, excl. epics/convoys/P0-P1/deps)
 **Convoys closed**: (all tracked beads closed, via gt convoy check)
-**Open wisps remaining**: (total)
+**Alertable wisps remaining**: (total reaper-eligible backlog)
+**Open wisps remaining (raw diagnostic)**: (total)
 **Anomalies**: (list any anomalies found)
 ```
 
@@ -239,7 +240,7 @@ description = "Max closed mail age before purging (e.g., '168h' = 7 days)"
 default = "168h"
 
 [vars.alert_threshold]
-description = "Open wisp count that triggers escalation warning"
+description = "Alertable wisp backlog that triggers escalation warning"
 default = "800"
 
 [vars.dry_run]

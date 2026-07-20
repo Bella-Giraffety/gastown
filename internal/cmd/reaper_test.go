@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -32,5 +34,32 @@ func TestWaitBeforeReaperDatabase(t *testing.T) {
 	reaperDBDelay = "not-a-duration"
 	if err := waitBeforeReaperDatabase(1); err == nil {
 		t.Fatal("invalid delay should return an error")
+	}
+}
+
+func TestReaperWarningsUseAlertableBacklog(t *testing.T) {
+	data, err := os.ReadFile("reaper.go")
+	if err != nil {
+		t.Fatalf("read reaper.go: %v", err)
+	}
+	source := string(data)
+	for _, forbidden := range []string{
+		"if totalOpen > reaper.DefaultAlertThreshold",
+		"open wisps exceed alert threshold",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("reaper CLI should not warn on raw open inventory, found %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"totalAlertableRemain > reaper.DefaultAlertThreshold",
+		"alertable wisps exceed alert threshold",
+		"raw open wisps=%d",
+		"Alertable wisps:",
+		"alertable remain",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("reaper CLI missing alertable-backlog warning/output %q", required)
+		}
 	}
 }

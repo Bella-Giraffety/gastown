@@ -118,3 +118,24 @@ func TestDispatchReaperDogUsesDogPoolSling(t *testing.T) {
 		}
 	}
 }
+
+func TestWispReaperWarningUsesAlertableBacklog(t *testing.T) {
+	data, err := os.ReadFile("wisp_reaper.go")
+	if err != nil {
+		t.Fatalf("read wisp_reaper.go: %v", err)
+	}
+	source := string(data)
+	if strings.Contains(source, "if totalOpen > wispAlertThreshold") {
+		t.Fatal("wisp_reaper should not warn on raw open inventory")
+	}
+	for _, required := range []string{
+		"totalAlertableRemain > wispAlertThreshold",
+		"alertable wisps exceed threshold",
+		"raw open wisps=%d",
+		"alertable_remain=%d",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("wisp_reaper missing alertable-backlog warning/output %q", required)
+		}
+	}
+}

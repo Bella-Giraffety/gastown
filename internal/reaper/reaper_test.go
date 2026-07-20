@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -58,6 +59,28 @@ func TestFormatJSON(t *testing.T) {
 	if result[0] != '{' {
 		t.Errorf("FormatJSON should return JSON object, got %q", result[:10])
 	}
+}
+
+func TestReaperAlertableJSONFields(t *testing.T) {
+	assertJSONKeys := func(t *testing.T, value interface{}, keys ...string) {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		var decoded map[string]interface{}
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		for _, key := range keys {
+			if _, ok := decoded[key]; !ok {
+				t.Fatalf("JSON %T missing key %q: %s", value, key, data)
+			}
+		}
+	}
+
+	assertJSONKeys(t, ScanResult{}, "open_wisps", "alertable_wisps")
+	assertJSONKeys(t, ReapResult{}, "open_remain", "alertable_remain")
 }
 
 func TestParentExcludeJoin(t *testing.T) {
@@ -333,8 +356,12 @@ func TestScanExcludesAgentBeads(t *testing.T) {
 		t.Fatalf("could not isolate Scan() body in %s", sourcePath)
 	}
 	scanBody := source[scanStart:reapStart]
-	if !strings.Contains(scanBody, "w.issue_type != 'agent'") {
-		t.Fatalf("expected Scan() eligibility to exclude agent beads, scan body was:\n%s", scanBody)
+	if !strings.Contains(scanBody, "countAlertableWisps(") {
+		t.Fatalf("expected Scan() to use shared alertable eligibility, scan body was:\n%s", scanBody)
+	}
+	alertableBody := sourceBetween(t, source, "func countAlertableWisps(", "type sqlRunner")
+	if !strings.Contains(alertableBody, "w.issue_type != 'agent'") {
+		t.Fatalf("expected Scan() alertable eligibility to exclude agent beads, helper body was:\n%s", alertableBody)
 	}
 }
 
@@ -382,6 +409,9 @@ func TestClosedMoleculeStepReapBehavior(t *testing.T) {
 	if scan.ReapCandidates != 2 {
 		t.Fatalf("Scan ReapCandidates = %d, want 2", scan.ReapCandidates)
 	}
+	if scan.AlertableWisps != 4 {
+		t.Fatalf("Scan AlertableWisps = %d, want 4", scan.AlertableWisps)
+	}
 
 	beforeDryRun := state.statuses()
 	dryRun, err := Reap(db, "testdb", maxAge, true)
@@ -393,6 +423,9 @@ func TestClosedMoleculeStepReapBehavior(t *testing.T) {
 	}
 	if dryRun.Reaped != 2 {
 		t.Fatalf("dry-run Reaped = %d, want 2", dryRun.Reaped)
+	}
+	if dryRun.AlertableRemain != 4 {
+		t.Fatalf("dry-run AlertableRemain = %d, want 4", dryRun.AlertableRemain)
 	}
 	if dryRun.OpenRemain != 10 {
 		t.Fatalf("dry-run OpenRemain = %d, want 10", dryRun.OpenRemain)
@@ -411,6 +444,9 @@ func TestClosedMoleculeStepReapBehavior(t *testing.T) {
 	}
 	if realRun.Reaped != 2 {
 		t.Fatalf("real Reaped = %d, want 2", realRun.Reaped)
+	}
+	if realRun.AlertableRemain != 0 {
+		t.Fatalf("real AlertableRemain = %d, want 0", realRun.AlertableRemain)
 	}
 	if realRun.OpenRemain != 6 {
 		t.Fatalf("real OpenRemain = %d, want 6", realRun.OpenRemain)
@@ -439,10 +475,90 @@ func TestClosedMoleculeStepReapBehavior(t *testing.T) {
 			"EXEC UPDATE wisps SET status='closed'",
 			"EXEC COMMIT",
 			"EXEC CALL DOLT_COMMIT",
+			"QUERY SELECT COUNT(*) FROM wisps w INNER JOIN",
+			"QUERY SELECT COUNT(*) FROM wisps w LEFT JOIN",
 			"QUERY SELECT COUNT(*) FROM wisps WHERE status IN",
 			"EXEC SET @@autocommit = 1",
 		)
 		t.Logf("real Reap used pinned connection %d", connID)
+	}
+}
+
+func TestScanAlertableBacklogIgnoresHealthyInventory(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeReaperState{
+		wisps: map[string]*fakeWisp{
+			"mol-open": {id: "mol-open", status: "open", issueType: "molecule", createdAt: now},
+		},
+		ops: map[int][]string{},
+	}
+	for i := 0; i < DefaultAlertThreshold+1; i++ {
+		id := fmt.Sprintf("healthy-%04d", i)
+		state.wisps[id] = &fakeWisp{id: id, status: "open", issueType: "task", createdAt: now.Add(-48 * time.Hour)}
+		state.deps = append(state.deps, fakeDep{issueID: id, dependsOnID: "mol-open", depType: "parent-child"})
+	}
+	db := openFakeReaperDB(t, state)
+	t.Cleanup(func() { _ = db.Close() })
+
+	maxAge := 24 * time.Hour
+	scan, err := Scan(db, "testdb", maxAge, 7*24*time.Hour, 7*24*time.Hour, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if scan.OpenWisps <= DefaultAlertThreshold {
+		t.Fatalf("Scan OpenWisps = %d, want > %d", scan.OpenWisps, DefaultAlertThreshold)
+	}
+	if scan.MoleculeStepCandidates != 0 || scan.ReapCandidates != 0 || scan.AlertableWisps != 0 {
+		t.Fatalf("healthy inventory should not be alertable: molecule=%d reap=%d alertable=%d", scan.MoleculeStepCandidates, scan.ReapCandidates, scan.AlertableWisps)
+	}
+
+	dryRun, err := Reap(db, "testdb", maxAge, true)
+	if err != nil {
+		t.Fatalf("dry-run Reap: %v", err)
+	}
+	if dryRun.OpenRemain <= DefaultAlertThreshold {
+		t.Fatalf("dry-run OpenRemain = %d, want > %d", dryRun.OpenRemain, DefaultAlertThreshold)
+	}
+	if dryRun.AlertableRemain != 0 {
+		t.Fatalf("dry-run AlertableRemain = %d, want 0", dryRun.AlertableRemain)
+	}
+}
+
+func TestScanAlertableBacklogCountsStaleOrphans(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeReaperState{
+		wisps: map[string]*fakeWisp{},
+		ops:   map[int][]string{},
+	}
+	for i := 0; i < DefaultAlertThreshold+1; i++ {
+		id := fmt.Sprintf("stale-orphan-%04d", i)
+		state.wisps[id] = &fakeWisp{id: id, status: "open", issueType: "task", createdAt: now.Add(-48 * time.Hour)}
+	}
+	db := openFakeReaperDB(t, state)
+	t.Cleanup(func() { _ = db.Close() })
+
+	maxAge := 24 * time.Hour
+	scan, err := Scan(db, "testdb", maxAge, 7*24*time.Hour, 7*24*time.Hour, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	want := DefaultAlertThreshold + 1
+	if scan.OpenWisps != want {
+		t.Fatalf("Scan OpenWisps = %d, want %d", scan.OpenWisps, want)
+	}
+	if scan.MoleculeStepCandidates != 0 {
+		t.Fatalf("Scan MoleculeStepCandidates = %d, want 0", scan.MoleculeStepCandidates)
+	}
+	if scan.ReapCandidates != want || scan.AlertableWisps != want {
+		t.Fatalf("stale orphans should be alertable: reap=%d alertable=%d want %d", scan.ReapCandidates, scan.AlertableWisps, want)
+	}
+
+	dryRun, err := Reap(db, "testdb", maxAge, true)
+	if err != nil {
+		t.Fatalf("dry-run Reap: %v", err)
+	}
+	if dryRun.Reaped != want || dryRun.AlertableRemain != want {
+		t.Fatalf("dry-run stale orphans: reaped=%d alertable=%d want %d", dryRun.Reaped, dryRun.AlertableRemain, want)
 	}
 }
 

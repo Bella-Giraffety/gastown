@@ -211,6 +211,35 @@ func TestMolDogReaperFormula_DoesNotForceDoltPort(t *testing.T) {
 	}
 }
 
+func TestMolDogReaperFormulaUsesAlertableBacklogWarning(t *testing.T) {
+	formulaPath := filepath.Join("formulas", constants.MolDogReaper+".formula.toml")
+	data, err := os.ReadFile(formulaPath)
+	if err != nil {
+		t.Skipf("Formula file not found: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"Alertable wisp backlog that triggers escalation",
+		"alertable_wisps",
+		"alertable_remain",
+		"Open wisps remaining (raw diagnostic)",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("mol-dog-reaper formula missing alertable-backlog wording %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"Open wisp count that triggers escalation",
+		"`open_wisps` exceeds",
+		"total open wisps across all databases exceed",
+		"default 500",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("mol-dog-reaper formula still warns on raw open inventory via %q", forbidden)
+		}
+	}
+}
+
 // TestAllEmbeddedFormulas_VariableValidation ensures no embedded formula
 // has undefined template variables. This prevents future regressions.
 func TestAllEmbeddedFormulas_VariableValidation(t *testing.T) {
