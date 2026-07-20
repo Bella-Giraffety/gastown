@@ -779,9 +779,9 @@ needs = ["zombie-scan"]
 description = """
 Execute registered plugins.
 
-Scan $GT_ROOT/plugins/ for plugin directories. Each plugin has a plugin.md with TOML frontmatter defining its gate (when to run) and instructions (what to do).
+Scan $GT_ROOT/plugins/ for plugin directories. Each plugin has a plugin.md with TOML frontmatter defining its gate. Plugins may also include run.sh, which the shared plugin runtime executes before any AI dog step.
 
-See docs/deacon-plugins.md for full documentation.
+See docs/design/plugin-system.md for full documentation.
 
 Gate types:
 - cooldown: Time since last run (e.g., 24h)
@@ -791,10 +791,10 @@ Gate types:
 
 For each plugin:
 1. Read plugin.md frontmatter to check gate
-2. Compare against state.json (last run, etc.)
-3. If gate is open, execute the plugin
+2. Query plugin-run receipts for cooldown-counted outcomes
+3. If gate is open, call the plugin runtime (`gt plugin run` or daemon auto-dispatch)
 
-Plugins marked parallel: true can run concurrently using Task tool subagents. Sequential plugins run one at a time in directory order.
+The runtime owns run.sh execution, AI dog handoff, receipts, cooldown, retry, timeout, output bounds, and dog assignment.
 
 Skip this step if $GT_ROOT/plugins/ does not exist or is empty."""
 

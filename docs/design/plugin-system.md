@@ -1,6 +1,6 @@
 # Plugin System Design
 
-> **Status: Design proposal -- not yet implemented**
+> **Status: Implemented runtime contract**
 >
 > Design document for the Gas Town plugin system.
 > Written 2026-01-11, crew/george session.
@@ -10,10 +10,10 @@
 Gas Town needs extensible, project-specific automation that runs during Deacon patrol cycles. The immediate use case is rebuilding stale binaries (gt, bd, wv), but the pattern generalizes to any periodic maintenance task.
 
 Current state:
-- Plugin infrastructure exists conceptually (patrol step mentions it)
-- `~/gt/plugins/` directory exists with README
-- No actual plugins in production use
-- No formalized execution model
+- `~/gt/plugins/` and `<rig>/plugins/` are scanned by the daemon
+- Plugin outcomes are recorded as ledger receipts
+- `run.sh` plugins execute in Go before any AI dog step
+- Dog dispatch is used only for agent plugins or script exit-code 10 handoff
 
 ## Design Principles Applied
 
@@ -22,10 +22,10 @@ Current state:
 
 Plugin state (last run, run count, results) lives on the ledger as wisps, not in shadow state files. Gate evaluation queries the ledger directly.
 
-### ZFC: Zero Framework Cognition
-> Agent decides. Go transports.
+### Deterministic Work Before AI
+> Code guards run in code.
 
-The Deacon (agent) evaluates gates and decides whether to dispatch. Go code provides transport (`gt dog dispatch`) but doesn't make decisions.
+If a plugin ships `run.sh`, the daemon/CLI executes that script directly before any AI dog step. The dog receives `plugin.md` instructions only when no script exists or when `run.sh` exits with code 10 to request an AI follow-up.
 
 ### MEOW Stack Integration
 
@@ -65,35 +65,31 @@ The Deacon (agent) evaluates gates and decides whether to dispatch. Go code prov
 
 The Deacon scans both locations during patrol.
 
-### Execution Model: Dog Dispatch
+### Execution Model: Shared Runtime
 
-**Key insight**: Plugin execution should not block Deacon patrol.
+**Key insight**: plugin execution, dog dispatch, receipts, cooldown, and retry use one runtime contract.
 
-Dogs are reusable workers designed for infrastructure tasks. Plugin execution is dispatched to dogs:
+Script plugins:
 
 ```
-Deacon Patrol                    Dog Worker
-─────────────────               ─────────────────
-1. Scan plugins
-2. Evaluate gates
-3. For open gates:
-   └─ gt dog dispatch plugin     ──→ 4. Execute plugin
-      (non-blocking)                  5. Create result wisp
-                                      6. Send DOG_DONE
-4. Continue patrol
-   ...
-5. Process DOG_DONE              ←── (next cycle)
+daemon/CLI runtime
+├─ execute plugins/<name>/run.sh in the plugin directory
+├─ enforce [execution].timeout or the 5m default
+├─ use a minimal allowlisted environment
+├─ retain only bounded stdout/stderr output
+└─ record the authoritative outcome
 ```
 
-Benefits:
-- Deacon stays responsive
-- Multiple plugins can run concurrently (different dogs)
-- Plugin failures don't stall patrol
-- Consistent with Dogs' purpose (infrastructure work)
+Exit-code contract:
+- `0`: script completed the plugin run; record success; do not dispatch a dog.
+- `10`: script completed deterministic pre-work and requests an AI dog step; dispatch a dog with `plugin.md` instructions and the bounded script output tail. The dog must not rerun `run.sh`.
+- Any other exit, execution error, or timeout: record a retryable failure; do not dispatch a dog.
+
+Agent-only plugins have no `run.sh`; the runtime dispatches them directly to a dog.
 
 ### State Tracking: Wisps on the Ledger
 
-Each plugin run creates a wisp:
+Each runtime outcome creates a plugin-run receipt through `gt plugin record-run`/`internal/plugin.Recorder`:
 
 ```bash
 gt plugin record-run --plugin rebuild-gt --result success --rig gastown \
@@ -101,19 +97,19 @@ gt plugin record-run --plugin rebuild-gt --result success --rig gastown \
   --description "Rebuilt gt: abc123 → def456 (5 commits)"
 ```
 
-**Gate evaluation** queries wisps instead of state files:
+Cooldown gate evaluation queries receipts instead of state files. Runtime-owned receipts explicitly mark `cooldown:counted` when they close a gate; `gt plugin record-run` also adds explicit cooldown/retry labels for manual or dog-completion receipts. Legacy persisted `success`/`skipped` receipts without authority/cooldown labels still count so old history keeps working. Retryable failures, timeouts, no-dog, and dispatch failures do not hide retry behind cooldown.
 
 ```bash
-# Cooldown check: any runs in last hour?
-bd list --all --label type:plugin-run --label plugin:rebuild-gt --created-after 1h -n 1
+# Cooldown check: counted outcomes in last hour
+bd list --all --label type:plugin-run --label plugin:rebuild-gt --label cooldown:counted --created-after <timestamp>
 ```
 
 **Derived state** (no state.json needed):
 
 | Query | Command |
 |-------|---------|
-| Last run time | `bd list --all --label=plugin:X --limit=1 --json` |
-| Run count | `bd list --all --label=plugin:X --json \| jq length` |
+| Last run time | `gt plugin history X --limit 1 --json` |
+| Run count | `gt plugin history X --json \| jq length` |
 | Last result | Parse `result:` label from latest wisp |
 | Failure rate | Count `result:failure` vs total |
 
@@ -138,7 +134,8 @@ This keeps the ledger clean while preserving audit history.
 
 ```
 rebuild-gt/
-└── plugin.md      # Definition with TOML frontmatter
+├── plugin.md      # Definition with TOML frontmatter
+└── run.sh         # Optional deterministic executable
 ```
 
 ### plugin.md Format
@@ -205,12 +202,12 @@ severity = "low"          # Escalation severity if failed
 
 ### Instructions Section
 
-The markdown body after the frontmatter contains agent-executable instructions. The dog worker reads and executes these steps.
+The markdown body after the frontmatter contains agent-executable instructions. For script plugins, those instructions are only used after `run.sh` exits 10. The runtime executes `run.sh`; dogs must not run it from mail.
 
 Standard sections:
 - **Detection**: Check if action is needed
 - **Action**: The actual work
-- **Record Result**: Create the execution wisp
+- **Record Result**: Optional script-local notes; the runtime owns the authoritative receipt while `GT_PLUGIN_RUNNER_ACTIVE=1`
 - **Notification**: On success/failure
 
 ---
@@ -218,41 +215,17 @@ Standard sections:
 ## New Commands Required
 
 - **`gt stale`** -- Expose binary staleness check (human-readable, `--json`, `--quiet` exit code)
-- **`gt dog dispatch --plugin <name>`** -- Dispatch plugin execution to an idle dog (non-blocking)
+- **`gt dog dispatch --plugin <name>`** -- Run the shared plugin runtime and dispatch an AI dog only when required
 - **`gt plugin list|show|run|digest|history`** -- Plugin management and execution history
 
 ---
 
-## Implementation Plan
+## Implementation Status
 
-### Phase 1: Foundation
-
-1. **`gt stale` command** - Expose CheckStaleBinary() via CLI
-2. **Plugin format spec** - Finalize TOML schema
-3. **Plugin scanning** - Deacon scans town + rig plugin dirs
-
-### Phase 2: Execution
-
-4. **`gt dog dispatch --plugin`** - Formalized dog dispatch
-5. **Plugin execution in dogs** - Dog reads plugin.md, executes
-6. **Wisp creation** - Record results on ledger
-
-### Phase 3: Gates & State
-
-7. **Gate evaluation** - Cooldown via wisp query
-8. **Other gate types** - Cron, condition, event
-9. **Plugin digest** - Daily squash of plugin wisps
-
-### Phase 4: Escalation
-
-10. **`gt escalate` command** - Unified escalation API
-11. **Escalation routing** - Config-driven multi-channel
-12. **Stale escalation patrol** - Check unacknowledged
-
-### Phase 5: First Plugin
-
-13. **`rebuild-gt` plugin** - The actual gastown plugin
-14. **Documentation** - So Beads/Wyvern can create theirs
+- Plugin scanning, cooldown gates, history receipts, and CLI listing/show/history are implemented.
+- The shared runtime owns script execution, dog dispatch, cooldown-counted receipts, retryable failure receipts, timeout, output bounds, and runner environment.
+- `gt plugin run`, `gt dog dispatch --plugin`, and daemon auto-dispatch all use the same runtime contract.
+- Cron, condition, event gates, and digest squashing remain future work unless a plugin explicitly implements that behavior itself.
 
 ---
 

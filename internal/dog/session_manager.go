@@ -241,16 +241,16 @@ func (m *SessionManager) GetPane(dogName string) (string, error) {
 // EnsureRunning ensures a dog session is running, starting it if needed.
 // Returns the pane ID.
 func (m *SessionManager) EnsureRunning(dogName string, opts SessionStartOptions) (string, error) {
-	running, err := m.IsRunning(dogName)
-	if err != nil {
-		return "", err
-	}
-
-	if !running {
+	sessionID := m.SessionName(dogName)
+	switch status := m.tmux.CheckSessionHealth(sessionID, 0); status {
+	case tmux.SessionHealthy:
+		return m.GetPane(dogName)
+	case tmux.SessionDead, tmux.AgentDead:
 		if err := m.Start(dogName, opts); err != nil {
 			return "", err
 		}
+		return m.GetPane(dogName)
+	default:
+		return "", fmt.Errorf("dog session %s is not dispatchable: %s", sessionID, status)
 	}
-
-	return m.GetPane(dogName)
 }

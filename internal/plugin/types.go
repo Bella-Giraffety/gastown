@@ -46,8 +46,7 @@ type Plugin struct {
 	Instructions string `json:"instructions,omitempty"`
 
 	// HasRunScript is true when a run.sh exists alongside plugin.md.
-	// When true, FormatMailBody instructs the dog to execute the script
-	// instead of interpreting the markdown instructions.
+	// The shared runtime executes the script before any dog receives mail.
 	HasRunScript bool `json:"has_run_script,omitempty"`
 }
 
@@ -212,17 +211,7 @@ func (p *Plugin) Summary() PluginSummary {
 // and the gt dog dispatch command.
 func (p *Plugin) FormatMailBody() string {
 	if p.HasRunScript {
-		return fmt.Sprintf(
-			"Execute the following plugin script:\n\n"+
-				"**Plugin**: %s\n"+
-				"**Description**: %s\n\n"+
-				"```bash\ncd %s && bash run.sh\n```\n\n"+
-				"Run this command EXACTLY. Do NOT interpret the plugin.md instructions.\n"+
-				"Do NOT write your own implementation. Just run the script and report the output.\n\n"+
-				"After completion:\n"+
-				"1. The script should record a plugin-run receipt. If it did not, run `gt plugin record-run --plugin %s --result <outcome> --title \"Plugin run: %s\"`.\n"+
-				"2. Run `gt dog done` — this clears your work and auto-terminates the session. Run this even if recording fails.\n",
-			p.Name, p.Description, p.Path, p.Name, p.Name)
+		return p.FormatAgentStepMailBody("")
 	}
 
 	var sb strings.Builder
@@ -245,4 +234,65 @@ func (p *Plugin) FormatMailBody() string {
 	sb.WriteString("2. Run `gt dog done` — this clears your work and auto-terminates the session. Run this even if recording fails.\n")
 
 	return sb.String()
+}
+
+// FormatAgentStepMailBody formats the AI follow-up for a script plugin whose
+// run.sh already completed with the exit-10 handoff code.
+func (p *Plugin) FormatAgentStepMailBody(scriptOutput string) string {
+	var sb strings.Builder
+
+	sb.WriteString("Execute the following plugin agent step:\n\n")
+	sb.WriteString(fmt.Sprintf("**Plugin**: %s\n", p.Name))
+	sb.WriteString(fmt.Sprintf("**Description**: %s\n", p.Description))
+	if p.RigName != "" {
+		sb.WriteString(fmt.Sprintf("**Rig**: %s\n", p.RigName))
+	}
+	if p.Execution != nil && p.Execution.Timeout != "" {
+		sb.WriteString(fmt.Sprintf("**Timeout**: %s\n", p.Execution.Timeout))
+	}
+	sb.WriteString("\nThe dispatcher has already executed `run.sh` for this plugin. Do NOT run `run.sh` again.\n")
+	if strings.TrimSpace(scriptOutput) != "" {
+		sb.WriteString("\n## run.sh Output Tail\n\n")
+		appendTextFence(&sb, scriptOutput)
+	}
+	sb.WriteString("\n---\n\n")
+	sb.WriteString("## Instructions\n\n")
+	sb.WriteString(p.Instructions)
+	sb.WriteString("\n\n---\n\n")
+	sb.WriteString("After completion:\n")
+	sb.WriteString("1. Follow the plugin's recording instructions above. If none are provided, run `gt plugin record-run --plugin " + p.Name + " --result <outcome> --title \"Plugin run: " + p.Name + "\"`.\n")
+	sb.WriteString("2. Run `gt dog done` — this clears your work and auto-terminates the session. Run this even if recording fails.\n")
+
+	return sb.String()
+}
+
+func appendTextFence(sb *strings.Builder, text string) {
+	fence := strings.Repeat("`", longestBacktickRun(text)+1)
+	if len(fence) < 3 {
+		fence = "```"
+	}
+	sb.WriteString(fence)
+	sb.WriteString("text\n")
+	sb.WriteString(text)
+	if !strings.HasSuffix(text, "\n") {
+		sb.WriteString("\n")
+	}
+	sb.WriteString(fence)
+	sb.WriteString("\n")
+}
+
+func longestBacktickRun(text string) int {
+	maxRun := 0
+	current := 0
+	for _, r := range text {
+		if r == '`' {
+			current++
+			if current > maxRun {
+				maxRun = current
+			}
+			continue
+		}
+		current = 0
+	}
+	return maxRun
 }

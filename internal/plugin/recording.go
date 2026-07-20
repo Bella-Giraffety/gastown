@@ -15,9 +15,18 @@ import (
 type RunResult string
 
 const (
-	ResultSuccess RunResult = "success"
-	ResultFailure RunResult = "failure"
-	ResultSkipped RunResult = "skipped"
+	ResultSuccess         RunResult = "success"
+	ResultFailure         RunResult = "failure"
+	ResultSkipped         RunResult = "skipped"
+	ResultTimeout         RunResult = "timeout"
+	ResultDogDispatched   RunResult = "dog_dispatched"
+	ResultDispatchFailure RunResult = "dispatch_failure"
+
+	LabelCooldownCounted = "cooldown:counted"
+	LabelRetryableTrue   = "retryable:true"
+	LabelRetryableFalse  = "retryable:false"
+	LabelAuthorityRunner = "authority:runner"
+	LabelAuthorityManual = "authority:manual"
 )
 
 // PluginRunRecord represents data for creating a plugin run bead.
@@ -36,7 +45,7 @@ type PluginRunBead struct {
 	Title     string    `json:"title"`
 	CreatedAt time.Time `json:"created_at"`
 	Labels    []string  `json:"labels"`
-	Result    RunResult `json:"-"` // Parsed from labels
+	Result    RunResult `json:"result"` // Parsed from labels
 }
 
 // Recorder handles plugin run recording and querying.
@@ -221,9 +230,59 @@ func (r *Recorder) queryRuns(pluginName string, limit int, since string) ([]*Plu
 // CountRunsSince returns the count of runs for a plugin since the given duration.
 // This is useful for cooldown gate evaluation.
 func (r *Recorder) CountRunsSince(pluginName string, since string) (int, error) {
-	runs, err := r.GetRunsSince(pluginName, since)
+	runs, err := r.GetCooldownRunsSince(pluginName, since)
 	if err != nil {
 		return 0, err
 	}
 	return len(runs), nil
+}
+
+// GetCooldownRunsSince returns runs that should satisfy a cooldown gate.
+func (r *Recorder) GetCooldownRunsSince(pluginName string, since string) ([]*PluginRunBead, error) {
+	runs, err := r.GetRunsSince(pluginName, since)
+	if err != nil {
+		return nil, err
+	}
+	counted := make([]*PluginRunBead, 0, len(runs))
+	for _, run := range runs {
+		if CooldownCounted(run) {
+			counted = append(counted, run)
+		}
+	}
+	return counted, nil
+}
+
+// CooldownCounted reports whether a receipt should close a cooldown gate.
+func CooldownCounted(run *PluginRunBead) bool {
+	if run == nil {
+		return false
+	}
+	if hasLabel(run.Labels, LabelCooldownCounted) {
+		return true
+	}
+	if hasLabelPrefix(run.Labels, "cooldown:") || hasLabelPrefix(run.Labels, "authority:") {
+		return false
+	}
+	// Legacy receipts predate explicit cooldown labels. Preserve persisted
+	// success/skipped cooldown behavior without letting new retryable failures
+	// satisfy the gate.
+	return run.Result == ResultSuccess || run.Result == ResultSkipped
+}
+
+func hasLabel(labels []string, want string) bool {
+	for _, label := range labels {
+		if label == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasLabelPrefix(labels []string, prefix string) bool {
+	for _, label := range labels {
+		if len(label) >= len(prefix) && label[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }

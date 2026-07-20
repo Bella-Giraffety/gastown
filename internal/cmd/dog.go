@@ -206,14 +206,9 @@ var dogDispatchCmd = &cobra.Command{
 This is the formalized command for sending plugin work to dogs. The Deacon
 uses this during patrol cycles to dispatch plugins with open gates.
 
-The command:
-1. Finds the plugin definition (plugin.md)
-2. Assigns work to an idle dog (marks as working)
-3. Sends mail with plugin instructions to the dog
-4. Returns immediately (non-blocking)
-
-The dog discovers the work via its mail inbox and executes the plugin
-instructions. On completion, the dog sends DOG_DONE mail to deacon/.
+The command uses the shared plugin runtime. If the plugin has run.sh, the
+script executes locally first; a dog is assigned only for agent-only plugins or
+when run.sh exits 10 to request an AI follow-up.
 
 Examples:
   gt dog dispatch --plugin rebuild-gt
@@ -1052,62 +1047,17 @@ func runDogDispatch(cmd *cobra.Command, args []string) error {
 	// Get dog manager (reuse rigsConfig from above)
 	mgr := dog.NewManager(townRoot, rigsConfig)
 
-	// Find target dog
-	var targetDog *dog.Dog
-	var dogCreated bool
-	if dogDispatchDog != "" {
-		// Specific dog requested
-		targetDog, err = mgr.Get(dogDispatchDog)
-		if err != nil {
-			return fmt.Errorf("getting dog %s: %w", dogDispatchDog, err)
-		}
-		if targetDog.State == dog.StateWorking {
-			return fmt.Errorf("dog %s is already working", dogDispatchDog)
-		}
-	} else {
-		// Find idle dog from pool
-		targetDog, err = mgr.GetIdleDog()
-		if err != nil {
-			return fmt.Errorf("finding idle dog: %w", err)
-		}
-
-		if targetDog == nil {
-			if dogDispatchCreate {
-				// Create a new dog (reuse generateDogName from sling_dog.go)
-				newName := generateDogName(mgr)
-				if dogDispatchDryRun {
-					targetDog = &dog.Dog{Name: newName, State: dog.StateIdle}
-					dogCreated = true
-				} else {
-					targetDog, err = mgr.Add(newName)
-					if err != nil {
-						return fmt.Errorf("creating dog %s: %w", newName, err)
-					}
-					dogCreated = true
-
-					// Create agent bead for the dog
-					b := beads.New(townRoot)
-					location := filepath.Join("deacon", "dogs", newName)
-					if _, beadErr := b.CreateDogAgentBead(newName, location); beadErr != nil {
-						// Non-fatal warning
-						if !dogDispatchJSON {
-							fmt.Printf("  Warning: could not create agent bead: %v\n", beadErr)
-						}
-					}
-				}
-			} else {
-				return fmt.Errorf("no idle dogs available (use --create to add one)")
-			}
-		}
-	}
+	// Resolve only an explicit target dog. Script plugins run before dog dispatch,
+	// so pool lookup and --create expansion happen lazily inside the shared
+	// runtime only if an AI dog step is actually required.
+	targetDogName := dogDispatchDog
 
 	// Prepare dispatch result for JSON output
 	workDesc := fmt.Sprintf("plugin:%s", p.Name)
 	result := dogDispatchResult{
 		Plugin:     p.Name,
 		PluginPath: p.Path,
-		Dog:        targetDog.Name,
-		DogCreated: dogCreated,
+		Dog:        targetDogName,
 		Work:       workDesc,
 		DryRun:     dogDispatchDryRun,
 	}
@@ -1127,110 +1077,46 @@ func runDogDispatch(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Printf("  Location: plugins/%s (town-level)\n", p.Name)
 		}
-		fmt.Printf("  Dog: %s%s\n", targetDog.Name, ifStr(dogCreated, " (would create)", ""))
+		dogLabel := targetDogName
+		if dogLabel == "" {
+			dogLabel = "first idle dog if AI dispatch is needed"
+			if dogDispatchCreate {
+				dogLabel = "first idle dog, or create one if AI dispatch is needed"
+			}
+		}
+		fmt.Printf("  Dog: %s\n", dogLabel)
 		fmt.Printf("  Work: %s\n", workDesc)
 		return nil
 	}
 
-	// Ensure dog has an agent bead before sending mail.
-	// Dogs created before agent beads were added, or whose bead creation
-	// failed silently, won't have one. The mail router requires agent beads
-	// to validate recipients.
-	b := beads.New(townRoot)
-	if existing, _ := b.FindDogAgentBead(targetDog.Name); existing == nil {
-		location := filepath.Join("deacon", "dogs", targetDog.Name)
-		if _, beadErr := b.CreateDogAgentBead(targetDog.Name, location); beadErr != nil {
-			if !dogDispatchJSON {
-				fmt.Printf("  Warning: could not create agent bead: %v\n", beadErr)
-			}
-		}
-	}
-
-	// Assign work FIRST (before sending mail) to prevent race condition
-	// If this fails, we haven't sent any mail yet
-	if err := mgr.AssignWork(targetDog.Name, workDesc); err != nil {
-		return fmt.Errorf("assigning work to dog: %w", err)
-	}
-
-	// Create and send mail message with plugin instructions
-	dogAddress := fmt.Sprintf("deacon/dogs/%s", targetDog.Name)
-	subject := fmt.Sprintf("Plugin: %s", p.Name)
-	body := p.FormatMailBody()
-
-	router := mail.NewRouterWithTownRoot(townRoot, townRoot)
-	defer router.WaitPendingNotifications()
-	msg := &mail.Message{
+	runtime, waitNotifications := newPluginRuntimeWithManager(townRoot, mgr)
+	defer waitNotifications()
+	outcome, execErr := runtime.Execute(cmd.Context(), p, plugin.RunOptions{
+		Trigger:   plugin.TriggerDogDispatch,
+		TargetDog: targetDogName,
+		CreateDog: dogDispatchCreate,
 		From:      "deacon/",
-		To:        dogAddress,
-		Subject:   subject,
-		Body:      body,
-		Timestamp: time.Now(),
-	}
-
-	if err := router.Send(msg); err != nil {
-		// Rollback: clear work assignment since mail failed
-		if clearErr := mgr.ClearWork(targetDog.Name); clearErr != nil {
-			// Log rollback failure but return original error
-			if !dogDispatchJSON {
-				fmt.Printf("  Warning: rollback failed: %v\n", clearErr)
-			}
+	})
+	if outcome != nil {
+		result.Result = string(outcome.Result)
+		result.ReceiptID = outcome.ReceiptID
+		if outcome.Dispatch != nil {
+			result.Dog = outcome.Dispatch.Dog
+			result.DogCreated = outcome.Dispatch.DogCreated
+			result.SessionStarted = outcome.Dispatch.SessionStarted
+			result.WorkConfirmed = outcome.Dispatch.WorkConfirmed
+			result.Warnings = append(result.Warnings, outcome.Dispatch.Warnings...)
 		}
-		return fmt.Errorf("sending plugin mail to dog: %w", err)
-	}
-
-	// Ensure dog session is running so it can read the mail.
-	// Without this, dispatched work sits in mail with no session to read it.
-	t := tmux.NewTmux()
-	sessMgr := dog.NewSessionManager(t, townRoot, mgr)
-	sessOpts := dog.SessionStartOptions{
-		WorkDesc: workDesc,
-	}
-	result.SessionStarted = true
-	if _, sessErr := sessMgr.EnsureRunning(targetDog.Name, sessOpts); sessErr != nil {
-		result.SessionStarted = false
-		// Roll back the work assignment: without a running session the dog
-		// cannot read its mail, leaving it stuck in StateWorking (zombie).
-		// Clearing work returns it to idle so it can be re-dispatched.
-		// See: github.com/steveyegge/gastown/issues/2748
-		if clearErr := mgr.ClearWork(targetDog.Name); clearErr != nil {
-			warn := fmt.Sprintf("session start failed AND rollback failed for dog %s — dog stuck in StateWorking, run: gt dog health-check --auto-clear: %v", targetDog.Name, clearErr)
-			result.Warnings = append(result.Warnings, warn)
-			if !dogDispatchJSON {
-				style.PrintWarning("%s", warn)
-			}
-		}
-		warn := fmt.Sprintf("dog dispatch: session start failed for %s (work rolled back, re-dispatch with: gt dog dispatch --plugin %s): %v", targetDog.Name, p.Name, sessErr)
-		result.Warnings = append(result.Warnings, warn)
-		if !dogDispatchJSON {
-			style.PrintWarning("%s", warn)
-		}
-		if escErr := dogEscalateBestEffort(warn); escErr != nil {
-			if !dogDispatchJSON {
-				style.PrintWarning("escalation also failed (%v) — escalate manually: gt escalate --severity medium %q", escErr, warn)
-			}
+		if outcome.Script != nil {
+			result.ScriptExitCode = outcome.Script.ExitCode
+			result.ScriptTimedOut = outcome.Script.TimedOut
 		}
 	}
-
-	// Verify the work state write is readable. A read-back failure here
-	// indicates state corruption, not a timing race.
-	// See: github.com/steveyegge/gastown/issues/2748
-	result.WorkConfirmed = false
-	if d, getErr := mgr.Get(targetDog.Name); getErr != nil {
-		warn := fmt.Sprintf("dog dispatch: could not verify work assignment for %s: %v", targetDog.Name, getErr)
-		result.Warnings = append(result.Warnings, warn)
-		if !dogDispatchJSON {
-			style.PrintWarning("%s", warn)
+	if execErr != nil {
+		if dogDispatchJSON {
+			_ = json.NewEncoder(os.Stdout).Encode(result)
 		}
-		_ = dogEscalateBestEffort(warn)
-	} else if d.Work != "" {
-		result.WorkConfirmed = true
-	} else {
-		warn := fmt.Sprintf("dog dispatch: work assignment cleared for %s between dispatch and verify — re-dispatch required", targetDog.Name)
-		result.Warnings = append(result.Warnings, warn)
-		if !dogDispatchJSON {
-			style.PrintWarning("%s", warn)
-		}
-		_ = dogEscalateBestEffort(warn)
+		return execErr
 	}
 
 	// Success - output result
@@ -1244,12 +1130,22 @@ func runDogDispatch(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Printf("  Location: plugins/%s (town-level)\n", p.Name)
 	}
-	if dogCreated {
-		fmt.Printf("%s Created dog %s (pool was empty)\n", style.Bold.Render("✓"), targetDog.Name)
+	if result.DogCreated {
+		fmt.Printf("%s Created dog %s (pool was empty)\n", style.Bold.Render("✓"), result.Dog)
 	}
-	fmt.Printf("%s Dispatching to dog: %s\n", style.Bold.Render("🐕"), targetDog.Name)
-	fmt.Printf("%s Plugin dispatched (non-blocking)\n", style.Bold.Render("✓"))
-	fmt.Printf("  Dog: %s\n", targetDog.Name)
+	if result.ScriptExitCode != 0 || p.HasRunScript {
+		fmt.Printf("  Script exit: %d\n", result.ScriptExitCode)
+	}
+	if result.Dog != "" {
+		fmt.Printf("%s Dispatching to dog: %s\n", style.Bold.Render("🐕"), result.Dog)
+		fmt.Printf("%s Plugin dispatched (non-blocking)\n", style.Bold.Render("✓"))
+		fmt.Printf("  Dog: %s\n", result.Dog)
+	} else {
+		fmt.Printf("%s Plugin completed without dog dispatch\n", style.Bold.Render("✓"))
+	}
+	if result.ReceiptID != "" {
+		fmt.Printf("  Receipt: %s\n", result.ReceiptID)
+	}
 	fmt.Printf("  Work: %s\n", workDesc)
 
 	return nil
@@ -1263,6 +1159,10 @@ type dogDispatchResult struct {
 	Dog            string   `json:"dog"`
 	DogCreated     bool     `json:"dog_created,omitempty"`
 	Work           string   `json:"work"`
+	Result         string   `json:"result,omitempty"`
+	ReceiptID      string   `json:"receipt_id,omitempty"`
+	ScriptExitCode int      `json:"script_exit_code,omitempty"`
+	ScriptTimedOut bool     `json:"script_timed_out,omitempty"`
 	DryRun         bool     `json:"dry_run,omitempty"`
 	SessionStarted bool     `json:"session_started"`
 	WorkConfirmed  bool     `json:"work_confirmed"`

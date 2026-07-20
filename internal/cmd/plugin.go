@@ -11,8 +11,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/dog"
+	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/plugin"
 	"github.com/steveyegge/gastown/internal/style"
+	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/workspace"
 )
 
@@ -487,32 +490,53 @@ func runPluginRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Execute the plugin
-	// For manual runs, we print the instructions for the agent/user to execute
-	// Automatic execution via dogs is handled by gt-n08ix.2
+	// Execute the plugin through the same runtime used by daemon dispatch.
 	fmt.Printf("%s Running plugin: %s\n", style.Success.Render("●"), p.Name)
 	if pluginRunForce && !gateOpen {
 		fmt.Printf("  %s\n", style.Dim.Render("(gate bypassed with --force)"))
 	}
-	fmt.Println()
-	fmt.Printf("%s\n", style.Bold.Render("Instructions:"))
-	fmt.Println(p.Instructions)
 
-	// Record the run
-	recorder := plugin.NewRecorder(townRoot)
-	beadID, err := recorder.RecordRun(plugin.PluginRunRecord{
-		PluginName: p.Name,
-		RigName:    p.RigName,
-		Result:     plugin.ResultSuccess, // Manual runs are marked success
-		Body:       "Manual run via gt plugin run",
-	})
+	runtime, waitNotifications, err := newPluginRuntime(townRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to record run: %v\n", err)
-	} else {
-		fmt.Printf("\n%s Recorded run: %s\n", style.Dim.Render("●"), beadID)
+		return err
+	}
+	defer waitNotifications()
+	outcome, err := runtime.Execute(cmd.Context(), p, plugin.RunOptions{Trigger: plugin.TriggerManual})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("  Result: %s\n", outcome.Result)
+	if outcome.ReceiptID != "" {
+		fmt.Printf("  %s Recorded run: %s\n", style.Dim.Render("●"), outcome.ReceiptID)
+	}
+	if outcome.Dispatch != nil && outcome.Dispatch.Dog != "" {
+		fmt.Printf("  Dog: %s\n", outcome.Dispatch.Dog)
 	}
 
 	return nil
+}
+
+func newPluginRuntime(townRoot string) (*plugin.Runtime, func(), error) {
+	rigsConfigPath := constants.MayorRigsPath(townRoot)
+	rigsConfig, err := config.LoadRigsConfig(rigsConfigPath)
+	if err != nil {
+		rigsConfig = &config.RigsConfig{Rigs: make(map[string]config.RigEntry)}
+	}
+	mgr := dog.NewManager(townRoot, rigsConfig)
+	runtime, wait := newPluginRuntimeWithManager(townRoot, mgr)
+	return runtime, wait, nil
+}
+
+func newPluginRuntimeWithManager(townRoot string, mgr *dog.Manager) (*plugin.Runtime, func()) {
+	router := mail.NewRouterWithTownRoot(townRoot, townRoot)
+	dispatcher := &plugin.DogPoolDispatcher{
+		TownRoot:      townRoot,
+		Manager:       mgr,
+		Sessions:      dog.NewSessionManager(tmux.NewTmux(), townRoot, mgr),
+		Router:        router,
+		CreateDogName: generateDogName,
+	}
+	return plugin.NewRuntime(townRoot, plugin.NewRecorder(townRoot), dispatcher), router.WaitPendingNotifications
 }
 
 func runPluginSync(cmd *cobra.Command, args []string) error {
@@ -662,20 +686,24 @@ func runPluginRecordRun(cmd *cobra.Command, args []string) error {
 	if pluginRecordResult == "" {
 		return fmt.Errorf("--result is required")
 	}
+	if os.Getenv("GT_PLUGIN_RUNNER_ACTIVE") == "1" {
+		return nil
+	}
 
 	townRoot, err := workspace.FindFromCwdOrError()
 	if err != nil {
 		return fmt.Errorf("not in a Gas Town workspace: %w", err)
 	}
 
+	result := plugin.RunResult(pluginRecordResult)
 	recorder := plugin.NewRecorder(townRoot)
 	beadID, err := recorder.RecordRun(plugin.PluginRunRecord{
 		PluginName:  pluginRecordPlugin,
 		RigName:     pluginRecordRig,
-		Result:      plugin.RunResult(pluginRecordResult),
+		Result:      result,
 		Title:       pluginRecordTitle,
 		Body:        pluginRecordBody,
-		ExtraLabels: pluginRecordLabels,
+		ExtraLabels: pluginRecordRunLabels(result),
 	})
 	if err != nil {
 		return err
@@ -683,4 +711,35 @@ func runPluginRecordRun(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintln(cmd.OutOrStdout(), beadID)
 	return nil
+}
+
+func pluginRecordRunLabels(result plugin.RunResult) []string {
+	labels := append([]string(nil), pluginRecordLabels...)
+	if !labelPrefixPresent(labels, "authority:") {
+		labels = append(labels, plugin.LabelAuthorityManual)
+	}
+	if !labelPrefixPresent(labels, "cooldown:") {
+		if result == plugin.ResultSuccess || result == plugin.ResultSkipped {
+			labels = append(labels, plugin.LabelCooldownCounted)
+		} else {
+			labels = append(labels, "cooldown:retryable")
+		}
+	}
+	if !labelPrefixPresent(labels, "retryable:") {
+		if result == plugin.ResultSuccess || result == plugin.ResultSkipped {
+			labels = append(labels, plugin.LabelRetryableFalse)
+		} else {
+			labels = append(labels, plugin.LabelRetryableTrue)
+		}
+	}
+	return labels
+}
+
+func labelPrefixPresent(labels []string, prefix string) bool {
+	for _, label := range labels {
+		if strings.HasPrefix(label, prefix) {
+			return true
+		}
+	}
+	return false
 }

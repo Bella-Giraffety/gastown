@@ -1,8 +1,7 @@
 package daemon
 
 import (
-	"fmt"
-	"log"
+	"context"
 	"path/filepath"
 	"time"
 
@@ -259,6 +258,14 @@ func (d *Daemon) dispatchPlugins(mgr *dog.Manager, sm *dog.SessionManager, rigsC
 
 	recorder := plugin.NewRecorder(d.config.TownRoot)
 	router := mail.NewRouterWithTownRoot(d.config.TownRoot, d.config.TownRoot)
+	dispatcher := &plugin.DogPoolDispatcher{
+		TownRoot: d.config.TownRoot,
+		Manager:  mgr,
+		Sessions: sm,
+		Router:   router,
+		Logger:   d.logger,
+	}
+	runtime := plugin.NewRuntime(d.config.TownRoot, recorder, dispatcher)
 
 	for _, p := range plugins {
 		// Never auto-dispatch manual-gate plugins — they require an explicit trigger.
@@ -284,105 +291,27 @@ func (d *Daemon) dispatchPlugins(mgr *dog.Manager, sm *dog.SessionManager, rigsC
 			}
 		}
 
-		// Find an idle dog that doesn't already have a live tmux session.
-		// A leaked session (dog marked idle before its tmux terminated) would
-		// cause sm.Start to fail with "session already running", and since
-		// mgr.List() returns dogs in directory order, GetIdleDog would always
-		// pick the same first idle dog — infinite-looping the same failed
-		// dispatch instead of advancing to the next idle dog in the pack.
-		// See gt-o24.
-		idleDog := findDispatchableDog(mgr, sm, d.logger)
-		if idleDog == nil {
-			d.logger.Printf("Handler: no dispatchable idle dogs available, deferring remaining plugins")
-			return
-		}
-
-		// Assign work and start session.
-		workDesc := fmt.Sprintf("plugin:%s", p.Name)
-		if err := mgr.AssignWork(idleDog.Name, workDesc); err != nil {
-			d.logger.Printf("Handler: failed to assign work to dog %s: %v", idleDog.Name, err)
+		outcome, err := runtime.Execute(context.Background(), p, plugin.RunOptions{
+			Trigger: plugin.TriggerAuto,
+			From:    "daemon",
+		})
+		if err != nil {
+			d.logger.Printf("Handler: plugin %s outcome %s failed: %v", p.Name, outcomeResult(outcome), err)
 			continue
 		}
-
-		// Send mail with plugin instructions BEFORE starting the session
-		// so the dog finds work in its inbox on first check.
-		msg := mail.NewMessage(
-			"daemon",
-			fmt.Sprintf("deacon/dogs/%s", idleDog.Name),
-			fmt.Sprintf("Plugin: %s", p.Name),
-			p.FormatMailBody(),
-		)
-		msg.Type = mail.TypeTask
-		msg.Timestamp = time.Now()
-		if err := router.Send(msg); err != nil {
-			d.logger.Printf("Handler: failed to send mail to dog %s: %v", idleDog.Name, err)
-			// Roll back assignment — no point starting a session without instructions.
-			if clearErr := mgr.ClearWork(idleDog.Name); clearErr != nil {
-				d.logger.Printf("Handler: failed to clear work after mail failure for dog %s: %v", idleDog.Name, clearErr)
-			}
-			continue
-		}
-
-		if err := sm.Start(idleDog.Name, dog.SessionStartOptions{
-			WorkDesc: workDesc,
-		}); err != nil {
-			d.logger.Printf("Handler: failed to start session for dog %s: %v", idleDog.Name, err)
-			// Roll back assignment on session start failure.
-			if clearErr := mgr.ClearWork(idleDog.Name); clearErr != nil {
-				d.logger.Printf("Handler: failed to clear work after start failure for dog %s: %v", idleDog.Name, clearErr)
-			}
-			continue
-		}
-
-		d.logger.Printf("Handler: dispatched plugin %s to dog %s", p.Name, idleDog.Name)
-
-		// Record the dispatch immediately so the cooldown gate is satisfied
-		// for the next 1h regardless of what the dog does. Dogs create their
-		// own completion beads but don't reliably use the label convention the
-		// gate requires, causing infinite re-dispatch loops.
-		if _, err := recorder.RecordRun(plugin.PluginRunRecord{
-			PluginName: p.Name,
-			Result:     plugin.ResultSuccess,
-			Body:       fmt.Sprintf("Dispatched to dog %s", idleDog.Name),
-		}); err != nil {
-			d.logger.Printf("Handler: failed to record dispatch for plugin %s: %v", p.Name, err)
+		if outcome.Dispatch != nil && outcome.Dispatch.Dog != "" {
+			d.logger.Printf("Handler: dispatched plugin %s to dog %s (result=%s)", p.Name, outcome.Dispatch.Dog, outcome.Result)
+		} else {
+			d.logger.Printf("Handler: completed plugin %s (result=%s)", p.Name, outcome.Result)
 		}
 	}
 }
 
-// findDispatchableDog returns the first dog in the kennel whose registry
-// state is idle AND whose tmux session is NOT currently running. Returns nil
-// when no dog satisfies both conditions.
-//
-// This exists because a dog can be marked idle (via gt dog done or the reaper)
-// before its tmux session fully terminates, producing a transient window where
-// sm.Start would fail with "session already running". Picking that dog every
-// dispatch tick infinite-loops the same failed dispatch instead of advancing
-// to another genuinely-free dog in the pack. See gt-o24.
-//
-// IsRunning errors are logged and treated as "not dispatchable" so a flaky
-// tmux check can't wedge the whole dispatch cycle.
-func findDispatchableDog(mgr *dog.Manager, sm *dog.SessionManager, logger *log.Logger) *dog.Dog {
-	dogs, err := mgr.List()
-	if err != nil {
-		logger.Printf("Handler: failed to list dogs while picking dispatch target: %v", err)
-		return nil
+func outcomeResult(outcome *plugin.RunOutcome) plugin.RunResult {
+	if outcome == nil {
+		return "unknown"
 	}
-	for _, d := range dogs {
-		if d.State != dog.StateIdle {
-			continue
-		}
-		running, err := sm.IsRunning(d.Name)
-		if err != nil {
-			logger.Printf("Handler: IsRunning check failed for dog %s: %v; skipping", d.Name, err)
-			continue
-		}
-		if running {
-			continue
-		}
-		return d
-	}
-	return nil
+	return outcome.Result
 }
 
 // loadRigsConfig loads the rigs configuration from mayor/rigs.json.

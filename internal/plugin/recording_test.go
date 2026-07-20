@@ -92,6 +92,35 @@ func TestRunResultConstants(t *testing.T) {
 	if ResultSkipped != "skipped" {
 		t.Errorf("expected ResultSkipped to be 'skipped', got %q", ResultSkipped)
 	}
+	if ResultDogDispatched != "dog_dispatched" {
+		t.Errorf("expected ResultDogDispatched to be 'dog_dispatched', got %q", ResultDogDispatched)
+	}
+	if LabelAuthorityManual != "authority:manual" {
+		t.Errorf("expected LabelAuthorityManual to be 'authority:manual', got %q", LabelAuthorityManual)
+	}
+}
+
+func TestCooldownCounted(t *testing.T) {
+	cases := []struct {
+		name string
+		run  *PluginRunBead
+		want bool
+	}{
+		{"explicit counted", &PluginRunBead{Result: ResultFailure, Labels: []string{LabelCooldownCounted, LabelAuthorityRunner}}, true},
+		{"retryable failure", &PluginRunBead{Result: ResultFailure, Labels: []string{LabelAuthorityRunner, "cooldown:retryable"}}, false},
+		{"dispatch failure", &PluginRunBead{Result: ResultDispatchFailure, Labels: []string{LabelAuthorityRunner, "cooldown:retryable"}}, false},
+		{"legacy success", &PluginRunBead{Result: ResultSuccess, Labels: []string{"result:success"}}, true},
+		{"legacy skipped", &PluginRunBead{Result: ResultSkipped, Labels: []string{"result:skipped"}}, true},
+		{"legacy failure", &PluginRunBead{Result: ResultFailure, Labels: []string{"result:failure"}}, false},
+		{"new success missing cooldown label", &PluginRunBead{Result: ResultSuccess, Labels: []string{LabelAuthorityRunner}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CooldownCounted(tc.run); got != tc.want {
+				t.Fatalf("CooldownCounted() = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestNewRecorder(t *testing.T) {

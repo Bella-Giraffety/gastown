@@ -1945,6 +1945,7 @@ This directory contains town-level plugins that run during Deacon patrol cycles.
 
 Each plugin is a directory containing:
 - plugin.md - Plugin definition with TOML frontmatter
+- run.sh - Optional deterministic executable run by the shared plugin runtime
 
 ## Gate Types
 
@@ -1953,7 +1954,7 @@ Each plugin is a directory containing:
 - condition: Metric threshold
 - event: Trigger-based (startup, heartbeat)
 
-See docs/deacon-plugins.md for full documentation.
+See docs/design/plugin-system.md for the runtime, receipt, and cooldown contract.
 `
 		if writeErr := os.WriteFile(townReadme, []byte(content), 0644); writeErr != nil {
 			// Non-fatal
