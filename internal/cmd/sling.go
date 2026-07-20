@@ -563,9 +563,10 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// Determine mode based on flags and argument types
 	var beadID string
 	var formulaName string
+	formulaOnBeadMode := slingOnTarget != ""
 	attachedMoleculeID := ""
 
-	if slingOnTarget != "" {
+	if formulaOnBeadMode {
 		// Formula-on-bead mode: gt sling <formula> --on <bead>
 		formulaName = args[0]
 		beadID = slingOnTarget

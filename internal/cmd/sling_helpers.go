@@ -981,6 +981,17 @@ func formulaBeadBdCmd(beadID, formulaWorkDir, townRoot string, args ...string) *
 	return BdCmd(args...).Dir(formulaWorkDir).WithBeadsDir(targetBeadsDir).WithGTRoot(townRoot)
 }
 
+func formulaPreflightVars(townRoot, rigName, baseBranch string, vars []string) []string {
+	preflightVars := append([]string(nil), vars...)
+	if rigName != "" {
+		preflightVars = append(loadRigCommandVars(townRoot, rigName), preflightVars...)
+	}
+	if baseBranch != "" && baseBranch != "main" {
+		preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", baseBranch))
+	}
+	return preflightVars
+}
+
 func formulaBondArgs(bondTarget, beadID string, jsonOutput, dryRun bool, vars []string) []string {
 	bondArgs := []string{"mol", "bond", bondTarget, beadID}
 	if jsonOutput {

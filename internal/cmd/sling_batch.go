@@ -95,20 +95,6 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 		fmt.Printf("  Spawn batch size: %d (spawns N, pauses, spawns N more)\n", slingMaxConcurrent)
 	}
 
-	// Cook formula once before the loop for efficiency
-	formulaCooked := false
-
-	// Pre-cook formula before the loop (batch optimization: cook once, instantiate many)
-	if formulaName != "" {
-		workDir := beads.ResolveHookDir(townRoot, beadIDs[0], "")
-		if err := CookFormula(formulaName, workDir, townRoot); err != nil {
-			fmt.Printf("  %s Could not pre-cook formula %s: %v\n", style.Dim.Render("Warning:"), formulaName, err)
-			// Fall back: each executeSling call will try to cook individually
-		} else {
-			formulaCooked = true
-		}
-	}
-
 	// Track results for summary
 	type batchResult struct {
 		beadID  string
@@ -164,11 +150,9 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 			HookRawBead:      slingHookRawBead,
 			NoBoot:           slingNoBoot,
 			Mode:             slingMode,
-			SkipCook:         formulaCooked,
-			FormulaFailFatal: false, // Batch: warn + hook raw on formula failure
-			CallerContext:    "batch-sling",
-			TownRoot:         townRoot,
-			BeadsDir:         townBeadsDir,
+			CallerContext: "batch-sling",
+			TownRoot:      townRoot,
+			BeadsDir:      townBeadsDir,
 		}
 
 		result, err := executeSling(params)

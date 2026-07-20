@@ -144,10 +144,7 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 	}
 
 	if opts.Formula != "" {
-		preflightVars := append(loadRigCommandVars(townRoot, rigName), opts.Vars...)
-		if opts.BaseBranch != "" && opts.BaseBranch != "main" {
-			preflightVars = append(preflightVars, fmt.Sprintf("base_branch=%s", opts.BaseBranch))
-		}
+		preflightVars := formulaPreflightVars(townRoot, rigName, opts.BaseBranch, opts.Vars)
 		if err := preflightFormulaBond(opts.Formula, beadID, info.Title, "", townRoot, preflightVars); err != nil {
 			return err
 		}
