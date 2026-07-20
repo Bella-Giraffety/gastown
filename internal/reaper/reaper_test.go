@@ -399,6 +399,9 @@ func TestClosedMoleculeStepReapBehavior(t *testing.T) {
 	if scan.ReapCandidates != 2 {
 		t.Fatalf("Scan ReapCandidates = %d, want 2", scan.ReapCandidates)
 	}
+	if scan.AlertableWisps != 4 {
+		t.Fatalf("Scan AlertableWisps = %d, want 4", scan.AlertableWisps)
+	}
 
 	beforeDryRun := state.statuses()
 	dryRun, err := Reap(db, "testdb", maxAge, true)
@@ -410,6 +413,9 @@ func TestClosedMoleculeStepReapBehavior(t *testing.T) {
 	}
 	if dryRun.Reaped != 2 {
 		t.Fatalf("dry-run Reaped = %d, want 2", dryRun.Reaped)
+	}
+	if dryRun.AlertableRemain != 4 {
+		t.Fatalf("dry-run AlertableRemain = %d, want 4", dryRun.AlertableRemain)
 	}
 	if dryRun.OpenRemain != 10 {
 		t.Fatalf("dry-run OpenRemain = %d, want 10", dryRun.OpenRemain)
@@ -431,6 +437,9 @@ func TestClosedMoleculeStepReapBehavior(t *testing.T) {
 	}
 	if realRun.OpenRemain != 6 {
 		t.Fatalf("real OpenRemain = %d, want 6", realRun.OpenRemain)
+	}
+	if realRun.AlertableRemain != 0 {
+		t.Fatalf("real AlertableRemain = %d, want 0", realRun.AlertableRemain)
 	}
 
 	for _, id := range []string{"step-closed-mol-recent", "step-closed-mol-old", "step-non-molecule-parent", "stale-orphan"} {
@@ -460,6 +469,158 @@ func TestClosedMoleculeStepReapBehavior(t *testing.T) {
 			"EXEC SET @@autocommit = 1",
 		)
 		t.Logf("real Reap used pinned connection %d", connID)
+	}
+}
+
+func TestScanAlertableBacklogIgnoresHealthyInventory(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeReaperState{
+		wisps: map[string]*fakeWisp{
+			"mol-open": {id: "mol-open", status: "open", issueType: "molecule", createdAt: now},
+		},
+		ops: map[int][]string{},
+	}
+	for i := 0; i < DefaultAlertThreshold+1; i++ {
+		id := fmt.Sprintf("healthy-%04d", i)
+		state.wisps[id] = &fakeWisp{id: id, status: "open", issueType: "task", createdAt: now.Add(-48 * time.Hour)}
+		state.deps = append(state.deps, fakeDep{issueID: id, dependsOnID: "mol-open", depType: "parent-child"})
+	}
+	db := openFakeReaperDB(t, state)
+	t.Cleanup(func() { _ = db.Close() })
+
+	maxAge := 24 * time.Hour
+	scan, err := Scan(db, "testdb", maxAge, 7*24*time.Hour, 7*24*time.Hour, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if scan.OpenWisps <= DefaultAlertThreshold {
+		t.Fatalf("Scan OpenWisps = %d, want above threshold %d", scan.OpenWisps, DefaultAlertThreshold)
+	}
+	if scan.ReapCandidates != 0 || scan.MoleculeStepCandidates != 0 || scan.AlertableWisps != 0 {
+		t.Fatalf("Scan alertable counts = reap %d, molecule %d, alertable %d; want all zero", scan.ReapCandidates, scan.MoleculeStepCandidates, scan.AlertableWisps)
+	}
+
+	dryRun, err := Reap(db, "testdb", maxAge, true)
+	if err != nil {
+		t.Fatalf("dry-run Reap: %v", err)
+	}
+	if dryRun.OpenRemain <= DefaultAlertThreshold {
+		t.Fatalf("dry-run OpenRemain = %d, want above threshold %d", dryRun.OpenRemain, DefaultAlertThreshold)
+	}
+	if dryRun.AlertableRemain != 0 {
+		t.Fatalf("dry-run AlertableRemain = %d, want 0", dryRun.AlertableRemain)
+	}
+}
+
+func TestScanAlertableBacklogCountsStaleOrphans(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeReaperState{
+		wisps: map[string]*fakeWisp{},
+		ops:   map[int][]string{},
+	}
+	for i := 0; i < DefaultAlertThreshold+1; i++ {
+		id := fmt.Sprintf("stale-orphan-%04d", i)
+		state.wisps[id] = &fakeWisp{id: id, status: "open", issueType: "task", createdAt: now.Add(-48 * time.Hour)}
+	}
+	db := openFakeReaperDB(t, state)
+	t.Cleanup(func() { _ = db.Close() })
+
+	maxAge := 24 * time.Hour
+	scan, err := Scan(db, "testdb", maxAge, 7*24*time.Hour, 7*24*time.Hour, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if scan.OpenWisps != DefaultAlertThreshold+1 {
+		t.Fatalf("Scan OpenWisps = %d, want %d", scan.OpenWisps, DefaultAlertThreshold+1)
+	}
+	if scan.ReapCandidates != DefaultAlertThreshold+1 {
+		t.Fatalf("Scan ReapCandidates = %d, want %d", scan.ReapCandidates, DefaultAlertThreshold+1)
+	}
+	if scan.MoleculeStepCandidates != 0 {
+		t.Fatalf("Scan MoleculeStepCandidates = %d, want 0", scan.MoleculeStepCandidates)
+	}
+	if scan.AlertableWisps != DefaultAlertThreshold+1 {
+		t.Fatalf("Scan AlertableWisps = %d, want %d", scan.AlertableWisps, DefaultAlertThreshold+1)
+	}
+
+	dryRun, err := Reap(db, "testdb", maxAge, true)
+	if err != nil {
+		t.Fatalf("dry-run Reap: %v", err)
+	}
+	if dryRun.AlertableRemain != DefaultAlertThreshold+1 {
+		t.Fatalf("dry-run AlertableRemain = %d, want %d", dryRun.AlertableRemain, DefaultAlertThreshold+1)
+	}
+}
+
+func TestScanAlertableBacklogCountsClosedMoleculeSteps(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeReaperState{
+		wisps: map[string]*fakeWisp{
+			"mol-closed": {id: "mol-closed", status: "closed", issueType: "molecule", createdAt: now},
+		},
+		ops: map[int][]string{},
+	}
+	for i := 0; i < DefaultAlertThreshold+1; i++ {
+		id := fmt.Sprintf("closed-mol-step-%04d", i)
+		state.wisps[id] = &fakeWisp{id: id, status: "open", issueType: "task", createdAt: now.Add(-1 * time.Hour)}
+		state.deps = append(state.deps, fakeDep{issueID: id, dependsOnID: "mol-closed", depType: "parent-child"})
+	}
+	db := openFakeReaperDB(t, state)
+	t.Cleanup(func() { _ = db.Close() })
+
+	maxAge := 24 * time.Hour
+	scan, err := Scan(db, "testdb", maxAge, 7*24*time.Hour, 7*24*time.Hour, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if scan.OpenWisps != DefaultAlertThreshold+1 {
+		t.Fatalf("Scan OpenWisps = %d, want %d", scan.OpenWisps, DefaultAlertThreshold+1)
+	}
+	if scan.ReapCandidates != 0 {
+		t.Fatalf("Scan ReapCandidates = %d, want 0", scan.ReapCandidates)
+	}
+	if scan.MoleculeStepCandidates != DefaultAlertThreshold+1 {
+		t.Fatalf("Scan MoleculeStepCandidates = %d, want %d", scan.MoleculeStepCandidates, DefaultAlertThreshold+1)
+	}
+	if scan.AlertableWisps != DefaultAlertThreshold+1 {
+		t.Fatalf("Scan AlertableWisps = %d, want %d", scan.AlertableWisps, DefaultAlertThreshold+1)
+	}
+
+	dryRun, err := Reap(db, "testdb", maxAge, true)
+	if err != nil {
+		t.Fatalf("dry-run Reap: %v", err)
+	}
+	if dryRun.MoleculeStepsClosed != DefaultAlertThreshold+1 {
+		t.Fatalf("dry-run MoleculeStepsClosed = %d, want %d", dryRun.MoleculeStepsClosed, DefaultAlertThreshold+1)
+	}
+	if dryRun.Reaped != 0 {
+		t.Fatalf("dry-run Reaped = %d, want 0", dryRun.Reaped)
+	}
+	if dryRun.AlertableRemain != DefaultAlertThreshold+1 {
+		t.Fatalf("dry-run AlertableRemain = %d, want %d", dryRun.AlertableRemain, DefaultAlertThreshold+1)
+	}
+
+	realRun, err := Reap(db, "testdb", maxAge, false)
+	if err != nil {
+		t.Fatalf("real Reap: %v", err)
+	}
+	if realRun.MoleculeStepsClosed != DefaultAlertThreshold+1 {
+		t.Fatalf("real MoleculeStepsClosed = %d, want %d", realRun.MoleculeStepsClosed, DefaultAlertThreshold+1)
+	}
+	if realRun.Reaped != 0 {
+		t.Fatalf("real Reaped = %d, want 0", realRun.Reaped)
+	}
+	if realRun.OpenRemain != 0 {
+		t.Fatalf("real OpenRemain = %d, want 0", realRun.OpenRemain)
+	}
+	if realRun.AlertableRemain != 0 {
+		t.Fatalf("real AlertableRemain = %d, want 0", realRun.AlertableRemain)
+	}
+	for i := 0; i < DefaultAlertThreshold+1; i++ {
+		id := fmt.Sprintf("closed-mol-step-%04d", i)
+		if got := state.status(id); got != "closed" {
+			t.Fatalf("%s status = %q, want closed", id, got)
+		}
 	}
 }
 

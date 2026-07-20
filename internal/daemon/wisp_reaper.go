@@ -21,7 +21,7 @@ const (
 	defaultWispMaxAge = 24 * time.Hour
 	// Closed wisps older than this are permanently deleted. Formula var: purge_age.
 	defaultWispDeleteAge = 7 * 24 * time.Hour
-	// Alert threshold: if open wisp count exceeds this, the Dog should escalate.
+	// Alert threshold: if alertable wisp backlog exceeds this, the Dog should escalate.
 	// Shared with `gt reaper run` warning. See reaper.DefaultAlertThreshold.
 	wispAlertThreshold = reaper.DefaultAlertThreshold
 	// Closed mail older than this is permanently deleted. Formula var: mail_delete_age.
@@ -159,7 +159,7 @@ func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge tim
 
 	port := d.doltServerPort()
 	dryRun := config.DryRun
-	var totalReaped, totalMoleculeSteps, totalOpen, totalPurged, totalMailPurged, totalAutoClosed int
+	var totalReaped, totalMoleculeSteps, totalAlertableRemain, totalOpen, totalPurged, totalMailPurged, totalAutoClosed int
 
 	// Step 2: Reap
 	reapErrors := 0
@@ -187,13 +187,14 @@ func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge tim
 		}
 		totalReaped += result.Reaped
 		totalMoleculeSteps += result.MoleculeStepsClosed
+		totalAlertableRemain += result.AlertableRemain
 		totalOpen += result.OpenRemain
 		if result.Reaped > 0 || result.MoleculeStepsClosed > 0 {
 			reapSummary := fmt.Sprintf("wisp_reaper: %s: reaped %d stale wisps", dbName, result.Reaped)
 			if result.MoleculeStepsClosed > 0 {
 				reapSummary += fmt.Sprintf(", closed %d molecule steps", result.MoleculeStepsClosed)
 			}
-			d.logger.Printf("%s, %d open remain", reapSummary, result.OpenRemain)
+			d.logger.Printf("%s, %d alertable remain, %d open remain", reapSummary, result.AlertableRemain, result.OpenRemain)
 		}
 	}
 	if reapErrors > 0 {
@@ -323,16 +324,16 @@ func (d *Daemon) reapWispsInline(config *WispReaperConfig, maxAge, deleteAge tim
 	}
 
 	// Step 5: Report
-	if totalOpen > wispAlertThreshold {
-		d.logger.Printf("wisp_reaper: WARNING: %d open wisps exceed threshold %d — investigate wisp lifecycle",
-			totalOpen, wispAlertThreshold)
+	if totalAlertableRemain > wispAlertThreshold {
+		d.logger.Printf("wisp_reaper: WARNING: %d alertable wisps exceed threshold %d — investigate reaper-eligible backlog; raw open wisps=%d",
+			totalAlertableRemain, wispAlertThreshold, totalOpen)
 	}
 	summary := fmt.Sprintf("wisp_reaper: cycle complete — reaped=%d", totalReaped)
 	if totalMoleculeSteps > 0 {
 		summary += fmt.Sprintf(" molecule_steps_closed=%d", totalMoleculeSteps)
 	}
-	summary += fmt.Sprintf(" purged=%d mail_purged=%d plugin_closed=%d dispatch_closed=%d auto_closed=%d open=%d databases=%d dryRun=%v",
-		totalPurged, totalMailPurged, totalPluginClosed, totalDispatchClosed, totalAutoClosed, totalOpen, len(databases), dryRun)
+	summary += fmt.Sprintf(" purged=%d mail_purged=%d plugin_closed=%d dispatch_closed=%d auto_closed=%d alertable_remain=%d open=%d databases=%d dryRun=%v",
+		totalPurged, totalMailPurged, totalPluginClosed, totalDispatchClosed, totalAutoClosed, totalAlertableRemain, totalOpen, len(databases), dryRun)
 	d.logger.Printf("%s", summary)
 	mol.closeStep("report")
 }

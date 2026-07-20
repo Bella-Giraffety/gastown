@@ -181,7 +181,7 @@ The Dog uses this to understand the state before deciding what to reap.`,
 		if reaperJSON {
 			fmt.Println(reaper.FormatJSON(results))
 		} else {
-			var totalReap, totalMoleculeSteps, totalPurge, totalMail, totalStale, totalOpen int
+			var totalReap, totalMoleculeSteps, totalPurge, totalMail, totalStale, totalAlertable, totalOpen int
 			for _, r := range results {
 				fmt.Printf("Database: %s\n", r.Database)
 				fmt.Printf("  Reap candidates:  %d\n", r.ReapCandidates)
@@ -191,6 +191,7 @@ The Dog uses this to understand the state before deciding what to reap.`,
 				fmt.Printf("  Purge candidates: %d\n", r.PurgeCandidates)
 				fmt.Printf("  Mail candidates:  %d\n", r.MailCandidates)
 				fmt.Printf("  Stale candidates: %d\n", r.StaleCandidates)
+				fmt.Printf("  Alertable wisps:  %d\n", r.AlertableWisps)
 				fmt.Printf("  Open wisps:       %d\n", r.OpenWisps)
 				for _, a := range r.Anomalies {
 					fmt.Printf("  %s %s\n", style.Warning.Render("ANOMALY:"), a.Message)
@@ -200,6 +201,7 @@ The Dog uses this to understand the state before deciding what to reap.`,
 				totalPurge += r.PurgeCandidates
 				totalMail += r.MailCandidates
 				totalStale += r.StaleCandidates
+				totalAlertable += r.AlertableWisps
 				totalOpen += r.OpenWisps
 			}
 			if len(results) > 1 {
@@ -211,6 +213,7 @@ The Dog uses this to understand the state before deciding what to reap.`,
 				fmt.Printf("  Purge candidates: %d\n", totalPurge)
 				fmt.Printf("  Mail candidates:  %d\n", totalMail)
 				fmt.Printf("  Stale candidates: %d\n", totalStale)
+				fmt.Printf("  Alertable wisps:  %d\n", totalAlertable)
 				fmt.Printf("  Open wisps:       %d\n", totalOpen)
 			}
 		}
@@ -273,7 +276,7 @@ Returns the count of reaped wisps. Use --dry-run to preview.`,
 		if reaperJSON {
 			fmt.Println(reaper.FormatJSON(results))
 		} else {
-			var totalReaped, totalMoleculeSteps, totalOpen int
+			var totalReaped, totalMoleculeSteps, totalAlertable, totalOpen int
 			for _, r := range results {
 				prefix := ""
 				if r.DryRun {
@@ -283,10 +286,11 @@ Returns the count of reaped wisps. Use --dry-run to preview.`,
 				if r.MoleculeStepsClosed > 0 {
 					extra = fmt.Sprintf(" (+%d closed-molecule steps)", r.MoleculeStepsClosed)
 				}
-				fmt.Printf("%s: %sreaped %d wisps%s, %d open remain\n",
-					r.Database, prefix, r.Reaped, extra, r.OpenRemain)
+				fmt.Printf("%s: %sreaped %d wisps%s, %d alertable remain, %d open remain\n",
+					r.Database, prefix, r.Reaped, extra, r.AlertableRemain, r.OpenRemain)
 				totalReaped += r.Reaped
 				totalMoleculeSteps += r.MoleculeStepsClosed
+				totalAlertable += r.AlertableRemain
 				totalOpen += r.OpenRemain
 			}
 			if len(results) > 1 {
@@ -298,11 +302,11 @@ Returns the count of reaped wisps. Use --dry-run to preview.`,
 				if totalMoleculeSteps > 0 {
 					extra = fmt.Sprintf(" (+%d closed-molecule steps)", totalMoleculeSteps)
 				}
-				fmt.Printf("\n%sReap summary (%d databases): reaped %d wisps%s, %d open remain\n",
-					prefix, len(results), totalReaped, extra, totalOpen)
-				if totalOpen > reaper.DefaultAlertThreshold {
-					fmt.Fprintf(os.Stderr, "WARNING: %d open wisps exceed alert threshold (%d)\n",
-						totalOpen, reaper.DefaultAlertThreshold)
+				fmt.Printf("\n%sReap summary (%d databases): reaped %d wisps%s, %d alertable remain, %d open remain\n",
+					prefix, len(results), totalReaped, extra, totalAlertable, totalOpen)
+				if totalAlertable > reaper.DefaultAlertThreshold {
+					fmt.Fprintf(os.Stderr, "WARNING: %d alertable wisps exceed alert threshold (%d); raw open wisps=%d\n",
+						totalAlertable, reaper.DefaultAlertThreshold, totalOpen)
 				}
 			}
 		}
@@ -505,7 +509,7 @@ Normally the daemon dispatches a Dog to execute the mol-dog-reaper formula.`,
 			return fmt.Errorf("invalid --stale-age: %w", err)
 		}
 
-		var totalReaped, totalMoleculeSteps, totalPurged, totalMailPurged, totalClosed, totalOpen int
+		var totalReaped, totalMoleculeSteps, totalPurged, totalMailPurged, totalClosed, totalAlertable, totalOpen int
 
 		for i, dbName := range databases {
 			if err := waitBeforeReaperDatabase(i); err != nil {
@@ -550,6 +554,7 @@ Normally the daemon dispatches a Dog to execute the mol-dog-reaper formula.`,
 			} else {
 				totalReaped += reapResult.Reaped
 				totalMoleculeSteps += reapResult.MoleculeStepsClosed
+				totalAlertable += reapResult.AlertableRemain
 				totalOpen += reapResult.OpenRemain
 			}
 
@@ -591,7 +596,12 @@ Normally the daemon dispatches a Dog to execute the mol-dog-reaper formula.`,
 		fmt.Println()
 		fmt.Printf("  Purged:    %d wisps, %d mail\n", totalPurged, totalMailPurged)
 		fmt.Printf("  Closed:    %d stale issues\n", totalClosed)
+		fmt.Printf("  Alertable: %d wisps remain\n", totalAlertable)
 		fmt.Printf("  Open:      %d wisps remain\n", totalOpen)
+		if totalAlertable > reaper.DefaultAlertThreshold {
+			fmt.Fprintf(os.Stderr, "WARNING: %d alertable wisps exceed alert threshold (%d); raw open wisps=%d\n",
+				totalAlertable, reaper.DefaultAlertThreshold, totalOpen)
+		}
 
 		return nil
 	},

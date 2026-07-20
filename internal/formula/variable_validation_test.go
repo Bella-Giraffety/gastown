@@ -262,3 +262,29 @@ func TestDogFormulasDoNotForceDoltPort(t *testing.T) {
 		}
 	}
 }
+
+func TestMolDogReaperFormulaUsesAlertableBacklogWarning(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("formulas", constants.MolDogReaper+".formula.toml"))
+	if err != nil {
+		t.Fatalf("read mol-dog-reaper formula: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"alertable_wisps",
+		"alertable_remain",
+		"Open wisps remaining (raw diagnostic)",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("mol-dog-reaper formula missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"Open wisp count that triggers escalation",
+		"open_wisps` exceeds",
+		"total open wisps across all databases exceed",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("mol-dog-reaper formula still uses raw-open warning wording %q", forbidden)
+		}
+	}
+}

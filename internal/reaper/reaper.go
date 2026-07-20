@@ -105,6 +105,7 @@ type ScanResult struct {
 	PurgeCandidates        int       `json:"purge_candidates"`
 	MailCandidates         int       `json:"mail_candidates"`
 	StaleCandidates        int       `json:"stale_candidates"`
+	AlertableWisps         int       `json:"alertable_wisps"`
 	OpenWisps              int       `json:"open_wisps"`
 	Anomalies              []Anomaly `json:"anomalies,omitempty"`
 }
@@ -114,6 +115,7 @@ type ReapResult struct {
 	Database            string    `json:"database"`
 	Reaped              int       `json:"reaped"`
 	MoleculeStepsClosed int       `json:"molecule_steps_closed,omitempty"`
+	AlertableRemain     int       `json:"alertable_remain"`
 	OpenRemain          int       `json:"open_remain"`
 	DryRun              bool      `json:"dry_run,omitempty"`
 	Anomalies           []Anomaly `json:"anomalies,omitempty"`
@@ -157,16 +159,11 @@ const (
 	DefaultQueryTimeout = 30 * time.Second
 	// DefaultBatchSize is the number of rows per batch DELETE operation.
 	DefaultBatchSize = 100
-	// DefaultAlertThreshold is the open-wisp count above which callers should
-	// surface a warning. This must fire on genuine runaway accumulation, NOT on
-	// normal operation. The open-wisp count is dominated by healthy, recent
-	// wisps (observed steady-state ~1966 open in a busy town); actionable wisps
-	// are limited to stale open-parent-free wisps past max-age plus closed
-	// molecule-step wisps (typically ~15-25). The previous value of 800 sat below
-	// the healthy open count, so it false-alarmed HIGH every scan despite nothing
-	// being wrong. Raised to 3000 so the alert tracks runaway growth rather than
-	// the normal working set. See hq-57jr8.
-	DefaultAlertThreshold = 3000
+	// DefaultAlertThreshold is the alertable-wisp backlog above which callers
+	// should surface a warning. Alertable wisps are the existing reaper-eligible
+	// stale wisps plus closed-molecule step wisps; raw open wisps are diagnostic
+	// inventory and can be high during healthy operation. See hq-57jr8.
+	DefaultAlertThreshold = 800
 )
 
 // ValidateDBName returns an error if the database name is unsafe.
@@ -334,6 +331,7 @@ func Scan(db *sql.DB, dbName string, maxAge, purgeAge, mailDeleteAge, staleIssue
 	if err := db.QueryRowContext(ctx, reapQuery, now.Add(-maxAge)).Scan(&result.ReapCandidates); err != nil {
 		return nil, fmt.Errorf("count reap candidates: %w", err)
 	}
+	result.AlertableWisps = result.ReapCandidates + result.MoleculeStepCandidates
 
 	// Count purge candidates: closed wisps past purge_age.
 	// No parent check needed — closed wisps past the delete age are unconditionally purgeable.
@@ -437,6 +435,7 @@ func Reap(db *sql.DB, dbName string, maxAge time.Duration, dryRun bool) (*ReapRe
 		if err := db.QueryRowContext(ctx, countQuery, cutoff).Scan(&result.Reaped); err != nil {
 			return nil, fmt.Errorf("dry-run count: %w", err)
 		}
+		result.AlertableRemain = result.Reaped + result.MoleculeStepsClosed
 		openQuery := "SELECT COUNT(*) FROM wisps WHERE status IN ('open', 'hooked', 'in_progress')"
 		if err := db.QueryRowContext(ctx, openQuery).Scan(&result.OpenRemain); err != nil {
 			return nil, fmt.Errorf("count open: %w", err)
@@ -510,8 +509,31 @@ func Reap(db *sql.DB, dbName string, maxAge time.Duration, dryRun bool) (*ReapRe
 	if err := conn.QueryRowContext(ctx, openQuery).Scan(&result.OpenRemain); err != nil {
 		return result, fmt.Errorf("count open: %w", err)
 	}
+	alertableRemain, err := countAlertableWisps(ctx, conn, parentJoin, moleculeStepJoin, moleculeStepExcludeJoin, whereClause, cutoff)
+	if err != nil {
+		return result, err
+	}
+	result.AlertableRemain = alertableRemain
 
 	return result, nil
+}
+
+func countAlertableWisps(ctx context.Context, runner sqlRunner, parentJoin, moleculeStepJoin, moleculeStepExcludeJoin, staleWhere string, cutoff time.Time) (int, error) {
+	var moleculeStepCandidates int
+	moleculeStepQuery := fmt.Sprintf(
+		"SELECT COUNT(*) FROM wisps w %s WHERE %s AND w.issue_type != 'agent'",
+		moleculeStepJoin, openWispStatusWhere)
+	if err := runner.QueryRowContext(ctx, moleculeStepQuery).Scan(&moleculeStepCandidates); err != nil {
+		return 0, fmt.Errorf("count remaining molecule step candidates: %w", err)
+	}
+
+	var reapCandidates int
+	reapQuery := fmt.Sprintf("SELECT COUNT(*) FROM wisps w %s %s WHERE %s", parentJoin, moleculeStepExcludeJoin, staleWhere)
+	if err := runner.QueryRowContext(ctx, reapQuery, cutoff).Scan(&reapCandidates); err != nil {
+		return 0, fmt.Errorf("count remaining reap candidates: %w", err)
+	}
+
+	return moleculeStepCandidates + reapCandidates, nil
 }
 
 func closeWispsInBatches(ctx context.Context, runner sqlRunner, idQuery string, queryArgs []interface{}, description string) (int, error) {

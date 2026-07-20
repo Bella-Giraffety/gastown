@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +35,28 @@ func TestWaitBeforeReaperDatabase(t *testing.T) {
 	reaperDBDelay = "not-a-duration"
 	if err := waitBeforeReaperDatabase(1); err == nil {
 		t.Fatal("invalid delay should return an error")
+	}
+}
+
+func TestReaperWarningsUseAlertableBacklog(t *testing.T) {
+	data, err := os.ReadFile("reaper.go")
+	if err != nil {
+		t.Fatalf("read reaper.go: %v", err)
+	}
+	source := string(data)
+	if strings.Contains(source, "if totalOpen > reaper.DefaultAlertThreshold") {
+		t.Fatal("reaper warnings should not compare raw open wisps to the alert threshold")
+	}
+	for _, want := range []string{
+		"totalAlertable > reaper.DefaultAlertThreshold",
+		"alertable wisps exceed alert threshold",
+		"raw open wisps=%d",
+		"Alertable wisps:",
+		"alertable remain",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("reaper.go missing %q", want)
+		}
 	}
 }
 

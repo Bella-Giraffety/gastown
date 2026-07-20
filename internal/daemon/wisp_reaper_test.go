@@ -81,6 +81,27 @@ func TestDefaultReaperIntervalIsOneHour(t *testing.T) {
 	}
 }
 
+func TestWispReaperWarningUsesAlertableBacklog(t *testing.T) {
+	data, err := os.ReadFile("wisp_reaper.go")
+	if err != nil {
+		t.Fatalf("read wisp_reaper.go: %v", err)
+	}
+	source := string(data)
+	if strings.Contains(source, "if totalOpen > wispAlertThreshold") {
+		t.Fatal("daemon reaper warning should not compare raw open wisps to the alert threshold")
+	}
+	for _, want := range []string{
+		"totalAlertableRemain > wispAlertThreshold",
+		"alertable wisps exceed threshold",
+		"raw open wisps=%d",
+		"alertable_remain=%d",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("wisp_reaper.go missing %q", want)
+		}
+	}
+}
+
 func TestDispatchReaperDogUsesDogPoolSling(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses Unix shell script mock")
