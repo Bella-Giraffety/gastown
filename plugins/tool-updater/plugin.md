@@ -23,8 +23,7 @@ Checks for and applies Homebrew updates to `beads` (bd) and `dolt`.
 
 gt is rebuilt separately by the `rebuild-gt` plugin (it builds from source, not Homebrew).
 
-## Run
+## Runtime
 
-```bash
-cd /Users/jeremy/gt/plugins/tool-updater && bash run.sh
-```
+The shared plugin runtime executes `run.sh` before any AI dog step. Do not run
+the script manually from dog mail.
