@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/spf13/cobra"
 )
 
 func TestResolveDonePolecatWorktreeAcceptsOwnWorktree(t *testing.T) {
@@ -287,14 +285,41 @@ func TestRunDoneRejectsMayorRigBeforeAutosave(t *testing.T) {
 }
 
 func TestIsDoneCommand(t *testing.T) {
-	done := &cobra.Command{Use: "done"}
-	root := &cobra.Command{Use: "gt"}
-	root.AddCommand(done)
-	if !isDoneCommand(done) {
-		t.Fatal("done command should be detected")
+	if !isDoneCommand(doneCmd) {
+		t.Fatal("root done command should be detected")
 	}
-	if isDoneCommand(root) {
+	if isDoneCommand(rootCmd) {
 		t.Fatal("root command should not be detected as done")
+	}
+	if isDoneCommand(dogDoneCmd) {
+		t.Fatal("dog done command should not be detected as root done")
+	}
+	if isDoneCommand(wlDoneCmd) {
+		t.Fatal("wl done command should not be detected as root done")
+	}
+	if isDoneCommand(moleculeStepDoneCmd) {
+		t.Fatal("molecule step done command should not be detected as root done")
+	}
+}
+
+func TestIsDoneInvocationOnlyMatchesRootDone(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "root done", args: []string{"done"}, want: true},
+		{name: "dog done", args: []string{"dog", "done"}},
+		{name: "dog done explicit", args: []string{"dog", "done", "echo"}},
+		{name: "dogs alias done explicit", args: []string{"dogs", "done", "echo"}},
+		{name: "wl done", args: []string{"wl", "done", "w-abc123"}},
+		{name: "molecule step done", args: []string{"mol", "step", "done", "gt-abc.1"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDoneInvocation(tt.args); got != tt.want {
+				t.Fatalf("isDoneInvocation(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -315,13 +340,46 @@ func TestPersistentPreRunDoneRejectsBeforeRegistryFallback(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 
-	done := &cobra.Command{Use: "done"}
-	err = persistentPreRun(done, nil)
+	err = persistentPreRun(doneCmd, nil)
 	if err == nil || !strings.Contains(err.Error(), "assigned polecat worktree") {
 		t.Fatalf("persistentPreRun error = %v, want assigned worktree rejection", err)
 	}
 	if _, err := os.Stat(filepath.Join(townRoot, "rigs.json")); !os.IsNotExist(err) {
 		t.Fatalf("town root rigs.json exists after rejected done pre-run; err=%v", err)
+	}
+}
+
+func TestPersistentPreRunDogDoneAllowsDogActor(t *testing.T) {
+	townRoot, _ := setupDoneGuardWorktree(t, "nested", "shiny")
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "rigs.json"), []byte(`{"version":1,"rigs":{"gastown":{"git_url":"git@example.com:test/gastown.git","beads":{"repo":"local","prefix":"gt"}}}}`), 0644); err != nil {
+		t.Fatalf("write mayor rigs.json: %v", err)
+	}
+	dogWorktree := filepath.Join(townRoot, "deacon", "dogs", "echo", "gastown")
+	if err := os.MkdirAll(dogWorktree, 0755); err != nil {
+		t.Fatalf("mkdir dog worktree: %v", err)
+	}
+	t.Setenv("BD_ACTOR", "dog")
+	t.Setenv("GT_ROLE", "dog")
+	t.Setenv("GT_DOG_NAME", "echo")
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dogWorktree); err != nil {
+		t.Fatalf("chdir dog worktree: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	cmd, _, err := rootCmd.Find([]string{"dog", "done", "echo"})
+	if err != nil {
+		t.Fatalf("find dog done command: %v", err)
+	}
+	if cmd != dogDoneCmd {
+		t.Fatalf("resolved command = %q, want dog done", cmd.CommandPath())
+	}
+	if err := persistentPreRun(cmd, nil); err != nil {
+		t.Fatalf("persistentPreRun(dog done) error = %v, want nil", err)
 	}
 }
 

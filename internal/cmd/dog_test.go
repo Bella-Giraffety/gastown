@@ -283,6 +283,94 @@ func TestDogDone_NotFound(t *testing.T) {
 	}
 }
 
+func TestRunDogDoneWithDogActorExplicitName(t *testing.T) {
+	name := "actor-gate-explicit"
+	m, townRoot := setupRunDogDoneCommandTest(t, name)
+	chdirForDogCommandTest(t, townRoot)
+
+	if err := runDogDone(dogDoneCmd, []string{name}); err != nil {
+		t.Fatalf("runDogDone explicit error = %v", err)
+	}
+	assertDogIdleWithNoWork(t, m, name)
+}
+
+func TestRunDogDoneWithDogActorAutoDetectsName(t *testing.T) {
+	name := "actor-gate-auto"
+	m, townRoot := setupRunDogDoneCommandTest(t, name)
+	dogWorktree := filepath.Join(townRoot, "deacon", "dogs", name, "gastown")
+	if err := os.MkdirAll(dogWorktree, 0755); err != nil {
+		t.Fatalf("mkdir dog worktree: %v", err)
+	}
+	chdirForDogCommandTest(t, dogWorktree)
+
+	if err := runDogDone(dogDoneCmd, nil); err != nil {
+		t.Fatalf("runDogDone auto-detect error = %v", err)
+	}
+	assertDogIdleWithNoWork(t, m, name)
+}
+
+func setupRunDogDoneCommandTest(t *testing.T, name string) (*dog.Manager, string) {
+	t.Helper()
+	m, townRoot := testDogManager(t)
+	mayorDir := filepath.Join(townRoot, "mayor")
+	if err := os.MkdirAll(mayorDir, 0755); err != nil {
+		t.Fatalf("mkdir mayor dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mayorDir, "town.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatalf("write town.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mayorDir, "rigs.json"), []byte(`{"version":1,"rigs":{"gastown":{"git_url":"git@example.com:test/gastown.git","beads":{"repo":"local","prefix":"gt"}}}}`), 0644); err != nil {
+		t.Fatalf("write rigs.json: %v", err)
+	}
+
+	now := time.Now().Add(-time.Minute)
+	setupTestDog(t, m, townRoot, name, &dog.DogState{
+		Name:          name,
+		State:         dog.StateWorking,
+		Work:          "plugin:gitignore-reconcile",
+		WorkStartedAt: now,
+		LastActive:    now,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+
+	t.Setenv("GT_TOWN_ROOT", townRoot)
+	t.Setenv("GT_ROOT", townRoot)
+	t.Setenv("GT_ROLE", "dog")
+	t.Setenv("GT_DOG_NAME", name)
+	t.Setenv("BD_ACTOR", "dog")
+	return m, townRoot
+}
+
+func chdirForDogCommandTest(t *testing.T, dir string) {
+	t.Helper()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %s: %v", dir, err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+}
+
+func assertDogIdleWithNoWork(t *testing.T, m *dog.Manager, name string) {
+	t.Helper()
+	d, err := m.Get(name)
+	if err != nil {
+		t.Fatalf("Get(%s) error = %v", name, err)
+	}
+	if d.State != dog.StateIdle {
+		t.Fatalf("State = %q, want %q", d.State, dog.StateIdle)
+	}
+	if d.Work != "" {
+		t.Fatalf("Work = %q, want empty", d.Work)
+	}
+	if !d.WorkStartedAt.IsZero() {
+		t.Fatalf("WorkStartedAt = %v, want zero", d.WorkStartedAt)
+	}
+}
+
 // =============================================================================
 // Dog Clear Tests
 // =============================================================================
