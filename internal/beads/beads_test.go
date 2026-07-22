@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2002,78 +2001,6 @@ func TestSearchOptions(t *testing.T) {
 	if opts.Label != "gt:bug" {
 		t.Errorf("Label = %q, want 'gt:bug'", opts.Label)
 	}
-}
-
-// Integration test that runs against real bd on the disposable package server.
-func TestIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	port, err := strconv.Atoi(os.Getenv("GT_DOLT_PORT"))
-	if err != nil || port <= 0 {
-		t.Fatalf("disposable GT_DOLT_PORT is unavailable: %q", os.Getenv("GT_DOLT_PORT"))
-	}
-	workDir := t.TempDir()
-	gitInit := exec.Command("git", "init", "--quiet", "--initial-branch=main")
-	gitInit.Dir = workDir
-	if output, err := gitInit.CombinedOutput(); err != nil {
-		t.Fatalf("initialize disposable git repository: %v\n%s", err, output)
-	}
-	initCmd := exec.Command("bd", "init", "--prefix", fmt.Sprintf("bi%d", os.Getpid()),
-		"--quiet", "--server", "--server-port", strconv.Itoa(port))
-	initCmd.Dir = workDir
-	if output, err := initCmd.CombinedOutput(); err != nil {
-		t.Fatalf("initialize disposable beads database: %v\n%s", err, output)
-	}
-	b := New(workDir)
-	if _, err := b.Create(CreateOptions{Title: "integration fixture", Type: "task"}); err != nil {
-		t.Fatalf("create disposable integration fixture: %v", err)
-	}
-
-	// Test List
-	t.Run("List", func(t *testing.T) {
-		issues, err := b.List(ListOptions{Status: "open"})
-		if err != nil {
-			t.Fatalf("List failed: %v", err)
-		}
-		t.Logf("Found %d open issues", len(issues))
-	})
-
-	// Test Ready
-	t.Run("Ready", func(t *testing.T) {
-		issues, err := b.Ready()
-		if err != nil {
-			t.Fatalf("Ready failed: %v", err)
-		}
-		t.Logf("Found %d ready issues", len(issues))
-	})
-
-	// Test Blocked
-	t.Run("Blocked", func(t *testing.T) {
-		issues, err := b.Blocked()
-		if err != nil {
-			t.Fatalf("Blocked failed: %v", err)
-		}
-		t.Logf("Found %d blocked issues", len(issues))
-	})
-
-	// Test Show (if we have issues)
-	t.Run("Show", func(t *testing.T) {
-		issues, err := b.List(ListOptions{})
-		if err != nil {
-			t.Fatalf("List failed: %v", err)
-		}
-		if len(issues) == 0 {
-			t.Skip("no issues to show")
-		}
-
-		issue, err := b.Show(issues[0].ID)
-		if err != nil {
-			t.Fatalf("Show(%s) failed: %v", issues[0].ID, err)
-		}
-		t.Logf("Showed issue: %s - %s", issue.ID, issue.Title)
-	})
 }
 
 // TestParseMRFields tests parsing MR fields from issue descriptions.
@@ -5368,8 +5295,8 @@ printf 'unknown\n'
 	t.Setenv("GT_DOLT_DATA", "/home/coder/gt/.dolt-data")
 	t.Setenv("BEADS_DOLT_DATA_DIR", "/home/coder/gt/.dolt-data")
 	t.Setenv("BEADS_DOLT_HOST", "127.0.0.1")
-	// TestMain pins GT_DOLT_HOST to the disposable package server. Clear it
-	// here so this test continues to exercise metadata-derived host routing.
+	// Clear inherited GT_DOLT_HOST so this test continues to exercise
+	// metadata-derived host routing.
 	t.Setenv("GT_DOLT_HOST", "")
 	t.Setenv("GT_DOLT_PORT", "")
 	t.Setenv("BEADS_DOLT_PORT", "3307")

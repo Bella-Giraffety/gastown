@@ -67,6 +67,9 @@ func startCatalogTestDolt(t *testing.T) (*dolt.DoltContainer, string) {
 	ctx := context.Background()
 	ctr, err := runDoltContainerWithRetry(ctx)
 	if err != nil {
+		if isDockerUnavailableErr(err) {
+			t.Skipf("Dolt container unavailable: %v", err)
+		}
 		t.Fatalf("start Dolt container: %v", err)
 	}
 	port, err := ctr.MappedPort(ctx, "3306/tcp")
