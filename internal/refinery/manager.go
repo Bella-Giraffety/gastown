@@ -664,6 +664,13 @@ func (m *Manager) findMRForTerminalCleanup(idOrBranch string, b *beads.Beads) (*
 	return m.issueToMR(issue), nil
 }
 
+// FindMRForPostMerge resolves an MR using the same open/terminal lookup rules
+// as PostMerge, so callers can prove the merge before closing beads.
+func (m *Manager) FindMRForPostMerge(idOrBranch string) (*MergeRequest, error) {
+	b := beads.New(m.rig.BeadsPath())
+	return m.findMRForTerminalCleanup(idOrBranch, b)
+}
+
 // Retry is deprecated - the Refinery agent handles retry logic autonomously.
 // ZFC-compliant: no state file, agent uses beads issue status.
 // The agent will automatically retry failed MRs in its patrol cycle.

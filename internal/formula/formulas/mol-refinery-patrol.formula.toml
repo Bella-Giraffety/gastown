@@ -787,7 +787,7 @@ Clean up temp branch and skip to loop-check.
 **If APPROVED:**
 Merge the PR:
 ```bash
-gh pr merge "$PR_URL" --repo "$REPO_URL" --merge --delete-branch
+gh pr merge "$PR_URL" --repo "$REPO_URL" --merge
 ```
 
 If merge fails (conflict, branch protection), debug and retry.
