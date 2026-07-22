@@ -196,6 +196,7 @@ type mqPostMergeManager interface {
 
 type mqPostMergeGit interface {
 	VerifyPushedCommitReachableFromPushTarget(remote, branch, commit string) error
+	PushRemoteBranchTip(remote, branch string) (string, error)
 	HasOpenPullRequest(ref git.PullRequestRef) bool
 	DeleteRemoteBranchIfAt(remote, branch, expectedHash string) error
 	DeleteBranch(branch string, force bool) error
@@ -207,6 +208,7 @@ type mqPostMergeBranchCleanup struct {
 	Skipped       bool
 	Disabled      bool
 	OpenPR        bool
+	AlreadyGone   bool
 	RemoteDeleted bool
 	LocalDeleted  bool
 }
@@ -564,6 +566,8 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 		fmt.Printf("  %s Branch delete disabled by config\n", style.Dim.Render("○"))
 	} else if branchCleanup.OpenPR {
 		fmt.Printf("  %s Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", style.Dim.Render("○"), mr.Branch)
+	} else if branchCleanup.AlreadyGone {
+		fmt.Printf("  %s Remote branch already absent: %s\n", style.Dim.Render("○"), mr.Branch)
 	} else if branchCleanup.RemoteDeleted {
 		fmt.Printf("  %s Deleted remote branch: %s\n", style.Success.Render("✓"), mr.Branch)
 	}
@@ -643,10 +647,18 @@ func cleanupMQPostMergeBranch(rigPath string, rigGit mqPostMergeGit, mr *refiner
 	// "closed" (not "merged"), destroying the PR audit trail. (gas-fk4)
 	if rigGit.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: cleanup.Branch, HeadSHA: expectedHead}) {
 		cleanup.OpenPR = true
-	} else if err := rigGit.DeleteRemoteBranchIfAt("origin", cleanup.Branch, expectedHead); err != nil {
-		return cleanup, fmt.Errorf("remote branch delete %s at %s: %w", cleanup.Branch, expectedHead, err)
 	} else {
-		cleanup.RemoteDeleted = true
+		remoteTip, err := rigGit.PushRemoteBranchTip("origin", cleanup.Branch)
+		if err != nil {
+			return cleanup, fmt.Errorf("remote branch delete %s: read remote branch tip: %w", cleanup.Branch, err)
+		}
+		if strings.TrimSpace(remoteTip) == "" {
+			cleanup.AlreadyGone = true
+		} else if err := rigGit.DeleteRemoteBranchIfAt("origin", cleanup.Branch, expectedHead); err != nil {
+			return cleanup, fmt.Errorf("remote branch delete %s at %s: %w", cleanup.Branch, expectedHead, err)
+		} else {
+			cleanup.RemoteDeleted = true
+		}
 	}
 
 	if err := rigGit.DeleteBranch(cleanup.Branch, true); err == nil {
