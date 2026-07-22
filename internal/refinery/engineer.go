@@ -1731,13 +1731,13 @@ func (e *Engineer) createConflictResolutionTaskForMR(mr *MRInfo, _ ProcessResult
 
 ## Instructions
 1. Check out the branch: git checkout %s
-2. Rebase onto target: git rebase origin/%s
+2. Merge target without rewriting branch history: git merge --no-ff origin/%s
 3. Resolve conflicts in your editor
-4. Complete the rebase: git add . && git rebase --continue
-5. Force-push the resolved branch: git push -f
+4. Complete the merge: git add . && git commit
+5. Push the resolved branch: git push origin %s
 6. Close this task: bd close <this-task-id>
 
-The Refinery will automatically retry the merge after you force-push.`,
+The Refinery will automatically retry the merge after you push.`,
 		mr.Branch,
 		mr.ID,
 		mr.Branch,
@@ -1746,6 +1746,7 @@ The Refinery will automatically retry the merge after you force-push.`,
 		retryCount,
 		mr.Branch,
 		mr.Target,
+		mr.Branch,
 	)
 
 	// Create the conflict resolution task

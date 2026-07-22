@@ -37,6 +37,8 @@ type fakeMQPostMergeGit struct {
 	verifyErr error
 	openPR    bool
 	deleteErr error
+	remoteTip string
+	tipErr    error
 
 	verifiedCommits []string
 	deletedBranches []string
@@ -51,6 +53,10 @@ func (g *fakeMQPostMergeGit) VerifyPushedCommitReachableFromPushTarget(_, _, com
 
 func (g *fakeMQPostMergeGit) HasOpenPullRequest(git.PullRequestRef) bool {
 	return g.openPR
+}
+
+func (g *fakeMQPostMergeGit) PushRemoteBranchTip(_, _ string) (string, error) {
+	return g.remoteTip, g.tipErr
 }
 
 func (g *fakeMQPostMergeGit) DeleteRemoteBranchIfAt(_, branch, expectedHash string) error {
@@ -99,7 +105,7 @@ func TestRunVerifiedMQPostMerge_ProofFailurePreservesRecordsAndBranch(t *testing
 
 func TestRunVerifiedMQPostMerge_VerifiedHeadClosesAndLeaseDeletes(t *testing.T) {
 	mgr := &fakeMQPostMergeManager{mr: testMQPostMergeMR()}
-	rigGit := &fakeMQPostMergeGit{}
+	rigGit := &fakeMQPostMergeGit{remoteTip: mgr.mr.CommitSHA}
 
 	_, cleanup, err := runVerifiedMQPostMerge(mgr, t.TempDir(), rigGit, mgr.mr.ID, false)
 	if err != nil {
@@ -171,7 +177,7 @@ func TestRunVerifiedMQPostMerge_OpenPRSkipsRemoteDeleteAfterProof(t *testing.T) 
 
 func TestRunVerifiedMQPostMerge_LeaseDeleteFailureReturnsAfterPostMerge(t *testing.T) {
 	mgr := &fakeMQPostMergeManager{mr: testMQPostMergeMR()}
-	rigGit := &fakeMQPostMergeGit{deleteErr: errors.New("stale info")}
+	rigGit := &fakeMQPostMergeGit{remoteTip: mgr.mr.CommitSHA, deleteErr: errors.New("stale info")}
 
 	_, _, err := runVerifiedMQPostMerge(mgr, t.TempDir(), rigGit, mgr.mr.ID, false)
 	if err == nil || !strings.Contains(err.Error(), "remote branch delete") {
@@ -188,6 +194,25 @@ func TestRunVerifiedMQPostMerge_LeaseDeleteFailureReturnsAfterPostMerge(t *testi
 	}
 	if len(rigGit.localDeleted) != 0 {
 		t.Fatalf("local branch deleted after remote lease failure: %v", rigGit.localDeleted)
+	}
+}
+
+func TestRunVerifiedMQPostMerge_MissingRemoteBranchIsIdempotentAfterProof(t *testing.T) {
+	mgr := &fakeMQPostMergeManager{mr: testMQPostMergeMR()}
+	rigGit := &fakeMQPostMergeGit{}
+
+	_, cleanup, err := runVerifiedMQPostMerge(mgr, t.TempDir(), rigGit, mgr.mr.ID, false)
+	if err != nil {
+		t.Fatalf("runVerifiedMQPostMerge: %v", err)
+	}
+	if !mgr.postMergeCalled {
+		t.Fatal("PostMerge was not called after successful proof")
+	}
+	if !cleanup.AlreadyGone {
+		t.Fatalf("cleanup.AlreadyGone = false, cleanup=%+v", cleanup)
+	}
+	if len(rigGit.deletedBranches) != 0 {
+		t.Fatalf("remote branch delete attempted for missing branch: %v", rigGit.deletedBranches)
 	}
 }
 
