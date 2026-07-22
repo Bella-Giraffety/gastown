@@ -780,6 +780,7 @@ func (m *Manager) postMergeMR(b *beads.Beads, mr *MergeRequest) (*PostMergeResul
 		Reason:        string(CloseReasonMerged),
 		MergeCommit:   mr.MergeCommit,
 		AgentBeadHint: mr.AgentBead,
+		ExpectedMR:    mr,
 	})
 	if err != nil {
 		return result, fmt.Errorf("closing MR bead: %w", err)

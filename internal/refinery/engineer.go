@@ -1591,11 +1591,16 @@ func (e *Engineer) closeMRWithReason(mr *MRInfo, closeReason string, mergeCommit
 	if len(mergeCommit) > 0 {
 		commit = mergeCommit[0]
 	}
+	var expected *MergeRequest
+	if normalizedMRCloseReason(closeReason) == string(CloseReasonMerged) {
+		expected = mergeRequestFromMRInfo(mr)
+	}
 	result, err := closeTerminalMR(e.beads, mr.ID, terminalMRCloseOptions{
 		Reason:        closeReason,
 		MergeCommit:   commit,
 		AgentBeadHint: mr.AgentBead,
 		MissingOK:     true,
+		ExpectedMR:    expected,
 	})
 	if err != nil {
 		return err
@@ -1607,6 +1612,23 @@ func (e *Engineer) closeMRWithReason(mr *MRInfo, closeReason string, mergeCommit
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to clear agent bead %s active_mr: %v\n", result.AgentBead, result.AgentActiveMRClearErr)
 	}
 	return nil
+}
+
+func mergeRequestFromMRInfo(mr *MRInfo) *MergeRequest {
+	if mr == nil {
+		return nil
+	}
+	return &MergeRequest{
+		ID:           mr.ID,
+		Branch:       mr.Branch,
+		Worker:       mr.Worker,
+		AgentBead:    mr.AgentBead,
+		IssueID:      mr.SourceIssue,
+		TargetBranch: mr.Target,
+		CommitSHA:    mr.CommitSHA,
+		PRURL:        mr.PRURL,
+		PRNumber:     mr.PRNumber,
+	}
 }
 
 func normalizedMRCloseReason(closeReason string) string {
