@@ -1097,10 +1097,9 @@ func TestHandleMRInfoSuccess_VerifiedHeadLeaseDeletesRemoteBranch(t *testing.T) 
 
 	e := newTestEngineer(t, workDir, g)
 	e.HandleMRInfoSuccess(&MRInfo{
-		ID:          "gt-mr-proof-pass",
+		ID:          "mr-proof-pass",
 		Branch:      branch,
 		Target:      "main",
-		SourceIssue: "gt-proof-pass",
 		CommitSHA:   commit,
 	}, ProcessResult{Success: true, MergeCommit: mergeCommit})
 

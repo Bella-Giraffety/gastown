@@ -1342,9 +1342,10 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) bool {
 	}
 
 	// Update and close the MR bead
-	if mr.ID != "" {
+	if mr.ID != "" && !e.isSyntheticMergeMechanicsMR(mr) {
 		if err := e.closeMRWithReason(mr, string(CloseReasonMerged), result.MergeCommit); err != nil {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to close MR %s: %v\n", mr.ID, err)
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Post-merge cleanup failed for %s: %v\n", mr.ID, err)
+			return false
 		}
 	}
 
