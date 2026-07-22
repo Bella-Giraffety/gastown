@@ -1011,7 +1011,7 @@ git fetch origin
 git checkout origin/<branch>
 git merge origin/<target>
 ```
-Resolve the conflicts on the integration branch (force-push), then re-run
+Resolve the conflicts on the integration branch and push it, then re-run
 `gt mq integration land <epic-id>` to retry the consolidation.
 
 ## Why this exists
