@@ -825,8 +825,8 @@ This single command handles closing the MR bead, closing the source issue, and
 deleting the remote polecat branch (respects delete_merged_branches config):
 
 ```bash
-# If an open PR was detected in Step 1.6 (direct) or merge_strategy=pr,
-# pass --skip-branch-delete to avoid auto-closing the PR via head_ref_delete.
+# If an open PR was detected in Step 1.6 (direct), pass --skip-branch-delete
+# to avoid auto-closing the PR via head_ref_delete.
 # Otherwise, omit the flag.
 gt mq post-merge <rig> <mr-bead-id>            # normal (no open PR)
 gt mq post-merge <rig> <mr-bead-id> --skip-branch-delete  # open PR exists
@@ -839,10 +839,10 @@ bd list --type=merge-request --status=open | grep <polecat-name>
 
 Verify the command output shows all steps succeeded (✓ for each).
 
-**Note**: In PR mode, the source branch is NOT deleted (it's the PR head branch).
-`delete_merged_branches` is ignored when merge_strategy=pr — the branch is cleaned
-up when the PR is merged on GitHub. The `--skip-branch-delete` flag (gas-fk4) also
-prevents branch deletion when an open PR is detected in direct merge mode.
+**Note**: In PR mode, run post-merge cleanup only after `gh pr merge` succeeds.
+The branch is deleted by `gt mq post-merge` after merge proof passes, not by
+`gh pr merge`. The `--skip-branch-delete` flag (gas-fk4) prevents branch deletion
+when an open PR is detected in direct merge mode.
 
 **Step 4: Archive the MERGE_READY mail (REQUIRED)**
 ```bash
