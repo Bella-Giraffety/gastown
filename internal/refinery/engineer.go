@@ -781,9 +781,6 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 	if provider == "" {
 		provider = "github"
 	}
-	if err := e.ensureMRInfoCommitSHA(mr); err != nil {
-		return ProcessResult{Success: false, Error: err.Error()}
-	}
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Using PR merge strategy (vcs_provider=%s)\n", provider)
 
 	if e.prProvider == nil {
@@ -832,6 +829,9 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 
 	if eligibility := e.recheckMRStillMergeable(mr, target); !eligibility.Success {
 		return eligibility
+	}
+	if err := e.ensureMRInfoCommitSHA(mr); err != nil {
+		return ProcessResult{Success: false, Error: err.Error()}
 	}
 
 	// Step PR.3: Merge via VCS provider API with a merge commit so the submitted

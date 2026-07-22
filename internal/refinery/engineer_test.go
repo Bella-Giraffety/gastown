@@ -1113,7 +1113,6 @@ func TestDoMergeDirectPreservesSubmittedHeadForPostMergeProof(t *testing.T) {
 	workDir, g, cleanup := testGitRepo(t)
 	defer cleanup()
 	installNoPRGH(t)
-	run(t, workDir, "git", "remote", "add", "upstream", "https://github.com/example/repo.git")
 
 	branch := "polecat/test/native-merge"
 	createFeatureBranch(t, workDir, branch, "native.txt", "native merge\n")
@@ -1122,11 +1121,10 @@ func TestDoMergeDirectPreservesSubmittedHeadForPostMergeProof(t *testing.T) {
 
 	e := newTestEngineer(t, workDir, g)
 	mr := &MRInfo{
-		ID:          "gt-mr-native-merge",
-		Branch:      branch,
-		Target:      "main",
-		SourceIssue: "gt-native-merge",
-		CommitSHA:   commit,
+		ID:        "mr-native-merge",
+		Branch:    branch,
+		Target:    "main",
+		CommitSHA: commit,
 	}
 	result := e.doMerge(context.Background(), mr)
 	if !result.Success {
@@ -1135,6 +1133,7 @@ func TestDoMergeDirectPreservesSubmittedHeadForPostMergeProof(t *testing.T) {
 	if err := g.VerifyPushedCommitReachableFromPushTarget("origin", "main", commit); err != nil {
 		t.Fatalf("submitted head not reachable after direct merge: %v", err)
 	}
+	run(t, workDir, "git", "remote", "add", "upstream", "https://github.com/example/repo.git")
 	if !e.HandleMRInfoSuccess(mr, result) {
 		t.Fatal("HandleMRInfoSuccess failed after verified direct merge")
 	}
