@@ -501,7 +501,7 @@ func runPluginRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer waitNotifications()
-	outcome, err := runtime.Execute(cmd.Context(), p, plugin.RunOptions{Trigger: plugin.TriggerManual})
+	outcome, err := runtime.Execute(cmd.Context(), p, plugin.RunOptions{Trigger: plugin.TriggerManual, CreateDog: true})
 	if err != nil {
 		return err
 	}
