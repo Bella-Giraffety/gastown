@@ -104,6 +104,14 @@ type doneSessionKiller interface {
 	KillSessionWithProcessesExcluding(name string, excludePIDs []string) error
 }
 
+type donePolecatWorktree struct {
+	townRoot    string
+	cwd         string
+	rigName     string
+	polecatName string
+	actor       string
+}
+
 var newDoneSessionKiller = func() doneSessionKiller {
 	return tmux.NewTmux()
 }
@@ -116,6 +124,135 @@ func updateAgentStateAfterSubmission(cwd, townRoot, exitType, issueID string, pu
 		return nil
 	}
 	return updateAgentStateOnDoneFn(cwd, townRoot, exitType, issueID)
+}
+
+func resolveDonePolecatWorktree() (donePolecatWorktree, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return donePolecatWorktree{}, fmt.Errorf("gt done must be run from the assigned polecat worktree: current directory unavailable: %w", err)
+	}
+	return resolveDonePolecatWorktreeAt(cwd)
+}
+
+func resolveDonePolecatWorktreeAt(cwd string) (donePolecatWorktree, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return donePolecatWorktree{}, fmt.Errorf("gt done must be run from the assigned polecat worktree: current directory unavailable")
+	}
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return donePolecatWorktree{}, fmt.Errorf("resolving current directory: %w", err)
+	}
+	if info, err := os.Stat(absCwd); err != nil {
+		return donePolecatWorktree{}, fmt.Errorf("gt done must be run from the assigned polecat worktree: current directory unavailable: %w", err)
+	} else if !info.IsDir() {
+		return donePolecatWorktree{}, fmt.Errorf("gt done must be run from the assigned polecat worktree: current path is not a directory: %s", absCwd)
+	}
+
+	townRoot, err := workspace.FindOrError(absCwd)
+	if err != nil {
+		return donePolecatWorktree{}, fmt.Errorf("not in a Gas Town workspace: %w", err)
+	}
+
+	actorRig, actorName, err := donePolecatActorIdentity(os.Getenv("BD_ACTOR"))
+	if err != nil {
+		return donePolecatWorktree{}, err
+	}
+	roleRig, roleName, err := donePolecatEnvIdentity(os.Getenv("GT_ROLE"), os.Getenv("GT_RIG"), os.Getenv("GT_POLECAT"))
+	if err != nil {
+		return donePolecatWorktree{}, err
+	}
+	if actorRig != roleRig || actorName != roleName {
+		return donePolecatWorktree{}, fmt.Errorf("gt done identity mismatch: BD_ACTOR=%s/polecats/%s but GT_ROLE/GT_RIG/GT_POLECAT resolve to %s/polecats/%s", actorRig, actorName, roleRig, roleName)
+	}
+
+	gitRoot, err := doneGitTopLevel(absCwd)
+	if err != nil {
+		return donePolecatWorktree{}, fmt.Errorf("gt done must be run from the assigned polecat git worktree: %w", err)
+	}
+	gitRoot = doneCanonicalPath(gitRoot)
+
+	candidates := []string{
+		filepath.Join(townRoot, actorRig, "polecats", actorName, actorRig),
+		filepath.Join(townRoot, actorRig, "polecats", actorName),
+	}
+	for _, candidate := range candidates {
+		if gitRoot == doneCanonicalPath(candidate) {
+			return donePolecatWorktree{
+				townRoot:    townRoot,
+				cwd:         gitRoot,
+				rigName:     actorRig,
+				polecatName: actorName,
+				actor:       fmt.Sprintf("%s/polecats/%s", actorRig, actorName),
+			}, nil
+		}
+	}
+
+	return donePolecatWorktree{}, fmt.Errorf("gt done must be run from assigned polecat worktree %s or %s; current git root is %s", candidates[0], candidates[1], gitRoot)
+}
+
+func donePolecatActorIdentity(actor string) (string, string, error) {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return "", "", fmt.Errorf("gt done requires BD_ACTOR to identify the assigned polecat")
+	}
+	parts := strings.Split(actor, "/")
+	if len(parts) != 3 || parts[0] == "" || parts[1] != "polecats" || parts[2] == "" {
+		return "", "", fmt.Errorf("gt done is for polecats only (BD_ACTOR=%s)", actor)
+	}
+	return parts[0], parts[2], nil
+}
+
+func donePolecatEnvIdentity(gtRole, gtRig, gtPolecat string) (string, string, error) {
+	gtRole = strings.TrimSpace(gtRole)
+	gtRig = strings.TrimSpace(gtRig)
+	gtPolecat = strings.TrimSpace(gtPolecat)
+	if gtRole == "" {
+		return "", "", fmt.Errorf("gt done requires GT_ROLE to identify the assigned polecat")
+	}
+	if gtRig == "" {
+		return "", "", fmt.Errorf("gt done requires GT_RIG to identify the assigned polecat")
+	}
+	if gtPolecat == "" {
+		return "", "", fmt.Errorf("gt done requires GT_POLECAT to identify the assigned polecat")
+	}
+
+	role, roleRig, rolePolecat := parseRoleString(gtRole)
+	if role != RolePolecat {
+		return "", "", fmt.Errorf("gt done is for polecats only (GT_ROLE=%s)", gtRole)
+	}
+	if roleRig != "" && roleRig != gtRig {
+		return "", "", fmt.Errorf("gt done identity mismatch: GT_ROLE rig %s != GT_RIG %s", roleRig, gtRig)
+	}
+	if rolePolecat != "" && rolePolecat != gtPolecat {
+		return "", "", fmt.Errorf("gt done identity mismatch: GT_ROLE polecat %s != GT_POLECAT %s", rolePolecat, gtPolecat)
+	}
+
+	return gtRig, gtPolecat, nil
+}
+
+func doneGitTopLevel(cwd string) (string, error) {
+	cmd := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("resolving git root for %s: %s", cwd, strings.TrimSpace(string(output)))
+	}
+	gitRoot := strings.TrimSpace(string(output))
+	if gitRoot == "" {
+		return "", fmt.Errorf("git root for %s is empty", cwd)
+	}
+	return gitRoot, nil
+}
+
+func doneCanonicalPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	return filepath.Clean(abs)
 }
 
 func polecatSessionRetirementTarget(rigName, polecatName string, pid int) (string, []string, bool) {
@@ -430,154 +567,38 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	// Clean completions retire the live polecat session after durable handoff.
 	// Failed, deferred, escalated, and local-review paths preserve the session for recovery.
 
-	// Find workspace with fallback for deleted worktrees (hq-3xaxy)
-	// If the polecat's worktree was deleted by Witness before gt done finishes,
-	// getcwd will fail. We fall back to GT_TOWN_ROOT env var in that case.
-	townRoot, cwd, err := workspace.FindFromCwdWithFallback()
+	worktree, err := resolveDonePolecatWorktree()
 	if err != nil {
-		return fmt.Errorf("not in a Gas Town workspace: %w", err)
+		return err
 	}
+	townRoot := worktree.townRoot
+	cwd := worktree.cwd
+	rigName := worktree.rigName
+	polecatName := worktree.polecatName
+	sender := worktree.actor
 
-	// Track if cwd is available - affects which operations we can do
-	cwdAvailable := cwd != ""
-	if !cwdAvailable {
-		style.PrintWarning("working directory deleted (worktree nuked?), using fallback paths")
-		// Try to get cwd from GT_POLECAT_PATH env var (set by session manager)
-		if polecatPath := os.Getenv("GT_POLECAT_PATH"); polecatPath != "" {
-			cwd = polecatPath // May still be gone, but we have a path to use
-		}
-	}
+	g := git.NewGit(cwd)
 
-	// Find current rig - use cwd (which has fallback for deleted worktrees)
-	// instead of findCurrentRig which calls os.Getwd() and fails on deleted cwd
-	var rigName string
-	if cwd != "" {
-		relPath, err := filepath.Rel(townRoot, cwd)
-		if err == nil {
-			parts := strings.Split(relPath, string(filepath.Separator))
-			if len(parts) > 0 && parts[0] != "" && parts[0] != "." {
-				rigName = parts[0]
-			}
-		}
-	}
-	// Prefer GT_RIG over cwd-derived rig name when available.
-	// When Claude Code resets shell cwd (e.g., to mayor/rig), the cwd-derived
-	// rig name is wrong (e.g., "mayor" instead of "vets"). GT_RIG is set
-	// reliably for polecats via session env injection.
-	if envRig := os.Getenv("GT_RIG"); envRig != "" {
-		rigName = envRig
-	}
-	if rigName == "" {
-		return fmt.Errorf("cannot determine current rig (working directory may be deleted)")
-	}
-
-	// When gt is invoked via shell alias (cd ~/gt && gt), or when Claude Code
-	// resets the shell CWD to mayor/rig, cwd is NOT the polecat's worktree.
-	// Detect and reconstruct actual path.
-	//
-	// This triggers when cwd is:
-	// - The town root itself (cd ~/gt && gt)
-	// - The mayor rig path (Claude Code Bash tool CWD reset)
-	// - Any non-polecat path within the rig
-	cwdIsPolecatWorktree := strings.Contains(cwd, "/polecats/")
-	if cwdAvailable && !cwdIsPolecatWorktree {
-		if polecatName := os.Getenv("GT_POLECAT"); polecatName != "" && rigName != "" {
-			polecatClone := filepath.Join(townRoot, rigName, "polecats", polecatName, rigName)
-			if _, err := os.Stat(polecatClone); err == nil {
-				cwd = polecatClone
-			} else {
-				polecatClone = filepath.Join(townRoot, rigName, "polecats", polecatName)
-				if _, err := os.Stat(filepath.Join(polecatClone, ".git")); err == nil {
-					cwd = polecatClone
-				}
-			}
-		} else if crewName := os.Getenv("GT_CREW"); crewName != "" && rigName != "" {
-			crewClone := filepath.Join(townRoot, rigName, "crew", crewName)
-			if _, err := os.Stat(crewClone); err == nil {
-				cwd = crewClone
-			}
-		}
-	}
-
-	// Normalize polecat CWD: polecats may run gt done from a subdirectory (e.g.,
-	// beads-ide/ inside the repo). beads.ResolveBeadsDir only looks at cwd/.beads,
-	// not parent dirs, so we must normalize to the git repo root before use.
-	// Walk up from cwd until we find .git, stopping if we leave the polecats area.
-	if cwdAvailable && cwdIsPolecatWorktree {
-		candidate := cwd
-		for {
-			if _, statErr := os.Stat(filepath.Join(candidate, ".git")); statErr == nil {
-				cwd = candidate
-				break
-			}
-			parent := filepath.Dir(candidate)
-			if parent == candidate || !strings.Contains(parent, "/polecats/") {
-				break // hit filesystem root or left polecats area
-			}
-			candidate = parent
-		}
-	}
-
-	// Initialize git - use cwd if available, otherwise use rig's mayor clone
-	var g *git.Git
-	if cwdAvailable {
-		g = git.NewGit(cwd)
-	} else {
-		// Fallback: use the rig's mayor clone for git operations
-		mayorClone := filepath.Join(townRoot, rigName, "mayor", "rig")
-		g = git.NewGit(mayorClone)
-	}
-
-	// Get current branch - try env var first if cwd is gone
-	var branch string
-	if !cwdAvailable {
-		// Try to get branch from GT_BRANCH env var (set by session manager)
-		branch = os.Getenv("GT_BRANCH")
-	}
-	// CRITICAL FIX: Only call g.CurrentBranch() if we're using the cwd-based git.
-	// When cwdAvailable is false, we fall back to the mayor clone for git operations,
-	// but the mayor clone is on main/master - NOT the polecat branch. Calling
-	// g.CurrentBranch() in that case would incorrectly return main/master.
-	if branch == "" {
-		if !cwdAvailable {
-			// We don't have GT_BRANCH and we're using mayor clone - can't determine branch.
-			// Session stays alive (persistent polecat model) — Witness handles recovery.
-			return fmt.Errorf("cannot determine branch: GT_BRANCH not set and working directory unavailable")
-		}
-		var err error
-		branch, err = g.CurrentBranch()
-		if err != nil {
-			// Last resort: try to extract from polecat name (polecat/<name>-<suffix>)
-			if polecatName := os.Getenv("GT_POLECAT"); polecatName != "" {
-				branch = fmt.Sprintf("polecat/%s", polecatName)
-				style.PrintWarning("could not get branch from git, using fallback: %s", branch)
-			} else {
-				return fmt.Errorf("getting current branch: %w", err)
-			}
-		}
+	branch, err := g.CurrentBranch()
+	if err != nil {
+		return fmt.Errorf("getting current branch: %w", err)
 	}
 
 	// Auto-detect cleanup status if not explicitly provided
 	// This prevents premature polecat cleanup by ensuring witness knows git state
 	if doneCleanupStatus == "" {
-		if !cwdAvailable {
-			// Can't detect git state without working directory, default to unknown
-			doneCleanupStatus = "unknown"
-			style.PrintWarning("cannot detect cleanup status - working directory deleted")
+		workStatus, err := g.CheckUncommittedWork()
+		if err != nil {
+			style.PrintWarning("could not auto-detect cleanup status: %v", err)
 		} else {
-			workStatus, err := g.CheckUncommittedWork()
-			if err != nil {
-				style.PrintWarning("could not auto-detect cleanup status: %v", err)
-			} else {
-				// CheckUncommittedWork.UnpushedCommits doesn't work for branches
-				// without upstream tracking (common for polecats). Use the more
-				// robust BranchPushedToRemote which compares against origin/main.
-				pushed, unpushedCount, pushErr := g.BranchPushedToRemote(branch, "origin")
-				if pushErr != nil {
-					style.PrintWarning("could not check if branch is pushed: %v", pushErr)
-				}
-				doneCleanupStatus = cleanupStatusFromWorkState(workStatus, pushed, unpushedCount, pushErr)
+			// CheckUncommittedWork.UnpushedCommits doesn't work for branches
+			// without upstream tracking (common for polecats). Use the more
+			// robust BranchPushedToRemote which compares against origin/main.
+			pushed, unpushedCount, pushErr := g.BranchPushedToRemote(branch, "origin")
+			if pushErr != nil {
+				style.PrintWarning("could not check if branch is pushed: %v", pushErr)
 			}
+			doneCleanupStatus = cleanupStatusFromWorkState(workStatus, pushed, unpushedCount, pushErr)
 		}
 	}
 
@@ -596,7 +617,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	// working tree (matches what a user would do manually). If any pop has
 	// conflicts, we stop and let the agent/user resolve — surfacing the
 	// conflict is better than silently dropping the stash.
-	if cwdAvailable && doneCleanupStatus == "stash" {
+	if doneCleanupStatus == "stash" {
 		entries, err := g.StashListForBranch()
 		if err != nil {
 			style.PrintWarning("auto-pop: could not list stashes: %v — orphaned stashes may remain", err)
@@ -647,7 +668,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	//
 	// Auto-commit ensures work is NEVER lost regardless of exit type or agent behavior.
 	// The commit message is clearly marked as an auto-save so reviewers know.
-	if cwdAvailable && doneCleanupStatus == "uncommitted" {
+	if doneCleanupStatus == "uncommitted" {
 		// Re-check to get file details (cleanup detection already confirmed uncommitted changes)
 		workStatus, err := g.CheckUncommittedWork()
 		if err == nil && workStatus.HasUncommittedChanges && !workStatus.CleanExcludingRuntime() {
@@ -711,9 +732,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	}
 	worker := info.Worker
 
-	// Determine polecat name from sender detection
-	sender := detectSender()
-
 	// Get agent bead ID for cross-referencing
 	var agentBeadID string
 	if roleInfo, err := GetRoleWithContext(cwd, townRoot); err == nil {
@@ -739,11 +757,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// Completion now exits the live polecat session after durable handoff.
 		// The agent bead keeps lifecycle metadata for witness/refinery cleanup.
 	}
-	polecatName := ""
-	if parts := strings.Split(sender, "/"); len(parts) >= 2 {
-		polecatName = parts[len(parts)-1]
-	}
-
 	var assignedIssueIDs []string
 	loadAssignedIssueIDs := func() []string {
 		if assignedIssueIDs == nil && sender != "" {
@@ -832,11 +845,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// 1. Working directory availability (can't verify git state without it)
 		// 2. Uncommitted changes (work that would be lost)
 		// 3. Unique commits compared to origin (ensures branch was pushed with actual work)
-
-		// Block if working directory not available - can't verify git state
-		if !cwdAvailable {
-			return fmt.Errorf("cannot complete: working directory not available (worktree deleted?)\nUse --status DEFERRED to exit without completing")
-		}
 
 		// Block if there are uncommitted changes (would be lost on completion).
 		// Runtime artifacts (.claude/, .opencode/, .beads/, .runtime/, __pycache__/) are
@@ -1299,18 +1307,6 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					style.PrintWarning("bare repo push also failed: %v", pushErr)
 				} else {
 					fmt.Printf("%s Branch pushed via bare repo fallback\n", style.Bold.Render("✓"))
-				}
-			} else {
-				// No bare repo — try mayor/rig as last resort
-				mayorPath := filepath.Join(rigPath, "mayor", "rig")
-				if _, statErr := os.Stat(mayorPath); statErr == nil {
-					mayorGit := git.NewGit(mayorPath)
-					pushErr = mayorGit.Push("origin", refspec, false)
-					if pushErr != nil {
-						style.PrintWarning("mayor/rig push also failed: %v", pushErr)
-					} else {
-						fmt.Printf("%s Branch pushed via mayor/rig fallback\n", style.Bold.Render("✓"))
-					}
 				}
 			}
 		}
@@ -2507,8 +2503,8 @@ func parseCleanupStatus(s string) polecat.CleanupStatus {
 // Polecat actors have format: rigname/polecats/polecatname
 // Non-polecat actors have formats like: gastown/crew/name, rigname/witness, etc.
 func isPolecatActor(actor string) bool {
-	parts := strings.Split(actor, "/")
-	return len(parts) >= 2 && parts[1] == "polecats"
+	parts := strings.Split(strings.TrimSpace(actor), "/")
+	return len(parts) == 3 && parts[0] != "" && parts[1] == "polecats" && parts[2] != ""
 }
 
 // stripOverlayCLAUDEmd detects and removes Gas Town overlay content from CLAUDE.md

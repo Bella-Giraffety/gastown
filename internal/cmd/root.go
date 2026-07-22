@@ -145,7 +145,9 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	// This is best-effort and non-blocking — the heartbeat file signals that the agent
 	// is alive and actively running gt commands. Used by isSessionProcessDead to
 	// determine liveness without PID signal probing.
-	touchPolecatHeartbeat()
+	if !isDoneCommand(cmd) {
+		touchPolecatHeartbeat()
+	}
 
 	// Skip beads check for exempt commands
 	if beadsExempt || isRoleCommand(cmd) {
@@ -176,6 +178,15 @@ func isCommandOrAncestorExempt(cmd *cobra.Command, exemptions map[string]bool) b
 func isRoleCommand(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		if c.Name() == "role" {
+			return true
+		}
+	}
+	return false
+}
+
+func isDoneCommand(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "done" {
 			return true
 		}
 	}
