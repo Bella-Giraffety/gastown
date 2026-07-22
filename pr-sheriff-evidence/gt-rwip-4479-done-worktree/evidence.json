@@ -1,0 +1,225 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-22T13:20:00Z",
+  "run_id": "gt-rwip-4479-done-worktree",
+  "subject": {
+    "forge": "github",
+    "repo_id": "Bella-Giraffety/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request",
+    "change_id": "gt-rwip-4479-done-worktree",
+    "url": "https://github.com/Bella-Giraffety/gastown/compare/main...polecat/shiny/gt-rwip+902c61",
+    "title": "Prevent gt done from operating outside its polecat worktree",
+    "author": "mayor / issue #4479",
+    "author_tier": "configured",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "a9ada467c4b7f00bdf97d7599bac63aee4736690",
+    "head_ref": "polecat/shiny/gt-rwip+902c61",
+    "head_sha": "cb54a9708f3e04dd400e158667d2411c9c3bcd44",
+    "diff_summary": {
+      "additions": 469,
+      "deletions": 200,
+      "changed_files": 4,
+      "paths": [
+        "internal/cmd/done.go",
+        "internal/cmd/done_test.go",
+        "internal/cmd/done_worktree_guard_test.go",
+        "internal/cmd/root.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "mayor"],
+    "evidence_locations": ["local_report", "beads_notes", "artifact_store"],
+    "baseline_checks": [],
+    "no_verification_reasons": []
+  },
+  "action_plan": {
+    "id": "action-plan-gt-rwip",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-gt-rwip",
+    "summary": "Focused P0 bug fix for issue #4479: collapse gt done authority into one early fail-closed polecat worktree resolver, remove deleted/non-polecat cwd reconstruction and mayor/rig fallback mutation paths, and preserve only own worktree root/subdir behavior for nested and legacy polecat layouts.",
+    "created_at": "2026-07-22T12:58:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/merge-ready", "family": "status", "semantic_value": "merge-ready"},
+      {"name": "priority/p0", "family": "priority", "semantic_value": "p0"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "merge-ready",
+    "priority": "p0",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {"id": "label-snapshot", "kind": "label_snapshot", "uri": "beads:gt-rwip#labels", "actor": "gastown/polecats/shiny", "created_at": "2026-07-22T13:20:00Z", "digest": null, "summary": "Bead gt-rwip is a P0 bug with cleanup/data-loss/pr-sheriff labels; merge target semantics recorded as status=merge-ready priority=p0 kind=bug for this replacement branch."},
+    {"id": "source-issue-4479", "kind": "issue_snapshot", "uri": "https://github.com/gastownhall/gastown/issues/4479", "actor": "github", "created_at": "2026-07-22T13:20:00Z", "digest": null, "summary": "Issue #4479 reports P0 data-loss risk: gt done can fall back outside a polecat worktree and safety-net commit unrelated multi-agent changes."},
+    {"id": "implementation-commit", "kind": "commit", "uri": "urn:git:cb54a9708f3e04dd400e158667d2411c9c3bcd44", "actor": "gastown/polecats/shiny", "created_at": "2026-07-22T13:20:00Z", "digest": null, "summary": "Commit cb54a9708 adds the ownership resolver, removes unsafe fallbacks, skips unvalidated done pre-run heartbeat, and adds focused tests."},
+    {"id": "verification-focused", "kind": "verification_log", "uri": "beads:gt-rwip#implementation-evidence", "actor": "gastown/polecats/shiny", "created_at": "2026-07-22T13:20:00Z", "digest": null, "summary": "Focused guard tests pass with CGO_ENABLED=0. Full internal/cmd suite attempted and failed in unrelated TestRunPrimeExternalTools_RunsMemoryAndMail. Default CGO build blocked by known missing ICU unicode/uregex.h."},
+    {"id": "research-R01", "kind": "research_report", "uri": "beads:gt-rwip#R01-current-done-flow", "actor": "research-R01", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "runDone selected git cwd before proving it was the assigned polecat worktree."},
+    {"id": "research-R02", "kind": "research_report", "uri": "beads:gt-rwip#R02-deleted-cwd-fallback", "actor": "research-R02", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "Deleted cwd fallback reconstructed paths from GT_TOWN_ROOT, GT_POLECAT_PATH, and GT_BRANCH, which cannot prove current filesystem ownership."},
+    {"id": "research-R03", "kind": "research_report", "uri": "beads:gt-rwip#R03-non-polecat-cwd", "actor": "research-R03", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "Town root, mayor/rig, and other non-polecat cwd paths could be accepted or rewritten before mutation."},
+    {"id": "research-R04", "kind": "research_report", "uri": "beads:gt-rwip#R04-autosave-risk", "actor": "research-R04", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "Cleanup detection, stash auto-pop, and safety-net auto-commit run early enough to mutate the wrong repository if cwd authority is wrong."},
+    {"id": "research-R05", "kind": "research_report", "uri": "beads:gt-rwip#R05-identity-env", "actor": "research-R05", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "BD_ACTOR and GT_ROLE/GT_RIG/GT_POLECAT are available in polecat sessions and should agree before done proceeds."},
+    {"id": "research-R06", "kind": "research_report", "uri": "beads:gt-rwip#R06-canonical-layouts", "actor": "research-R06", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "Canonical own polecat worktree roots are nested <town>/<rig>/polecats/<name>/<rig> and legacy <town>/<rig>/polecats/<name>."},
+    {"id": "research-R07", "kind": "research_report", "uri": "beads:gt-rwip#R07-subdir-normalization", "actor": "research-R07", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "Running gt done from subdirectories inside the own repo is legitimate and should normalize to git top-level."},
+    {"id": "research-R08", "kind": "research_report", "uri": "beads:gt-rwip#R08-no-shell-guard", "actor": "research-R08", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "A shell wrapper or warning-only guard would not close the authoritative mutation boundary."},
+    {"id": "research-R09", "kind": "research_report", "uri": "beads:gt-rwip#R09-mayor-push-fallback", "actor": "research-R09", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "mayor/rig fallback git operations keep another worktree in the done mutation path and should be removed."},
+    {"id": "research-R10", "kind": "research_report", "uri": "beads:gt-rwip#R10-pre-run-heartbeat", "actor": "research-R10", "created_at": "2026-07-22T13:02:00Z", "digest": null, "summary": "persistentPreRun heartbeat uses town-root detection before runDone validation and must be bypassed for done."},
+    {"id": "research-R11", "kind": "research_report", "uri": "beads:gt-rwip#R11-role-helper-risk", "actor": "research-R11", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "General role detection is intentionally permissive; gt done needs a strict dedicated identity validator."},
+    {"id": "research-R12", "kind": "research_report", "uri": "beads:gt-rwip#R12-test-scope", "actor": "research-R12", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "Regression tests should cover accepted nested/legacy own roots and rejected town root, mayor/rig, other polecat, missing worktree, and env mismatches."},
+    {"id": "research-R13", "kind": "research_report", "uri": "beads:gt-rwip#R13-cleanup-policy", "actor": "research-R13", "created_at": "2026-07-21T20:21:00Z", "digest": null, "summary": "Cleanup-first fix should remove ambiguous reconstruction rather than adding compatibility shims or workaround layers."},
+    {"id": "research-R14", "kind": "research_report", "uri": "beads:gt-rwip#R14-current-main", "actor": "research-R14", "created_at": "2026-07-22T13:00:00Z", "digest": null, "summary": "Branch was refreshed to upstream/main a9ada467 before implementation and final evidence."},
+    {"id": "research-R15", "kind": "research_report", "uri": "beads:gt-rwip#R15-verification-env", "actor": "research-R15", "created_at": "2026-07-22T13:00:00Z", "digest": null, "summary": "Local verification requires CGO_ENABLED=0 because the host lacks ICU headers for go-icu-regex."},
+    {"id": "pre-P01", "kind": "pre_implementation_review", "uri": "urn:opencode-task:ses_07607e8cdffeOupa64UZxuTOZT", "actor": "pre-reviewer-1", "created_at": "2026-07-22T13:02:00Z", "digest": null, "summary": "Approved minimal early resolver; requested strict identity and ordering regression coverage."},
+    {"id": "pre-P02", "kind": "pre_implementation_review", "uri": "urn:opencode-task:ses_07607e7fcffeUo9w2qj2maKpMQ", "actor": "pre-reviewer-2", "created_at": "2026-07-22T13:02:00Z", "digest": null, "summary": "Approved removing fallback behavior and strict dedicated validation rather than permissive role detection."},
+    {"id": "pre-P03", "kind": "pre_implementation_review", "uri": "urn:opencode-task:ses_07607e72cffea4IP32uKpMTyNm", "actor": "pre-reviewer-3", "created_at": "2026-07-22T13:02:00Z", "digest": null, "summary": "Approved supported own worktree root/subdir use cases and required destructive-path tests."},
+    {"id": "pre-P04", "kind": "pre_implementation_review", "uri": "urn:opencode-task:ses_07607e6d0ffetrRyFuHPEOoPjN", "actor": "pre-reviewer-4", "created_at": "2026-07-22T13:02:00Z", "digest": null, "summary": "Conditionally approved after adding the persistent pre-run heartbeat bypass for done; implementation included that amendment before editing runDone."},
+    {"id": "pre-P05", "kind": "pre_implementation_review", "uri": "urn:opencode-task:ses_07607e64bffe8wuckCMm5ytae8", "actor": "pre-reviewer-5", "created_at": "2026-07-22T13:02:00Z", "digest": null, "summary": "Approved one pure resolver plus call-site replacement as convergent cleanup."},
+    {"id": "post-F01", "kind": "post_implementation_review", "uri": "urn:opencode-task:ses_075f13f42ffe0Yki5zTb4UaY6l", "actor": "post-reviewer-1", "created_at": "2026-07-22T13:15:00Z", "digest": null, "summary": "Approved final HEAD identity/worktree resolver and fallback removal."},
+    {"id": "post-F02", "kind": "post_implementation_review", "uri": "urn:opencode-task:ses_075f13e7dffekbzd8WIFXvfzu6", "actor": "post-reviewer-2", "created_at": "2026-07-22T13:15:00Z", "digest": null, "summary": "Approved final tests with no missing critical coverage."},
+    {"id": "post-F03", "kind": "post_implementation_review", "uri": "urn:opencode-task:ses_075f13db6ffeWyVBibbPBiFSr2", "actor": "post-reviewer-3", "created_at": "2026-07-22T13:15:00Z", "digest": null, "summary": "Approved integration ordering: cleanup, stash, autosave, done intent, heartbeat, push, MR, and agent state all follow validation."},
+    {"id": "post-F04", "kind": "post_implementation_review", "uri": "urn:opencode-task:ses_075f13d36ffeOxgdl537cv5iaF", "actor": "post-reviewer-4", "created_at": "2026-07-22T13:15:00Z", "digest": null, "summary": "Approved cleanup-first convergence and no bandaid layer."},
+    {"id": "post-F05", "kind": "post_implementation_review", "uri": "urn:opencode-task:ses_075eb1ed3ffeKhOlHmUhiYFuxb", "actor": "post-reviewer-5", "created_at": "2026-07-22T13:17:00Z", "digest": null, "summary": "Replacement final-head review approved guard ordering, identity agreement, path rejection, heartbeat skip, and unsafe fallback removal."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-22T13:03:00Z",
+    "modified_paths": [
+      "internal/cmd/done.go",
+      "internal/cmd/done_test.go",
+      "internal/cmd/done_worktree_guard_test.go",
+      "internal/cmd/root.go"
+    ],
+    "commits": ["cb54a9708f3e04dd400e158667d2411c9c3bcd44"]
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "R01", "independence_key": "R01-current-done-flow", "artifact_ref": "research-R01", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R01", "lens": "current runDone flow", "summary": "runDone selected git cwd before proving assigned worktree ownership."},
+      {"id": "R02", "independence_key": "R02-deleted-cwd-fallback", "artifact_ref": "research-R02", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R02", "lens": "deleted cwd fallback", "summary": "Env fallback cannot prove current filesystem ownership."},
+      {"id": "R03", "independence_key": "R03-non-polecat-cwd", "artifact_ref": "research-R03", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R03", "lens": "non-polecat cwd", "summary": "Town root, mayor/rig, and other paths were destructive candidates."},
+      {"id": "R04", "independence_key": "R04-autosave-risk", "artifact_ref": "research-R04", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R04", "lens": "autosave risk", "summary": "Stash and auto-save side effects must be after validation."},
+      {"id": "R05", "independence_key": "R05-identity-env", "artifact_ref": "research-R05", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R05", "lens": "identity env", "summary": "BD_ACTOR and GT role vars should agree."},
+      {"id": "R06", "independence_key": "R06-canonical-layouts", "artifact_ref": "research-R06", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R06", "lens": "canonical layouts", "summary": "Nested and legacy polecat worktree roots are the only accepted roots."},
+      {"id": "R07", "independence_key": "R07-subdir-normalization", "artifact_ref": "research-R07", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R07", "lens": "subdir normalization", "summary": "Subdirectories inside own repo should normalize to git root."},
+      {"id": "R08", "independence_key": "R08-no-shell-guard", "artifact_ref": "research-R08", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R08", "lens": "guard boundary", "summary": "Authoritative code boundary required; shell guard is insufficient."},
+      {"id": "R09", "independence_key": "R09-mayor-push-fallback", "artifact_ref": "research-R09", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R09", "lens": "push fallback", "summary": "mayor/rig fallback remains another worktree and should be removed."},
+      {"id": "R10", "independence_key": "R10-pre-run-heartbeat", "artifact_ref": "research-R10", "completed_at": "2026-07-22T13:02:00Z", "actor": "researcher-R10", "lens": "persistent pre-run", "summary": "done must not touch heartbeat before validation."},
+      {"id": "R11", "independence_key": "R11-role-helper-risk", "artifact_ref": "research-R11", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R11", "lens": "role helper strictness", "summary": "Dedicated strict validator avoids permissive role fallback."},
+      {"id": "R12", "independence_key": "R12-test-scope", "artifact_ref": "research-R12", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R12", "lens": "tests", "summary": "Focused accepted/rejected path tests identified."},
+      {"id": "R13", "independence_key": "R13-cleanup-policy", "artifact_ref": "research-R13", "completed_at": "2026-07-21T20:21:00Z", "actor": "researcher-R13", "lens": "cleanup-first", "summary": "Remove ambiguity, do not add shim layers."},
+      {"id": "R14", "independence_key": "R14-current-main", "artifact_ref": "research-R14", "completed_at": "2026-07-22T13:00:00Z", "actor": "researcher-R14", "lens": "current main", "summary": "Implementation based on upstream/main a9ada467."},
+      {"id": "R15", "independence_key": "R15-verification-env", "artifact_ref": "research-R15", "completed_at": "2026-07-22T13:00:00Z", "actor": "researcher-R15", "lens": "verification environment", "summary": "CGO disabled is required locally due missing ICU headers."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "P01", "independence_key": "P01-done-guard", "artifact_ref": "pre-P01", "reviewed_action_ref": "action-plan-gt-rwip", "completed_at": "2026-07-22T13:02:00Z", "actor": "pre-reviewer-P01", "verdict": "approve", "summary": "Approved strict early resolver and ordering regression coverage."},
+      {"id": "P02", "independence_key": "P02-ownership-plan", "artifact_ref": "pre-P02", "reviewed_action_ref": "action-plan-gt-rwip", "completed_at": "2026-07-22T13:02:00Z", "actor": "pre-reviewer-P02", "verdict": "approve", "summary": "Approved removal of fallback behavior and strict validation."},
+      {"id": "P03", "independence_key": "P03-tests-plan", "artifact_ref": "pre-P03", "reviewed_action_ref": "action-plan-gt-rwip", "completed_at": "2026-07-22T13:02:00Z", "actor": "pre-reviewer-P03", "verdict": "approve", "summary": "Approved supported own worktree use cases and destructive-path test plan."},
+      {"id": "P04", "independence_key": "P04-integration-heartbeat", "artifact_ref": "pre-P04", "reviewed_action_ref": "action-plan-gt-rwip", "completed_at": "2026-07-22T13:02:00Z", "actor": "pre-reviewer-P04", "verdict": "approve", "summary": "Approved with mandatory pre-run heartbeat bypass amendment, which was incorporated before code edits."},
+      {"id": "P05", "independence_key": "P05-cleanup-bias", "artifact_ref": "pre-P05", "reviewed_action_ref": "action-plan-gt-rwip", "completed_at": "2026-07-22T13:02:00Z", "actor": "pre-reviewer-P05", "verdict": "approve", "summary": "Approved one pure resolver plus call-site simplification as cleanup-first."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "F01", "independence_key": "F01-identity", "artifact_ref": "post-F01", "reviewed_action_ref": "action-plan-gt-rwip", "reviewed_head_sha": "cb54a9708f3e04dd400e158667d2411c9c3bcd44", "completed_at": "2026-07-22T13:15:00Z", "actor": "post-reviewer-F01", "verdict": "approve", "summary": "Approved final identity/worktree resolver and fallback removal."},
+      {"id": "F02", "independence_key": "F02-tests", "artifact_ref": "post-F02", "reviewed_action_ref": "action-plan-gt-rwip", "reviewed_head_sha": "cb54a9708f3e04dd400e158667d2411c9c3bcd44", "completed_at": "2026-07-22T13:15:00Z", "actor": "post-reviewer-F02", "verdict": "approve", "summary": "Approved final regression test coverage."},
+      {"id": "F03", "independence_key": "F03-integration", "artifact_ref": "post-F03", "reviewed_action_ref": "action-plan-gt-rwip", "reviewed_head_sha": "cb54a9708f3e04dd400e158667d2411c9c3bcd44", "completed_at": "2026-07-22T13:15:00Z", "actor": "post-reviewer-F03", "verdict": "approve", "summary": "Approved side-effect ordering and integration paths."},
+      {"id": "F04", "independence_key": "F04-cleanup", "artifact_ref": "post-F04", "reviewed_action_ref": "action-plan-gt-rwip", "reviewed_head_sha": "cb54a9708f3e04dd400e158667d2411c9c3bcd44", "completed_at": "2026-07-22T13:15:00Z", "actor": "post-reviewer-F04", "verdict": "approve", "summary": "Approved cleanup-first convergence and no workaround layer."},
+      {"id": "F05", "independence_key": "F05-replacement-final", "artifact_ref": "post-F05", "reviewed_action_ref": "action-plan-gt-rwip", "reviewed_head_sha": "cb54a9708f3e04dd400e158667d2411c9c3bcd44", "completed_at": "2026-07-22T13:17:00Z", "actor": "post-reviewer-F05", "verdict": "approve", "summary": "Approved final-head guard ordering, path rejection, heartbeat skip, and fallback removal."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "The change removes ambiguous cwd/env reconstruction and mayor/rig fallback mutation paths, consolidating gt done authority into one fail-closed resolver before side effects.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": "post-F04"},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": "post-F04"},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": "post-F04"},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": "post-F04"},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": "post-F04"}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "gofmt", "command_or_check": "gofmt -w internal/cmd/done.go internal/cmd/root.go internal/cmd/done_test.go internal/cmd/done_worktree_guard_test.go", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Touched Go files formatted."},
+      {"name": "diff-check", "command_or_check": "git diff --check", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "No whitespace/conflict-marker issues."},
+      {"name": "focused-guard-tests", "command_or_check": "CGO_ENABLED=0 go test ./internal/cmd -run 'TestResolveDonePolecatWorktree|TestRunDoneRejectsMayorRigBeforeAutosave|TestIsDoneCommand|TestIsPolecatActor|TestBranchDetectionGuard|TestBranchDetectionCleanupOnError'", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Focused ownership, destructive-path, heartbeat skip, and stale branch env tests passed."}
+    ],
+    "ci_checks": []
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/issues/4479",
+    "replacement_change_url": "https://github.com/Bella-Giraffety/gastown/compare/main...polecat/shiny/gt-rwip+902c61",
+    "replacement_branch": "polecat/shiny/gt-rwip+902c61",
+    "replacement_commit_refs": ["cb54a9708f3e04dd400e158667d2411c9c3bcd44"],
+    "original_author": "mayor / issue #4479",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["source-issue-4479", "research-R01"],
+      "fresh_artifact_refs": ["implementation-commit", "verification-focused", "post-F01", "post-F02", "post-F03", "post-F04", "post-F05"],
+      "rationale": "The problem statement and prior read-only research were reused; implementation and final reviews are fresh on current upstream/main."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement/fix branch carries forward GitHub issue #4479 and bead gt-rwip context.",
+      "preserved": true,
+      "method": "comment_credit",
+      "artifact_refs": ["source-issue-4479"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "source-issue-4479",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "github_issue", "beads_notes", "local_reviews", "verification"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": ["pre-P04", "post-F01", "post-F02", "post-F03", "post-F04", "post-F05", "verification-focused"],
+    "scanned_at": "2026-07-22T13:20:00Z",
+    "summary": "The one pre-review blocker was incorporated by skipping unvalidated done pre-run heartbeat. Final reviews found no unresolved blockers. Full internal/cmd suite failure is documented as unrelated to this change."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "https://github.com/Bella-Giraffety/gastown/compare/main...polecat/shiny/gt-rwip+902c61",
+    "target_head_sha": "cb54a9708f3e04dd400e158667d2411c9c3bcd44",
+    "decided_by": "gastown/polecats/shiny",
+    "decided_at": "2026-07-22T13:20:00Z",
+    "reason": "All required research, pre-review, post-review, cleanup-first, blocker-scan, and focused verification gates pass for the checked replacement branch.",
+    "required_actions": []
+  }
+}
