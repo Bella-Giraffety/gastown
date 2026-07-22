@@ -346,6 +346,22 @@ exit 0
 	}
 }
 
+func TestRuntimeRejectsOversizedScriptRecordRunRequest(t *testing.T) {
+	runtime, recorder, p := testRuntimePlugin(t, fmt.Sprintf(`#!/usr/bin/env bash
+head -c %d /dev/zero > "$GT_PLUGIN_RUNNER_RECORD_FILE"
+`, DefaultRecordLimit+1))
+	outcome, err := runtime.Execute(context.Background(), p, RunOptions{Trigger: TriggerAuto})
+	if !errors.Is(err, ErrScriptFailed) || !strings.Contains(err.Error(), "runner record file exceeds") {
+		t.Fatalf("Execute error = %v, want oversized runner record ErrScriptFailed", err)
+	}
+	if outcome.Result != ResultFailure || outcome.CooldownCounted || !outcome.Retryable {
+		t.Fatalf("unexpected oversized record outcome: %+v", outcome)
+	}
+	if len(recorder.records) != 1 {
+		t.Fatalf("records = %d, want 1", len(recorder.records))
+	}
+}
+
 func TestRunnerEnvUsesBoundedPathAllowlist(t *testing.T) {
 	t.Setenv("PATH", "/tmp/evil:/usr/bin")
 	t.Setenv("HOME", "/home/tester")

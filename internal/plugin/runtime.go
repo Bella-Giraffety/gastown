@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -23,6 +24,7 @@ import (
 const (
 	DefaultScriptTimeout = 5 * time.Minute
 	DefaultOutputLimit   = 32 * 1024
+	DefaultRecordLimit   = 32 * 1024
 
 	TriggerAuto        = "auto"
 	TriggerManual      = "manual"
@@ -399,26 +401,28 @@ func runnerRecordExtraLabels(labels []string) []string {
 }
 
 func runnerRecordPath() (string, func(), error) {
-	f, err := os.CreateTemp("", "gt-plugin-record-*.json")
+	dir, err := os.MkdirTemp("", "gt-plugin-record-*")
 	if err != nil {
-		return "", nil, fmt.Errorf("creating runner record file: %w", err)
+		return "", nil, fmt.Errorf("creating runner record dir: %w", err)
 	}
-	path := f.Name()
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", nil, fmt.Errorf("closing runner record file: %w", err)
-	}
-	_ = os.Remove(path)
-	return path, func() { _ = os.Remove(path) }, nil
+	return filepath.Join(dir, "record.json"), func() { _ = os.RemoveAll(dir) }, nil
 }
 
 func readRunnerRecord(path string) (*RunnerRecordRun, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
+		return nil, fmt.Errorf("opening runner record file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, DefaultRecordLimit+1))
+	if err != nil {
 		return nil, fmt.Errorf("reading runner record file: %w", err)
+	}
+	if len(data) > DefaultRecordLimit {
+		return nil, fmt.Errorf("runner record file exceeds %d bytes", DefaultRecordLimit)
 	}
 	if strings.TrimSpace(string(data)) == "" {
 		return nil, nil
