@@ -749,6 +749,20 @@ func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	return m.postMergeMR(b, mr)
+}
+
+// PostMergeMR performs post-merge cleanup for an MR snapshot that the caller has
+// already verified. This keeps proof and side effects on the same MR metadata.
+func (m *Manager) PostMergeMR(mr *MergeRequest) (*PostMergeResult, error) {
+	if mr == nil {
+		return nil, ErrMRNotFound
+	}
+	b := beads.New(m.rig.BeadsPath())
+	return m.postMergeMR(b, mr)
+}
+
+func (m *Manager) postMergeMR(b *beads.Beads, mr *MergeRequest) (*PostMergeResult, error) {
 	workBeadID := resolveMergedWorkBead(b.ForAgentBead(), mergedWorkBeadCloseRequest{
 		MRID:        mr.ID,
 		Branch:      mr.Branch,

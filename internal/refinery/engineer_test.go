@@ -1052,6 +1052,81 @@ func TestPostMergeConvoyCheck_NoTownBeads(t *testing.T) {
 	}
 }
 
+func TestHandleMRInfoSuccess_ProofFailurePreservesRemoteBranch(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+
+	branch := "polecat/test/proof-fail"
+	createFeatureBranch(t, workDir, branch, "proof.txt", "not landed\n")
+	commit := run(t, workDir, "git", "rev-parse", branch)
+	run(t, workDir, "git", "push", "origin", branch)
+
+	e := newTestEngineer(t, workDir, g)
+	var buf bytes.Buffer
+	e.SetOutput(&buf)
+	e.HandleMRInfoSuccess(&MRInfo{
+		ID:          "gt-mr-proof-fail",
+		Branch:      branch,
+		Target:      "main",
+		SourceIssue: "gt-proof-fail",
+		CommitSHA:   commit,
+	}, ProcessResult{Success: true, MergeCommit: "unused"})
+
+	if !strings.Contains(buf.String(), "Post-merge proof failed") {
+		t.Fatalf("output missing proof failure:\n%s", buf.String())
+	}
+	if out := run(t, workDir, "git", "ls-remote", "--heads", "origin", branch); !strings.Contains(out, commit) {
+		t.Fatalf("remote branch was not preserved; ls-remote=%q want commit %s", out, commit)
+	}
+}
+
+func TestHandleMRInfoSuccess_VerifiedHeadLeaseDeletesRemoteBranch(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+	installNoPRGH(t)
+	run(t, workDir, "git", "remote", "add", "upstream", "https://github.com/example/repo.git")
+
+	branch := "polecat/test/proof-pass"
+	createFeatureBranch(t, workDir, branch, "proof.txt", "landed\n")
+	commit := run(t, workDir, "git", "rev-parse", branch)
+	run(t, workDir, "git", "push", "origin", branch)
+	run(t, workDir, "git", "checkout", "main")
+	run(t, workDir, "git", "merge", "--ff-only", branch)
+	run(t, workDir, "git", "push", "origin", "main")
+	mergeCommit := run(t, workDir, "git", "rev-parse", "main")
+
+	e := newTestEngineer(t, workDir, g)
+	e.HandleMRInfoSuccess(&MRInfo{
+		ID:          "gt-mr-proof-pass",
+		Branch:      branch,
+		Target:      "main",
+		SourceIssue: "gt-proof-pass",
+		CommitSHA:   commit,
+	}, ProcessResult{Success: true, MergeCommit: mergeCommit})
+
+	if out := run(t, workDir, "git", "ls-remote", "--heads", "origin", branch); strings.TrimSpace(out) != "" {
+		t.Fatalf("remote branch still exists after verified cleanup: %q", out)
+	}
+}
+
+func installNoPRGH(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '[]\n'
+  exit 0
+fi
+printf 'unexpected gh args: %s\n' "$*" >&2
+exit 1
+`
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestCheckAndCloseCompletedConvoys_UsesHardenedBDEnvs(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping on windows - shell stubs")

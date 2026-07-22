@@ -191,7 +191,7 @@ Examples:
 
 type mqPostMergeManager interface {
 	FindMRForPostMerge(idOrBranch string) (*refinery.MergeRequest, error)
-	PostMerge(idOrBranch string) (*refinery.PostMergeResult, error)
+	PostMergeMR(mr *refinery.MergeRequest) (*refinery.PostMergeResult, error)
 }
 
 type mqPostMergeGit interface {
@@ -584,7 +584,7 @@ func runVerifiedMQPostMerge(mgr mqPostMergeManager, rigPath string, rigGit mqPos
 		return nil, mqPostMergeBranchCleanup{}, err
 	}
 
-	result, err := mgr.PostMerge(mrID)
+	result, err := mgr.PostMergeMR(mr)
 	if err != nil {
 		return result, mqPostMergeBranchCleanup{}, err
 	}
@@ -600,6 +600,9 @@ func verifyMQPostMergeProof(rigGit mqPostMergeGit, mr *refinery.MergeRequest) er
 	target := strings.TrimSpace(mr.TargetBranch)
 	if target == "" {
 		return fmt.Errorf("merge proof failed for MR %s: missing target branch", mr.ID)
+	}
+	if source := strings.TrimSpace(mr.Branch); source != "" && source == target {
+		return fmt.Errorf("merge proof failed for MR %s: source branch %s matches target branch", mr.ID, source)
 	}
 	commit := strings.TrimSpace(mr.CommitSHA)
 	if commit == "" {
