@@ -147,6 +147,28 @@ func TestRunVerifiedMQPostMerge_SkipBranchDeleteStillRequiresProof(t *testing.T)
 	}
 }
 
+func TestRunVerifiedMQPostMerge_OpenPRSkipsRemoteDeleteAfterProof(t *testing.T) {
+	mgr := &fakeMQPostMergeManager{mr: testMQPostMergeMR()}
+	rigGit := &fakeMQPostMergeGit{openPR: true}
+
+	_, cleanup, err := runVerifiedMQPostMerge(mgr, t.TempDir(), rigGit, mgr.mr.ID, false)
+	if err != nil {
+		t.Fatalf("runVerifiedMQPostMerge: %v", err)
+	}
+	if !mgr.postMergeCalled {
+		t.Fatal("PostMerge was not called after successful proof")
+	}
+	if !cleanup.OpenPR {
+		t.Fatalf("cleanup.OpenPR = false, cleanup=%+v", cleanup)
+	}
+	if len(rigGit.deletedBranches) != 0 {
+		t.Fatalf("remote branch deleted despite open PR: %v", rigGit.deletedBranches)
+	}
+	if len(rigGit.localDeleted) != 1 || rigGit.localDeleted[0] != mgr.mr.Branch {
+		t.Fatalf("local branch cleanup = %v, want [%s]", rigGit.localDeleted, mgr.mr.Branch)
+	}
+}
+
 func TestRunVerifiedMQPostMerge_LeaseDeleteFailureReturnsAfterPostMerge(t *testing.T) {
 	mgr := &fakeMQPostMergeManager{mr: testMQPostMergeMR()}
 	rigGit := &fakeMQPostMergeGit{deleteErr: errors.New("stale info")}
@@ -184,5 +206,24 @@ func TestRunVerifiedMQPostMerge_MissingSubmittedHeadFailsClosed(t *testing.T) {
 	}
 	if len(rigGit.deletedBranches) != 0 {
 		t.Fatalf("branch deleted with missing submitted head: %v", rigGit.deletedBranches)
+	}
+}
+
+func TestRunVerifiedMQPostMerge_SourceTargetBranchFailsClosed(t *testing.T) {
+	mr := testMQPostMergeMR()
+	mr.Branch = "main"
+	mr.TargetBranch = "main"
+	mgr := &fakeMQPostMergeManager{mr: mr}
+	rigGit := &fakeMQPostMergeGit{}
+
+	_, _, err := runVerifiedMQPostMerge(mgr, t.TempDir(), rigGit, mgr.mr.ID, false)
+	if err == nil || !strings.Contains(err.Error(), "matches target branch") {
+		t.Fatalf("runVerifiedMQPostMerge error = %v, want source/target failure", err)
+	}
+	if mgr.postMergeCalled {
+		t.Fatal("PostMerge called when source branch matched target")
+	}
+	if len(rigGit.deletedBranches) != 0 {
+		t.Fatalf("branch deleted when source matched target: %v", rigGit.deletedBranches)
 	}
 }

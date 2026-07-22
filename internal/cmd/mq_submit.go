@@ -298,13 +298,18 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 					}
 					fmt.Printf("  %s Superseded old MR: %s\n", style.Dim.Render("○"), old.ID)
 
-					// Delete the old remote branch to auto-close the GitHub PR.
+					// Delete the old remote branch only if it still matches the
+					// submitted head recorded on the superseded MR.
 					// Only polecat branches — non-polecat branches may belong to
 					// contributor forks; deleting them closes upstream PRs. (GH#2669)
 					oldFields := beads.ParseMRFields(old)
 					if oldFields != nil && strings.HasPrefix(oldFields.Branch, "polecat/") {
+						if strings.TrimSpace(oldFields.CommitSHA) == "" {
+							style.PrintWarning("could not delete superseded branch %s: missing commit_sha", oldFields.Branch)
+							continue
+						}
 						g := git.NewGit(cwd)
-						if err := g.DeleteRemoteBranch("origin", oldFields.Branch); err != nil {
+						if err := g.DeleteRemoteBranchIfAt("origin", oldFields.Branch, oldFields.CommitSHA); err != nil {
 							style.PrintWarning("could not delete superseded branch %s: %v", oldFields.Branch, err)
 						} else {
 							fmt.Printf("  %s Deleted remote branch: %s\n", style.Dim.Render("○"), oldFields.Branch)
