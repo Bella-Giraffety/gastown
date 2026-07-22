@@ -102,7 +102,7 @@ func validateTerminalMRCloseSnapshot(mrID string, fields *beads.MRFields, expect
 		{name: "source_issue", got: fields.SourceIssue, want: expected.IssueID},
 		{name: "commit_sha", got: fields.CommitSHA, want: expected.CommitSHA},
 	}
-	if strings.TrimSpace(fields.Target) != "" && strings.TrimSpace(expected.TargetBranch) != "" {
+	if strings.TrimSpace(expected.TargetBranch) != "" {
 		checks = append(checks, struct {
 			name string
 			got  string
