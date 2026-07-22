@@ -1109,6 +1109,40 @@ func TestHandleMRInfoSuccess_VerifiedHeadLeaseDeletesRemoteBranch(t *testing.T) 
 	}
 }
 
+func TestDoMergeDirectPreservesSubmittedHeadForPostMergeProof(t *testing.T) {
+	workDir, g, cleanup := testGitRepo(t)
+	defer cleanup()
+	installNoPRGH(t)
+	run(t, workDir, "git", "remote", "add", "upstream", "https://github.com/example/repo.git")
+
+	branch := "polecat/test/native-merge"
+	createFeatureBranch(t, workDir, branch, "native.txt", "native merge\n")
+	commit := run(t, workDir, "git", "rev-parse", branch)
+	run(t, workDir, "git", "push", "origin", branch)
+
+	e := newTestEngineer(t, workDir, g)
+	mr := &MRInfo{
+		ID:          "gt-mr-native-merge",
+		Branch:      branch,
+		Target:      "main",
+		SourceIssue: "gt-native-merge",
+		CommitSHA:   commit,
+	}
+	result := e.doMerge(context.Background(), mr)
+	if !result.Success {
+		t.Fatalf("doMerge failed: %s", result.Error)
+	}
+	if err := g.VerifyPushedCommitReachableFromPushTarget("origin", "main", commit); err != nil {
+		t.Fatalf("submitted head not reachable after direct merge: %v", err)
+	}
+	if !e.HandleMRInfoSuccess(mr, result) {
+		t.Fatal("HandleMRInfoSuccess failed after verified direct merge")
+	}
+	if out := run(t, workDir, "git", "ls-remote", "--heads", "origin", branch); strings.TrimSpace(out) != "" {
+		t.Fatalf("remote branch still exists after native verified cleanup: %q", out)
+	}
+}
+
 func installNoPRGH(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()

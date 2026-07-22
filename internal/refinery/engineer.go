@@ -161,7 +161,7 @@ type MergeQueueConfig struct {
 	AutoPush bool `json:"auto_push"`
 
 	// MergeStrategy controls how the refinery lands work: "direct" (default)
-	// does local squash merge + git push; "pr" uses the VCS provider's merge API
+	// does local merge + git push; "pr" uses the VCS provider's merge API
 	// which respects branch protection/restriction rules.
 	MergeStrategy string `json:"merge_strategy,omitempty"`
 
@@ -530,6 +530,9 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) P
 			Error:          fmt.Sprintf("branch %s not found locally", branch),
 		}
 	}
+	if err := e.ensureMRInfoCommitSHA(mr); err != nil {
+		return ProcessResult{Success: false, Error: err.Error()}
+	}
 
 	// Step 2: Checkout the target branch
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Checking out target branch %s...\n", target)
@@ -626,27 +629,27 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) P
 	}
 
 	// PR merge path: when merge_strategy=pr, use the VCS provider's merge API
-	// instead of local squash merge + direct push. This respects branch
+	// instead of local merge + direct push. This respects branch
 	// protection/restriction rules and preserves the PR audit trail.
 	// The VCS provider (GitHub, Bitbucket) is selected via vcs_provider config.
 	if e.config.MergeStrategy == "pr" {
 		return e.doMergePR(ctx, mr)
 	}
 
-	// Step 5: Perform the actual merge using squash merge
+	// Step 5: Perform the actual merge, preserving the submitted head in target ancestry.
 	// Get the original commit message from the polecat branch to preserve the
-	// conventional commit format (feat:/fix:) instead of creating redundant merge commits
-	originalMsg, err := e.git.GetBranchCommitMessage(branch)
+	// conventional commit format (feat:/fix:) in the merge commit message.
+	mergeMsg, err := e.git.GetBranchCommitMessage(branch)
 	if err != nil {
 		// Fallback to a descriptive message if we can't get the original
-		originalMsg = fmt.Sprintf("Squash merge %s into %s", branch, target)
+		mergeMsg = fmt.Sprintf("Merge %s into %s", branch, target)
 		if mr.SourceIssue != "" {
-			originalMsg = fmt.Sprintf("Squash merge %s into %s (%s)", branch, target, mr.SourceIssue)
+			mergeMsg = fmt.Sprintf("Merge %s into %s (%s)", branch, target, mr.SourceIssue)
 		}
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: could not get original commit message: %v\n", err)
 	}
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Squash merging with message: %s\n", strings.TrimSpace(originalMsg))
-	if err := e.git.MergeSquash(branch, originalMsg); err != nil {
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Merging with message: %s\n", strings.TrimSpace(mergeMsg))
+	if err := e.git.MergeNoFF(branch, mergeMsg); err != nil {
 		// ZFC: Use git's porcelain output to detect conflicts instead of parsing stderr.
 		// GetConflictingFiles() uses `git diff --diff-filter=U` which is proper.
 		conflicts, conflictErr := e.git.GetConflictingFiles()
@@ -668,7 +671,7 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) P
 
 	// Step 5.5: Run post-squash gates on the merged result.
 	// These validate the actual combined code before it goes anywhere.
-	// On failure, reset the merge to undo the local squash commit.
+	// On failure, reset the merge to undo the local merge commit.
 	if !shouldSkipGates {
 		postResult := e.runGatesForPhase(ctx, GatePhasePostSquash)
 		if !postResult.Success {
@@ -698,7 +701,7 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) P
 			var slotErr error
 			pushHolder, slotErr = e.acquireMainPushSlot(ctx)
 			if slotErr != nil {
-				// Reset the checked-out target branch to origin to undo the local squash commit.
+				// Reset the checked-out target branch to origin to undo the local merge commit.
 				// ResetHard is required because target is the current branch (checked out in Step 2).
 				if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
 					_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after slot failure: %v\n", target, resetErr)
@@ -732,7 +735,7 @@ func (e *Engineer) doMerge(ctx context.Context, mr *MRInfo, skipGates ...bool) P
 
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Pushing to origin/%s...\n", target)
 		if err := e.git.Push("origin", target, false); err != nil {
-			// Reset the checked-out target branch to undo the local squash commit.
+			// Reset the checked-out target branch to undo the local merge commit.
 			// Without this, the next retry could see stale local state from the failed push.
 			if resetErr := e.git.ResetHard("origin/" + target); resetErr != nil {
 				_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to reset %s after push failure: %v\n", target, resetErr)
@@ -777,6 +780,9 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 	provider := e.config.VCSProvider
 	if provider == "" {
 		provider = "github"
+	}
+	if err := e.ensureMRInfoCommitSHA(mr); err != nil {
+		return ProcessResult{Success: false, Error: err.Error()}
 	}
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Using PR merge strategy (vcs_provider=%s)\n", provider)
 
@@ -828,9 +834,10 @@ func (e *Engineer) doMergePR(ctx context.Context, mr *MRInfo) ProcessResult {
 		return eligibility
 	}
 
-	// Step PR.3: Merge via VCS provider API using squash merge
-	_, _ = fmt.Fprintf(e.output, "[Engineer] Merging PR #%d via %s API (squash)...\n", pr.Number, provider)
-	mergeCommit, err := e.prProvider.MergePR(pr, "squash")
+	// Step PR.3: Merge via VCS provider API with a merge commit so the submitted
+	// head remains in target ancestry for post-merge proof.
+	_, _ = fmt.Fprintf(e.output, "[Engineer] Merging PR #%d via %s API (merge)...\n", pr.Number, provider)
+	mergeCommit, err := e.prProvider.MergePR(pr, "merge")
 	if err != nil {
 		return ProcessResult{
 			Success: false,
@@ -1311,7 +1318,7 @@ func (e *Engineer) ProcessMRInfo(ctx context.Context, mr *MRInfo) ProcessResult 
 }
 
 // HandleMRInfoSuccess handles a successful merge from MRInfo.
-func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
+func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) bool {
 	workBeadID := resolveMergedWorkBead(e.beads.ForAgentBead(), mergedWorkBeadCloseRequest{
 		MRID:        mr.ID,
 		Branch:      mr.Branch,
@@ -1331,7 +1338,7 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 	}
 	if err := e.verifyMRInfoPostMergeProof(mr); err != nil {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Post-merge proof failed for %s: %v\n", mr.ID, err)
-		return
+		return false
 	}
 
 	// Update and close the MR bead
@@ -1403,6 +1410,26 @@ func (e *Engineer) HandleMRInfoSuccess(mr *MRInfo, result ProcessResult) {
 
 	// 5. Log success
 	_, _ = fmt.Fprintf(e.output, "[Engineer] ✓ Merged: %s (commit: %s)\n", mr.ID, result.MergeCommit)
+	return true
+}
+
+func (e *Engineer) ensureMRInfoCommitSHA(mr *MRInfo) error {
+	if mr == nil || strings.TrimSpace(mr.CommitSHA) != "" {
+		return nil
+	}
+	if e.git == nil {
+		return fmt.Errorf("missing submitted commit_sha and git client is missing")
+	}
+	branch := strings.TrimSpace(mr.Branch)
+	if branch == "" {
+		return fmt.Errorf("missing submitted commit_sha and source branch")
+	}
+	sha, err := e.git.Rev(branch)
+	if err != nil {
+		return fmt.Errorf("resolve submitted head for %s: %w", branch, err)
+	}
+	mr.CommitSHA = strings.TrimSpace(sha)
+	return nil
 }
 
 func (e *Engineer) verifyMRInfoPostMergeProof(mr *MRInfo) error {

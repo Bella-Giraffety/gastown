@@ -842,7 +842,7 @@ func TestGetMergeMessage_Fallback(t *testing.T) {
 	}
 
 	msg := e.getMergeMessage(mr)
-	if !strings.Contains(msg, "Squash merge") {
+	if !strings.Contains(msg, "Merge") {
 		t.Errorf("expected fallback message, got %q", msg)
 	}
 	if !strings.Contains(msg, "gt-abc") {
