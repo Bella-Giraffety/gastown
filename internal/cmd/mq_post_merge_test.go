@@ -14,6 +14,7 @@ type fakeMQPostMergeManager struct {
 	findErr         error
 	postMergeErr    error
 	postMergeCalled bool
+	postMergeMR     *refinery.MergeRequest
 }
 
 func (m *fakeMQPostMergeManager) FindMRForPostMerge(string) (*refinery.MergeRequest, error) {
@@ -23,8 +24,9 @@ func (m *fakeMQPostMergeManager) FindMRForPostMerge(string) (*refinery.MergeRequ
 	return m.mr, nil
 }
 
-func (m *fakeMQPostMergeManager) PostMerge(string) (*refinery.PostMergeResult, error) {
+func (m *fakeMQPostMergeManager) PostMergeMR(mr *refinery.MergeRequest) (*refinery.PostMergeResult, error) {
 	m.postMergeCalled = true
+	m.postMergeMR = mr
 	if m.postMergeErr != nil {
 		return nil, m.postMergeErr
 	}
@@ -105,6 +107,9 @@ func TestRunVerifiedMQPostMerge_VerifiedHeadClosesAndLeaseDeletes(t *testing.T) 
 	}
 	if !mgr.postMergeCalled {
 		t.Fatal("PostMerge was not called after successful proof")
+	}
+	if mgr.postMergeMR != mgr.mr {
+		t.Fatal("PostMerge did not use the verified MR snapshot")
 	}
 	if len(rigGit.verifiedCommits) != 1 || rigGit.verifiedCommits[0] != mgr.mr.CommitSHA {
 		t.Fatalf("verified commits = %v, want [%s]", rigGit.verifiedCommits, mgr.mr.CommitSHA)

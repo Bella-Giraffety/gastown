@@ -308,13 +308,13 @@ branch-only `gh pr list --limit 1`, retries, or broad fallback searches.
 
 For each queued MR:
 - If lookup errors or reports ambiguity: leave the MR open and continue to the next MR.
-- If `PR_STATE=MERGED`: send MERGED to Witness, then run post-merge cleanup with branch deletion skipped:
+- If `PR_STATE=MERGED`: run post-merge cleanup with branch deletion skipped, then send MERGED to Witness:
   ```bash
+  gt mq post-merge <rig> <mr-id> --skip-branch-delete
   gt mail send <rig>/witness -s "MERGED <polecat-name>" -m "Branch: <branch>
   Issue: <issue-id>
   PR: ${PR_URL}
   MR: <mr-id>"
-  gt mq post-merge <rig> <mr-id> --skip-branch-delete
   gt mail archive <merge-ready-message-id>
   ```
 - If `PR_STATE=OPEN`: leave it for the normal process-branch/merge-push path.
@@ -794,32 +794,7 @@ If merge fails (conflict, branch protection), debug and retry.
 
 ⚠️ **STOP HERE - DO NOT PROCEED UNTIL THE PR IS ACTUALLY MERGED ON GITHUB**
 
-**Step 2: Send MERGED Notification (REQUIRED - DO THIS IMMEDIATELY)**
-
-RIGHT NOW, before any cleanup, send MERGED mail to Witness.
-
-**If merge_strategy = "direct":**
-```bash
-gt mail send <rig>/witness -s "MERGED <polecat-name>" -m "Branch: <branch>
-Issue: <issue-id>
-Merged-At: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-```
-
-**If merge_strategy = "pr":**
-```bash
-gt mail send <rig>/witness -s "MERGED <polecat-name>" -m "Branch: <branch>
-Issue: <issue-id>
-PR: ${PR_URL}
-Merged-At: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-```
-
-Note: In PR mode, MERGED is only sent AFTER `gh pr merge` succeeds — the PR
-is actually merged on GitHub before the witness is notified.
-
-This signals the Witness to nuke the polecat worktree. WITHOUT THIS NOTIFICATION,
-POLECAT WORKTREES ACCUMULATE INDEFINITELY AND THE LIFECYCLE BREAKS.
-
-**Step 3: Post-merge cleanup (REQUIRED — single command)**
+**Step 2: Post-merge cleanup (REQUIRED — single command)**
 
 This single command handles closing the MR bead, closing the source issue, and
 deleting the remote polecat branch (respects delete_merged_branches config):
@@ -843,6 +818,31 @@ Verify the command output shows all steps succeeded (✓ for each).
 The branch is deleted by `gt mq post-merge` after merge proof passes, not by
 `gh pr merge`. The `--skip-branch-delete` flag (gas-fk4) prevents branch deletion
 when an open PR is detected in direct merge mode.
+
+**Step 3: Send MERGED Notification (REQUIRED - ONLY AFTER CLEANUP SUCCEEDS)**
+
+After `gt mq post-merge` succeeds, send MERGED mail to Witness.
+
+**If merge_strategy = "direct":**
+```bash
+gt mail send <rig>/witness -s "MERGED <polecat-name>" -m "Branch: <branch>
+Issue: <issue-id>
+Merged-At: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+```
+
+**If merge_strategy = "pr":**
+```bash
+gt mail send <rig>/witness -s "MERGED <polecat-name>" -m "Branch: <branch>
+Issue: <issue-id>
+PR: ${PR_URL}
+Merged-At: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+```
+
+Note: In PR mode, MERGED is only sent AFTER `gh pr merge` succeeds and
+`gt mq post-merge` verifies the target contains the submitted head.
+
+This signals the Witness to nuke the polecat worktree. WITHOUT THIS NOTIFICATION,
+POLECAT WORKTREES ACCUMULATE INDEFINITELY AND THE LIFECYCLE BREAKS.
 
 **Step 4: Archive the MERGE_READY mail (REQUIRED)**
 ```bash
