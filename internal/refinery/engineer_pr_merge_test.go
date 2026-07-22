@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,27 @@ import (
 	gitpkg "github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/rig"
 )
+
+type recordingPRProvider struct {
+	mergeMethod string
+	mergeFunc   func(method string) (string, error)
+}
+
+func (p *recordingPRProvider) FindPullRequest(string, string, int, string) (*gitpkg.PullRequestInfo, error) {
+	return &gitpkg.PullRequestInfo{Number: 42, State: "OPEN"}, nil
+}
+
+func (p *recordingPRProvider) IsPRApproved(*gitpkg.PullRequestInfo) (bool, error) {
+	return true, nil
+}
+
+func (p *recordingPRProvider) MergePR(_ *gitpkg.PullRequestInfo, method string) (string, error) {
+	p.mergeMethod = method
+	if p.mergeFunc != nil {
+		return p.mergeFunc(method)
+	}
+	return "", nil
+}
 
 func TestEngineer_LoadConfig_MergeStrategyPR(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -163,6 +185,36 @@ func TestDoMergePR_NoPR_ReturnsError(t *testing.T) {
 	// The error should mention finding a PR
 	if !strings.Contains(result.Error, "PR") && !strings.Contains(result.Error, "pr") {
 		t.Errorf("expected PR-related error, got: %s", result.Error)
+	}
+}
+
+func TestDoMergePR_UsesMergeCommitAndPreservesSubmittedHead(t *testing.T) {
+	workDir, g, _ := testGitRepo(t)
+	branch := "feat/pr-merge"
+	createFeatureBranch(t, workDir, branch, "pr.txt", "hello")
+	commit := run(t, workDir, "git", "rev-parse", branch)
+
+	e := newTestEngineer(t, workDir, g)
+	provider := &recordingPRProvider{mergeFunc: func(method string) (string, error) {
+		if method != "merge" {
+			return "", fmt.Errorf("method = %s, want merge", method)
+		}
+		run(t, workDir, "git", "checkout", "main")
+		run(t, workDir, "git", "merge", "--no-ff", "-m", "merge PR", branch)
+		run(t, workDir, "git", "push", "origin", "main")
+		return run(t, workDir, "git", "rev-parse", "main"), nil
+	}}
+	e.prProvider = provider
+
+	result := e.doMergePR(context.Background(), &MRInfo{ID: "mr-pr-merge", Branch: branch, Target: "main", CommitSHA: commit})
+	if !result.Success {
+		t.Fatalf("doMergePR failed: %s", result.Error)
+	}
+	if provider.mergeMethod != "merge" {
+		t.Fatalf("MergePR method = %q, want merge", provider.mergeMethod)
+	}
+	if err := g.VerifyPushedCommitReachableFromPushTarget("origin", "main", commit); err != nil {
+		t.Fatalf("submitted head not reachable after PR merge: %v", err)
 	}
 }
 

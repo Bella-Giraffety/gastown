@@ -1708,7 +1708,7 @@ func (g *Git) BitbucketPRMerge(workspace, repoSlug string, prID int, strategy st
 	}
 	url := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%d/merge",
 		workspace, repoSlug, prID)
-	body := fmt.Sprintf(`{"merge_strategy":"%s","close_source_branch":true}`, strategy)
+	body := fmt.Sprintf(`{"merge_strategy":"%s","close_source_branch":false}`, strategy)
 	cmd := exec.Command("curl", "-s", "-X", "POST",
 		"-H", "Authorization: Bearer "+token,
 		"-H", "Content-Type: application/json",
