@@ -174,9 +174,10 @@ var mqPostMergeCmd = &cobra.Command{
 	Long: `Perform post-merge cleanup after a successful merge.
 
 This command consolidates post-merge steps into a single atomic operation:
-  1. Close the MR bead (status: merged)
-  2. Close the source issue
-  3. Delete the remote polecat branch (unless --skip-branch-delete)
+	 1. Verify the target branch contains the submitted source head
+	 2. Close the MR bead (status: merged)
+	 3. Close the source issue
+	 4. Delete the remote polecat branch at the submitted head (unless --skip-branch-delete)
 
 Designed for use by the refinery formula after a successful merge to main.
 The branch name is read from the MR bead, so no manual branch argument is needed.
@@ -186,6 +187,28 @@ Examples:
   gt mq post-merge gastown gt-mr-abc123 --skip-branch-delete`,
 	Args: cobra.ExactArgs(2),
 	RunE: runMQPostMerge,
+}
+
+type mqPostMergeManager interface {
+	FindMRForPostMerge(idOrBranch string) (*refinery.MergeRequest, error)
+	PostMerge(idOrBranch string) (*refinery.PostMergeResult, error)
+}
+
+type mqPostMergeGit interface {
+	VerifyPushedCommitReachableFromPushTarget(remote, branch, commit string) error
+	HasOpenPullRequest(ref git.PullRequestRef) bool
+	DeleteRemoteBranchIfAt(remote, branch, expectedHash string) error
+	DeleteBranch(branch string, force bool) error
+}
+
+type mqPostMergeBranchCleanup struct {
+	Branch        string
+	NoBranch      bool
+	Skipped       bool
+	Disabled      bool
+	OpenPR        bool
+	RemoteDeleted bool
+	LocalDeleted  bool
 }
 
 var mqStatusCmd = &cobra.Command{
@@ -509,9 +532,12 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	rigGit, err := getRigGit(r.Path)
+	if err != nil {
+		return fmt.Errorf("post-merge proof: %w", err)
+	}
 
-	// Run beads-level cleanup (close MR bead + source issue)
-	result, err := mgr.PostMerge(mrID)
+	result, branchCleanup, err := runVerifiedMQPostMerge(mgr, r.Path, rigGit, mrID, mqPostMergeSkipBranchDelete)
 	if err != nil {
 		return fmt.Errorf("post-merge cleanup: %w", err)
 	}
@@ -530,55 +556,107 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 		fmt.Printf("  %s Source issue: %s %s\n", style.Dim.Render("○"), result.SourceIssueID, style.Dim.Render("(already closed or not found)"))
 	}
 
-	// Delete remote branch unless skipped
-	if mr.Branch == "" {
+	if branchCleanup.NoBranch {
 		fmt.Printf("  %s No branch name in MR (skipping branch delete)\n", style.Dim.Render("○"))
-		return nil
-	}
-
-	if mqPostMergeSkipBranchDelete {
+	} else if branchCleanup.Skipped {
 		fmt.Printf("  %s Branch delete skipped (--skip-branch-delete)\n", style.Dim.Render("○"))
-		return nil
-	}
-
-	// Check rig config for delete_merged_branches setting
-	settingsPath := filepath.Join(r.Path, "settings", "config.json")
-	deleteEnabled := true // default: delete merged branches
-	if settings, err := config.LoadRigSettings(settingsPath); err == nil {
-		if settings.MergeQueue != nil {
-			deleteEnabled = settings.MergeQueue.IsDeleteMergedBranchesEnabled()
-		}
-	}
-
-	if !deleteEnabled {
+	} else if branchCleanup.Disabled {
 		fmt.Printf("  %s Branch delete disabled by config\n", style.Dim.Render("○"))
-		return nil
-	}
-
-	// Get git client for the rig
-	rigGit, err := getRigGit(r.Path)
-	if err != nil {
-		return fmt.Errorf("remote branch delete: %w", err)
-	}
-
-	// Delete remote branch — but skip if there's an open PR on it.
-	// Deleting a branch with an open PR causes GitHub to auto-close the PR
-	// as "closed" (not "merged"), destroying the PR audit trail. (gas-fk4)
-	if rigGit.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: mr.Branch, HeadSHA: mr.CommitSHA}) {
+	} else if branchCleanup.OpenPR {
 		fmt.Printf("  %s Skipping remote branch delete for %s: open PR exists (gas-fk4)\n", style.Dim.Render("○"), mr.Branch)
-	} else if err := rigGit.DeleteRemoteBranch("origin", mr.Branch); err != nil {
-		return fmt.Errorf("remote branch delete %s: %w", mr.Branch, err)
-	} else {
+	} else if branchCleanup.RemoteDeleted {
 		fmt.Printf("  %s Deleted remote branch: %s\n", style.Success.Render("✓"), mr.Branch)
 	}
 
-	// Also clean up the local tracking ref if it exists
-	if err := rigGit.DeleteBranch(mr.Branch, true); err != nil {
-		// Not a warning — local branch often doesn't exist
-		_ = err
-	} else {
+	if branchCleanup.LocalDeleted {
 		fmt.Printf("  %s Deleted local branch: %s\n", style.Success.Render("✓"), mr.Branch)
 	}
 
 	return nil
+}
+
+func runVerifiedMQPostMerge(mgr mqPostMergeManager, rigPath string, rigGit mqPostMergeGit, mrID string, skipBranchDelete bool) (*refinery.PostMergeResult, mqPostMergeBranchCleanup, error) {
+	mr, err := mgr.FindMRForPostMerge(mrID)
+	if err != nil {
+		return nil, mqPostMergeBranchCleanup{}, err
+	}
+	if err := verifyMQPostMergeProof(rigGit, mr); err != nil {
+		return nil, mqPostMergeBranchCleanup{}, err
+	}
+
+	result, err := mgr.PostMerge(mrID)
+	if err != nil {
+		return result, mqPostMergeBranchCleanup{}, err
+	}
+
+	branchCleanup, err := cleanupMQPostMergeBranch(rigPath, rigGit, result.MR, skipBranchDelete)
+	return result, branchCleanup, err
+}
+
+func verifyMQPostMergeProof(rigGit mqPostMergeGit, mr *refinery.MergeRequest) error {
+	if mr == nil {
+		return fmt.Errorf("merge proof failed: merge request is missing")
+	}
+	target := strings.TrimSpace(mr.TargetBranch)
+	if target == "" {
+		return fmt.Errorf("merge proof failed for MR %s: missing target branch", mr.ID)
+	}
+	commit := strings.TrimSpace(mr.CommitSHA)
+	if commit == "" {
+		return fmt.Errorf("merge proof failed for MR %s: missing submitted commit_sha", mr.ID)
+	}
+	if err := rigGit.VerifyPushedCommitReachableFromPushTarget("origin", target, commit); err != nil {
+		return fmt.Errorf("merge proof failed for MR %s: target %s does not contain submitted head %s: %w", mr.ID, target, commit, err)
+	}
+	return nil
+}
+
+func cleanupMQPostMergeBranch(rigPath string, rigGit mqPostMergeGit, mr *refinery.MergeRequest, skipBranchDelete bool) (mqPostMergeBranchCleanup, error) {
+	cleanup := mqPostMergeBranchCleanup{}
+	if mr == nil {
+		return cleanup, fmt.Errorf("remote branch delete: merge request is missing")
+	}
+
+	cleanup.Branch = strings.TrimSpace(mr.Branch)
+	if cleanup.Branch == "" {
+		cleanup.NoBranch = true
+		return cleanup, nil
+	}
+	if skipBranchDelete {
+		cleanup.Skipped = true
+		return cleanup, nil
+	}
+	if !mqDeleteMergedBranchesEnabled(rigPath) {
+		cleanup.Disabled = true
+		return cleanup, nil
+	}
+
+	expectedHead := strings.TrimSpace(mr.CommitSHA)
+	if expectedHead == "" {
+		return cleanup, fmt.Errorf("remote branch delete %s: missing submitted commit_sha", cleanup.Branch)
+	}
+
+	// Deleting a branch with an open PR causes GitHub to auto-close the PR as
+	// "closed" (not "merged"), destroying the PR audit trail. (gas-fk4)
+	if rigGit.HasOpenPullRequest(git.PullRequestRef{URL: mr.PRURL, Number: mr.PRNumber, Branch: cleanup.Branch, HeadSHA: expectedHead}) {
+		cleanup.OpenPR = true
+	} else if err := rigGit.DeleteRemoteBranchIfAt("origin", cleanup.Branch, expectedHead); err != nil {
+		return cleanup, fmt.Errorf("remote branch delete %s at %s: %w", cleanup.Branch, expectedHead, err)
+	} else {
+		cleanup.RemoteDeleted = true
+	}
+
+	if err := rigGit.DeleteBranch(cleanup.Branch, true); err == nil {
+		cleanup.LocalDeleted = true
+	}
+	return cleanup, nil
+}
+
+func mqDeleteMergedBranchesEnabled(rigPath string) bool {
+	settingsPath := filepath.Join(rigPath, "settings", "config.json")
+	settings, err := config.LoadRigSettings(settingsPath)
+	if err != nil || settings.MergeQueue == nil {
+		return true
+	}
+	return settings.MergeQueue.IsDeleteMergedBranchesEnabled()
 }

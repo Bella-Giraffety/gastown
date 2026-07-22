@@ -164,7 +164,7 @@ exit 1
 	log := string(logBytes)
 	for _, want := range []string{
 		"pr view https://github.com/upstream/repo/pull/42 --json reviewDecision --repo upstream/repo",
-		"pr merge https://github.com/upstream/repo/pull/42 --squash --delete-branch --repo upstream/repo",
+		"pr merge https://github.com/upstream/repo/pull/42 --squash --repo upstream/repo",
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("gh log missing %q\nlog:\n%s", want, log)

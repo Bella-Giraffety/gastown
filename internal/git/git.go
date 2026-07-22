@@ -1602,7 +1602,7 @@ func (g *Git) GhPrMergePullRequest(pr *PullRequestInfo, method string) (string, 
 	if pr == nil || (pr.Number == 0 && pr.URL == "") {
 		return "", fmt.Errorf("pull request identity is missing")
 	}
-	args := []string{"pr", "merge", pullRequestSelector(pr), "--" + method, "--delete-branch"}
+	args := []string{"pr", "merge", pullRequestSelector(pr), "--" + method}
 	if pr.BaseRepo != "" {
 		args = append(args, "--repo", pr.BaseRepo)
 	}
