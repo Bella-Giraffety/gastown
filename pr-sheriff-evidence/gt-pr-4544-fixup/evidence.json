@@ -1,0 +1,228 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-23T16:05:00Z",
+  "run_id": "gt-pr-4544-fixup-2026-07-23",
+  "subject": {
+    "forge": "github",
+    "repo_id": "gastownhall/gastown",
+    "default_branch": "main",
+    "change_type": "pull_request_replacement",
+    "change_id": "4544",
+    "url": "https://github.com/gastownhall/gastown/pull/4544",
+    "title": "fix: context-check-interval preempts backoff, freezes idle counter",
+    "author": "joshuaguyervs / dog",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+    "head_ref": "polecat/ghoul/gt-pr-sheriff-4544+371d8a",
+    "head_sha": "4d651002f278085b77132acc02eb10db78819415",
+    "diff_summary": {
+      "additions": 74,
+      "deletions": 19,
+      "changed_files": 2,
+      "paths": [
+        "internal/cmd/molecule_await_event.go",
+        "internal/cmd/molecule_await_event_test.go"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "policy_approver", "designated_reviewer"],
+    "evidence_locations": ["local_report", "artifact_store", "bead", "pr_thread"],
+    "baseline_checks": [],
+    "no_verification_reasons": ["docs_only"]
+  },
+  "action_plan": {
+    "id": "action-plan-pr-4544-replacement",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-pr-4544-replacement",
+    "summary": "Carry forward PR #4544 as a cleanup-first replacement on current upstream/main: keep upstream's context-yield backoff-window preservation, complete already-expired persisted backoff windows immediately as timeout, avoid the original heuristic context-check threshold, and add focused label-state regression coverage while preserving dog attribution.",
+    "created_at": "2026-07-23T15:25:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/review-approved", "family": "status", "semantic_value": "review-approved"},
+      {"name": "priority/p1", "family": "priority", "semantic_value": "p1"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "review-approved",
+    "priority": "p1",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot"
+  },
+  "artifacts": [
+    {"id": "label-snapshot", "kind": "label_snapshot", "uri": "file:pr-sheriff-evidence/gt-pr-4544-fixup/evidence.json#labels", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T16:05:00Z", "digest": null, "summary": "Replacement target semantics are review-approved, priority/p1, kind/bug. Original PR #4544 was observed with kind/bug priority/p1 status/reviewing and is conflicting/dirty as-is."},
+    {"id": "original-pr", "kind": "pull_request_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4544", "actor": "github", "created_at": "2026-07-23T15:10:00Z", "digest": "a388a3936d3399517d3ae15835da14b6a20e30da", "summary": "Original PR #4544 by joshuaguyervs/dog is open, non-draft, head a388a3936d3399517d3ae15835da14b6a20e30da, labels kind/bug priority/p1 status/reviewing, CI green at original head, but mergeable=CONFLICTING/dirty against current main."},
+    {"id": "final-head", "kind": "git_commit", "uri": "urn:git:commit:4d651002f278085b77132acc02eb10db78819415", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T15:52:00Z", "digest": "4d651002f278085b77132acc02eb10db78819415", "summary": "Current-main replacement commit completing expired await-event backoff windows immediately and adding focused stateful label regression coverage. Commit contains Co-authored-by: dog <joshua.guyer@vergesense.com>."},
+    {"id": "verification-focused", "kind": "verification_log", "uri": "urn:local:test:gt-pr-4544-focused-2026-07-23T15:55:00Z", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T15:55:00Z", "digest": null, "summary": "PASS: CGO_ENABLED=0 go test -p=1 ./internal/cmd -run 'TestAwaitEvent|TestWaitForEventFilesContextYield|TestEffortLevelContextYield' -count=1 -timeout 60s."},
+    {"id": "verification-compile", "kind": "verification_log", "uri": "urn:local:test:gt-pr-4544-compile-2026-07-23T16:02:00Z", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T16:02:00Z", "digest": null, "summary": "PASS: CGO_ENABLED=0 go test -p=1 ./internal/cmd -run '^$' -count=1 -timeout 60s."},
+    {"id": "verification-style", "kind": "verification_log", "uri": "urn:local:style:gt-pr-4544-2026-07-23T16:01:00Z", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T16:01:00Z", "digest": null, "summary": "PASS: gofmt on changed files and git diff --check upstream/main..HEAD produced no output."},
+    {"id": "broad-cmd-timeout", "kind": "verification_log", "uri": "urn:local:test:gt-pr-4544-internal-cmd-timeout", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T16:01:00Z", "digest": null, "summary": "Broader CGO_ENABLED=0 go test -p=1 ./internal/cmd -count=1 -timeout 180s timed out in unrelated TestHookPolecatEnvCheck while await-event focused checks and compile-only passed."},
+    {"id": "attribution-evidence", "kind": "local_report", "uri": "file:pr-sheriff-evidence/gt-pr-4544-fixup/evidence.json#replacement_flow", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T16:05:00Z", "digest": null, "summary": "Replacement carries forward original PR #4544 by joshuaguyervs/dog, original commit a388a3936d3399517d3ae15835da14b6a20e30da, with Co-authored-by dog <joshua.guyer@vergesense.com> on final commit 4d651002f."},
+    {"id": "closure-intent", "kind": "bead_note", "uri": "urn:bead:gt-pr-sheriff-4544:closure-intent", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T16:05:00Z", "digest": null, "summary": "Original PR #4544 should be closed or marked superseded only after the replacement/fixup lands with attribution preserved."},
+    {"id": "blocker-scan", "kind": "review_report", "uri": "file:pr-sheriff-evidence/gt-pr-4544-fixup/evidence.json#blocker_scan", "actor": "gastown/polecats/ghoul", "created_at": "2026-07-23T16:05:00Z", "digest": null, "summary": "Scanned labels, PR comments, reviews, CI checks, bead notes, local diff, verification, research, pre-reviews, and post-reviews. Original PR merge-as-is remains blocked by conflict and heuristic fit; replacement has no unresolved implementation blockers."},
+    {"id": "checker-merge-gate", "kind": "checker_output", "uri": "file:pr-sheriff-evidence/gt-pr-4544-fixup/merge-gate-check.txt", "actor": "gt-pr-sheriff-check", "created_at": "2026-07-23T16:05:00Z", "digest": null, "summary": "Checker output persisted after evidence generation."},
+    {"id": "research-01-artifact", "kind": "research_report", "uri": "task:ses_07087785bffeVwVg1WAKGDUxL0#R01", "actor": "research-leg-R01", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Root cause is valid: context-yield can leave idle unchanged and clear/restart the same backoff window, freezing progression."},
+    {"id": "research-02-artifact", "kind": "research_report", "uri": "task:ses_07087777affesmwotk9SeSlujv#R02", "actor": "research-leg-R02", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Original PR threshold is a heuristic and fails solution-fit for long waits and documented context-yield semantics."},
+    {"id": "research-03-artifact", "kind": "research_report", "uri": "task:ses_07087758cffeTymGqtXiiOMOZt#R03", "actor": "research-leg-R03", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Local branch carried a cleaner state-model fix; upstream already had context-yield preservation and only expired-window completion remained useful."},
+    {"id": "research-04-artifact", "kind": "research_report", "uri": "task:ses_070877410ffehhAyveCF75lgTc#R04", "actor": "research-leg-R04", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Original PR tests were low-level and missed persisted idle/backoff label behavior; replacement needs stateful label regression coverage."},
+    {"id": "research-05-artifact", "kind": "research_report", "uri": "task:ses_0708772d2ffet4QfgmACYTXQ7K#R05", "actor": "research-leg-R05", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Backoff math and idle progression require the original deadline to remain stable until timeout increments idle."},
+    {"id": "research-06-artifact", "kind": "research_report", "uri": "task:ses_0708771acffenCnPGbiDS76qWS#R06", "actor": "research-leg-R06", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Timer/context behavior has no new security risk, but context-yield must not be suppressed by arbitrary threshold."},
+    {"id": "research-07-artifact", "kind": "research_report", "uri": "task:ses_070877090ffeeBmPIku5G1uaKS#R07", "actor": "research-leg-R07", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "User-visible await-event behavior should continue yielding for context checks while still allowing original backoff windows to complete."},
+    {"id": "research-08-artifact", "kind": "research_report", "uri": "task:ses_070876fc6ffedgygqhiBESvYGs#R08", "actor": "research-leg-R08", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Cleanup-first lens blocks original heuristic but approves the state-model replacement."},
+    {"id": "research-09-artifact", "kind": "research_report", "uri": "task:ses_070876d6dffeBpVOfGU7vmCfI1#R09", "actor": "research-leg-R09", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Original labels had valid kind/bug and priority/p1; replacement should promote review status after evidence/checker pass."},
+    {"id": "research-10-artifact", "kind": "research_report", "uri": "task:ses_070876c93ffeXAjIasZoIKZl18#R10", "actor": "research-leg-R10", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Original PR CI was green at stale head but GitHub reports mergeable=CONFLICTING/dirty and no reviews."},
+    {"id": "research-11-artifact", "kind": "research_report", "uri": "task:ses_070876a8effePPD2HyIAAR4Gpo#R11", "actor": "research-leg-R11", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Blocker scan found no do-not-merge/security/review blockers, but conflict/status/review evidence block merge-as-is."},
+    {"id": "research-12-artifact", "kind": "research_report", "uri": "task:ses_0708767e4ffe4YlJr6j1Aa9RyQ#R12", "actor": "research-leg-R12", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Attribution requires preserving original author dog <joshua.guyer@vergesense.com> in replacement evidence and commit trailer."},
+    {"id": "research-13-artifact", "kind": "research_report", "uri": "task:ses_07087671fffeQ27RiZnY89ETbH#R13", "actor": "research-leg-R13", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "No security, secrets, auth, CI permission, dependency, or generated-state risk in original or replacement paths."},
+    {"id": "research-14-artifact", "kind": "research_report", "uri": "task:ses_07087663cffee6K31Wrx3d2b8n#R14", "actor": "research-leg-R14", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Release impact is v1.2.2-relevant P1 core workflow bug; release-blocking status not independently proven by milestone."},
+    {"id": "research-15-artifact", "kind": "research_report", "uri": "task:ses_070876581ffe7mjR2Mf4FfVN1o#R15", "actor": "research-leg-R15", "created_at": "2026-07-23T15:15:00Z", "digest": null, "summary": "Final disposition: do not merge original PR as-is; carry forward via cleanup-first replacement/fixup with evidence and checker."},
+    {"id": "pre-01-artifact", "kind": "pre_implementation_review", "uri": "task:ses_070758e6fffeV552uZFKoLQNs7#P01", "actor": "pre-review-P01", "created_at": "2026-07-23T15:30:00Z", "digest": null, "summary": "Approved expired-window completion correctness and pending-event priority."},
+    {"id": "pre-02-artifact", "kind": "pre_implementation_review", "uri": "task:ses_070758c67ffeEc2RcwIgKor3zN#P02", "actor": "pre-review-P02", "created_at": "2026-07-23T15:30:00Z", "digest": null, "summary": "Approved cleanup-first/minimality: target actual state-machine gap, no threshold heuristic."},
+    {"id": "pre-03-artifact", "kind": "pre_implementation_review", "uri": "task:ses_0707587c6fferlc5vkbb6WcvVe#P03", "actor": "pre-review-P03", "created_at": "2026-07-23T15:30:00Z", "digest": null, "summary": "Approved with stateful label-test helper requirement and bounded deterministic test."},
+    {"id": "pre-04-artifact", "kind": "pre_implementation_review", "uri": "task:ses_070676f14ffeZIp60Y6KnsqqGt#P04", "actor": "pre-review-P04", "created_at": "2026-07-23T15:31:00Z", "digest": null, "summary": "Approved await-event CLI, bead label, context-check, and pending-event integration."},
+    {"id": "pre-05-artifact", "kind": "pre_implementation_review", "uri": "task:ses_070676489ffe9Wv4lISknYWyTf#P05", "actor": "pre-review-P05", "created_at": "2026-07-23T15:31:00Z", "digest": null, "summary": "Approved bug-fix policy path, attribution, release impact, and replacement/fixup authority."},
+    {"id": "post-01-artifact", "kind": "post_implementation_review", "uri": "task:ses_0705689b5ffeqI5TSOO4DA9w6M#Q01", "actor": "post-review-Q01", "created_at": "2026-07-23T15:58:00Z", "digest": "4d651002f278085b77132acc02eb10db78819415", "summary": "Approved final correctness and edge cases for expired-window timeout and stateful bd stub."},
+    {"id": "post-02-artifact", "kind": "post_implementation_review", "uri": "task:ses_07056869dffeq8kBLbVomxqWCg#Q02", "actor": "post-review-Q02", "created_at": "2026-07-23T15:58:00Z", "digest": "4d651002f278085b77132acc02eb10db78819415", "summary": "Approved test coverage, helper safety, and verification adequacy."},
+    {"id": "post-03-artifact", "kind": "post_implementation_review", "uri": "task:ses_07056819cffe8PYCuWhbAsKfUM#Q03", "actor": "post-review-Q03", "created_at": "2026-07-23T15:58:00Z", "digest": "4d651002f278085b77132acc02eb10db78819415", "summary": "Approved cleanup-first convergence, minimality, and scope control."},
+    {"id": "post-04-artifact", "kind": "post_implementation_review", "uri": "task:ses_070567ebfffen9Z6arhDeaWce4#Q04", "actor": "post-review-Q04", "created_at": "2026-07-23T15:58:00Z", "digest": "4d651002f278085b77132acc02eb10db78819415", "summary": "Approved integration with await-event CLI, context-yield semantics, bd labels, and pending-event priority."},
+    {"id": "post-05-artifact", "kind": "post_implementation_review", "uri": "task:ses_070452942ffeaMLwrxlpc0Gjtu#Q05b", "actor": "post-review-Q05b", "created_at": "2026-07-23T16:03:00Z", "digest": "4d651002f278085b77132acc02eb10db78819415", "summary": "Approved final policy readiness: bug-fix authority, attribution, release impact, and replacement/fixup path. Evidence/checker output remains a separate gate."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-23T15:45:00Z",
+    "modified_paths": [
+      "internal/cmd/molecule_await_event.go",
+      "internal/cmd/molecule_await_event_test.go"
+    ],
+    "commits": ["4d651002f278085b77132acc02eb10db78819415"]
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "research-01", "independence_key": "R01-root-cause-validity-ghoul-2026-07-23", "artifact_ref": "research-01-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R01", "lens": "root cause validity", "summary": "The idle freeze root cause is valid; context-yield can keep idle unchanged while restarting the same backoff window."},
+      {"id": "research-02", "independence_key": "R02-original-solution-fit-await-event-backoff-threshold", "artifact_ref": "research-02-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R02", "lens": "original solution fit", "summary": "The original PR threshold is arbitrary and incomplete versus stable backoff-window state."},
+      {"id": "research-03", "independence_key": "R03-local-sheriff-branch-commits", "artifact_ref": "research-03-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R03", "lens": "local fixup", "summary": "The useful replacement behavior is expired-window completion on top of upstream's context-yield preservation."},
+      {"id": "research-04", "independence_key": "R04-test-coverage-idle-backoff-context-yield", "artifact_ref": "research-04-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R04", "lens": "test coverage", "summary": "Stateful persisted-label coverage is needed; original PR tests can pass while idle progression remains broken."},
+      {"id": "research-05", "independence_key": "R05-backoff-math-idle-counter-progression", "artifact_ref": "research-05-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R05", "lens": "backoff math", "summary": "Backoff math requires timeout completion to advance idle; stable persisted deadline preserves this progression."},
+      {"id": "research-06", "independence_key": "R06-concurrency-context-timer-waitForEventFiles-pr4544", "artifact_ref": "research-06-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R06", "lens": "timer/concurrency", "summary": "Timer behavior should preserve periodic context-yield rather than suppress it with a threshold."},
+      {"id": "research-07", "independence_key": "R07-user-visible-cli-molecule-context-yield", "artifact_ref": "research-07-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R07", "lens": "CLI behavior", "summary": "Context-yield is user-visible and should remain based on configured interval during long waits."},
+      {"id": "research-08", "independence_key": "R08-pr4544-cleanup-convergence-ghoul-2026-07-23", "artifact_ref": "research-08-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R08", "lens": "cleanup-first", "summary": "Original PR is a heuristic bandaid; replacement state-model fix is cleanup-first."},
+      {"id": "research-09", "independence_key": "R09-labels-status-kind-priority-release-impact", "artifact_ref": "research-09-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R09", "lens": "labels/release", "summary": "kind/bug and priority/p1 are correct; review-approved status is appropriate after replacement evidence passes."},
+      {"id": "research-10", "independence_key": "R10-ci-mergeability-ghoul-2026-07-23", "artifact_ref": "research-10-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R10", "lens": "CI/mergeability", "summary": "Original PR CI is green but mergeability is dirty/conflicting and there is no review decision."},
+      {"id": "research-11", "independence_key": "R11-blocker-scan-ghoul-2026-07-23", "artifact_ref": "research-11-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R11", "lens": "blockers", "summary": "No explicit do-not-merge/security blockers found; conflict/status/review evidence still blocks original merge-as-is."},
+      {"id": "research-12", "independence_key": "pr4544-r12-attribution-replacement-feasibility-ghoul-2026-07-23", "artifact_ref": "research-12-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R12", "lens": "attribution", "summary": "Replacement must credit dog <joshua.guyer@vergesense.com>; final commit does so."},
+      {"id": "research-13", "independence_key": "R13-security-secrets-permissions-4544-ghoul-5773aacea", "artifact_ref": "research-13-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R13", "lens": "security", "summary": "No security/secrets/permissions risk found in await-event code and tests."},
+      {"id": "research-14", "independence_key": "R14-v1.2.2-release-impact-ghoul-2026-07-23", "artifact_ref": "research-14-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R14", "lens": "release impact", "summary": "Bug is v1.2.2 release-relevant P1 core workflow behavior; release-blocking not independently proven."},
+      {"id": "research-15", "independence_key": "R15-final-merge-readiness-ghoul-2026-07-23", "artifact_ref": "research-15-artifact", "completed_at": "2026-07-23T15:15:00Z", "actor": "research-leg-R15", "lens": "merge decision", "summary": "Original PR should not merge as-is; replacement/fixup is the correct path."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "pre-01", "independence_key": "P01-correctness-expired-backoff-ghoul-20260723", "artifact_ref": "pre-01-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "completed_at": "2026-07-23T15:30:00Z", "actor": "pre-review-P01", "verdict": "approve", "summary": "Approved correctness and pending-event priority of expired-window timeout behavior."},
+      {"id": "pre-02", "independence_key": "gt-pr-sheriff-4544-preimpl-P02-ghoul-cleanup-minimality-20260723", "artifact_ref": "pre-02-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "completed_at": "2026-07-23T15:30:00Z", "actor": "pre-review-P02", "verdict": "approve", "summary": "Approved cleanup-first/minimal state-machine fix."},
+      {"id": "pre-03", "independence_key": "gt-pr-sheriff-4544-pre-P03-test-determinism", "artifact_ref": "pre-03-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "completed_at": "2026-07-23T15:30:00Z", "actor": "pre-review-P03", "verdict": "approve", "summary": "Approved focused stateful label test design."},
+      {"id": "pre-04", "independence_key": "ghoul-preimpl-4544-expired-backoff-review-20260723", "artifact_ref": "pre-04-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "completed_at": "2026-07-23T15:31:00Z", "actor": "pre-review-P04", "verdict": "approve", "summary": "Approved integration with await-event CLI, bead labels, context-check, and upstream behavior."},
+      {"id": "pre-05", "independence_key": "ghoul-preimpl-pr4544-policy-20260723", "artifact_ref": "pre-05-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "completed_at": "2026-07-23T15:31:00Z", "actor": "pre-review-P05", "verdict": "approve", "summary": "Approved policy path for kind/bug replacement and attribution preservation."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "post-01", "independence_key": "Q01-readonly-correctness-edgecases-4d651002f", "artifact_ref": "post-01-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "reviewed_head_sha": "4d651002f278085b77132acc02eb10db78819415", "completed_at": "2026-07-23T15:58:00Z", "actor": "post-review-Q01", "verdict": "approve", "summary": "Approved final correctness and edge cases."},
+      {"id": "post-02", "independence_key": "q02-test-determinism-helper-safety-4d651002f", "artifact_ref": "post-02-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "reviewed_head_sha": "4d651002f278085b77132acc02eb10db78819415", "completed_at": "2026-07-23T15:58:00Z", "actor": "post-review-Q02", "verdict": "approve", "summary": "Approved final test coverage and deterministic helper behavior."},
+      {"id": "post-03", "independence_key": "Q03-cleanup-first-4d651002f", "artifact_ref": "post-03-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "reviewed_head_sha": "4d651002f278085b77132acc02eb10db78819415", "completed_at": "2026-07-23T15:58:00Z", "actor": "post-review-Q03", "verdict": "approve", "summary": "Approved cleanup-first final head."},
+      {"id": "post-04", "independence_key": "q04-await-event-label-order-pending-priority-4d651002f", "artifact_ref": "post-04-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "reviewed_head_sha": "4d651002f278085b77132acc02eb10db78819415", "completed_at": "2026-07-23T15:58:00Z", "actor": "post-review-Q04", "verdict": "approve", "summary": "Approved final integration with await-event and label ordering."},
+      {"id": "post-05", "independence_key": "Q05b-gt-pr-sheriff-4544-readonly", "artifact_ref": "post-05-artifact", "reviewed_action_ref": "action-plan-pr-4544-replacement", "reviewed_head_sha": "4d651002f278085b77132acc02eb10db78819415", "completed_at": "2026-07-23T16:03:00Z", "actor": "post-review-Q05b", "verdict": "approve", "summary": "Approved final implementation policy readiness and replacement/fixup path."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "acceptable_minimal",
+    "rationale": "The replacement fixes the await-event state model by completing expired persisted backoff windows through the existing timeout path. It avoids the original PR's context-check threshold heuristic, retry layers, compatibility shims, and duplicated production paths.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": "post-03-artifact"},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": "post-03-artifact"},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": "post-03-artifact"},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": "post-03-artifact"},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": "post-03-artifact"}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "await-event focused tests", "command_or_check": "CGO_ENABLED=0 go test -p=1 ./internal/cmd -run 'TestAwaitEvent|TestWaitForEventFilesContextYield|TestEffortLevelContextYield' -count=1 -timeout 60s", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Focused await-event context-yield, backoff label, expired-window, and effort-level tests passed."},
+      {"name": "cmd compile-only", "command_or_check": "CGO_ENABLED=0 go test -p=1 ./internal/cmd -run '^$' -count=1 -timeout 60s", "outcome": "pass", "artifact_ref": "verification-compile", "reason": "Touched package compiles with no tests run."},
+      {"name": "diff whitespace", "command_or_check": "gofmt -w internal/cmd/molecule_await_event.go internal/cmd/molecule_await_event_test.go && git diff --check upstream/main..HEAD", "outcome": "pass", "artifact_ref": "verification-style", "reason": "Changed files formatted and diff has no whitespace/conflict-marker issues."}
+    ],
+    "ci_checks": []
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4544",
+    "replacement_change_url": null,
+    "replacement_branch": "polecat/ghoul/gt-pr-sheriff-4544+371d8a",
+    "replacement_commit_refs": ["4d651002f278085b77132acc02eb10db78819415"],
+    "original_author": "joshuaguyervs / dog",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["original-pr", "research-01-artifact", "research-12-artifact"],
+      "fresh_artifact_refs": ["final-head", "verification-focused", "verification-compile", "verification-style", "post-01-artifact", "post-02-artifact", "post-03-artifact", "post-04-artifact", "post-05-artifact"],
+      "rationale": "The valid bug intent, original head, and contributor identity are reused; implementation, verification, post-reviews, and merge-gate evidence are fresh for current upstream/main replacement head 4d651002f."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement carries forward PR #4544's accepted bugfix intent from joshuaguyervs/dog.",
+      "preserved": true,
+      "method": "co_authored_by",
+      "artifact_refs": ["attribution-evidence", "final-head"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "closure-intent",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "ci_checks", "bead_notes", "local_reviews", "verification"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": ["original-pr", "broad-cmd-timeout"],
+    "resolution_refs": ["final-head", "verification-focused", "verification-compile", "verification-style", "post-01-artifact", "post-02-artifact", "post-03-artifact", "post-04-artifact", "post-05-artifact", "blocker-scan"],
+    "scanned_at": "2026-07-23T16:05:00Z",
+    "summary": "Original PR #4544 remains blocked for merge-as-is by merge conflict, stale base, no review decision, and heuristic solution fit. Replacement head 4d651002f resolves the implementation/test blockers on current upstream/main with attribution, focused verification, compile-only check, five approving post-reviews, and no unresolved security or policy blockers. The broad internal/cmd package timeout is isolated to unrelated TestHookPolecatEnvCheck; compile-only and focused await-event tests pass."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "urn:git-branch:polecat/ghoul/gt-pr-sheriff-4544+371d8a",
+    "target_head_sha": "4d651002f278085b77132acc02eb10db78819415",
+    "decided_by": "gastown/polecats/ghoul",
+    "decided_at": "2026-07-23T16:05:00Z",
+    "reason": "Original PR #4544 is not mergeable as-is. The current-main replacement passes 15 research legs, 5 pre-implementation reviews, 5 final-head post-implementation reviews, cleanup-first, attribution, blocker scan, focused verification, compile-only, and style checks.",
+    "required_actions": ["Do not close PR #4544 as superseded until the replacement lands with attribution evidence."]
+  }
+}
