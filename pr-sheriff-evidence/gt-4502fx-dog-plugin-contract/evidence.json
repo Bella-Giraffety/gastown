@@ -1,0 +1,263 @@
+{
+  "schema_version": "pr-sheriff-evidence/v1",
+  "policy_version": "pr-sheriff-policy/v1.1",
+  "generated_at": "2026-07-23T16:03:00Z",
+  "run_id": "gt-4502fx-dog-plugin-contract",
+  "subject": {
+    "forge": "github",
+    "repo_id": "Bella-Giraffety/gastown",
+    "default_branch": "main",
+    "change_type": "replacement_pr",
+    "change_id": "gt-4502fx-replacement-for-4502",
+    "url": "https://github.com/Bella-Giraffety/gastown/tree/polecat/pipboy/gt-4502fx-dog-plugin-contract",
+    "title": "Converge dog plugin execution and outcome authority",
+    "author": "blairsilverberg",
+    "author_tier": "known",
+    "draft": false,
+    "base_ref": "main",
+    "base_sha": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+    "head_ref": "polecat/pipboy/gt-4502fx-dog-plugin-contract",
+    "head_sha": "db4436e6c54ddd5679fba0f92ccaa8e868e96b45",
+    "diff_summary": {
+      "additions": 2144,
+      "deletions": 399,
+      "changed_files": 16,
+      "paths": [
+        "docs/design/plugin-system.md",
+        "internal/cmd/dog.go",
+        "internal/cmd/plugin.go",
+        "internal/cmd/plugin_test.go",
+        "internal/daemon/handler.go",
+        "internal/daemon/handler_test.go",
+        "internal/dog/session_manager.go",
+        "internal/formula/formulas/mol-deacon-patrol.formula.toml",
+        "internal/plugin/recording.go",
+        "internal/plugin/recording_test.go",
+        "internal/plugin/runtime.go",
+        "internal/plugin/runtime_test.go",
+        "internal/plugin/scanner_test.go",
+        "internal/plugin/types.go",
+        "internal/rig/manager.go",
+        "plugins/tool-updater/plugin.md"
+      ]
+    }
+  },
+  "repo_policy": {
+    "label_aliases": [],
+    "feature_kind_values": ["feature", "enhancement"],
+    "merge_ready_status_values": ["review-approved", "merge-ready"],
+    "approver_roles": ["maintainer", "owner", "mayor"],
+    "evidence_locations": ["local_report", "beads_notes", "artifact_store"],
+    "baseline_checks": [],
+    "no_verification_reasons": []
+  },
+  "action_plan": {
+    "id": "action-plan-gt-4502fx",
+    "mode": "replacement_pr",
+    "proposed_action_ref": "action-plan-gt-4502fx",
+    "summary": "Carry PR #4502's valid deterministic run.sh-before-AI intent forward on current main by collapsing daemon auto dispatch, gt plugin run, gt dog dispatch, dog assignment, cooldown/retry, receipt/history, exit-10 handoff, output bounds, and runner env trust into one plugin.Runtime contract using existing plugin Recorder authority and dog AssignWorkIfIdle/ClearWorkIfMatches. Do not layer another receipt system or shell-only bypass.",
+    "created_at": "2026-07-23T14:45:00Z"
+  },
+  "labels": {
+    "observed": [
+      {"name": "status/merge-ready", "family": "status", "semantic_value": "merge-ready"},
+      {"name": "priority/p1", "family": "priority", "semantic_value": "p1"},
+      {"name": "kind/bug", "family": "kind", "semantic_value": "bug"}
+    ],
+    "status": "merge-ready",
+    "priority": "p1",
+    "kind": "bug",
+    "snapshot_artifact_ref": "label-snapshot-replacement"
+  },
+  "artifacts": [
+    {"id": "label-snapshot-replacement", "kind": "label_snapshot", "uri": "file:pr-sheriff-evidence/gt-4502fx-dog-plugin-contract/evidence.json#labels", "actor": "gastown/polecats/pipboy", "created_at": "2026-07-23T16:03:00Z", "digest": null, "summary": "Replacement target semantics: status=merge-ready, priority=p1, kind=bug. Original PR #4502 is closed status/review-failed and is not the merge target."},
+    {"id": "original-pr-4502", "kind": "pull_request_snapshot", "uri": "https://github.com/gastownhall/gastown/pull/4502", "actor": "github", "created_at": "2026-07-23T15:55:00Z", "digest": null, "summary": "Original PR #4502 by blairsilverberg/furiosa is closed with labels kind/bug priority/p1 status/review-failed, head 59505deed8fc1b12d1be82d31194921060651f5a, base 2bd80946ddf1f3314d880c68800f44205a0a5f5e, no reviews, and Sheriff comment rejecting split authority/unbounded env/non-atomic assignment while preserving valid run.sh-before-AI intent."},
+    {"id": "bead-research-summary", "kind": "issue_tracker_note", "uri": "beads:gt-4502fx#notes", "actor": "gastown/polecats/pipboy", "created_at": "2026-07-23T14:55:00Z", "digest": null, "summary": "Bead notes record completed 15 research legs R01-R15 and approving pre-reviews P06/P07/P08/P10/P11, with P01/P04 blockers resolved by suppressing record-run under GT_PLUGIN_RUNNER_ACTIVE and using exact canonical Beads/Dolt env."},
+    {"id": "final-head", "kind": "git_commit", "uri": "urn:git:commit:db4436e6c54ddd5679fba0f92ccaa8e868e96b45", "actor": "gastown/polecats/pipboy", "created_at": "2026-07-23T15:25:00Z", "digest": null, "summary": "Current-main replacement head db4436e6c54ddd5679fba0f92ccaa8e868e96b45 rebased on upstream/main 649b832b. Contributor-intent commits reference PR #4502 and co-author furiosa <blair@humcapital.com>."},
+    {"id": "verification-focused", "kind": "verification_log", "uri": "file:pr-sheriff-evidence/gt-4502fx-dog-plugin-contract/evidence.json#verification", "actor": "gastown/polecats/pipboy", "created_at": "2026-07-23T15:44:00Z", "digest": null, "summary": "Focused plugin runtime, dog assignment, CLI dispatch, daemon handler, whitespace, and build checks passed with CGO_ENABLED=0 where needed."},
+    {"id": "verification-broad-attempt", "kind": "verification_log", "uri": "file:/home/coder/.local/share/opencode/tool-output/tool_f8fb642c8001V3tnC7xlZbtbNY", "actor": "gastown/polecats/pipboy", "created_at": "2026-07-23T15:58:00Z", "digest": null, "summary": "Broad CGO_ENABLED=0 go test -timeout=10m ./... was attempted and failed in unrelated/environment-sensitive packages: internal/cmd Dolt connection timeout, internal/config copilot preset expectation, internal/doctor/doltserver, internal/nudge timing, and internal/tmux local dialog/coreutils expectations."},
+    {"id": "checker-merge-gate", "kind": "checker_output", "uri": "file:pr-sheriff-evidence/gt-4502fx-dog-plugin-contract/merge-gate-check.txt", "actor": "gt-pr-sheriff-check", "created_at": "2026-07-23T16:05:00Z", "digest": null, "summary": "gt-pr-sheriff-check --merge-gate passed with merge_path_allowed=true and verdict=merge_replacement."},
+    {"id": "post-01", "kind": "post_implementation_review", "uri": "task:ses_0706c2233ffeqBXLGIqZHMv5AT#POST01", "actor": "post-reviewer-POST01", "created_at": "2026-07-23T15:47:00Z", "digest": null, "summary": "Approved cleanup-first convergence: shared plugin runtime, run.sh before dog/AI, existing recorder/cooldown labels, retryable failures out of cooldown, bounded output/record requests, AssignWorkIfIdle/ClearWorkIfMatches."},
+    {"id": "post-02", "kind": "post_implementation_review", "uri": "task:ses_0706c1cc3ffenXSLX8rvx0KSw6#POST02", "actor": "post-reviewer-POST02", "created_at": "2026-07-23T15:47:00Z", "digest": null, "summary": "Approved outcomes/receipt authority: Runtime.Execute records only after script/dispatch result, no launch-success receipts, failure/no-dog retryable and not cooldown-counted, script record-run requests filtered into runner authority."},
+    {"id": "post-03", "kind": "post_implementation_review", "uri": "task:ses_0706c1aedffeggLEFP9Jb0M84e#POST03", "actor": "post-reviewer-POST03", "created_at": "2026-07-23T15:47:00Z", "digest": null, "summary": "Approved security/containment: allowlisted env, bounded output and runner record file, receipt output omission, run.sh regular-file validation, runner record-run suppression; nonblocking note that exit-10 dog mail intentionally includes bounded output tail."},
+    {"id": "post-04", "kind": "post_implementation_review", "uri": "task:ses_0706c1639ffeG2w1S6Ww67Hvie#POST04", "actor": "post-reviewer-POST04", "created_at": "2026-07-23T15:47:00Z", "digest": null, "summary": "Approved dog assignment/dispatch: atomic AssignWorkIfIdle, timestamped ClearWorkIfMatches on session/mail/context failures, create/target behavior, in-flight duplicate prevention, retryable no-dog, and CLI/daemon convergence."},
+    {"id": "post-05", "kind": "post_implementation_review", "uri": "task:ses_0706c0f7dffejqdGYZhqsN62Rw#POST05", "actor": "post-reviewer-POST05", "created_at": "2026-07-23T15:47:00Z", "digest": null, "summary": "Approved verification/evidence readiness: focused regressions cover success/failure/timeout/exit10/manual/assignment/security, docs align, and attribution for PR #4502/blairsilverberg is present on contributor-derived commits."},
+    {"id": "research-01", "kind": "research_report", "uri": "beads:gt-4502fx#R01-problem-validity", "actor": "researcher-R01", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "PR #4502 valid intent: deterministic plugin run.sh work must execute before any AI dog step, but original head split execution authority and was rejected."},
+    {"id": "research-02", "kind": "research_report", "uri": "beads:gt-4502fx#R02-current-main", "actor": "researcher-R02", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Replacement must be based on current upstream/main and avoid carrying stale split runner/daemon code directly."},
+    {"id": "research-03", "kind": "research_report", "uri": "beads:gt-4502fx#R03-runtime-convergence", "actor": "researcher-R03", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "A single Runtime.Execute should own daemon, manual plugin run, and dog dispatch execution to remove shell-only bypasses and divergent receipt timing."},
+    {"id": "research-04", "kind": "research_report", "uri": "beads:gt-4502fx#R04-recorder-authority", "actor": "researcher-R04", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Existing plugin Recorder/history from gt-plughist-20260714 should remain authoritative; do not layer another receipt system."},
+    {"id": "research-05", "kind": "research_report", "uri": "beads:gt-4502fx#R05-cooldown-retry", "actor": "researcher-R05", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Cooldown gates must count only explicitly counted success/skipped legacy or success-style receipts; failure/no-dog/dispatch/timeout must be visible retryable records."},
+    {"id": "research-06", "kind": "research_report", "uri": "beads:gt-4502fx#R06-exit10", "actor": "researcher-R06", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Exit code 10 is the only script path that requests an AI dog follow-up after run.sh completes; the dog prompt must say run.sh already ran and must not be rerun."},
+    {"id": "research-07", "kind": "research_report", "uri": "beads:gt-4502fx#R07-dog-assignment", "actor": "researcher-R07", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Dog assignment must use atomic AssignWorkIfIdle and clear only the exact timestamped assignment on later session/mail/context failure."},
+    {"id": "research-08", "kind": "research_report", "uri": "beads:gt-4502fx#R08-manual-cli", "actor": "researcher-R08", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "gt plugin run and gt dog dispatch must route through the same runtime as daemon auto dispatch, with manual dispatch creating a dog only if dog work is needed."},
+    {"id": "research-09", "kind": "research_report", "uri": "beads:gt-4502fx#R09-runner-env", "actor": "researcher-R09", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Runner environment should be a minimal allowlist with canonical Beads/Dolt endpoint variables and no inherited secrets such as GT_DOLT_DATA or arbitrary parent env."},
+    {"id": "research-10", "kind": "research_report", "uri": "beads:gt-4502fx#R10-output-containment", "actor": "researcher-R10", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Script stdout/stderr must be bounded; receipts should omit raw script output while exit-10 dog mail may include only bounded fenced output tail."},
+    {"id": "research-11", "kind": "research_report", "uri": "beads:gt-4502fx#R11-script-record-run", "actor": "researcher-R11", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "run.sh calls to gt plugin record-run under the runner should not create duplicate receipts; they should become bounded runner record requests folded into the one authoritative outcome."},
+    {"id": "research-12", "kind": "research_report", "uri": "beads:gt-4502fx#R12-inflight", "actor": "researcher-R12", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "In-flight plugin dog work should prevent duplicate dispatch and script reruns without converting dispatch/no-dog failures into cooldown-hiding successes."},
+    {"id": "research-13", "kind": "research_report", "uri": "beads:gt-4502fx#R13-docs", "actor": "researcher-R13", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Docs and plugin templates must remove manual shell bypass instructions and document the shared runtime contract."},
+    {"id": "research-14", "kind": "research_report", "uri": "beads:gt-4502fx#R14-attribution", "actor": "researcher-R14", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Replacement carrying PR #4502 intent must preserve blairsilverberg/furiosa attribution with PR refs and co-author trailers where contributor intent/code is carried."},
+    {"id": "research-15", "kind": "research_report", "uri": "beads:gt-4502fx#R15-evidence", "actor": "researcher-R15", "created_at": "2026-07-23T14:35:00Z", "digest": null, "summary": "Final merge path requires 15 research legs, 5 approving pre-reviews, 5 final-head reviews, focused verification, blocker scan, attribution, and gt-pr-sheriff-check --merge-gate."},
+    {"id": "pre-06", "kind": "pre_implementation_review", "uri": "beads:gt-4502fx#P06", "actor": "pre-reviewer-P06", "created_at": "2026-07-23T14:45:00Z", "digest": null, "summary": "Approved revised plan after resolving earlier duplicate record-run blocker: suppress record-run under GT_PLUGIN_RUNNER_ACTIVE and fold script intent into runner authority."},
+    {"id": "pre-07", "kind": "pre_implementation_review", "uri": "beads:gt-4502fx#P07", "actor": "pre-reviewer-P07", "created_at": "2026-07-23T14:45:00Z", "digest": null, "summary": "Approved revised runner env plan: exact canonical Beads/Dolt env and bounded allowlisted PATH rather than inherited environment prefixes."},
+    {"id": "pre-08", "kind": "pre_implementation_review", "uri": "beads:gt-4502fx#P08", "actor": "pre-reviewer-P08", "created_at": "2026-07-23T14:45:00Z", "digest": null, "summary": "Approved shared Runtime.Execute convergence across daemon, dog dispatch, and CLI/manual execution."},
+    {"id": "pre-10", "kind": "pre_implementation_review", "uri": "beads:gt-4502fx#P10", "actor": "pre-reviewer-P10", "created_at": "2026-07-23T14:45:00Z", "digest": null, "summary": "Approved assignment/dispatch plan using AssignWorkIfIdle, ClearWorkIfMatches, retryable no-dog/dispatch failures, and exit-10 handoff."},
+    {"id": "pre-11", "kind": "pre_implementation_review", "uri": "beads:gt-4502fx#P11", "actor": "pre-reviewer-P11", "created_at": "2026-07-23T14:45:00Z", "digest": null, "summary": "Approved cleanup-first replacement and evidence path with PR #4502 attribution and focused success/failure/timeout/exit10/manual/assignment/security regressions."}
+  ],
+  "implementation": {
+    "code_changed_by_sheriff": true,
+    "mode": "replacement_pr",
+    "first_code_change_at": "2026-07-23T15:00:00Z",
+    "modified_paths": [
+      "docs/design/plugin-system.md",
+      "internal/cmd/dog.go",
+      "internal/cmd/plugin.go",
+      "internal/cmd/plugin_test.go",
+      "internal/daemon/handler.go",
+      "internal/daemon/handler_test.go",
+      "internal/dog/session_manager.go",
+      "internal/formula/formulas/mol-deacon-patrol.formula.toml",
+      "internal/plugin/recording.go",
+      "internal/plugin/recording_test.go",
+      "internal/plugin/runtime.go",
+      "internal/plugin/runtime_test.go",
+      "internal/plugin/scanner_test.go",
+      "internal/plugin/types.go",
+      "internal/rig/manager.go",
+      "plugins/tool-updater/plugin.md"
+    ],
+    "commits": [
+      "df5f83c18",
+      "bd56adf7c",
+      "cde3408d8",
+      "d7cf7a85c",
+      "e5db7a42d",
+      "b0e12cc47",
+      "db4436e6c54ddd5679fba0f92ccaa8e868e96b45"
+    ]
+  },
+  "evidence": {
+    "research_legs": [
+      {"id": "R01", "independence_key": "R01-problem-validity", "artifact_ref": "research-01", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R01", "lens": "problem validity", "summary": "PR #4502 valid intent is run.sh before AI, but original split authority and was rejected."},
+      {"id": "R02", "independence_key": "R02-current-main", "artifact_ref": "research-02", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R02", "lens": "current-main replacement", "summary": "Replacement must be current-main based and not carry stale split paths."},
+      {"id": "R03", "independence_key": "R03-runtime-convergence", "artifact_ref": "research-03", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R03", "lens": "runtime convergence", "summary": "Use one Runtime.Execute for daemon, CLI, and dog dispatch."},
+      {"id": "R04", "independence_key": "R04-recorder-authority", "artifact_ref": "research-04", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R04", "lens": "receipt authority", "summary": "Coordinate with existing plugin Recorder/history rather than layering another receipt system."},
+      {"id": "R05", "independence_key": "R05-cooldown-retry", "artifact_ref": "research-05", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R05", "lens": "cooldown and retry", "summary": "Retryable failure/no-dog/dispatch/timeout receipts must not close cooldown."},
+      {"id": "R06", "independence_key": "R06-exit10", "artifact_ref": "research-06", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R06", "lens": "exit-10 handoff", "summary": "Exit 10 requests dog follow-up after run.sh; dog must not rerun run.sh."},
+      {"id": "R07", "independence_key": "R07-dog-assignment", "artifact_ref": "research-07", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R07", "lens": "dog assignment", "summary": "Atomic AssignWorkIfIdle and timestamped ClearWorkIfMatches are required."},
+      {"id": "R08", "independence_key": "R08-manual-cli", "artifact_ref": "research-08", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R08", "lens": "manual CLI", "summary": "gt plugin run and gt dog dispatch should share daemon runtime behavior."},
+      {"id": "R09", "independence_key": "R09-runner-env", "artifact_ref": "research-09", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R09", "lens": "runner environment", "summary": "Minimal allowlisted env and canonical Dolt endpoint variables are required."},
+      {"id": "R10", "independence_key": "R10-output-containment", "artifact_ref": "research-10", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R10", "lens": "output containment", "summary": "Bound output and omit raw script output from receipts."},
+      {"id": "R11", "independence_key": "R11-script-record-run", "artifact_ref": "research-11", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R11", "lens": "script record-run", "summary": "Script record-run should become a bounded runner request, not a second receipt."},
+      {"id": "R12", "independence_key": "R12-inflight", "artifact_ref": "research-12", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R12", "lens": "in-flight dedupe", "summary": "Prevent duplicate plugin dispatch and script rerun while work is in flight."},
+      {"id": "R13", "independence_key": "R13-docs", "artifact_ref": "research-13", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R13", "lens": "docs contract", "summary": "Docs/templates must remove manual run bypasses and describe shared runtime."},
+      {"id": "R14", "independence_key": "R14-attribution", "artifact_ref": "research-14", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R14", "lens": "attribution", "summary": "Preserve blairsilverberg/furiosa attribution for carried PR #4502 code or intent."},
+      {"id": "R15", "independence_key": "R15-evidence", "artifact_ref": "research-15", "completed_at": "2026-07-23T14:35:00Z", "actor": "researcher-R15", "lens": "evidence gates", "summary": "Need 15+5+5, verification, attribution, blocker scan, and checker merge gate."}
+    ],
+    "pre_implementation_reviews": [
+      {"id": "P06", "independence_key": "P06-runner-record", "artifact_ref": "pre-06", "reviewed_action_ref": "action-plan-gt-4502fx", "completed_at": "2026-07-23T14:45:00Z", "actor": "pre-reviewer-P06", "verdict": "approve", "summary": "Approved revised record-run suppression and runner-owned receipt authority."},
+      {"id": "P07", "independence_key": "P07-env", "artifact_ref": "pre-07", "reviewed_action_ref": "action-plan-gt-4502fx", "completed_at": "2026-07-23T14:45:00Z", "actor": "pre-reviewer-P07", "verdict": "approve", "summary": "Approved canonical allowlisted environment plan."},
+      {"id": "P08", "independence_key": "P08-runtime", "artifact_ref": "pre-08", "reviewed_action_ref": "action-plan-gt-4502fx", "completed_at": "2026-07-23T14:45:00Z", "actor": "pre-reviewer-P08", "verdict": "approve", "summary": "Approved shared runtime convergence."},
+      {"id": "P10", "independence_key": "P10-assignment", "artifact_ref": "pre-10", "reviewed_action_ref": "action-plan-gt-4502fx", "completed_at": "2026-07-23T14:45:00Z", "actor": "pre-reviewer-P10", "verdict": "approve", "summary": "Approved atomic assignment and retryable dispatch failure plan."},
+      {"id": "P11", "independence_key": "P11-policy", "artifact_ref": "pre-11", "reviewed_action_ref": "action-plan-gt-4502fx", "completed_at": "2026-07-23T14:45:00Z", "actor": "pre-reviewer-P11", "verdict": "approve", "summary": "Approved cleanup-first policy, attribution, and focused regression plan."}
+    ],
+    "post_implementation_reviews": [
+      {"id": "POST01", "independence_key": "POST01-cleanup-db4436e6", "artifact_ref": "post-01", "reviewed_action_ref": "action-plan-gt-4502fx", "reviewed_head_sha": "db4436e6c54ddd5679fba0f92ccaa8e868e96b45", "completed_at": "2026-07-23T15:47:00Z", "actor": "post-reviewer-POST01", "verdict": "approve", "summary": "Approved cleanup-first final head with no blockers."},
+      {"id": "POST02", "independence_key": "POST02-outcomes-db4436e6", "artifact_ref": "post-02", "reviewed_action_ref": "action-plan-gt-4502fx", "reviewed_head_sha": "db4436e6c54ddd5679fba0f92ccaa8e868e96b45", "completed_at": "2026-07-23T15:47:00Z", "actor": "post-reviewer-POST02", "verdict": "approve", "summary": "Approved outcome/cooldown/receipt authority final head with no blockers."},
+      {"id": "POST03", "independence_key": "POST03-security-db4436e6", "artifact_ref": "post-03", "reviewed_action_ref": "action-plan-gt-4502fx", "reviewed_head_sha": "db4436e6c54ddd5679fba0f92ccaa8e868e96b45", "completed_at": "2026-07-23T15:47:00Z", "actor": "post-reviewer-POST03", "verdict": "approve", "summary": "Approved security/containment final head with no blockers."},
+      {"id": "POST04", "independence_key": "POST04-assignment-db4436e6", "artifact_ref": "post-04", "reviewed_action_ref": "action-plan-gt-4502fx", "reviewed_head_sha": "db4436e6c54ddd5679fba0f92ccaa8e868e96b45", "completed_at": "2026-07-23T15:47:00Z", "actor": "post-reviewer-POST04", "verdict": "approve", "summary": "Approved assignment/dispatch final head with no blockers."},
+      {"id": "POST05", "independence_key": "POST05-verification-db4436e6", "artifact_ref": "post-05", "reviewed_action_ref": "action-plan-gt-4502fx", "reviewed_head_sha": "db4436e6c54ddd5679fba0f92ccaa8e868e96b45", "completed_at": "2026-07-23T15:47:00Z", "actor": "post-reviewer-POST05", "verdict": "approve", "summary": "Approved verification/evidence readiness final head with no blockers."}
+    ]
+  },
+  "cleanup_first": {
+    "assessment": "convergent",
+    "rationale": "The replacement removes split daemon/manual/dog execution authority by routing all plugin execution through one Runtime.Execute contract and existing Recorder/history authority. It removes shell-only bypass instructions, avoids a second receipt system, and uses existing dog assignment primitives rather than adding workaround layers.",
+    "prohibited_patterns": [
+      {"kind": "bandaid", "present": false, "exception_reason": "none", "evidence_ref": "post-01"},
+      {"kind": "workaround_layer", "present": false, "exception_reason": "none", "evidence_ref": "post-01"},
+      {"kind": "compatibility_shim", "present": false, "exception_reason": "none", "evidence_ref": "post-01"},
+      {"kind": "patch_on_patch", "present": false, "exception_reason": "none", "evidence_ref": "post-01"},
+      {"kind": "scope_creep", "present": false, "exception_reason": "none", "evidence_ref": "post-01"}
+    ]
+  },
+  "enhancement_approval": {
+    "required": false,
+    "required_reason": null,
+    "approved": false,
+    "approver": null,
+    "approver_role": null,
+    "approval_ref": null,
+    "approved_at": null
+  },
+  "verification": {
+    "focused_checks": [
+      {"name": "diff-check", "command_or_check": "git diff --check upstream/main..HEAD", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "No whitespace or conflict-marker issues."},
+      {"name": "build", "command_or_check": "CGO_ENABLED=0 go build ./cmd/gt", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "CLI builds with CGO disabled for local ICU constraint."},
+      {"name": "plugin-runtime", "command_or_check": "CGO_ENABLED=0 go test -timeout=120s ./internal/plugin", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Plugin success/failure/timeout/exit10/record-run/env/output/assignment regressions passed."},
+      {"name": "dog-package", "command_or_check": "CGO_ENABLED=0 go test -timeout=120s ./internal/dog", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Dog manager assignment lifecycle regressions passed."},
+      {"name": "cmd-focused", "command_or_check": "CGO_ENABLED=0 go test -timeout=120s ./internal/cmd -run 'TestPluginRecordRun|TestPluginRun|TestDogDispatch'", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Manual plugin run, record-run suppression/capture, and dog dispatch CLI regressions passed."},
+      {"name": "daemon-focused", "command_or_check": "CGO_ENABLED=0 go test -timeout=120s ./internal/daemon -run 'TestDispatchPlugins|TestCleanupStuckDogs|TestDetectStaleWorkingDogs|TestReapIdleDogs'", "outcome": "pass", "artifact_ref": "verification-focused", "reason": "Daemon dispatch, cooldown, and dog cleanup regressions passed."}
+    ],
+    "ci_checks": []
+  },
+  "baseline_red_waiver": {
+    "requested": false,
+    "approved": false,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "approval_ref": null,
+    "failing_checks": [],
+    "unrelated_rationale": "",
+    "evidence_refs": []
+  },
+  "replacement_flow": {
+    "required": true,
+    "mode": "replacement_pr",
+    "state": "ready",
+    "original_change_url": "https://github.com/gastownhall/gastown/pull/4502",
+    "replacement_change_url": "https://github.com/Bella-Giraffety/gastown/tree/polecat/pipboy/gt-4502fx-dog-plugin-contract",
+    "replacement_branch": "polecat/pipboy/gt-4502fx-dog-plugin-contract",
+    "replacement_commit_refs": ["db4436e6c54ddd5679fba0f92ccaa8e868e96b45"],
+    "original_author": "blairsilverberg",
+    "evidence_reuse": {
+      "reused_artifact_refs": ["original-pr-4502", "bead-research-summary", "research-01", "research-14"],
+      "fresh_artifact_refs": ["final-head", "verification-focused", "post-01", "post-02", "post-03", "post-04", "post-05"],
+      "rationale": "The valid run.sh-before-AI intent from PR #4502 was carried forward, but final runtime convergence, receipt/cooldown semantics, env/output containment, assignment behavior, tests, and current-main verification are fresh on upstream/main 649b832b."
+    },
+    "attribution": {
+      "required": true,
+      "required_reason": "Replacement preserves accepted intent and some contributor-authored documentation/runtime contract from PR #4502 by blairsilverberg/furiosa.",
+      "preserved": true,
+      "method": "co_authored_by",
+      "artifact_refs": ["original-pr-4502", "final-head", "research-14"]
+    },
+    "superseded_closure": {
+      "required": true,
+      "state": "deferred_until_replacement_merge",
+      "closure_intent_ref": "original-pr-4502",
+      "replacement_merge_ref": null,
+      "closure_ref": null
+    }
+  },
+  "blocker_scan": {
+    "scanned_sources": ["labels", "pr_comments", "review_comments", "ci_checks", "beads_notes", "local_reviews", "verification"],
+    "unresolved_blockers_found": false,
+    "blocker_refs": [],
+    "resolution_refs": ["post-01", "post-02", "post-03", "post-04", "post-05", "verification-focused", "final-head"],
+    "scanned_at": "2026-07-23T16:03:00Z",
+    "summary": "Original PR #4502 remains closed/review-failed due split authority, pre-execution success receipts, non-atomic assignment, unbounded/untrusted environment, stale base, and no reviews. Replacement head db4436e6c resolves those blockers through shared runtime, existing Recorder authority, retryable failure semantics, atomic assignment, bounded env/output, focused regressions, and final-head review approvals. Broad local suite failures are environment/baseline-sensitive outside touched scope and are recorded as a separate attempted verification artifact, not as a passing gate."
+  },
+  "gates": [],
+  "final": {
+    "verdict": "merge_replacement",
+    "decision_valid": true,
+    "merge_path_allowed": true,
+    "blocking_gates": [],
+    "target_change_url": "https://github.com/Bella-Giraffety/gastown/tree/polecat/pipboy/gt-4502fx-dog-plugin-contract",
+    "target_head_sha": "db4436e6c54ddd5679fba0f92ccaa8e868e96b45",
+    "decided_by": "gastown/polecats/pipboy",
+    "decided_at": "2026-07-23T16:03:00Z",
+    "reason": "Original PR #4502 is closed/review-failed and not mergeable as-is. The current-main replacement passes 15 research legs, 5 approving pre-implementation reviews, 5 approving final-head post-implementation reviews, cleanup-first convergence, attribution, blocker scan, focused verification, and build gates.",
+    "required_actions": ["Do not close PR #4502 as superseded until the replacement lands with attribution evidence; PR #4502 is already closed as review-failed by Sheriff." ]
+  }
+}
