@@ -554,6 +554,28 @@ func TestAwaitEventTimeoutClearsBackoffWindow(t *testing.T) {
 	}
 }
 
+func TestAwaitEventExpiredBackoffWindowCompletes(t *testing.T) {
+	until := time.Now().Add(-1 * time.Second).Unix()
+
+	start := time.Now()
+	log := runAwaitEventBackoffTest(t, []string{"gt:agent", "idle:1", fmt.Sprintf("backoff-until:%d", until)}, "2s", "")
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("expired backoff window restarted instead of completing immediately; elapsed: %v", elapsed)
+	}
+
+	updates := updateLines(log)
+	if len(updates) == 0 {
+		t.Fatalf("expected bd update calls, log:\n%s", log)
+	}
+	last := updates[len(updates)-1]
+	if strings.Contains(last, "backoff-until:") {
+		t.Fatalf("expired backoff window was not cleared; last update %q in log:\n%s", last, log)
+	}
+	if !strings.Contains(last, "--set-labels=idle:2") {
+		t.Fatalf("expired backoff window did not advance idle count; last update %q in log:\n%s", last, log)
+	}
+}
+
 func runAwaitEventBackoffTest(t *testing.T, labels []string, timeout, contextCheck string) string {
 	t.Helper()
 
@@ -576,28 +598,52 @@ func runAwaitEventBackoffTest(t *testing.T, labels []string, timeout, contextChe
 		t.Fatalf("mkdir bin: %v", err)
 	}
 	logPath := filepath.Join(root, "bd.log")
-	showJSON, err := json.Marshal([]struct {
-		Labels []string `json:"labels"`
-	}{{Labels: labels}})
-	if err != nil {
-		t.Fatalf("marshal labels: %v", err)
+	labelsPath := filepath.Join(root, "labels.txt")
+	if err := os.WriteFile(labelsPath, []byte(strings.Join(labels, "\n")+"\n"), 0644); err != nil {
+		t.Fatalf("write labels: %v", err)
 	}
 	script := fmt.Sprintf(`#!/bin/sh
-printf '%%s\n' "$*" >> %q
+set -eu
+log_path=%q
+labels_path=%q
+printf '%%s\n' "$*" >> "$log_path"
 case "$1" in
 show)
-cat <<'JSON'
-%s
-JSON
+printf '[{"labels":['
+first=1
+if [ -f "$labels_path" ]; then
+	while IFS= read -r label; do
+		[ -n "$label" ] || continue
+		if [ "$first" -eq 0 ]; then
+			printf ','
+		fi
+		first=0
+		printf '"%%s"' "$label"
+	done < "$labels_path"
+fi
+printf ']}]\n'
 ;;
 update)
+tmp="$labels_path.tmp"
+: > "$tmp"
+shift
+shift
+for arg in "$@"; do
+	case "$arg" in
+	--set-labels=*)
+		label="${arg#--set-labels=}"
+		[ -z "$label" ] || printf '%%s\n' "$label" >> "$tmp"
+		;;
+	esac
+done
+mv "$tmp" "$labels_path"
 exit 0
 ;;
 *)
 exit 0
 ;;
 esac
-`, logPath, string(showJSON))
+`, logPath, labelsPath)
 	if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
 		t.Fatalf("write bd stub: %v", err)
 	}

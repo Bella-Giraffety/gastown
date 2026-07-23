@@ -200,16 +200,25 @@ func runMoleculeAwaitEvent(cmd *cobra.Command, args []string) error {
 
 	// Resume from backoff-until if interrupted (same pattern as await-signal)
 	timeout := fullTimeout
-	resumed := false
+	existingWindow := false
 	now := time.Now()
-	if awaitEventAgentBead != "" && !backoffUntil.IsZero() && backoffUntil.After(now) {
-		remaining := backoffUntil.Sub(now)
-		if remaining <= fullTimeout {
-			timeout = remaining
-			resumed = true
+	if awaitEventAgentBead != "" && !backoffUntil.IsZero() {
+		if backoffUntil.After(now) {
+			remaining := backoffUntil.Sub(now)
+			if remaining <= fullTimeout {
+				timeout = remaining
+				existingWindow = true
+				if !awaitEventQuiet && !moleculeJSON {
+					fmt.Printf("%s Resuming backoff window (%v remaining)\n",
+						style.Dim.Render("↻"), remaining.Round(time.Second))
+				}
+			}
+		} else {
+			timeout = 0
+			existingWindow = true
 			if !awaitEventQuiet && !moleculeJSON {
-				fmt.Printf("%s Resuming backoff window (%v remaining)\n",
-					style.Dim.Render("↻"), remaining.Round(time.Second))
+				fmt.Printf("%s Backoff window elapsed during context check\n",
+					style.Dim.Render("↻"))
 			}
 		}
 	}
@@ -217,7 +226,7 @@ func runMoleculeAwaitEvent(cmd *cobra.Command, args []string) error {
 	// Persist backoff-until for crash recovery.
 	// When resuming an existing window, keep the original deadline stable across
 	// context-yield re-entry instead of rewriting it on every invocation.
-	if awaitEventAgentBead != "" && beadsDir != "" && !resumed {
+	if awaitEventAgentBead != "" && beadsDir != "" && !existingWindow {
 		_ = setAgentBackoffUntil(awaitEventAgentBead, beadsDir, now.Add(timeout))
 	}
 
